@@ -1,0 +1,180 @@
+{
+  "project": "newPrjt01",
+  "last_updated": "2026-08-31",
+  "description": "빌드 단계가 없는 정적 HTML 로그인 데모. 계정은 localStorage 에만 저장하며(테스트 목적), 비밀번호는 PBKDF2-SHA256 해시로 보관한다.",
+  "rules": {
+    "single_active_feature": true,
+    "passing_requires_evidence": true,
+    "do_not_skip_verification": true
+  },
+  "status_legend": {
+    "not_started": "Work has not begun.",
+    "in_progress": "The feature is the current active task.",
+    "blocked": "Work cannot continue until a documented blocker is resolved.",
+    "passing": "Required verification has passed and evidence is recorded."
+  },
+  "features": [
+    {
+      "id": "spec-001",
+      "priority": 1,
+      "area": "spec",
+      "title": "이 앱이 무엇인지 정의한다",
+      "user_visible_behavior": "README 와 이 파일에 앱의 목적·핵심 기능이 적혀 있어, 다음 세션이 무엇을 만들지 추측하지 않아도 된다.",
+      "status": "passing",
+      "verification": [
+        "README.md 가 '작업 예정' 이상의 내용을 담고 있는지 확인한다.",
+        "feature_list.json 에 실제 기능 항목이 들어 있는지 확인한다."
+      ],
+      "evidence": [
+        "2026-08-31 사용자 지시로 '일반적인 로그인 웹페이지' 데모로 확정",
+        "auth-001 ~ auth-005 로 기능 분해 완료, README.md 갱신"
+      ],
+      "notes": "직전 세션에서 blocked 였던 항목. 앱 정의가 들어오면서 해소됨."
+    },
+    {
+      "id": "auth-001",
+      "priority": 2,
+      "area": "auth",
+      "title": "회원가입",
+      "user_visible_behavior": "아이디 중복확인을 통과하고 비밀번호를 두 번 일치시키면 계정이 만들어지고 로그인 화면으로 이동한다.",
+      "status": "passing",
+      "verification": [
+        "signup.html 을 연다.",
+        "2자 아이디로 중복확인 → 길이 오류가 표시된다.",
+        "정상 아이디로 중복확인 → 사용 가능 메시지가 표시된다.",
+        "8자 미만 비밀번호 → 오류가 표시된다.",
+        "비밀번호/확인이 다르면 불일치 메시지가 표시된다.",
+        "가입 제출 → login.html?signup=<id> 로 이동하고 안내 배너가 뜬다.",
+        "localStorage 의 np_users 에 평문 비밀번호가 없는지 확인한다."
+      ],
+      "evidence": [
+        "2026-08-31 브라우저 실행 검증: 5개 검증 메시지 전부 기대대로 동작",
+        "가입 후 저장값 확인 — salt 존재, hash 44자(base64 256bit), 평문 'pass1234' 미포함(false)"
+      ],
+      "notes": "중복확인 통과 후 아이디를 고치면 확인이 무효화되고 재확인을 요구한다."
+    },
+    {
+      "id": "auth-002",
+      "priority": 3,
+      "area": "auth",
+      "title": "로그인 (상태 유지 · Enter 키 · 실패 처리)",
+      "user_visible_behavior": "아이디/비밀번호가 맞으면 home.html 로, 틀리면 error.html 로 이동한다. '로그인 상태 유지'를 켜면 브라우저를 껐다 켜도 세션이 남는다.",
+      "status": "passing",
+      "verification": [
+        "틀린 비밀번호로 제출 → error.html 로 이동하고 사유가 표시되며 세션이 생기지 않는다.",
+        "맞는 비밀번호 + 상태유지 켬 → home.html 로 이동하고 세션이 localStorage 에 저장된다.",
+        "상태유지 끔 → 세션이 sessionStorage 에 저장된다.",
+        "Enter 키로 제출이 동작한다."
+      ],
+      "evidence": [
+        "2026-08-31 검증: 실패 → error.html + 세션 null 확인",
+        "성공(유지 켬) → home.html, localStorage=true / sessionStorage=false",
+        "유지 끔 → localStorage=false / sessionStorage=true",
+        "form submit 핸들러 사용이라 Enter 키가 기본 동작으로 처리됨"
+      ],
+      "notes": "아이디가 없을 때와 비밀번호가 틀릴 때 같은 메시지를 반환한다(계정 존재 여부 노출 방지)."
+    },
+    {
+      "id": "auth-003",
+      "priority": 4,
+      "area": "auth",
+      "title": "Google 소셜 로그인 버튼 (모의)",
+      "user_visible_behavior": "Google 버튼을 누르면 데모 계정으로 로그인되어 home.html 로 이동하고, 로그인 방식이 'Google (모의)'로 표시된다.",
+      "status": "passing",
+      "verification": [
+        "Google 버튼 클릭 → home.html 로 이동한다.",
+        "home.html 의 '로그인 방식'이 Google (모의) 로 표시된다.",
+        "google_demo_user 로 비밀번호 로그인을 시도하면 거부된다."
+      ],
+      "evidence": [
+        "2026-08-31 검증: 세션 {id: google_demo_user, provider: google} 생성 확인",
+        "비밀번호 로그인 시도 → '이 아이디는 Google 계정으로 가입되어 있습니다' 로 거부됨"
+      ],
+      "notes": "⚠ 실제 OAuth 가 아니다. 실제 연동은 Google Cloud 클라이언트 ID 발급 + 서버측 토큰 검증이 필요하다. 화면에도 모의라고 명시했다."
+    },
+    {
+      "id": "auth-004",
+      "priority": 5,
+      "area": "auth",
+      "title": "비밀번호 찾기 (재설정 모달)",
+      "user_visible_behavior": "'비밀번호 찾기'를 누르면 모달이 열리고, 아이디와 새 비밀번호를 입력해 재설정할 수 있다.",
+      "status": "passing",
+      "verification": [
+        "비밀번호 찾기 클릭 → 모달이 열린다.",
+        "우측 상단 X · 하단 취소 · 바깥 클릭 · ESC 로 각각 닫힌다.",
+        "등록되지 않은 아이디 → 오류가 표시된다.",
+        "재설정 성공 → 모달이 닫히고 로그인 화면에 안내가 뜬다."
+      ],
+      "evidence": [
+        "2026-08-31 코드 검증: 닫기 경로 4종(X/취소/바깥/ESC) 모두 바인딩 확인",
+        "resetPassword 가 미등록 아이디·Google 계정·약한 비밀번호를 각각 거부"
+      ],
+      "notes": "해시 저장이라 원래 비밀번호는 복구 불가 — 재설정만 제공한다. 실제 서비스라면 본인확인이 선행되어야 한다. 모달은 전역 규칙에 따라 우측 상단 X 버튼을 갖는다."
+    },
+    {
+      "id": "auth-005",
+      "priority": 6,
+      "area": "auth",
+      "title": "로그인 결과 페이지 (성공 / 실패)",
+      "user_visible_behavior": "성공 시 home.html 에서 아이디·로그인 방식·시각·상태유지 여부·세션 저장 위치를 보여주고, 실패 시 error.html 에서 사유를 보여준다.",
+      "status": "passing",
+      "verification": [
+        "home.html 에 6개 정보 행이 채워진다.",
+        "세션 없이 home.html 에 직접 접근하면 login.html 로 되돌아간다.",
+        "error.html 이 쿼리스트링의 사유를 표시한다.",
+        "등록 계정이 0개면 error.html 에 가입 안내가 추가로 뜬다."
+      ],
+      "evidence": [
+        "2026-08-31 검증: home.html 6개 행 정상 표시(스크린샷 확보)",
+        "세션 없이 home.html 접근 → login.html 로 차단됨",
+        "error.html 사유 표시 + 등록 계정 수 1개 표시 확인"
+      ],
+      "notes": "실패 사유는 textContent 로만 넣어 HTML 주입 여지를 없앴다. ⚠ home.html 의 접근 제어는 클라이언트 가드일 뿐 보안 경계가 아니다."
+    },
+    {
+      "id": "setup-002",
+      "priority": 7,
+      "area": "setup",
+      "title": "에이전트 하네스 (init.ps1)",
+      "user_visible_behavior": "새 세션이 .\\init.ps1 한 번으로 환경과 앱 파일 상태를 확인하고 이어받을 수 있다.",
+      "status": "passing",
+      "verification": [
+        ".\\init.ps1 을 실행한다.",
+        "모든 항목이 [OK] 이고 종료 코드가 0 인지 확인한다."
+      ],
+      "evidence": [
+        "2026-08-31 실행: 26개 점검 항목 전부 [OK], exit 0",
+        "점검 범위: 하네스 5파일 + 앱 7파일 + HTML 무결성 5건 + 공통자산 참조 4건 + auth.js API 8종 + PBKDF2 존재 + JSON 파싱 + python + 포트"
+      ],
+      "notes": "init.sh 를 init.ps1 로 변환함(2026-08-31). ⚠ Windows PowerShell 5.1 은 BOM 없는 .ps1 을 cp949 로 읽어 한글이 깨진다 — 이 파일은 반드시 UTF-8 BOM 으로 저장할 것."
+    },
+    {
+      "id": "auth-006",
+      "priority": 8,
+      "area": "auth",
+      "title": "서버 기반 인증으로 전환",
+      "user_visible_behavior": "계정과 세션이 서버에서 관리되어 다른 기기·브라우저에서도 같은 계정으로 로그인할 수 있다.",
+      "status": "not_started",
+      "verification": [
+        "다른 브라우저에서 같은 계정으로 로그인된다.",
+        "클라이언트 저장소를 지워도 계정이 남아 있다."
+      ],
+      "evidence": [],
+      "notes": "현재 데모의 가장 큰 한계. localStorage 는 브라우저별로 격리되고, 접근 제어가 클라이언트에만 있어 보안 경계가 되지 못한다. 실서비스로 갈 경우 1순위."
+    },
+    {
+      "id": "auth-007",
+      "priority": 9,
+      "area": "auth",
+      "title": "실제 Google OAuth 연동",
+      "user_visible_behavior": "실제 Google 계정으로 로그인할 수 있다.",
+      "status": "not_started",
+      "verification": [
+        "실제 Google 계정 선택 화면이 뜬다.",
+        "서버가 ID 토큰을 검증한다."
+      ],
+      "evidence": [],
+      "notes": "Google Cloud 클라이언트 ID 발급과 서버측 토큰 검증이 필요하다. auth-006(서버 인증) 이후에 진행하는 것이 순서상 맞다."
+    }
+  ]
+}

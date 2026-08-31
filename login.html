@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="color-scheme" content="light">
+<meta name="theme-color" content="#eef2ff">
+<title>로그인 — newPrjt01</title>
+<link rel="stylesheet" as="style" crossorigin
+      href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.css" />
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/auth.css">
+</head>
+<body>
+
+<main class="container">
+    <div class="brand">
+        <span class="logo">🔐</span>
+        <h1>로그인</h1>
+        <p>계정에 접속하려면 정보를 입력하세요</p>
+    </div>
+
+    <div id="banner" class="banner" role="alert"></div>
+
+    <form id="loginForm" novalidate>
+        <div class="field">
+            <label for="loginId">아이디</label>
+            <div class="input-wrap">
+                <input type="text" id="loginId" name="loginId" placeholder="아이디를 입력하세요"
+                       autocomplete="username" autocapitalize="off" spellcheck="false" required>
+            </div>
+        </div>
+
+        <div class="field">
+            <label for="loginPw">비밀번호</label>
+            <div class="input-wrap has-toggle">
+                <input type="password" id="loginPw" name="loginPw" placeholder="비밀번호를 입력하세요"
+                       autocomplete="current-password" required>
+                <button type="button" class="toggle-pw" id="togglePw"
+                        aria-label="비밀번호 표시">👁️</button>
+            </div>
+        </div>
+
+        <div class="row-between">
+            <label class="checkbox">
+                <input type="checkbox" id="remember">
+                <span>로그인 상태 유지</span>
+            </label>
+            <button type="button" class="link-btn" id="openReset">비밀번호 찾기</button>
+        </div>
+
+        <button type="submit" class="btn btn-primary" id="submitBtn">로그인</button>
+    </form>
+
+    <div class="divider">또는</div>
+
+    <button type="button" class="btn btn-ghost btn-google" id="googleBtn">
+        <svg viewBox="0 0 48 48" aria-hidden="true">
+            <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/>
+            <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/>
+            <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24s.92 7.54 2.56 10.78l7.97-6.19z"/>
+            <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/>
+        </svg>
+        <span>Google 계정으로 계속하기</span>
+    </button>
+
+    <p class="foot">아직 계정이 없으신가요? <a href="signup.html">회원가입하기</a></p>
+
+    <div class="demo-note">
+        <b>데모 안내</b> · 계정 정보는 이 브라우저의 localStorage 에만 저장됩니다(테스트용).
+        비밀번호는 평문이 아니라 PBKDF2 해시로 보관합니다.
+        Google 버튼은 실제 OAuth 가 아니라 흐름만 재현한 <b>모의 로그인</b>입니다.
+    </div>
+</main>
+
+<!-- 비밀번호 재설정 모달 -->
+<div class="modal-backdrop" id="resetModal" role="dialog" aria-modal="true" aria-labelledby="resetTitle">
+    <div class="modal">
+        <button type="button" class="modal-close" id="resetClose" aria-label="닫기">✕</button>
+        <h2 id="resetTitle">비밀번호 재설정</h2>
+        <p class="desc">
+            비밀번호는 해시로 저장되어 <b>원래 값을 찾아드릴 수 없습니다.</b> 새 비밀번호로 재설정만 가능합니다.
+            (실제 서비스라면 이메일·문자 본인확인이 먼저 필요합니다.)
+        </p>
+
+        <div id="resetBanner" class="banner" role="alert"></div>
+
+        <form id="resetForm" novalidate>
+            <div class="field">
+                <label for="resetId">아이디</label>
+                <div class="input-wrap">
+                    <input type="text" id="resetId" placeholder="가입한 아이디"
+                           autocapitalize="off" spellcheck="false">
+                </div>
+            </div>
+            <div class="field">
+                <label for="resetPw">새 비밀번호</label>
+                <div class="input-wrap has-toggle">
+                    <input type="password" id="resetPw" placeholder="영문+숫자 8자 이상">
+                    <button type="button" class="toggle-pw" id="toggleResetPw"
+                            aria-label="비밀번호 표시">👁️</button>
+                </div>
+                <span class="hint" id="resetHint"></span>
+            </div>
+
+            <div class="modal-actions">
+                <button type="button" class="btn btn-ghost" id="resetCancel">취소</button>
+                <button type="submit" class="btn btn-primary" id="resetSubmit">재설정</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script src="assets/auth.js"></script>
+<script>
+(function () {
+    'use strict';
+
+    var banner    = document.getElementById('banner');
+    var form      = document.getElementById('loginForm');
+    var idInput   = document.getElementById('loginId');
+    var pwInput   = document.getElementById('loginPw');
+    var remember  = document.getElementById('remember');
+    var submitBtn = document.getElementById('submitBtn');
+    var googleBtn = document.getElementById('googleBtn');
+
+    function show(el, msg, kind) {
+        el.textContent = msg;
+        el.className = 'banner show ' + (kind || 'error');
+    }
+    function hide(el) { el.className = 'banner'; el.textContent = ''; }
+
+    /* 보안 컨텍스트가 아니면(=file:// 로 연 경우) 미리 막는다 */
+    if (!Auth.cryptoAvailable()) {
+        show(banner,
+            'file:// 로 직접 열면 로그인이 동작하지 않습니다. init.ps1 로 서버를 띄운 뒤 ' +
+            'http://localhost:8940/login.html 로 접속하세요.', 'warn');
+        submitBtn.disabled = true;
+    }
+
+    /* 이미 로그인되어 있으면 바로 홈으로 */
+    if (Auth.getSession()) { location.replace('home.html'); }
+
+    /* 가입 완료 / 로그아웃 후 돌아온 경우 안내.
+       값은 textContent 로만 쓰므로 HTML 주입 여지가 없다. */
+    var params = new URLSearchParams(location.search);
+    if (params.get('signup')) {
+        show(banner, '‘' + params.get('signup') + '’ 가입이 완료되었습니다. 이제 로그인하세요.', 'ok');
+        idInput.value = params.get('signup');
+    } else if (params.get('logout')) {
+        show(banner, '로그아웃되었습니다.', 'ok');
+    }
+
+    /* 비밀번호 보기/숨김 */
+    function bindToggle(btnId, input) {
+        document.getElementById(btnId).addEventListener('click', function () {
+            var showing = input.type === 'text';
+            input.type = showing ? 'password' : 'text';
+            this.textContent = showing ? '👁️' : '🙈';
+            this.setAttribute('aria-label', showing ? '비밀번호 표시' : '비밀번호 숨기기');
+            input.focus();
+        });
+    }
+    bindToggle('togglePw', pwInput);
+
+    /* 로그인 제출 — form submit 이라 Enter 키가 그대로 동작한다 */
+    form.addEventListener('submit', function (e) {
+        e.preventDefault();
+        hide(banner);
+        submitBtn.disabled = true;
+        submitBtn.textContent = '확인 중…';
+
+        Auth.login(idInput.value, pwInput.value, remember.checked)
+            .then(function () { location.href = 'home.html'; })
+            .catch(function (err) {
+                // 실패 사유를 결과 페이지로 넘긴다
+                var reason = encodeURIComponent(err.message || '로그인에 실패했습니다.');
+                location.href = 'error.html?reason=' + reason;
+            });
+    });
+
+    /* Enter 키: 아이디 칸에서 누르면 비밀번호 칸으로 이동(값이 비어 있을 때) */
+    idInput.addEventListener('keydown', function (e) {
+        if (e.key === 'Enter' && !pwInput.value) {
+            e.preventDefault();
+            pwInput.focus();
+        }
+    });
+
+    /* Google 모의 로그인 */
+    googleBtn.addEventListener('click', function () {
+        hide(banner);
+        googleBtn.disabled = true;
+        Auth.googleLoginDemo(remember.checked)
+            .then(function () { location.href = 'home.html'; })
+            .catch(function (err) {
+                googleBtn.disabled = false;
+                show(banner, err.message, 'error');
+            });
+    });
+
+    /* ---------- 비밀번호 재설정 모달 ---------- */
+    var modal       = document.getElementById('resetModal');
+    var resetForm   = document.getElementById('resetForm');
+    var resetId     = document.getElementById('resetId');
+    var resetPw     = document.getElementById('resetPw');
+    var resetHint   = document.getElementById('resetHint');
+    var resetBanner = document.getElementById('resetBanner');
+
+    bindToggle('toggleResetPw', resetPw);
+
+    function openModal() {
+        hide(resetBanner);
+        resetHint.textContent = '';
+        resetHint.className = 'hint';
+        resetForm.reset();
+        resetId.value = idInput.value.trim();
+        modal.classList.add('show');
+        setTimeout(function () { (resetId.value ? resetPw : resetId).focus(); }, 60);
+    }
+    function closeModal() { modal.classList.remove('show'); }
+
+    document.getElementById('openReset').addEventListener('click', openModal);
+    document.getElementById('resetClose').addEventListener('click', closeModal);   // 우측 상단 X
+    document.getElementById('resetCancel').addEventListener('click', closeModal);  // 하단 취소
+    modal.addEventListener('click', function (e) { if (e.target === modal) closeModal(); });
+    document.addEventListener('keydown', function (e) {
+        if (e.key === 'Escape' && modal.classList.contains('show')) closeModal();
+    });
+
+    resetPw.addEventListener('input', function () {
+        var err = Auth.validatePassword(resetPw.value);
+        if (!resetPw.value) { resetHint.textContent = ''; resetHint.className = 'hint'; return; }
+        resetHint.textContent = err || '사용 가능한 비밀번호입니다.';
+        resetHint.className = 'hint ' + (err ? 'error' : 'ok');
+    });
+
+    resetForm.addEventListener('submit', function (e) {
+        e.preventDefault();
+        hide(resetBanner);
+        var btn = document.getElementById('resetSubmit');
+        btn.disabled = true;
+        btn.textContent = '처리 중…';
+
+        Auth.resetPassword(resetId.value, resetPw.value)
+            .then(function (u) {
+                closeModal();
+                show(banner, '‘' + u.id + '’ 의 비밀번호가 재설정되었습니다. 새 비밀번호로 로그인하세요.', 'ok');
+                idInput.value = u.id;
+                pwInput.value = '';
+                pwInput.focus();
+            })
+            .catch(function (err) { show(resetBanner, err.message, 'error'); })
+            .then(function () { btn.disabled = false; btn.textContent = '재설정'; });
+    });
+
+    idInput.focus();
+})();
+</script>
+</body>
+</html>

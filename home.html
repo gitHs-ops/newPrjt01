@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="color-scheme" content="light">
+<meta name="theme-color" content="#eef2ff">
+<title>로그인 성공 — newPrjt01</title>
+<link rel="stylesheet" as="style" crossorigin
+      href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.css" />
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/auth.css">
+</head>
+<body>
+
+<main class="container result">
+    <div class="icon ok">✅</div>
+    <h1>로그인 성공</h1>
+    <p class="sub">환영합니다, <b id="who">사용자</b>님.<br>보호된 페이지에 접속했습니다.</p>
+
+    <div class="info-panel">
+        <div class="info-row">
+            <span class="k">아이디</span>
+            <span class="v" id="rowId">—</span>
+        </div>
+        <div class="info-row">
+            <span class="k">로그인 방식</span>
+            <span class="v" id="rowProvider">—</span>
+        </div>
+        <div class="info-row">
+            <span class="k">로그인 시각</span>
+            <span class="v mono" id="rowTime">—</span>
+        </div>
+        <div class="info-row">
+            <span class="k">로그인 상태 유지</span>
+            <span class="v" id="rowRemember">—</span>
+        </div>
+        <div class="info-row">
+            <span class="k">세션 저장 위치</span>
+            <span class="v mono" id="rowStore">—</span>
+        </div>
+        <div class="info-row">
+            <span class="k">등록된 계정 수</span>
+            <span class="v mono" id="rowUsers">—</span>
+        </div>
+    </div>
+
+    <div class="stack">
+        <button type="button" class="btn btn-primary" id="logoutBtn">로그아웃</button>
+        <a class="btn btn-ghost" href="index.html">첫 화면으로</a>
+    </div>
+
+    <div class="demo-note">
+        <b>확인해 보기</b> · “로그인 상태 유지”를 <b>켜고</b> 로그인하면 브라우저를 껐다 켜도 이 화면이 유지되고,
+        <b>끄고</b> 로그인하면 탭을 닫는 순간 세션이 사라집니다.
+        <br><br>
+        ⚠ 이 페이지의 접근 제어는 <b>클라이언트 측 가드일 뿐</b>이라 보안 경계가 아닙니다.
+        실제 서비스에서는 서버가 세션을 검증해야 합니다.
+    </div>
+</main>
+
+<script src="assets/auth.js"></script>
+<script>
+(function () {
+    'use strict';
+
+    /* 세션이 없으면 로그인 화면으로 돌려보낸다 */
+    var s = Auth.requireAuth('login.html');
+    if (!s) return;
+
+    function fmt(iso) {
+        try {
+            var d = new Date(iso);
+            var p = function (n) { return String(n).padStart(2, '0'); };
+            return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()) +
+                   ' ' + p(d.getHours()) + ':' + p(d.getMinutes()) + ':' + p(d.getSeconds());
+        } catch (e) { return iso || '—'; }
+    }
+
+    document.getElementById('who').textContent      = s.id;
+    document.getElementById('rowId').textContent    = s.id;
+    document.getElementById('rowProvider').textContent =
+        s.provider === 'google' ? 'Google (모의)' : '아이디/비밀번호';
+    document.getElementById('rowTime').textContent  = fmt(s.loginAt);
+    document.getElementById('rowRemember').textContent = s.remember ? '켜짐' : '꺼짐';
+    document.getElementById('rowStore').textContent =
+        s.remember ? 'localStorage' : 'sessionStorage';
+    document.getElementById('rowUsers').textContent = Auth.getUsers().length + '개';
+
+    document.getElementById('logoutBtn').addEventListener('click', function () {
+        Auth.clearSession();
+        location.replace('login.html?logout=1');
+    });
+})();
+</script>
+</body>
+</html>

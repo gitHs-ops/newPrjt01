@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="color-scheme" content="light">
+<meta name="theme-color" content="#eef2ff">
+<title>로그인 실패 — newPrjt01</title>
+<link rel="stylesheet" as="style" crossorigin
+      href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.css" />
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/auth.css">
+</head>
+<body>
+
+<main class="container result">
+    <div class="icon error">⚠️</div>
+    <h1>로그인 실패</h1>
+    <p class="sub" id="reason">아이디 또는 비밀번호가 일치하지 않습니다.</p>
+
+    <div class="info-panel">
+        <div class="info-row">
+            <span class="k">확인해 볼 것</span>
+            <span class="v">아이디 철자 · 대소문자</span>
+        </div>
+        <div class="info-row">
+            <span class="k">비밀번호 규칙</span>
+            <span class="v">영문+숫자 8자 이상</span>
+        </div>
+        <div class="info-row">
+            <span class="k">등록된 계정 수</span>
+            <span class="v mono" id="rowUsers">—</span>
+        </div>
+    </div>
+
+    <div class="stack">
+        <a class="btn btn-primary" href="login.html">다시 로그인하기</a>
+        <a class="btn btn-ghost" href="signup.html">회원가입하기</a>
+    </div>
+
+    <div class="demo-note" id="emptyNote" style="display:none">
+        <b>등록된 계정이 하나도 없습니다.</b> 이 데모는 계정을 이 브라우저의 localStorage 에만 저장하므로,
+        먼저 <b>회원가입</b>을 해야 로그인할 수 있습니다.
+        (다른 브라우저·시크릿창에서 가입한 계정은 여기에서 보이지 않습니다.)
+    </div>
+</main>
+
+<script src="assets/auth.js"></script>
+<script>
+(function () {
+    'use strict';
+
+    /* 실패 사유는 login.html 이 쿼리스트링으로 넘긴다.
+       textContent 로만 넣어 HTML 주입 여지를 없앤다. */
+    var params = new URLSearchParams(location.search);
+    var reason = params.get('reason');
+    if (reason) document.getElementById('reason').textContent = reason;
+
+    var count = Auth.getUsers().length;
+    document.getElementById('rowUsers').textContent = count + '개';
+    if (count === 0) document.getElementById('emptyNote').style.display = 'block';
+})();
+</script>
+</body>
+</html>
