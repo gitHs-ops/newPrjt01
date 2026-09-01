@@ -1,150 +1,102 @@
 # Session Handoff
 
-> 최종 갱신: 2026-09-01 (Session 003 + 웹검색 후속)
+> 최종 갱신: 2026-09-01 (Session 004)
 > 상세 이력은 `claude-progress.md`, 기능 상태는 `feature_list.json` 참고.
 
 ## Verified Now
 
-- **동작하는 것 ① 로그인 데모** (Session 002에서 검증, 이번 세션에서 회귀 없음)
-  - `index.html` → `login.html` → 성공 `home.html` / 실패 `error.html`, `signup.html` 가입
-- **동작하는 것 ② 진로상담 분석** (이번 세션 신규) — **옵시디언 전송까지 실동작**
-  - `home.html` 진입 카드 → `career.html`(사례 목록) → `career-step1`(학생 정보 12항목)
-    → `career-report1`(1차 분석·md 저장) → `career-step2`(추가정보) → `career-report2`(2차 분석)
-  - 결과는 `localStorage`(`np_career_cases`)에 보존되고 md 파일로 저장된다
-  - 보고서는 자체 마크다운 렌더러로 표·제목·인용·코드블록까지 그린다
+- **로그인 데모** — `index.html` → `login.html` → `home.html` / `error.html`, `signup.html`
+- **진로상담 분석 — 실동작 확인.** 프록시가 배포돼 실제 AI 분석이 돌아간다.
+  - `home.html` 진입 카드 → 사례 생성 → 1차 입력(드롭다운·예시 채우기)
+    → 1차 분석(공식자료 웹검색) → 2차 입력 → 2차 분석 → md 저장 / 옵시디언 전송
+  - 사용자별 토큰 사용량이 구글 시트에 자동 기록된다
 - **실제로 돌린 검증**
-  1. `.\init.ps1` → **64개 항목 전부 `[OK]`, exit 0**
-  2. 브라우저 실기동(http://localhost:8940) 전 경로 통과, 콘솔 오류 0건
-  3. 실패 경로도 확인 — 잘못된 프록시 주소 → “프록시에 연결하지 못했습니다…” 화면
-  4. **옵시디언 전송 성공** — 볼트에 `진로상담/진로1차_....md` 생성 확인(2026-09-01 17:27)
+  1. `.\init.ps1` → **68개 항목 전부 `[OK]`, exit 0** — **blocked 0건**
+  2. 실기동 전 경로 통과(2026-09-01 20:11~20:15)
+  3. 구글 시트를 직접 읽어 기록 5건 확인
+  4. 옵시디언 볼트에 노트 생성 확인
 
-## Changed This Session
+## 지금 붙어 있는 외부 연결
 
-- **신규 화면 5종**: `career.html` · `career-step1.html` · `career-report1.html` ·
-  `career-step2.html` · `career-report2.html`
-- **신규 자산**: `assets/career.css` · `assets/career.js` · `assets/career-prompts.js`(생성물) ·
-  `assets/prompts/*.txt`(원문 4종) · `tools/build-prompts.py`
-- **수정**: `home.html`(진입 카드) · `assets/auth.css`(`.app-card`) · `init.ps1`(26→**64 항목**) ·
-  `feature_list.json`(`career-001`~`010` 주입, 기존 항목 우선순위 뒤로) · `README.md`
-- **AI 호출은 프록시 경유 방식으로 구현** — 프롬프트를 복사해 붙여넣는 방식이 아니다
-- **공식자료 웹검색을 붙였다**(`career-010`) — 프록시가 Anthropic 서버사이드 `web_search`
-  도구를 켜도록 요청에 지시를 싣고, 결과 화면에 참고한 출처를 나열한다.
-  참고 프록시 `tools/career_proxy.example.gs` 신규. 기본 모델 `claude-opus-5`
-- **프록시를 careerTest 와 공유 가능하게 GET/POST 겸용으로 만들었다** —
-  `doGet`(careerTest, 기존 그대로) + `doPost`(진로상담) 한 파일. 배포 하나, 키 하나
-- **기본 모델을 Haiku 4.5 로 변경**(사용자 지시). 모델 문자열만 바꾼 게 아니라
-  프록시에 모델별 분기를 넣었다 — Haiku 는 기본형 웹검색(`_20250305`)을 쓰고
-  `output_config.effort` 를 받으면 오류가 나기 때문이다
-- **실행시간 초과 대응** — 배포 후 `testProxy()` 가 끝나지 않는 문제를 잡았다.
-  `effort=low` 기본, `MAX_CONTINUATIONS 4→1`, `DEADLINE_MS`(4분) 시간 가드 추가.
-  점검 함수를 `test1_key` → `test2_search` → `test3_load` → `test4_careertest` 로 분리
-- **옵시디언 전송 구현됨**(`career-009`, in_progress) — 연결 실측 ①~④ 통과 후
-  `sendToObsidian()` 의 실제 `PUT` 을 열었다. `testObsidian()`(연결 테스트) 추가,
-  설정 모달 입력란 활성화, 기본 주소 `http://127.0.0.1:27123`.
-  신설 `tools/obsidian-check.html` 로 5단계 판정 가능
+| 대상 | 상태 | 위치 |
+|---|---|---|
+| AI 프록시 | 배포됨 (careerTest 와 **공유**) | Apps Script, `/exec` |
+| API 키 | 스크립트 속성 `ANTHROPIC_API_KEY` | 소스에 없음 |
+| 토큰 로그 | careerTest 시트 `진로심리검사` | 전용 탭 `진로상담 토큰로그` + 공용 `토큰로그` 미러링 |
+| 옵시디언 | Local REST API `http://127.0.0.1:27123` | 볼트 `C:\myPrjt01\myWorkspace01\진로상담\` |
+| 모델 | `claude-haiku-4-5` | [연결 설정]에서 Sonnet 5 / Opus 5 로 변경 가능 |
+
+## 실측 기준값 (2026-09-01)
+
+| | 토큰(입력+출력) | 소요 | 비고 |
+|---|---|---|---|
+| 1차 | 88,802 + 18,223 = **107,025** | 177초 | 검색 5회 |
+| 2차 | 64,714 + 13,937 = **78,651** | 118초 | 검색 0회(정상) |
+
+1사례당 Haiku 4.5 기준 대략 **$0.2~0.25(300원대)**.
+입력이 큰 이유는 **웹검색 결과가 컨텍스트에 누적**되기 때문이다.
+Apps Script 6분 한도 안에는 들어오지만 여유가 많지는 않다.
 
 ## Broken Or Unverified
 
 - **알려진 결함**: 없음(현재 범위 기준)
-- **미결(사용자 결정 대기)**
-  - ⚠ **`career-008` — AI 프록시 배포·API 키.** 지금 나오는 결과는 **전부 모의 응답**이다.
-    상담 자료로 쓰면 안 된다. 화면·md 양쪽에 모의 경고가 붙는다.
-    프록시 코드는 `tools/career_proxy.example.gs` 에 다 있고, 남은 건 배포와 키뿐이다
-  - ✅ **`career-009` 완료** — 실전송 성공(2026-09-01 17:27), 볼트에 노트 생성 확인.
-    남은 미결은 `career-008` 하나뿐이다
-- ⚠ **미해결: 프록시 응답 없음(변경 후 재발).**
-  변경 전(Opus 5 + `web_search_20260209`)에는 결과가 나왔는데,
-  Haiku 4.5 + 기본형 웹검색(`_20250305`)으로 바꾼 뒤 응답이 오지 않는다는 보고.
-  클라이언트 무한 대기 결함은 고쳤으나(타임아웃 400초) **프록시 쪽 원인은 미확정**이다.
-  좁히는 순서: `test1_key`(검색 없음, 수 초면 끝나야 정상) → `test2_search`(검색 1회).
-  `test1_key` 가 빠르면 문제는 웹검색 쪽이고, 그때는 모델을 **Sonnet 5** 로 올려
-  변경 전 조합(v2026 도구 + effort)으로 되돌리는 것이 가장 빠른 복구다
-- **미검증 경로**
-  - **실제 AI 응답으로는 한 번도 돌려보지 못했다.** 프록시가 붙으면
-    ① 긴 응답의 md 렌더 ② `max_tokens` 부족으로 잘리는 경우 ③ 응답 지연 시 UX 를 다시 봐야 한다
-  - 모바일 실제 단말 표시 (반응형 CSS 는 넣었으나 실기기 확인 안 함)
-- **다음 세션 리스크**
-  - ⚠ **`init.ps1` 은 UTF-8 BOM 필수.** 이번 세션 편집 후에도 BOM 유지를 확인했다
-  - ⚠ **`assets/career-prompts.js` 는 생성물이다.** `assets/prompts/*.txt` 를 고쳤으면
-    `python tools/build-prompts.py` 를 다시 돌릴 것 — `init.ps1` 이 수정시각을 비교해 잡는다
-  - ⚠ **careerTest 의 `career_proxy.gs` 에 Anthropic API 키가 평문으로 있다.**
-    프록시를 만들 때 참고는 하되 **키를 이 저장소로 옮기지 말 것**
-  - ⚠ **웹검색은 프록시가 배포되어야 실제로 돈다.** 클라이언트는 지시만 보낸다.
-    프록시가 도구를 안 켜면 결과 화면에 **출처 0건 경고**가 뜬다 — 의도된 경고다
-  - ⚠ **API 키를 소스에 넣지 말 것.** `init.ps1` 이 저장소에서 `sk-ant-` 를 찾으면 검증 실패한다.
-    키는 Apps Script 스크립트 속성에만 둔다
-  - 브라우저 패널의 스크롤 스크린샷이 긴 문서에서 빈 화면으로 찍힌다 —
-    **앱 문제가 아니라 캡처 도구 한계**(순수 텍스트 파일에서도 동일). DOM 판독으로 검증할 것
-  - `AGENTS.md` 와 `CLAUDE.md` 내용이 거의 동일 — 규칙 변경 시 양쪽 동시 갱신
+- **품질 리스크**
+  - ⚠ **Haiku 4.5 의 지시 준수 한계.** "중2인데 2등급 / 진학연도 2028" 같은 모순을
+    프롬프트가 요구하는 `[확인 필요]` 로 잡아내지 못했다. 입력 드롭다운(학교급 연동·
+    진학연도 자동계산)으로 발생 자체를 줄였지만 모델 한계는 남는다.
+    품질이 중요하면 [연결 설정]에서 **Sonnet 5** 로 올릴 것 — 드롭다운 하나다
+  - ⚠ **공용 `토큰로그` 탭의 합계 열은 신뢰하지 말 것.** careerTest 기존 행부터
+    입력+출력과 합계가 어긋난 경우가 있다. 정확한 값은 **전용 탭**을 본다
+- **미검증**
+  - 여러 교사가 동시에 쓰는 상황(레이트리밋·Apps Script 동시 실행)
+  - 모바일 실기기 표시
+
+## 다음 세션이 반드시 알아야 할 것
+
+1. **프록시를 고치면 `PROXY_VERSION` 을 올린다.** `init.ps1` 이 `.gs` 와
+   `career.js` 의 `EXPECTED_PROXY_VERSION` 불일치를 실패시킨다
+2. **배포는 "배포 관리 → 편집 → 새 버전".** "새 배포"를 만들면 `/exec` URL 이 바뀌어
+   **careerTest 가 끊긴다**
+3. 배포를 잊으면 결과 화면이 **"프록시가 낡았습니다"** 로 알려 준다.
+   실제로 이 경고가 "1차가 왜 계속 잘리는가"를 진단해 냈다
+4. **시트 코드를 건드렸다면 `test5a_sheetRaw` 를 한 번 실행**해 권한을 확인한다.
+   그쪽은 예외를 삼키지 않아 진짜 원인이 보인다
+
+## 바꾸면 안 되는 것
+
+- `init.ps1` 의 검증 게이트를 느슨하게 만들지 말 것 — **추가**하는 방향으로만
+- 프록시 예시의 **`doGet` 을 지우지 말 것** — careerTest 가 그 경로를 쓴다
+- 공용 `토큰로그` 탭의 **열 순서를 바꾸지 말 것** — careerTest 가 의존한다
+  (헤더 문구가 코드와 달라 보여도 그대로 둘 것. 순서만 맞으면 된다)
+- `supportsNewWebTools_` / `supportsEffort_` / `supportsPrefill_` **분기를 지우지 말 것** —
+  Haiku 4.5 에 새 도구나 `effort` 를 보내면 400 이 난다
+- `MAX_CONTINUATIONS` 를 올리지 말 것, `DEADLINE_MS` 가드를 지우지 말 것
+- 모의 응답 경로와 그 경고를 지우지 말 것 — 프록시 장애 시 흐름 검증 수단이자,
+  모의 결과를 실제로 착각하는 사고를 막는 장치다
+- 웹검색 기본값을 끄지 말 것, "공식 기관 도메인만"을 기본으로 켜지 말 것
+  (대학 입학처가 막혀 STEP 7-3 이 통째로 죽는다)
+- `assets/prompts/*.txt` 를 코드에서 직접 고치지 말 것 — `tools/build-prompts.py` 경유
 
 ## Next Best Step
 
-- **최우선 미완 기능**: `career-008` — AI 프록시 주소·API 키 확정
-- **왜 이것이 다음인가**: 화면·저장·문서화는 전부 끝났고, 값 하나만 들어오면 실제로 동작한다.
-  지금은 모의 응답이라 실사용이 불가능하다
-- **무엇이 통과 기준인가**: 연결 설정에 프록시 URL 을 넣으면 배지가 “AI 연결됨”으로 바뀌고,
-  1·2차 분석이 실제 응답을 받아 오며 모의 경고 배너가 뜨지 않을 것
-- **프록시는 이미 다 짜여 있다** — `tools/career_proxy.example.gs` 를 Apps Script 에 붙여넣고
-  스크립트 속성 `ANTHROPIC_API_KEY` 만 채운 뒤 `/exec` URL 을 [연결 설정]에 넣으면 끝이다.
-  ```
-  POST <프록시 URL>
-  Content-Type: text/plain;charset=utf-8
-  { "system": "...", "prompt": "...", "max_tokens": 8000, "model": "claude-haiku-4-5",
-    "web_search": true, "search_max_uses": 6, "effort": "low", "allowed_domains": [...] }
-  → 200 { "text": "...", "usage": {...}, "sources": [{title,url}], "searches": 3,
-          "model": "...", "web_tools": "basic|v2026",
-          "truncated": false, "incomplete": false, "elapsed_ms": 41230, "error": null }
-  ```
-- **careerTest 배포에 얹는 경우** — 반드시 **배포 관리 → 편집 → 새 버전**으로 갱신할 것.
-  “새 배포”를 만들면 `/exec` URL 이 바뀌어 careerTest 가 끊긴다.
-  기존 소스에 박힌 API 키는 지우고 스크립트 속성으로 옮긴다
-- **배포 직후 점검 순서** — Apps Script 편집기에서 **순서대로** 실행할 것.
-  “끝나지 않음”은 대부분 고장이 아니라 요청이 무거워 6분 한도에 걸린 것이다.
-  | 함수 | 확인하는 것 | 기대 |
-  |---|---|---|
-  | `test1_key` | 키·네트워크 (검색 없음) | 수 초 안에 HTTP 200 |
-  | `test2_search` | 검색 1회 소요 시간 | `elapsed=` 값을 기록해 둘 것 |
-  | `test3_load` | 검색 4회 부하 | `test2 시간 × 4` 가 4분을 넘으면 검색 횟수를 낮춘다 |
-  | `test4_careertest` | 기존 GET 경로 회귀 | careerTest 가 계속 도는지 |
-- **그다음 확인**
-  ① 응답이 잘리는지(잘림 경고) → `max_tokens` 조정
-  ② “참고한 웹 출처” 카드에 공식 기관이 실제로 잡히는지
-  ③ `incomplete` 경고가 뜨면 검색 횟수·effort 를 낮출 것
-  ④ **Haiku 4.5 가 프롬프트의 엄격한 규칙을 지키는지** — `[확인]`/`[해석]`/`[제안]` 구분,
-    근거 없는 수치 금지, "확인 불가" 표시. 흐트러지면 설정에서 Sonnet 5 로 올릴 것
-- **그래도 6분을 못 맞추면** — Apps Script 자체가 한계다.
-  effort/검색횟수를 더 낮추거나, 실행 한도가 없는 런타임(Cloudflare Workers 등)으로
-  프록시를 옮기는 것이 근본 해법이다. 계약(POST/JSON)은 그대로 쓸 수 있다
-- **그 단계에서 바꾸면 안 되는 것**
-  - `init.ps1` 의 검증 게이트를 느슨하게 만들지 말 것 — 프록시가 붙으면 검증을 **추가**하는 방향
-  - 모의 응답 경로를 지우지 말 것 — 프록시 장애 시 흐름 검증 수단이 사라진다
-  - 모의 응답에 사실 정보를 지어 넣지 말 것 — 지금은 의도적으로 “확인 불가”만 채운다
-  - **웹검색 기본값을 끄지 말 것** — 끄면 프롬프트가 금지한 “기억으로 답하기”가 된다
-  - **`MAX_CONTINUATIONS` 를 올리지 말 것** — 무거운 호출이 직렬로 반복돼 6분 한도를 넘긴다.
-    `init.ps1` 이 0~2 범위를 검사한다(2026-09-01 실제로 매달림)
-  - **`DEADLINE_MS` 가드를 지우지 말 것** — 없으면 한도 초과 시 아무것도 못 돌려준다
-  - **옵시디언 기본 주소를 HTTPS(27124)로 되돌리지 말 것** — 자체서명 인증서라
-    브라우저 `fetch` 가 거부한다. 로컬 전용이므로 HTTP 27123 이 맞다
-  - **`supportsNewWebTools_` / `supportsEffort_` 분기를 지우지 말 것** —
-    Haiku 4.5 에 `web_search_20260209` 나 `output_config.effort` 를 보내면 400 이 난다.
-    `init.ps1` 이 이 분기 존재를 검사한다
-  - **“공식 기관 도메인만” 을 기본값으로 켜지 말 것** — 대학 입학처가 학교마다 도메인이 달라
-    STEP 7-3(대학 정보·입시결과)이 통째로 막힌다
-  - `assets/prompts/*.txt` 원문을 코드에서 직접 고치지 말 것 (생성기 경유)
-  - **프록시 예시의 `doGet` 을 지우지 말 것** — careerTest 가 그 경로를 쓴다.
-    `init.ps1` 이 `doGet` / `CAREERTEST_SYSTEM` 존재를 검사한다
+진로상담은 실사용 가능한 상태다. 다음 후보 —
+
+1. **실제 학생 사례로 운영**하며 프롬프트·모델 조정 (가장 값싼 다음 걸음)
+2. 보류된 **`auth-006`(서버 인증)** 재개 — 사례가 브라우저별로 격리되는 한계 해소
+3. 사용량이 커지면 프록시를 **Apps Script 밖**(실행 한도 없는 런타임)으로 이전.
+   POST/JSON 계약은 그대로 재사용된다
 
 ## Commands
 
 - **Startup(검증만)**: `.\init.ps1`
-- **Startup(서버까지)**: `.\init.ps1 -Start`  /  브라우저까지: `.\init.ps1 -Start -OpenBrowser`
-- **Verification**: `init.ps1` 에 포함 (별도 테스트 러너 없음)
+- **Startup(서버까지)**: `.\init.ps1 -Start` / 브라우저까지: `.\init.ps1 -Start -OpenBrowser`
 - **프롬프트 재생성**: `python tools/build-prompts.py`
 - **Focused debug**
-  - 서버만 단독 기동: `python -m http.server 8940`
-  - 진로상담 바로 열기: http://localhost:8940/career.html (로그인 필요)
-  - 계정 초기화: `localStorage.removeItem('np_users')`
-  - 상담 사례 초기화: `localStorage.removeItem('np_career_cases')`
-  - 연결 설정(프록시·웹검색·옵시디언) 초기화: `localStorage.removeItem('np_career_config')`
+  - 서버만: `python -m http.server 8940`
+  - 진로상담: http://localhost:8940/career.html (로그인 필요)
   - 옵시디언 연결 진단: http://localhost:8940/tools/obsidian-check.html
-  - 세션만 해제: `localStorage.removeItem('np_session'); sessionStorage.removeItem('np_session')`
+  - 프록시 배포 버전 확인: 브라우저로 `/exec` 열기 → `"version"` 확인
+  - Apps Script 점검 순서: `test1_key` → `test2_search` → `test3_load`
+    → `test4_careertest` → `test5a_sheetRaw`
+  - 초기화: `localStorage.removeItem('np_users' / 'np_career_cases' /
+    'np_career_config' / 'np_career_usage')`

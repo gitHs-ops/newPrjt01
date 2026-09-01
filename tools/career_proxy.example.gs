@@ -1,7 +1,7 @@
 /**
  * career_proxy.example.gs — 진로 계열 공용 AI 프록시 (참고 구현)
  *
- *   버전  1.7.1
+ *   버전  1.7.2
  *   날짜  2026-09-01
  *
  *   ⚠ 이 파일을 고치면 아래 PROXY_VERSION 도 함께 올릴 것.
@@ -9,6 +9,8 @@
  *     배포된 버전은 브라우저로 /exec 를 그냥 열어 보면 확인된다.
  *
  * ── 변경 이력 ────────────────────────────────────────────────────────────────
+ *   1.7.2  2026-09-01  로그 정정 — 이어쓰기로 tools 를 비우는 바람에 web_tools 가
+ *                      'off' 로 뒤집히던 문제. 이어쓰기 횟수를 비고에 기록
  *   1.7.1  2026-09-01  test5a_sheetRaw 추가 — 시트 오류를 삼키지 않고 그대로 노출
  *   1.7.0  2026-09-01  본문 이어쓰기 전용 마감(TEXT_DEADLINE_MS) 분리 —
  *                      1차가 검색 마감에 걸려 잘린 채 끝나던 문제.
@@ -67,7 +69,7 @@
 
 /* 배포본 식별용. 파일을 고치면 반드시 함께 올린다.
    클라이언트가 이 값을 받아 기대 버전과 다르면 "프록시가 낡았다"고 알려 준다. */
-var PROXY_VERSION = '1.7.1';
+var PROXY_VERSION = '1.7.2';
 var PROXY_DATE = '2026-09-01';
 
 var API_URL = 'https://api.anthropic.com/v1/messages';
@@ -237,7 +239,9 @@ function logUsage_(req, out, errMsg) {
       (out && out.truncated) ? 'Y' : '',
       (out && out.incomplete) ? 'Y' : '',
       (out && out.web_tools) || '',
-      errMsg || ''
+      /* 열을 늘리면 이미 만들어진 탭의 헤더와 어긋난다. 비고에 실어 보낸다. */
+      [errMsg || '', (out && out.continued) ? ('이어쓰기 ' + out.continued + '회') : '']
+        .filter(function (x) { return x; }).join(' / ')
     ]);
 
     /* ② careerTest 공용 탭에 미러링 — 기존 합계에 진로상담 사용량이 포함되도록.
@@ -380,6 +384,9 @@ function callClaude_(req) {
   var effort = req.effort || DEFAULT_EFFORT;
 
   var newTools = supportsNewWebTools_(model);
+  /* 로그용 — 이어쓰기 구간에서 tools 를 비우므로, 마지막 tools 로 판단하면
+     검색을 했는데도 'off' 로 기록돼 오해를 부른다. 최초 설정을 따로 잡아 둔다. */
+  var webToolsUsed = (req.web_search !== false) ? (newTools ? 'v2026' : 'basic') : 'off';
 
   var tools = [];
   if (useSearch) {
@@ -528,7 +535,7 @@ function callClaude_(req) {
     elapsed_ms: Date.now() - started,
     model: model,
     effort: supportsEffort_(model) ? effort : null,
-    web_tools: (tools.length ? (newTools ? 'v2026' : 'basic') : 'off'),
+    web_tools: webToolsUsed,
     error: null
   };
 }

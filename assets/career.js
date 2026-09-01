@@ -11,7 +11,7 @@
        tools/career_proxy.example.gs 의 PROXY_VERSION 과 맞춰 둔다.
        배포본이 낮으면 결과 화면에서 "프록시가 낡았다"고 알려 준다 —
        파일을 고쳐 놓고 재배포를 잊는 일이 반복돼 넣었다. */
-    var EXPECTED_PROXY_VERSION = '1.7.1';
+    var EXPECTED_PROXY_VERSION = '1.7.2';
 
     var CASES_KEY  = 'np_career_cases';
     var CONFIG_KEY = 'np_career_config';
