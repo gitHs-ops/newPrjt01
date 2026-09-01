@@ -44,7 +44,7 @@
         endpoint: '',          /* 예: https://script.google.com/macros/s/.../exec  — 추후 결정 */
         model: 'claude-haiku-4-5',
         maxTokens1: 8000,
-        maxTokens2: 6000,
+        maxTokens2: 12000,
         allowMock: true,       /* 엔드포인트 미설정 시 모의 응답으로 흐름 검증 */
 
         /* --- 공식자료 웹검색 (프록시의 서버사이드 web_search 도구) --- */
@@ -889,10 +889,13 @@
 
     /* 보고서에 실제로 참고한 웹 출처를 보여준다.
        프롬프트가 요구하는 "출처 및 신뢰도" 표를 교사가 교차 확인할 수 있게 하는 장치다. */
-    function renderSources(card, rep) {
+    function renderSources(card, rep, round) {
         if (!card) return;
         var list = (rep && rep.sources) || [];
         var searches = (rep && rep.searches) || 0;
+        /* 2차 분석은 "1차 조사를 반복하지 말라"가 프롬프트 원칙이라
+           출처 0건이 정상이다. 1차와 같은 경고를 띄우면 오탐이 된다. */
+        var second = (round === 2);
 
         if (rep && rep.mock) {
             card.style.display = 'none';
@@ -906,12 +909,22 @@
 
         if (!list.length) {
             if (head) {
-                head.className = 'notice src-head';
-                head.innerHTML = '<span class="ico">⚠</span><span>' +
-                    '<b>웹검색 흔적이 없습니다.</b> 프록시가 <code>web_search</code> 도구를 켜지 않았거나, ' +
-                    '검색 결과를 <code>sources</code> 로 돌려주지 않는 구버전입니다. ' +
-                    '이 상태의 보고서는 모델 기억에 의존하므로 “확인 불가”가 많거나 부정확할 수 있습니다.' +
-                    '</span>';
+                if (second) {
+                    head.className = 'notice info src-head';
+                    head.innerHTML = '<span class="ico">ℹ</span><span>' +
+                        '출처 0건 — <b>2차 분석에서는 정상입니다.</b> ' +
+                        '2차 프롬프트는 “1차에서 수행한 조사를 불필요하게 반복하지 말 것”을 원칙으로 하므로 ' +
+                        '새 검색을 거의 하지 않습니다. 사실 확인이 필요하면 1차 보고서의 ' +
+                        '“출처 및 신뢰도” 표를 보십시오.' +
+                        '</span>';
+                } else {
+                    head.className = 'notice src-head';
+                    head.innerHTML = '<span class="ico">⚠</span><span>' +
+                        '<b>웹검색 흔적이 없습니다.</b> 프록시가 <code>web_search</code> 도구를 켜지 않았거나, ' +
+                        '검색 결과를 <code>sources</code> 로 돌려주지 않는 구버전입니다. ' +
+                        '이 상태의 보고서는 모델 기억에 의존하므로 “확인 불가”가 많거나 부정확할 수 있습니다.' +
+                        '</span>';
+                }
             }
             body.innerHTML = '';
             return;
@@ -992,7 +1005,7 @@
                     endpoint: (document.getElementById('cfgEndpoint').value || '').trim(),
                     model: (document.getElementById('cfgModel').value || '').trim() || 'claude-haiku-4-5',
                     maxTokens1: parseInt(document.getElementById('cfgTok1').value, 10) || 8000,
-                    maxTokens2: parseInt(document.getElementById('cfgTok2').value, 10) || 6000,
+                    maxTokens2: parseInt(document.getElementById('cfgTok2').value, 10) || 12000,
                     timeoutSec: parseInt(document.getElementById('cfgTimeout').value, 10) || 400,
                     allowMock: document.getElementById('cfgMock').checked,
                     webSearch: document.getElementById('cfgSearch').checked,

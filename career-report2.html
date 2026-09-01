@@ -190,7 +190,7 @@
                 '(' + (rep.elapsedMs / 1000).toFixed(1) + '초 소요)';
         }
 
-        Career.renderSources(document.getElementById('srcCard'), rep);
+        Career.renderSources(document.getElementById('srcCard'), rep, 2);
         document.getElementById('srcCount').textContent = ((rep.sources || []).length) + '건';
     }
 
