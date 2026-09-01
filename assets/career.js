@@ -43,7 +43,7 @@
         /* --- AI 호출 (careerTest 의 GAS 프록시와 같은 방식) --- */
         endpoint: '',          /* 예: https://script.google.com/macros/s/.../exec  — 추후 결정 */
         model: 'claude-haiku-4-5',
-        maxTokens1: 8000,
+        maxTokens1: 12000,
         maxTokens2: 12000,
         allowMock: true,       /* 엔드포인트 미설정 시 모의 응답으로 흐름 검증 */
 
@@ -92,6 +92,7 @@
             /* 저장된 설정이 기본값을 덮어쓰므로, 기본값만 올려서는 기존 사용자에게 적용되지 않는다.
                2차 보고서가 STEP 11(최종 브리프)까지 나오려면 6000 으로는 모자라 실제로 잘렸다.
                옛 기본값 그대로인 설정은 새 기본값으로 끌어올린다. 손으로 더 크게 잡아 둔 값은 존중. */
+            if (c.maxTokens1 < DEFAULT_CONFIG.maxTokens1) c.maxTokens1 = DEFAULT_CONFIG.maxTokens1;
             if (c.maxTokens2 < DEFAULT_CONFIG.maxTokens2) c.maxTokens2 = DEFAULT_CONFIG.maxTokens2;
             if (typeof raw.allowMock === 'boolean') c.allowMock = raw.allowMock;
             if (typeof raw.webSearch === 'boolean') c.webSearch = raw.webSearch;
@@ -488,6 +489,8 @@
                 elapsedMs: (data && data.elapsed_ms) || 0,
                 /* 프록시가 잘린 응답을 이어붙인 횟수 */
                 continued: (data && data.continued) || 0,
+                /* 프록시가 시트에 기록하지 못한 사유(있을 때만) */
+                logError: (data && data.log_error) || '',
                 mock: false
             };
         });
@@ -1168,7 +1171,7 @@
                 saveConfig({
                     endpoint: (document.getElementById('cfgEndpoint').value || '').trim(),
                     model: (document.getElementById('cfgModel').value || '').trim() || 'claude-haiku-4-5',
-                    maxTokens1: parseInt(document.getElementById('cfgTok1').value, 10) || 8000,
+                    maxTokens1: parseInt(document.getElementById('cfgTok1').value, 10) || 12000,
                     maxTokens2: parseInt(document.getElementById('cfgTok2').value, 10) || 12000,
                     timeoutSec: parseInt(document.getElementById('cfgTimeout').value, 10) || 400,
                     allowMock: document.getElementById('cfgMock').checked,

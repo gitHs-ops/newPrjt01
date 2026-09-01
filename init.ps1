@@ -228,6 +228,13 @@ if (Test-Path -LiteralPath 'tools\career_proxy.example.gs' -PathType Leaf) {
         Write-Fail "MAX_CONTINUATIONS 가 너무 큼 — Apps Script 6분 한도를 넘겨 응답 없이 매달린다"
     }
 
+    # 시트 기록 실패를 조용히 삼키지 않는가 (안 쌓이는 걸 알 방법이 있어야 한다)
+    if ($gs -match 'lastLogError' -and $gs -match 'test5_sheet') {
+        Write-Ok "시트 기록 실패 노출 · 권한 점검 함수 존재"
+    } else {
+        Write-Fail "시트 기록 실패가 조용히 묻힌다 — lastLogError / test5_sheet 확인"
+    }
+
     # 잘린 응답 이어쓰기 — 2차 보고서의 최종 브리프·면책 문장이 끝에 있어 필수다
     if ($gs -match 'MAX_TEXT_CONTINUATIONS' -and $gs -match 'supportsPrefill_' -and
         $gs -match 'COMPLETION_SUFFIX') {

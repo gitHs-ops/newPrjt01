@@ -102,6 +102,13 @@ var MAX_CONTINUATIONS = 1;
  */
 var DEADLINE_MS = 4 * 60 * 1000;
 
+/**
+ * 본문 이어쓰기 전용 마감. 이어쓰기는 도구를 끄고 돌아 빠르므로 검색보다 늦게까지 허용한다.
+ * 1차 보고서는 검색으로 시간을 쓴 뒤 분량 한도에 걸리는 일이 많은데,
+ * 검색용 마감(4분)에 함께 걸리면 잘린 채로 끝나 버린다.
+ */
+var TEXT_DEADLINE_MS = 5 * 60 * 1000;
+
 /** 응답 형식을 md 로 유지하기 위한 최소 지시. 본 프롬프트는 클라이언트가 system 으로 보낸다. */
 var SYSTEM_SUFFIX = '\n\n---\n\n웹검색 도구를 사용할 수 있다면 위 "공식 정보 출처 제한" 절에 열거된 ' +
     '기관·자료를 우선 검색해 확인하라. 검색으로도 확인되지 않으면 추측하지 말고 ' +
@@ -168,7 +175,12 @@ function ensureSheet_(ss, name, headers, color) {
   return sheet;
 }
 
+/* 마지막 로깅 실패 사유. 응답에 실어 화면에서 보이게 한다 —
+   조용히 실패하면 "시트에 안 쌓인다"는 사실을 알 방법이 없다. */
+var lastLogError = '';
+
 function logUsage_(req, out, errMsg) {
+  lastLogError = '';
   try {
     var id = sheetId_();
     if (!id) return;   /* 미설정이면 조용히 건너뜀 */
@@ -206,8 +218,12 @@ function logUsage_(req, out, errMsg) {
       ]);
     }
   } catch (e) {
-    /* 로깅 실패는 분석 결과에 영향을 주지 않는다 */
-    Logger.log('토큰로그 기록 실패: ' + e.message);
+    /* 로깅 실패가 분석을 막지는 않는다. 다만 원인은 남겨서 화면에 띄운다.
+       ⚠ 가장 흔한 원인: SpreadsheetApp 권한 미승인.
+          기존 배포는 UrlFetchApp 권한만 승인돼 있어, 시트 코드를 추가한 뒤에는
+          편집기에서 함수를 한 번 실행해 **권한을 다시 승인**해야 한다. */
+    lastLogError = String(e && e.message || e);
+    Logger.log('토큰로그 기록 실패: ' + lastLogError);
   }
 }
 
@@ -309,6 +325,7 @@ function doPost(e) {
 
     var result = callClaude_(req);
     logUsage_(req, result, null);
+    if (lastLogError) result.log_error = lastLogError;
     return json_(result);
 
   } catch (err) {
@@ -417,9 +434,13 @@ function callClaude_(req) {
     searches += picked.searches;
     sources = sources.concat(picked.sources);
 
-    if (Date.now() - started > DEADLINE_MS) {
-      // 남은 시간이 없으면 이어달리기를 포기하고 지금까지 받은 내용을 돌려준다.
-      // 여기서 멈추지 않으면 Apps Script 가 6분에 강제 종료해 아무것도 못 돌려준다.
+    var spent = Date.now() - started;
+
+    // 남은 시간이 없으면 포기하고 지금까지 받은 내용을 돌려준다.
+    // 여기서 멈추지 않으면 Apps Script 가 6분에 강제 종료해 아무것도 못 돌려준다.
+    // 마감은 두 갈래다 — 검색 이어달리기는 무겁고(4분), 본문 이어쓰기는 가볍다(5분).
+    var limit = (stop === 'max_tokens') ? TEXT_DEADLINE_MS : DEADLINE_MS;
+    if (spent > limit) {
       stop = 'deadline';
       break;
     }
@@ -595,6 +616,27 @@ function test3_load() {
              out.model, out.web_tools, out.elapsed_ms, out.searches, out.sources.length,
              out.incomplete, out.truncated);
   Logger.log(out.text);
+}
+
+/**
+ * 5단계 — 구글 시트 기록 확인 겸 **권한 승인**.
+ * ⚠ 기존 배포는 UrlFetchApp 권한만 승인돼 있다. 시트 코드를 새로 넣었다면
+ *    이 함수를 편집기에서 한 번 실행해 SpreadsheetApp 권한을 승인해야
+ *    웹앱(/exec)에서도 시트에 쓸 수 있다. 승인 전에는 조용히 실패한다.
+ */
+function test5_sheet() {
+  logUsage_(
+    { user: '(점검)', case_id: 'TEST', round: 1, model: DEFAULT_MODEL },
+    { usage: { input_tokens: 1, output_tokens: 1 }, searches: 0, elapsed_ms: 0,
+      model: DEFAULT_MODEL, web_tools: 'off' },
+    '점검용 행 — 지워도 됩니다'
+  );
+  if (lastLogError) {
+    Logger.log('시트 기록 실패: %s', lastLogError);
+    Logger.log('권한 문제라면 이 함수를 실행할 때 뜨는 승인 창을 허용하십시오.');
+  } else {
+    Logger.log('시트 기록 성공 — 시트ID %s / 탭 "%s"', sheetId_(), USAGE_SHEET_NAME);
+  }
 }
 
 /** careerTest GET 경로 회귀 확인 — 배포를 공유할 때 이것도 함께 돌려 볼 것. */

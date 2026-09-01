@@ -95,6 +95,14 @@
                     연결 설정에서 <b>검색 횟수</b>나 <b>사고 깊이(effort)</b>를 낮추고 다시 분석하세요.
                     <span class="mono" id="elapsedTxt"></span></span>
             </div>
+            <div class="notice" id="logNotice" style="display:none">
+                <span class="ico">📋</span>
+                <span><b>구글 시트에 사용량을 기록하지 못했습니다.</b>
+                    분석 자체는 정상입니다. <span class="mono" id="logErr"></span><br>
+                    권한 문제라면 Apps Script 편집기에서 <code>test5_sheet</code> 를 한 번 실행해
+                    SpreadsheetApp 권한을 승인하세요 —
+                    기존 배포는 UrlFetchApp 권한만 승인돼 있습니다.</span>
+            </div>
             <div class="report" id="report"></div>
             <pre class="raw-md" id="raw"></pre>
         </div>
@@ -199,6 +207,11 @@
                 Career.fmtNum(Career.loadConfig().maxTokens2);
         }
         document.getElementById('incompleteNotice').style.display = rep.incomplete ? '' : 'none';
+        var ln = document.getElementById('logNotice');
+        if (rep.logError) {
+            ln.style.display = '';
+            document.getElementById('logErr').textContent = rep.logError;
+        } else { ln.style.display = 'none'; }
         if (rep.elapsedMs) {
             document.getElementById('elapsedTxt').textContent =
                 '(' + (rep.elapsedMs / 1000).toFixed(1) + '초 소요)';
@@ -227,6 +240,7 @@
                 usage: res.usage || null,
                 sources: res.sources || [],
                 continued: res.continued || 0,
+                logError: res.logError || '',
                 searches: res.searches || 0,
                 truncated: !!res.truncated,
                 incomplete: !!res.incomplete,
