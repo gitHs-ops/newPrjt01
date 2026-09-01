@@ -414,6 +414,11 @@
             prompt: opts.user || '',
             max_tokens: opts.maxTokens || 4000,
             model: cfg.model,
+            /* 사용량 로그용 식별자 — 프록시가 구글 시트에 사용자별로 기록한다.
+               사례 '이름'은 보내지 않는다(로컬 라벨). 식별에는 사례 id 로 충분하다. */
+            user: currentOwner(),
+            case_id: opts.caseId || '',
+            round: opts.round || 1,
             /* 프록시가 서버사이드 web_search 도구를 켜도록 지시한다.
                이게 없으면 모델 기억만으로 답해 "확인 불가"가 대량으로 나온다. */
             web_search: !!cfg.webSearch,
@@ -982,6 +987,64 @@
         return m ? decodeURIComponent(m[1].replace(/\+/g, ' ')) : '';
     }
 
+    /* =========================================================
+       토큰 사용량 — 로컬 집계
+       ---------------------------------------------------------
+       원본 기록은 프록시가 구글 시트에 남긴다. 여기 집계는 화면 표시용이며,
+       프록시가 없거나 시트 설정 전이어도 사용자가 자기 사용량을 볼 수 있게 한다.
+       ========================================================= */
+    var USAGE_KEY = 'np_career_usage';
+
+    function dayKey(d) {
+        d = d || new Date();
+        return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate());
+    }
+
+    function readUsage() {
+        try {
+            var o = JSON.parse(localStorage.getItem(USAGE_KEY) || '{}');
+            return (o && typeof o === 'object') ? o : {};
+        } catch (e) { return {}; }
+    }
+
+    /* 사용자 × 날짜별로 누적한다. 시트와 같은 축으로 맞춰 대조가 되게 한다. */
+    function recordUsage(res) {
+        if (!res || res.mock || !res.usage) return null;
+        var inp = res.usage.input_tokens || 0;
+        var out = res.usage.output_tokens || 0;
+        if (!inp && !out) return null;
+
+        var all = readUsage();
+        var owner = currentOwner();
+        var day = dayKey();
+        if (!all[owner]) all[owner] = {};
+        var cur = all[owner][day] || { input: 0, output: 0, calls: 0 };
+        cur.input += inp;
+        cur.output += out;
+        cur.calls += 1;
+        all[owner][day] = cur;
+        try { localStorage.setItem(USAGE_KEY, JSON.stringify(all)); } catch (e) {}
+        return { input: inp, output: out, total: inp + out };
+    }
+
+    /* 현재 사용자의 오늘·전체 사용량 */
+    function usageSummary() {
+        var all = readUsage()[currentOwner()] || {};
+        var today = all[dayKey()] || { input: 0, output: 0, calls: 0 };
+        var tot = { input: 0, output: 0, calls: 0, days: 0 };
+        Object.keys(all).forEach(function (d) {
+            tot.input += all[d].input || 0;
+            tot.output += all[d].output || 0;
+            tot.calls += all[d].calls || 0;
+            tot.days += 1;
+        });
+        return { today: today, total: tot };
+    }
+
+    function fmtNum(n) {
+        return (n || 0).toLocaleString('ko-KR');
+    }
+
     /* 보고서에 실제로 참고한 웹 출처를 보여준다.
        프롬프트가 요구하는 "출처 및 신뢰도" 표를 교사가 교차 확인할 수 있게 하는 장치다. */
     function renderSources(card, rep, round) {
@@ -1343,6 +1406,9 @@
         refreshBadges: refreshBadges,
         renderSources: renderSources,
         OFFICIAL_DOMAINS: OFFICIAL_DOMAINS,
+        recordUsage: recordUsage,
+        usageSummary: usageSummary,
+        fmtNum: fmtNum,
         renderSteps: renderSteps,
         bindRadioPills: bindRadioPills,
         fmtDateTime: fmtDateTime,

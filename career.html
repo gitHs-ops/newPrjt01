@@ -57,14 +57,38 @@
         <div id="caseList" class="case-list"></div>
     </div>
 
+    <div class="card">
+        <h2>AI 토큰 사용량 <span class="tag opt" id="usageOwner">—</span></h2>
+        <p class="card-desc">
+            이 브라우저에서 집계한 <b><span id="usageOwner2">—</span></b> 계정의 사용량입니다.
+            원본 기록은 프록시가 <b>구글 시트</b>에 사용자별로 남깁니다 —
+            여러 기기·브라우저를 합친 정확한 집계는 시트를 보십시오.
+            모의 응답은 실제 호출이 아니므로 집계하지 않습니다.
+        </p>
+        <div class="usage-grid">
+            <div class="usage-box">
+                <div class="k">오늘</div>
+                <div class="v" id="uToday">0</div>
+                <div class="s" id="uTodayDetail">입력 0 · 출력 0 · 0회</div>
+            </div>
+            <div class="usage-box">
+                <div class="k">누적</div>
+                <div class="v" id="uTotal">0</div>
+                <div class="s" id="uTotalDetail">입력 0 · 출력 0 · 0회</div>
+            </div>
+        </div>
+    </div>
+
     <div class="notice info">
         <span class="ico">ℹ</span>
         <span>
-            <b>미결 사항 2가지.</b>
-            ① AI 호출용 <b>프록시 주소·API 키</b>가 아직 정해지지 않았습니다 —
-            비어 있으면 화면 흐름 확인용 <b>모의 응답</b>으로 동작합니다.
-            ② <b>옵시디언 전송</b>은 Obsidian Local REST API 직접 호출 방식으로 정해졌으나
-            접속정보가 미정이라 <b>버튼만 표시</b>되고 실제 전송은 막혀 있습니다.
+            <b>설정 안내.</b>
+            ① 우측 상단 <b>[연결 설정]</b>에 <b>프록시 URL</b>이 없으면 화면 흐름 확인용
+            <b>모의 응답</b>으로 동작합니다 — 배지가 “AI 연결됨”(초록)인지 확인하세요.
+            ② <b>옵시디언 전송</b>은 Local REST API 플러그인 설치 후 같은 화면에서
+            주소·API 키·폴더를 넣으면 됩니다.
+            ③ <b>토큰 사용량</b>은 프록시 스크립트 속성에 <code>CAREER_SHEET_ID</code>를 넣으면
+            구글 시트에 사용자별로 자동 기록됩니다.
         </span>
     </div>
 
@@ -83,6 +107,23 @@
     Career.mountChrome({ back: 'home.html', backLabel: '로그인 홈', showHome: false });
 
     document.getElementById('ownerName').textContent = Career.currentOwner();
+
+    /* ---------- 토큰 사용량 ---------- */
+    function renderUsage() {
+        var u = Career.usageSummary();
+        var owner = Career.currentOwner();
+        document.getElementById('usageOwner').textContent = owner;
+        document.getElementById('usageOwner2').textContent = owner;
+        var put = function (idV, idS, x) {
+            document.getElementById(idV).textContent = Career.fmtNum((x.input || 0) + (x.output || 0));
+            document.getElementById(idS).textContent =
+                '입력 ' + Career.fmtNum(x.input) + ' · 출력 ' + Career.fmtNum(x.output) +
+                ' · ' + Career.fmtNum(x.calls) + '회';
+        };
+        put('uToday', 'uTodayDetail', u.today);
+        put('uTotal', 'uTotalDetail', u.total);
+    }
+    renderUsage();
 
     /* ---------- 사례 목록 ---------- */
     function render() {

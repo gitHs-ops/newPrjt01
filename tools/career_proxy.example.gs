@@ -97,6 +97,58 @@ function apiKey_() {
   return k;
 }
 
+/* ----------------------------------------------------- 토큰 사용량 로그
+   사용자 아이디별 AI 토큰 사용량을 구글 시트에 남긴다.
+   기록은 **프록시에서** 한다 — usage 가 여기 있고, 클라이언트가 빠뜨리거나 위조할 수 없다.
+
+   설정: 스크립트 속성에 CAREER_SHEET_ID 를 넣는다(스프레드시트 URL 의 /d/ 와 /edit 사이 값).
+        비워 두면 로깅만 조용히 건너뛴다 — 로그 실패가 분석을 막으면 안 된다.
+   ---------------------------------------------------------------------- */
+var USAGE_SHEET_NAME = '진로상담 토큰로그';
+
+var USAGE_HEADERS = ['일시(KST)', '사용자', '사례ID', '차수', '모델',
+                     '입력토큰', '출력토큰', '합계토큰',
+                     '검색횟수', '소요(초)', '잘림', '미완', '웹도구', '비고'];
+
+function logUsage_(req, out, errMsg) {
+  try {
+    var sheetId = PropertiesService.getScriptProperties().getProperty('CAREER_SHEET_ID');
+    if (!sheetId) return;   /* 미설정이면 조용히 건너뜀 */
+
+    var ss = SpreadsheetApp.openById(sheetId);
+    var sheet = ss.getSheetByName(USAGE_SHEET_NAME);
+    if (!sheet) {
+      sheet = ss.insertSheet(USAGE_SHEET_NAME);
+      sheet.appendRow(USAGE_HEADERS);
+      sheet.getRange(1, 1, 1, USAGE_HEADERS.length)
+           .setFontWeight('bold').setBackground('#4f46e5').setFontColor('#ffffff');
+      sheet.setFrozenRows(1);
+    }
+
+    var u = (out && out.usage) || {};
+    var inp = u.input_tokens || 0;
+    var outp = u.output_tokens || 0;
+
+    sheet.appendRow([
+      Utilities.formatDate(new Date(), 'Asia/Seoul', 'yyyy-MM-dd HH:mm:ss'),
+      req.user || '(미로그인)',
+      req.case_id || '',
+      req.round ? (req.round + '차') : '',
+      (out && out.model) || req.model || DEFAULT_MODEL,
+      inp, outp, inp + outp,
+      (out && out.searches) || 0,
+      out ? Math.round(out.elapsed_ms / 100) / 10 : 0,
+      (out && out.truncated) ? 'Y' : '',
+      (out && out.incomplete) ? 'Y' : '',
+      (out && out.web_tools) || '',
+      errMsg || ''
+    ]);
+  } catch (e) {
+    /* 로깅 실패는 분석 결과에 영향을 주지 않는다 */
+    Logger.log('토큰로그 기록 실패: ' + e.message);
+  }
+}
+
 /* ----------------------------------------------------------------- 진입점 */
 
 /* ---------------------------------------------- GET — careerTest (기존 동작) */
@@ -194,10 +246,14 @@ function doPost(e) {
     if (!req.prompt) throw new Error('prompt 가 비어 있습니다.');
 
     var result = callClaude_(req);
+    logUsage_(req, result, null);
     return json_(result);
 
   } catch (err) {
-    return json_({ text: '', usage: null, sources: [], searches: 0, error: String(err && err.message || err) });
+    var msg = String(err && err.message || err);
+    /* 실패도 기록한다 — 어떤 사용자가 무엇을 시도하다 실패했는지 남아야 추적이 된다 */
+    try { logUsage_(req || {}, null, msg); } catch (e) {}
+    return json_({ text: '', usage: null, sources: [], searches: 0, error: msg });
   }
 }
 
