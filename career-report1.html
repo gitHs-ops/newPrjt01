@@ -84,8 +84,10 @@
             <h2>1차 분석 보고서</h2>
             <div class="notice" id="truncNotice" style="display:none">
                 <span class="ico">⚠</span>
-                <span><b>응답이 잘렸습니다.</b> max_tokens 한도에 걸렸습니다.
-                    연결 설정에서 1차 max_tokens 를 올리고 다시 분석하세요.</span>
+                <span><b>응답이 잘렸습니다.</b> max_tokens 한도(<span class="mono" id="curTok">—</span>)에 걸려
+                    뒷부분이 통째로 빠졌습니다. 아래 버튼으로 한도를 올리고 다시 실행하세요.<br>
+                    <button type="button" class="btn btn-ghost" id="bumpBtn"
+                        style="width:auto;padding:8px 16px;margin-top:9px">한도 올리고 다시 분석</button></span>
             </div>
             <div class="notice" id="incompleteNotice" style="display:none">
                 <span class="ico">⏱</span>
@@ -187,6 +189,10 @@
         } else { tt.style.display = 'none'; }
         document.getElementById('mockNotice').style.display = rep.mock ? '' : 'none';
         document.getElementById('truncNotice').style.display = rep.truncated ? '' : 'none';
+        if (rep.truncated) {
+            document.getElementById('curTok').textContent =
+                Career.fmtNum(Career.loadConfig().maxTokens1);
+        }
         document.getElementById('incompleteNotice').style.display = rep.incomplete ? '' : 'none';
         if (rep.elapsedMs) {
             document.getElementById('elapsedTxt').textContent =
@@ -244,6 +250,22 @@
     }
 
     /* ---------- 액션 ---------- */
+    /* 잘렸을 때 한 번에 고치도록 — 설정 모달을 열지 않아도 되게 한다.
+       1.5배씩 올리되 32000 을 넘기지 않는다. */
+    document.getElementById('bumpBtn').addEventListener('click', function () {
+        var cfg = Career.loadConfig();
+        var cur = cfg.maxTokens1;
+        var next = Math.min(32000, Math.round(cur * 1.5 / 1000) * 1000);
+        if (next <= cur) {
+            alert('이미 상한(32,000)입니다. 입력을 줄이거나 모델을 바꿔 보세요.');
+            return;
+        }
+        var patch = {}; patch.maxTokens1 = next;
+        Career.saveConfig(patch);
+        Career.toast('max_tokens ' + Career.fmtNum(cur) + ' → ' + Career.fmtNum(next) + ', 다시 분석합니다.', 'ok');
+        run();
+    });
+
     document.getElementById('retryBtn').addEventListener('click', run);
     document.getElementById('againBtn').addEventListener('click', function () {
         if (!confirm('다시 분석하면 저장된 1차 결과를 덮어씁니다. 계속할까요?')) return;
