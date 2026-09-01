@@ -1,0 +1,373 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="color-scheme" content="light">
+<title>옵시디언 Local REST API 연결 실측 — newPrjt01</title>
+<link rel="stylesheet" as="style" crossorigin
+      href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.css" />
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../assets/auth.css">
+<link rel="stylesheet" href="../assets/career.css">
+<style>
+    /* 진단 결과 줄 */
+    .probe { display: flex; gap: 12px; align-items: flex-start; padding: 13px 15px;
+             border-radius: 12px; background: var(--paper-bg);
+             border: 1px solid var(--field-border); margin-bottom: 9px; }
+    .probe .mark { flex: 0 0 auto; width: 24px; height: 24px; display: grid; place-items: center;
+                   border-radius: 50%; font-size: 13px; font-weight: 700;
+                   background: rgba(148,163,184,.2); color: var(--text-secondary); }
+    .probe.pass .mark { background: rgba(16,185,129,.16); color: #047857; }
+    .probe.fail .mark { background: rgba(239,68,68,.14); color: #b91c1c; }
+    .probe.warn .mark { background: rgba(245,158,11,.16); color: #92400e; }
+    .probe .body { flex: 1 1 auto; min-width: 0; }
+    .probe .t { font-size: 13.5px; font-weight: 700; margin-bottom: 3px; }
+    .probe .d { font-size: 12px; color: var(--text-secondary); line-height: 1.6; word-break: break-word; }
+    .probe .d code { font-family: var(--font-accent); font-size: 11.5px;
+                     background: rgba(99,102,241,.10); padding: 1px 5px; border-radius: 4px; }
+    .verdict { padding: 16px 18px; border-radius: 14px; font-size: 14px; line-height: 1.7;
+               margin-bottom: 16px; display: none; }
+    .verdict.show { display: block; }
+    .verdict.ok   { background: rgba(16,185,129,.11); border: 1px solid rgba(16,185,129,.3); color: #065f46; }
+    .verdict.no   { background: rgba(239,68,68,.09);  border: 1px solid rgba(239,68,68,.28); color: #991b1b; }
+    .verdict.mid  { background: rgba(245,158,11,.11); border: 1px solid rgba(245,158,11,.3); color: #92400e; }
+    .verdict b { font-weight: 800; }
+</style>
+</head>
+<body class="doc">
+
+<div class="doc-wrap narrow">
+
+    <div class="topbar">
+        <a class="home-link" href="../career.html">← 진로상담</a>
+        <span class="spacer"></span>
+        <span class="badge todo"><span class="dot"></span><span>career-009 실측</span></span>
+    </div>
+
+    <div class="page-head">
+        <div class="eyebrow">Obsidian Local REST API</div>
+        <h1>옵시디언 연결 실측</h1>
+        <p>
+            웹페이지에서 옵시디언 볼트로 <b>직접 HTTP 호출</b>이 가능한지 판정합니다.
+            이 페이지는 진로상담 앱과 <b>같은 출처</b>(<span class="mono" id="origin">—</span>)에서 돌아가므로,
+            여기서 통과하면 실제 앱에서도 통과합니다.
+        </p>
+    </div>
+
+    <div class="card">
+        <h2>접속 정보</h2>
+        <p class="card-desc">
+            플러그인 설정(<b>Local REST API</b>)에서 API 키를 복사해 넣으세요.
+            이 값은 <b>어디에도 저장되지 않고</b> 이 페이지에서만 씁니다.
+        </p>
+        <div class="grid2">
+            <div class="field">
+                <label for="base">서버 주소</label>
+                <select id="base">
+                    <option value="https://127.0.0.1:27124">https://127.0.0.1:27124 (기본·자체서명)</option>
+                    <option value="http://127.0.0.1:27123">http://127.0.0.1:27123 (비암호화·옵션)</option>
+                </select>
+            </div>
+            <div class="field">
+                <label for="folder">테스트 폴더</label>
+                <div class="input-wrap"><input type="text" id="folder" value="진로상담" autocomplete="off"></div>
+            </div>
+            <div class="field full">
+                <label for="key">API 키 <span class="opt">2·3단계에 필요</span></label>
+                <div class="input-wrap"><input type="password" id="key" placeholder="플러그인 설정에서 복사"
+                    autocomplete="off"></div>
+            </div>
+        </div>
+        <div class="actions">
+            <button type="button" class="btn btn-sky grow" id="runBtn">1·2단계 검사 (읽기만)</button>
+            <button type="button" class="btn btn-ghost" id="writeBtn">3단계 쓰기 검사</button>
+        </div>
+        <div class="hint" id="writeHint" style="margin-top:8px"></div>
+    </div>
+
+    <div class="verdict" id="verdict"></div>
+
+    <div class="card">
+        <h2>진단 결과</h2>
+        <p class="card-desc">
+            위에서 아래로 순서대로 확인합니다. 앞 단계가 막히면 뒤는 볼 필요가 없습니다.
+        </p>
+        <div id="probes">
+            <div class="empty"><span class="big">🔌</span>아직 검사하지 않았습니다.</div>
+        </div>
+    </div>
+
+    <div class="card">
+        <h2>단계가 뜻하는 것</h2>
+        <div class="report" style="font-size:13.5px">
+            <table>
+                <thead><tr><th>단계</th><th>확인하는 것</th><th>막히면</th></tr></thead>
+                <tbody>
+                    <tr><td>① 도달</td><td>포트가 열려 있는가<br>(<code>no-cors</code> 프로브)</td>
+                        <td>플러그인 미설치·미활성 또는 포트 다름</td></tr>
+                    <tr><td>② CORS</td><td>브라우저가 응답을 읽을 수 있는가</td>
+                        <td><b>이 방식 자체가 불가</b> — 프록시 우회도 안 됨</td></tr>
+                    <tr><td>③ 인증서</td><td>자체서명 HTTPS 신뢰 여부</td>
+                        <td>주소창에 직접 열어 예외 등록, 또는 HTTP(27123) 사용</td></tr>
+                    <tr><td>④ 인증</td><td>API 키가 맞는가<br>(preflight 유발)</td>
+                        <td>키 오타 또는 <code>OPTIONS</code> 미응답</td></tr>
+                    <tr><td>⑤ 쓰기</td><td><code>PUT</code> 로 노트가 만들어지는가</td>
+                        <td>경로·권한 문제</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+</div>
+
+<script>
+(function () {
+    'use strict';
+
+    document.getElementById('origin').textContent = location.origin;
+
+    var probes = document.getElementById('probes');
+    var verdict = document.getElementById('verdict');
+
+    function reset() {
+        probes.innerHTML = '';
+        verdict.className = 'verdict';
+        verdict.innerHTML = '';
+    }
+
+    function add(state, title, detail) {
+        var el = document.createElement('div');
+        el.className = 'probe ' + state;
+        var mark = state === 'pass' ? '✓' : (state === 'fail' ? '✕' : '!');
+        var m = document.createElement('div');
+        m.className = 'mark';
+        m.textContent = mark;
+        var b = document.createElement('div');
+        b.className = 'body';
+        var t = document.createElement('div');
+        t.className = 't';
+        t.textContent = title;
+        var d = document.createElement('div');
+        d.className = 'd';
+        d.innerHTML = detail;
+        b.appendChild(t); b.appendChild(d);
+        el.appendChild(m); el.appendChild(b);
+        probes.appendChild(el);
+        return el;
+    }
+
+    function say(kind, html) {
+        verdict.className = 'verdict show ' + kind;
+        verdict.innerHTML = html;
+    }
+
+    function base()   { return document.getElementById('base').value; }
+    function key()    { return document.getElementById('key').value.trim(); }
+    function folder() { return document.getElementById('folder').value.trim(); }
+
+    /* ① 포트가 열려 있는지 — no-cors 는 CORS 와 무관하게 "연결이 되는가"만 본다.
+       연결 거부면 throw, 서버가 있으면 opaque 응답이 돌아온다. */
+    function probeReachable(url) {
+        var t = Date.now();
+        return fetch(url, { mode: 'no-cors', cache: 'no-store' })
+            .then(function () { return { ok: true, ms: Date.now() - t }; })
+            .catch(function (e) { return { ok: false, ms: Date.now() - t, err: String(e.message || e) }; });
+    }
+
+    /* ②③ 실제로 읽을 수 있는지 — CORS 헤더와 인증서 신뢰가 모두 필요하다. */
+    function probeReadable(url) {
+        var t = Date.now();
+        return fetch(url, { mode: 'cors', cache: 'no-store' })
+            .then(function (r) {
+                return r.text().then(function (body) {
+                    return { ok: true, status: r.status, ms: Date.now() - t, body: body.slice(0, 300) };
+                });
+            })
+            .catch(function (e) { return { ok: false, ms: Date.now() - t, err: String(e.message || e) }; });
+    }
+
+    /* ④ 인증 — Authorization 헤더가 붙으면 OPTIONS preflight 가 먼저 날아간다. */
+    function probeAuth(url, k) {
+        var t = Date.now();
+        return fetch(url, {
+            method: 'GET',
+            mode: 'cors',
+            cache: 'no-store',
+            headers: { 'Authorization': 'Bearer ' + k }
+        }).then(function (r) {
+            return r.text().then(function (body) {
+                return { ok: true, status: r.status, ms: Date.now() - t, body: body.slice(0, 300) };
+            });
+        }).catch(function (e) { return { ok: false, ms: Date.now() - t, err: String(e.message || e) }; });
+    }
+
+    function esc(s) {
+        return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    }
+
+    /* ---------------- 1·2단계 ---------------- */
+    document.getElementById('runBtn').addEventListener('click', function () {
+        var btn = this;
+        btn.disabled = true;
+        reset();
+        var b = base();
+        var isHttps = b.indexOf('https:') === 0;
+
+        probeReachable(b + '/').then(function (r1) {
+            if (!r1.ok) {
+                add('fail', '① 도달 실패 — 포트가 닫혀 있습니다',
+                    '<code>' + esc(b) + '</code> 에 연결되지 않습니다 (' + r1.ms + 'ms). ' +
+                    '<b>Local REST API 플러그인이 설치·활성화되지 않았거나</b> 포트가 다릅니다.<br>' +
+                    '오류: <code>' + esc(r1.err) + '</code>');
+                say('no', '<b>중단 — 플러그인이 떠 있지 않습니다.</b><br>' +
+                    '옵시디언 → 설정 → 커뮤니티 플러그인에서 <b>Local REST API</b> 를 설치·활성화한 뒤 다시 실행하세요. ' +
+                    'HTTPS 가 껄끄러우면 플러그인 설정에서 <b>비암호화 HTTP(27123)</b> 를 켜고 위에서 주소를 바꾸세요.');
+                btn.disabled = false;
+                return;
+            }
+            add('pass', '① 도달 성공 — 포트가 열려 있습니다',
+                '<code>' + esc(b) + '</code> 응답 (' + r1.ms + 'ms). 서버가 살아 있습니다.');
+
+            return probeReadable(b + '/').then(function (r2) {
+                if (r2.ok) {
+                    add('pass', '②③ CORS · 인증서 통과 — 응답을 읽었습니다',
+                        'HTTP ' + r2.status + ' (' + r2.ms + 'ms)<br>' +
+                        '<code>' + esc(r2.body) + '</code>');
+                } else {
+                    /* 도달은 되는데 읽기가 안 되면 원인은 둘 중 하나다 */
+                    var cause = isHttps
+                        ? '<b>자체서명 인증서 미신뢰</b> 또는 <b>CORS 헤더 없음</b>'
+                        : '<b>CORS 헤더 없음</b>';
+                    add('fail', '②③ 응답을 읽지 못했습니다 — ' + (isHttps ? '인증서 또는 CORS' : 'CORS'),
+                        '연결은 되는데 브라우저가 응답을 막았습니다. 원인: ' + cause + '<br>' +
+                        '오류: <code>' + esc(r2.err) + '</code><br>' +
+                        '개발자도구 콘솔에 <code>Access-Control-Allow-Origin</code> 문구가 있으면 CORS, ' +
+                        '<code>ERR_CERT_</code> 계열이면 인증서 문제입니다.');
+                    if (isHttps) {
+                        say('mid', '<b>인증서부터 배제하세요.</b> 새 탭에서 ' +
+                            '<a href="' + esc(b) + '/" target="_blank" rel="noopener">' + esc(b) + '/</a> 를 직접 열어 ' +
+                            '<b>고급 → 계속</b> 으로 예외를 등록한 뒤 다시 실행하세요.<br>' +
+                            '그래도 같은 결과면 <b>CORS 문제</b>이고, 그 경우 이 방식은 쓸 수 없습니다 ' +
+                            '(프록시로도 우회 불가 — 클라우드는 사용자 PC 의 localhost 에 닿지 못합니다).');
+                    } else {
+                        say('no', '<b>CORS 차단입니다.</b> 플러그인이 <code>Access-Control-Allow-Origin</code> 을 ' +
+                            '보내지 않습니다. 이 방식은 브라우저에서 불가능하며 프록시 우회도 되지 않습니다 — ' +
+                            '대안(md 다운로드 / MCP 경유)으로 가야 합니다.');
+                    }
+                    btn.disabled = false;
+                    return;
+                }
+
+                if (!key()) {
+                    add('warn', '④ 인증 검사 건너뜀 — API 키 없음',
+                        '플러그인 설정에서 API 키를 복사해 넣고 다시 실행하면 ' +
+                        '<code>Authorization</code> 헤더가 붙은 요청(= <code>OPTIONS</code> preflight)까지 확인합니다.');
+                    say('mid', '<b>여기까지는 통과.</b> 단순 GET 은 되지만 ' +
+                        '실제 쓰기는 <code>Authorization</code> 헤더 때문에 <b>preflight</b> 를 거칩니다. ' +
+                        'API 키를 넣고 다시 실행해 4단계까지 확인하세요.');
+                    btn.disabled = false;
+                    return;
+                }
+
+                return probeAuth(b + '/vault/', key()).then(function (r3) {
+                    if (!r3.ok) {
+                        add('fail', '④ 인증 요청 실패 — preflight 가 막혔습니다',
+                            '<code>Authorization</code> 헤더가 붙으면 브라우저가 먼저 <code>OPTIONS</code> 를 보냅니다. ' +
+                            '플러그인이 여기에 응답하지 않으면 쓰기가 불가능합니다.<br>' +
+                            '오류: <code>' + esc(r3.err) + '</code>');
+                        say('no', '<b>preflight 차단.</b> 단순 GET 은 되지만 인증 헤더가 붙는 순간 막힙니다. ' +
+                            '이 상태로는 쓰기를 구현할 수 없습니다.');
+                    } else if (r3.status === 401 || r3.status === 403) {
+                        add('fail', '④ 인증 거부 (HTTP ' + r3.status + ')',
+                            'CORS 는 통과했지만 <b>키가 틀렸습니다</b>. 플러그인 설정의 키를 다시 복사하세요.<br>' +
+                            '<code>' + esc(r3.body) + '</code>');
+                        say('mid', '<b>CORS 는 통과했습니다</b> — 좋은 신호입니다. 키만 바로잡으면 됩니다.');
+                    } else {
+                        add('pass', '④ 인증 통과 (HTTP ' + r3.status + ')',
+                            'preflight 와 API 키 모두 정상입니다 (' + r3.ms + 'ms)<br>' +
+                            '<code>' + esc(r3.body) + '</code>');
+                        say('ok', '<b>읽기 경로 전부 통과.</b> 이제 <b>3단계 쓰기 검사</b> 를 눌러 ' +
+                            '실제로 노트가 만들어지는지 확인하세요. 그것까지 통과하면 ' +
+                            '<code>career.js</code> 의 <code>sendToObsidian()</code> 을 열면 됩니다.');
+                    }
+                    btn.disabled = false;
+                });
+            });
+        });
+    });
+
+    /* ---------------- 3단계 쓰기 ---------------- */
+    var testName = '_연결테스트.md';
+
+    function testPath() {
+        var f = folder();
+        return (f ? f + '/' : '') + testName;
+    }
+
+    document.getElementById('writeHint').innerHTML =
+        '쓰기 검사는 <code>' + testPath() + '</code> 파일을 <b>실제로 생성</b>합니다. 확인 후 삭제 버튼이 나옵니다.';
+    document.getElementById('folder').addEventListener('input', function () {
+        document.getElementById('writeHint').innerHTML =
+            '쓰기 검사는 <code>' + testPath() + '</code> 파일을 <b>실제로 생성</b>합니다. 확인 후 삭제 버튼이 나옵니다.';
+    });
+
+    document.getElementById('writeBtn').addEventListener('click', function () {
+        if (!key()) { alert('API 키를 먼저 입력하세요.'); return; }
+        var path = testPath();
+        if (!confirm('볼트에 다음 파일을 실제로 만듭니다.\n\n' + path + '\n\n계속할까요?')) return;
+
+        var btn = this;
+        btn.disabled = true;
+        var url = base() + '/vault/' + encodeURI(path);
+        var body = '# 연결 테스트\n\n' +
+                   'newPrjt01 진로상담에서 보낸 테스트 노트입니다.\n' +
+                   '이 파일이 보이면 옵시디언 직접 전송이 동작합니다.\n';
+        var t = Date.now();
+
+        fetch(url, {
+            method: 'PUT',
+            mode: 'cors',
+            headers: {
+                'Authorization': 'Bearer ' + key(),
+                'Content-Type': 'text/markdown; charset=utf-8'
+            },
+            body: body
+        }).then(function (r) {
+            if (r.ok || r.status === 204) {
+                add('pass', '⑤ 쓰기 성공 (HTTP ' + r.status + ')',
+                    '<code>' + esc(path) + '</code> 생성 완료 (' + (Date.now() - t) + 'ms). ' +
+                    '옵시디언에서 확인해 보세요.');
+                say('ok', '<b>전 단계 통과 — 이 방식으로 갈 수 있습니다.</b><br>' +
+                    '이제 <code>assets/career.js</code> 의 <code>sendToObsidian()</code> TODO 블록을 열고, ' +
+                    '설정에 주소·키·폴더를 저장하면 됩니다. ' +
+                    '<button type="button" class="btn btn-ghost" id="delBtn" ' +
+                    'style="width:auto;padding:8px 16px;margin-top:10px">테스트 파일 삭제</button>');
+                var del = document.getElementById('delBtn');
+                if (del) {
+                    del.addEventListener('click', function () {
+                        fetch(url, { method: 'DELETE', mode: 'cors',
+                                     headers: { 'Authorization': 'Bearer ' + key() } })
+                            .then(function (rr) { alert(rr.ok ? '삭제했습니다.' : '삭제 실패 (HTTP ' + rr.status + ')'); })
+                            .catch(function (e) { alert('삭제 실패: ' + e.message); });
+                    });
+                }
+            } else {
+                return r.text().then(function (tx) {
+                    add('fail', '⑤ 쓰기 실패 (HTTP ' + r.status + ')',
+                        '<code>' + esc(tx.slice(0, 300)) + '</code>');
+                    say('mid', '읽기는 되는데 쓰기가 막혔습니다. 경로(<code>' + esc(path) + '</code>)나 ' +
+                        '플러그인 권한 설정을 확인하세요.');
+                });
+            }
+        }).catch(function (e) {
+            add('fail', '⑤ 쓰기 요청 자체가 막혔습니다',
+                'PUT + <code>Authorization</code> + <code>Content-Type</code> 조합은 preflight 를 유발합니다.<br>' +
+                '오류: <code>' + esc(e.message || e) + '</code>');
+            say('no', '<b>쓰기 preflight 차단.</b> 이 방식으로는 전송할 수 없습니다.');
+        }).then(function () { btn.disabled = false; });
+    });
+})();
+</script>
+</body>
+</html>

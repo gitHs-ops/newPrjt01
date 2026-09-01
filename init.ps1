@@ -73,7 +73,8 @@ $careerFiles = @(
     'assets\prompts\input-1st.txt',
     'assets\prompts\input-2nd.txt',
     'tools\build-prompts.py',
-    'tools\career_proxy.example.gs'
+    'tools\career_proxy.example.gs',
+    'tools\obsidian-check.html'
 )
 foreach ($f in $careerFiles) {
     if (Test-Path -LiteralPath $f -PathType Leaf) { Write-Ok $f } else { Write-Fail "$f 없음" }
