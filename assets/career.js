@@ -56,6 +56,10 @@
            프록시가 Apps Script 라면 실행 한도(개인 계정 6분)가 있어 낮게 시작해야 한다. */
         effort: 'low',
 
+        /* 응답 대기 상한(초). Apps Script 는 6분에 강제 종료되므로 그보다 조금 길게 잡는다.
+           이게 없으면 서버가 죽어도 브라우저가 무한정 기다린다. */
+        timeoutSec: 400,
+
         /* --- Obsidian Local REST API (기능 표시만, 연결은 추후 결정) --- */
         obsidian: {
             enabled: false,    /* 주소·키가 채워지면 켤 수 있다 */
@@ -90,6 +94,7 @@
             if (raw.searchMaxUses > 0) c.searchMaxUses = raw.searchMaxUses | 0;
             if (typeof raw.officialOnly === 'boolean') c.officialOnly = raw.officialOnly;
             if (typeof raw.effort === 'string' && raw.effort) c.effort = raw.effort;
+            if (raw.timeoutSec > 0) c.timeoutSec = raw.timeoutSec | 0;
             if (raw.obsidian && typeof raw.obsidian === 'object') {
                 if (typeof raw.obsidian.baseUrl === 'string') c.obsidian.baseUrl = raw.obsidian.baseUrl.trim();
                 if (typeof raw.obsidian.apiKey === 'string')  c.obsidian.apiKey  = raw.obsidian.apiKey;
@@ -324,19 +329,46 @@
             payload.allowed_domains = OFFICIAL_DOMAINS.slice();
         }
 
-        return fetch(endpoint, {
+        /* ⚠ 반드시 타임아웃을 건다.
+           Apps Script 는 실행 6분에서 강제 종료되는데, 그때 응답을 돌려주지 못하면
+           브라우저 fetch 는 기본적으로 "무한정" 기다린다 —
+           2026-09-01 실제로 한 시간 동안 매달렸다. 서버가 죽어도 화면은 끝나야 한다. */
+        var ctl = (typeof AbortController !== 'undefined') ? new AbortController() : null;
+        var timedOut = false;
+        var timer = setTimeout(function () {
+            timedOut = true;
+            if (ctl) ctl.abort();
+        }, cfg.timeoutSec * 1000);
+
+        var opt = {
             method: 'POST',
             /* text/plain 이어야 GAS 웹앱에서 CORS preflight 없이 통과한다 */
             headers: { 'Content-Type': 'text/plain;charset=utf-8' },
             body: JSON.stringify(payload)
-        }).catch(function () {
+        };
+        if (ctl) opt.signal = ctl.signal;
+
+        return fetch(endpoint, opt).catch(function () {
+            if (timedOut) {
+                throw new Error(
+                    cfg.timeoutSec + '초 안에 응답이 오지 않아 중단했습니다.\n\n' +
+                    'Apps Script 는 실행 6분에서 강제 종료되므로, 이보다 오래 걸리면 ' +
+                    '결과를 받을 수 없습니다. 다음을 줄여 보세요.\n' +
+                    '· 검색 횟수(현재 ' + cfg.searchMaxUses + '회)\n' +
+                    '· 사고 깊이 effort(현재 ' + cfg.effort + ')\n' +
+                    '· max_tokens\n\n' +
+                    '프록시 쪽에서는 Apps Script 편집기의 test1_key / test2_search 로 ' +
+                    '어느 단계가 느린지 먼저 재 보십시오.');
+            }
             /* fetch 자체가 실패 — 주소 오타 · 서버 다운 · CORS 차단 */
             throw new Error('프록시에 연결하지 못했습니다. 주소가 맞는지, 프록시가 응답하는지, ' +
                             'CORS 를 허용하는지 확인하세요. (' + endpoint + ')');
         }).then(function (res) {
+            clearTimeout(timer);
             if (!res.ok) throw new Error('서버 오류 (HTTP ' + res.status + ')');
             return res.json();
         }).then(function (data) {
+            clearTimeout(timer);
             if (data && data.error) throw new Error(String(data.error));
             var text = (data && data.text) ? String(data.text) : '';
             if (!text.trim()) throw new Error('응답이 비어 있습니다.');
@@ -961,6 +993,7 @@
                     model: (document.getElementById('cfgModel').value || '').trim() || 'claude-haiku-4-5',
                     maxTokens1: parseInt(document.getElementById('cfgTok1').value, 10) || 8000,
                     maxTokens2: parseInt(document.getElementById('cfgTok2').value, 10) || 6000,
+                    timeoutSec: parseInt(document.getElementById('cfgTimeout').value, 10) || 400,
                     allowMock: document.getElementById('cfgMock').checked,
                     webSearch: document.getElementById('cfgSearch').checked,
                     searchMaxUses: parseInt(document.getElementById('cfgSearchUses').value, 10) || 12,
@@ -1042,6 +1075,7 @@
         set('cfgModel', c.model);
         set('cfgTok1', c.maxTokens1);
         set('cfgTok2', c.maxTokens2);
+        set('cfgTimeout', c.timeoutSec);
         check('cfgMock', c.allowMock);
         check('cfgSearch', c.webSearch);
         set('cfgSearchUses', c.searchMaxUses);
@@ -1084,6 +1118,10 @@
                     '<div class="input-wrap"><input type="number" id="cfgTok1" min="1000" step="500"></div></div>' +
                   '<div class="field"><label for="cfgTok2">2차 max_tokens</label>' +
                     '<div class="input-wrap"><input type="number" id="cfgTok2" min="1000" step="500"></div></div>' +
+                  '<div class="field full"><label for="cfgTimeout">응답 대기 상한 (초)</label>' +
+                    '<div class="input-wrap"><input type="number" id="cfgTimeout" min="30" max="900" step="10"></div>' +
+                    '<div class="hint">Apps Script 는 6분에 강제 종료됩니다. ' +
+                      '이 시간이 지나면 화면이 스스로 멈춥니다 — 무한 대기를 막는 안전장치입니다.</div></div>' +
                 '</div>' +
                 '<label class="checkbox" style="margin-top:2px"><input type="checkbox" id="cfgMock">' +
                   '<span>프록시 미설정 시 <b>모의 응답</b>으로 흐름 확인 허용</span></label>' +
