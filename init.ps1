@@ -228,6 +228,14 @@ if (Test-Path -LiteralPath 'tools\career_proxy.example.gs' -PathType Leaf) {
         Write-Fail "MAX_CONTINUATIONS 가 너무 큼 — Apps Script 6분 한도를 넘겨 응답 없이 매달린다"
     }
 
+    # 잘린 응답 이어쓰기 — 2차 보고서의 최종 브리프·면책 문장이 끝에 있어 필수다
+    if ($gs -match 'MAX_TEXT_CONTINUATIONS' -and $gs -match 'supportsPrefill_' -and
+        $gs -match 'COMPLETION_SUFFIX') {
+        Write-Ok "잘린 응답 이어쓰기 · 끝맺음 지시 존재"
+    } else {
+        Write-Fail "career_proxy.example.gs 에 이어쓰기 경로가 없음 — 보고서 끝단이 잘려 나간다"
+    }
+
     # 토큰 사용량 기록 — careerTest 공용 탭 형식을 건드리면 그쪽이 깨진다
     if ($gs -match 'logUsage_' -and $gs -match 'SHARED_HEADERS' -and $gs -match 'USAGE_SHEET_NAME') {
         Write-Ok "토큰 사용량 시트 기록 경로 존재 (전용 탭 + careerTest 공용 탭 미러링)"

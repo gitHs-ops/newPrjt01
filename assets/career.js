@@ -486,6 +486,8 @@
                 /* 프록시가 시간이 모자라 검색 루프를 끊었다는 표시 */
                 incomplete: !!(data && data.incomplete),
                 elapsedMs: (data && data.elapsed_ms) || 0,
+                /* 프록시가 잘린 응답을 이어붙인 횟수 */
+                continued: (data && data.continued) || 0,
                 mock: false
             };
         });

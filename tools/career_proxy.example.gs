@@ -74,6 +74,22 @@ function supportsEffort_(model) {
 }
 
 /**
+ * assistant 프리필(마지막 assistant 메시지로 이어쓰기)을 받는 모델인가.
+ * Fable 5 / Opus 5 / Sonnet 5 / 4.6~4.8 계열은 프리필이 제거돼 400 이 난다.
+ * 그 이전 모델(Haiku 4.5 등)은 프리필로 잘린 응답을 이어붙일 수 있다.
+ */
+function supportsPrefill_(model) {
+  return !supportsNewWebTools_(model);
+}
+
+/**
+ * 잘린 응답을 이어받을 최대 횟수.
+ * 2차 보고서는 STEP 11(최종 브리프)과 면책 문장이 끝에 있어, 잘리면 교사가 실제로
+ * 쓸 부분이 통째로 사라진다. max_tokens 를 올리는 것만으로는 재발을 못 막는다.
+ */
+var MAX_TEXT_CONTINUATIONS = 3;
+
+/**
  * 서버사이드 검색 루프가 10회에 도달하면 stop_reason=pause_turn 으로 끊긴다.
  * 이어붙일 최대 횟수 — 무거운 호출을 직렬로 반복하면 6분 한도를 넘긴다.
  * 아래 DEADLINE_MS 로 시간까지 함께 막는다.
@@ -90,6 +106,14 @@ var DEADLINE_MS = 4 * 60 * 1000;
 var SYSTEM_SUFFIX = '\n\n---\n\n웹검색 도구를 사용할 수 있다면 위 "공식 정보 출처 제한" 절에 열거된 ' +
     '기관·자료를 우선 검색해 확인하라. 검색으로도 확인되지 않으면 추측하지 말고 ' +
     '"[확인 불가 — 최신 공식자료 조회 필요]" 로 표시하라.';
+
+/* 보고서의 마지막 절이 빠지는 일이 반복돼 넣은 지시.
+   앞부분을 길게 쓰다 끝을 못 맺는 것보다, 앞을 줄이고 끝까지 맺는 편이 상담에 쓸모 있다. */
+var COMPLETION_SUFFIX = '\n\n---\n\n## 작성 분량 지침\n\n' +
+    '위 프롬프트에 정의된 **마지막 STEP 과 마지막 문장(면책 문구)까지 반드시 포함해 끝맺어라.**\n' +
+    '분량이 모자랄 것 같으면 앞쪽 항목을 짧게 줄여서라도 끝까지 쓴다. ' +
+    '특히 교사가 바로 쓰는 최종 브리프·상담 질문·면책 문장은 생략하지 않는다.\n' +
+    '각 표는 필요한 만큼만 쓰고, 같은 내용을 여러 절에서 되풀이하지 않는다.';
 
 function apiKey_() {
   var k = PropertiesService.getScriptProperties().getProperty('ANTHROPIC_API_KEY');
@@ -333,18 +357,25 @@ function callClaude_(req) {
 
   var system = String(req.system || '');
   if (useSearch) system += SYSTEM_SUFFIX;
+  /* 보고서 끝단(2차의 STEP 10~11, 최종 브리프, 면책 문장)이 통째로 빠지는 일이 잦아
+     마지막까지 반드시 쓰라고 못박는다. 원본 프롬프트는 건드리지 않고 뒤에만 덧붙인다. */
+  system += COMPLETION_SUFFIX;
 
   var messages = [{ role: 'user', content: String(req.prompt) }];
 
   var text = '';
   var sources = [];
   var searches = 0;
-  var usage = null;
+  /* 이어쓰기·이어달리기로 여러 번 호출되므로 토큰은 **누적**해야 한다.
+     턴마다 덮어쓰면 시트에 마지막 호출분만 남아 사용량이 과소 집계된다. */
+  var usage = { input_tokens: 0, output_tokens: 0 };
   var stop = null;
+  var textCont = 0;   /* 분량 초과로 이어쓴 횟수 */
 
   // 서버사이드 도구 루프가 pause_turn 으로 끊기면 이어서 재요청한다.
   // 이때 "계속하세요" 같은 사용자 메시지를 덧붙이면 안 된다 — 서버가 알아서 이어간다.
-  for (var turn = 0; turn <= MAX_CONTINUATIONS; turn++) {
+  var maxTurns = MAX_CONTINUATIONS + MAX_TEXT_CONTINUATIONS;
+  for (var turn = 0; turn <= maxTurns; turn++) {
     var body = {
       model: model,
       max_tokens: maxTokens,
@@ -375,7 +406,10 @@ function callClaude_(req) {
     }
     if (data.error) throw new Error(String(data.error.message || data.error));
 
-    usage = data.usage || usage;
+    if (data.usage) {
+      usage.input_tokens += data.usage.input_tokens || 0;
+      usage.output_tokens += data.usage.output_tokens || 0;
+    }
     stop = data.stop_reason;
 
     var picked = harvest_(data.content || []);
@@ -383,20 +417,42 @@ function callClaude_(req) {
     searches += picked.searches;
     sources = sources.concat(picked.sources);
 
-    if (stop !== 'pause_turn') break;
-
-    // 남은 시간이 없으면 이어달리기를 포기하고 지금까지 받은 내용을 돌려준다.
-    // 여기서 멈추지 않으면 Apps Script 가 6분에 강제 종료해 아무것도 못 돌려준다.
     if (Date.now() - started > DEADLINE_MS) {
+      // 남은 시간이 없으면 이어달리기를 포기하고 지금까지 받은 내용을 돌려준다.
+      // 여기서 멈추지 않으면 Apps Script 가 6분에 강제 종료해 아무것도 못 돌려준다.
       stop = 'deadline';
       break;
     }
 
-    // 이어달리기: 사용자 메시지 + 지금까지의 assistant 응답을 그대로 되돌려 보낸다.
-    messages = [
-      { role: 'user', content: String(req.prompt) },
-      { role: 'assistant', content: data.content }
-    ];
+    if (stop === 'pause_turn') {
+      // 서버 도구 루프가 끊긴 경우. 사용자 메시지 + 지금까지의 assistant 응답을
+      // 그대로 되돌려 보낸다. "계속하세요" 같은 말을 덧붙이면 안 된다 — 서버가 알아서 이어간다.
+      messages = [
+        { role: 'user', content: String(req.prompt) },
+        { role: 'assistant', content: data.content }
+      ];
+      continue;
+    }
+
+    if (stop === 'max_tokens' && supportsPrefill_(model) && textCont < MAX_TEXT_CONTINUATIONS) {
+      // 분량 한도로 잘린 경우. 지금까지 쓴 본문을 assistant 프리필로 되돌려 보내면
+      // 모델이 끊긴 지점부터 이어 쓴다. 2차 보고서는 끝에 최종 브리프와 면책 문장이 있어
+      // 여기서 포기하면 교사가 실제로 쓸 부분이 통째로 사라진다.
+      // ⚠ 프리필은 끝에 공백이 있으면 400 이 난다. 반드시 잘라낸다.
+      var head = text.replace(/\s+$/, '');
+      if (!head) break;
+      textCont++;
+      messages = [
+        { role: 'user', content: String(req.prompt) },
+        { role: 'assistant', content: head }
+      ];
+      /* 이어쓰기 구간에서는 도구를 끈다 — 이미 조사는 끝났고 시간만 잡아먹는다 */
+      tools = [];
+      text = head;   /* 다음 응답을 여기에 이어붙인다 */
+      continue;
+    }
+
+    break;
   }
 
   // Opus 5 는 안전 분류기가 요청을 거절하면 200 + stop_reason=refusal 로 돌아온다.
@@ -410,6 +466,7 @@ function callClaude_(req) {
     sources: dedupe_(sources),
     searches: searches,
     truncated: (stop === 'max_tokens'),
+    continued: textCont,
     /* 시간이 모자라 검색 루프를 중간에 끊었다는 표시 — 보고서가 불완전할 수 있다 */
     incomplete: (stop === 'deadline' || stop === 'pause_turn'),
     elapsed_ms: Date.now() - started,
