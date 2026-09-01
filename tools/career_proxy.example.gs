@@ -1,7 +1,7 @@
 /**
  * career_proxy.example.gs — 진로 계열 공용 AI 프록시 (참고 구현)
  *
- *   버전  1.7.0
+ *   버전  1.7.1
  *   날짜  2026-09-01
  *
  *   ⚠ 이 파일을 고치면 아래 PROXY_VERSION 도 함께 올릴 것.
@@ -9,6 +9,7 @@
  *     배포된 버전은 브라우저로 /exec 를 그냥 열어 보면 확인된다.
  *
  * ── 변경 이력 ────────────────────────────────────────────────────────────────
+ *   1.7.1  2026-09-01  test5a_sheetRaw 추가 — 시트 오류를 삼키지 않고 그대로 노출
  *   1.7.0  2026-09-01  본문 이어쓰기 전용 마감(TEXT_DEADLINE_MS) 분리 —
  *                      1차가 검색 마감에 걸려 잘린 채 끝나던 문제.
  *                      시트 기록 실패를 응답에 노출(lastLogError) + test5_sheet 추가
@@ -66,7 +67,7 @@
 
 /* 배포본 식별용. 파일을 고치면 반드시 함께 올린다.
    클라이언트가 이 값을 받아 기대 버전과 다르면 "프록시가 낡았다"고 알려 준다. */
-var PROXY_VERSION = '1.7.0';
+var PROXY_VERSION = '1.7.1';
 var PROXY_DATE = '2026-09-01';
 
 var API_URL = 'https://api.anthropic.com/v1/messages';
@@ -247,8 +248,9 @@ function logUsage_(req, out, errMsg) {
        ⚠ 가장 흔한 원인: SpreadsheetApp 권한 미승인.
           기존 배포는 UrlFetchApp 권한만 승인돼 있어, 시트 코드를 추가한 뒤에는
           편집기에서 함수를 한 번 실행해 **권한을 다시 승인**해야 한다. */
-    lastLogError = String(e && e.message || e);
-    Logger.log('토큰로그 기록 실패: ' + lastLogError);
+    lastLogError = String(e && e.message || e) + ' (시트ID ' + sheetId_() + ')';
+    Logger.log('토큰로그 기록 실패: %s', lastLogError);
+    Logger.log('정확한 원인은 test5a_sheetRaw 를 실행해 확인할 것 — 그쪽은 예외를 삼키지 않는다.');
   }
 }
 
@@ -644,6 +646,41 @@ function test3_load() {
              out.model, out.web_tools, out.elapsed_ms, out.searches, out.sources.length,
              out.incomplete, out.truncated);
   Logger.log(out.text);
+}
+
+/**
+ * 5a단계 — 시트 접근을 **try/catch 없이** 그대로 시도한다.
+ *
+ * test5_sheet 는 logUsage_ 를 부르는데, 그 안의 try/catch 가 예외를 삼켜서
+ * Apps Script 가 진짜 오류를 보여주지 못한다. 이 함수는 예외를 그대로 터뜨린다.
+ * 편집기에서 실행하면 정확한 원인이 화면에 뜬다.
+ *
+ * 오류 메시지별 원인:
+ *   "권한이 없습니다 / You do not have permission"      → 스코프 미승인. 승인 창을 허용할 것
+ *   "Requested entity was not found"                    → 시트 ID 가 틀렸거나,
+ *                                                          이 스크립트를 실행하는 구글 계정에
+ *                                                          해당 시트 접근 권한이 없음
+ *   "openById 를 찾을 수 없음 / Unexpected error"        → 스코프 자체가 매니페스트에 없음.
+ *                                                          저장 후 다시 실행할 것
+ */
+function test5a_sheetRaw() {
+  var id = sheetId_();
+  Logger.log('시트 ID: %s', id);
+  Logger.log('실행 계정: %s', Session.getEffectiveUser().getEmail());
+
+  var ss = SpreadsheetApp.openById(id);          /* 여기서 나는 예외가 진짜 원인이다 */
+  Logger.log('시트 열기 성공: "%s"', ss.getName());
+
+  var names = ss.getSheets().map(function (sh) { return sh.getName(); });
+  Logger.log('탭 목록: %s', names.join(' / '));
+
+  var sheet = ensureSheet_(ss, USAGE_SHEET_NAME, USAGE_HEADERS, '#4f46e5');
+  sheet.appendRow([
+    Utilities.formatDate(new Date(), 'Asia/Seoul', 'yyyy-MM-dd HH:mm:ss'),
+    '(직접점검)', 'RAW', '', DEFAULT_MODEL, 1, 1, 2, 0, 0, '', '', 'off',
+    '지워도 되는 점검 행'
+  ]);
+  Logger.log('행 추가 성공 — 탭 "%s"', USAGE_SHEET_NAME);
 }
 
 /**
