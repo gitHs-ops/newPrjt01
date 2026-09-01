@@ -201,6 +201,13 @@ if (Test-Path -LiteralPath 'tools\career_proxy.example.gs' -PathType Leaf) {
     } else {
         Write-Fail "career_proxy.example.gs 에서 누락: $($missing -join ', ')"
     }
+
+    # careerTest 와 배포를 공유하므로 기존 GET 경로가 살아 있어야 한다
+    if ($gs -match 'function doGet' -and $gs -match 'CAREERTEST_SYSTEM') {
+        Write-Ok "프록시 예시가 careerTest GET 경로를 보존 (배포 공유 가능)"
+    } else {
+        Write-Fail "career_proxy.example.gs 에 careerTest 용 doGet 경로가 없음 — 배포를 덮으면 careerTest 가 죽는다"
+    }
 }
 
 # 5c-3) API 키가 저장소에 섞여 들어가지 않았는가 (careerTest 프록시 복사 사고 방지)

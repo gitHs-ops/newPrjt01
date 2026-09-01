@@ -1,14 +1,32 @@
 /**
- * career_proxy.example.gs — newPrjt01 진로상담 AI 프록시 (참고 구현)
+ * career_proxy.example.gs — 진로 계열 공용 AI 프록시 (참고 구현)
  * =============================================================================
- * 이 파일은 **예시**다. 그대로 Google Apps Script 에 붙여 넣고 API 키만 채우면 동작한다.
- * 이 저장소에는 키를 절대 커밋하지 말 것 — 키는 Apps Script 의 스크립트 속성에만 둔다.
+ * 하나의 Apps Script 배포로 **두 앱을 함께** 받는다. API 키도 하나만 쓴다.
  *
- * 배포:
- *   1. script.google.com 에서 새 프로젝트 생성 후 이 파일 내용을 붙여넣는다
- *   2. 프로젝트 설정 → 스크립트 속성에 ANTHROPIC_API_KEY 추가
- *   3. 배포 → 새 배포 → 웹 앱 / 실행 계정: 나 / 액세스: 모든 사용자
- *   4. 발급된 /exec URL 을 진로상담 화면의 [연결 설정]에 넣는다
+ *   GET  ?prompt=...&max_tokens=...   → careerTest (기존 동작 그대로, HTML 출력)
+ *   POST {system, prompt, ...}        → newPrjt01 진로상담 (md 출력 + 공식자료 웹검색)
+ *
+ * ── 왜 GET 하나로 합칠 수 없나 ────────────────────────────────────────────────
+ *   careerTest 는 프롬프트를 URL 쿼리에 실어 보낸다. 진로상담의 1차 프롬프트는
+ *   26KB 가 넘어 URL 인코딩하면 7만 자를 훌쩍 넘긴다 — URL 길이 한계로 원천 불가다.
+ *   또 careerTest 의 system 프롬프트는 소스에 고정돼 있고 HTML 출력을 요구하는데,
+ *   진로상담은 1차/2차 프롬프트 전문을 매번 실어 보내고 md 를 받아야 한다.
+ *   그래서 GET(기존)은 건드리지 않고 POST 를 **추가**한다.
+ * ─────────────────────────────────────────────────────────────────────────────
+ *
+ * 기존 careerTest 프록시에 얹는 경우:
+ *   1. 기존 Apps Script 프로젝트를 열고 이 파일 내용으로 교체한다
+ *      (아래 doGet 은 기존 career_proxy.gs ver4.1 과 동작이 같다)
+ *   2. 소스에 박혀 있던 API 키를 지우고 → 프로젝트 설정 → 스크립트 속성에
+ *      ANTHROPIC_API_KEY 로 옮긴다. **소스에 키를 두면 안 된다**
+ *   3. 배포 → 배포 관리 → 편집(연필) → 버전: 새 버전 → 배포
+ *      ⚠ "새 배포"가 아니라 **"배포 관리 → 새 버전"** 이어야 /exec URL 이 유지되고
+ *        careerTest 가 계속 돈다
+ *   4. 같은 /exec URL 을 진로상담 화면의 [연결 설정]에 넣는다
+ *
+ * 새로 만드는 경우:
+ *   script.google.com → 새 프로젝트 → 이 내용 붙여넣기 → 스크립트 속성에 키 →
+ *   배포 → 새 배포 → 웹 앱 / 실행 계정: 나 / 액세스: 모든 사용자
  *
  * 왜 프록시를 두는가:
  *   - API 키가 브라우저에 노출되지 않는다
@@ -18,6 +36,9 @@
  *   진로상담 프롬프트는 커리어넷·KOSIS·대학 입학처·Q-Net 등 공식자료 확인을 전제로 한다.
  *   검색 없이 호출하면 "확인 불가"만 잔뜩 나온다. 그래서 Anthropic 의 **서버사이드
  *   web_search 도구**를 켠다. 검색은 Anthropic 서버에서 실행되므로 별도 검색 API 가 필요 없다.
+ *
+ * ⚠ 키를 공유하면 두 앱의 사용량·요금·레이트리밋이 한 계정에 합산된다.
+ *   진로상담 1회 분석은 웹검색까지 도니 careerTest 한 탭보다 훨씬 무겁다.
  * =============================================================================
  */
 
@@ -45,14 +66,72 @@ function apiKey_() {
 
 /* ----------------------------------------------------------------- 진입점 */
 
-/** 상태 확인용. 브라우저로 /exec 를 그냥 열면 이게 뜬다. */
+/* ---------------------------------------------- GET — careerTest (기존 동작) */
+
+/**
+ * careerTest 가 쓰던 경로. 동작을 바꾸지 말 것 —
+ * career_advisor.html 이 PROXY_URL + '?prompt=...&max_tokens=...' 로 부른다.
+ * system 프롬프트가 고정이고 HTML 을 출력한다. 웹검색은 쓰지 않는다.
+ *
+ * 프롬프트 없이 /exec 를 그냥 열면 상태 표시가 뜬다.
+ */
+var CAREERTEST_SYSTEM =
+    '당신은 대한민국 청소년 진로 전문 컨설턴트입니다. ' +
+    '학생[이름|학년|직업군|홀랜드유형|적성|가치관|약점] 형식의 정보와 과제를 받으면, ' +
+    '한국 실정에 맞는 구체적인 진로 조언을 HTML 형식으로 제공하세요. ' +
+    '<h4>, <ul>, <li>, <strong> 태그를 적극 활용하세요.';
+
+var CAREERTEST_MODEL = 'claude-sonnet-5';
+
 function doGet(e) {
-  return json_({
-    status: 'newPrjt01 career proxy OK',
-    model: DEFAULT_MODEL,
-    web_search: true
-  });
+  try {
+    if (!e || !e.parameter || !e.parameter.prompt) {
+      return json_({
+        status: 'career proxy OK',
+        get: 'careerTest (HTML)',
+        post: 'newPrjt01 진로상담 (md + web_search)',
+        model: DEFAULT_MODEL
+      });
+    }
+
+    var maxTokens = parseInt(e.parameter.max_tokens, 10) || 1500;
+
+    var res = UrlFetchApp.fetch(API_URL, {
+      method: 'post',
+      contentType: 'application/json',
+      headers: {
+        'x-api-key': apiKey_(),
+        'anthropic-version': ANTHROPIC_VERSION
+      },
+      payload: JSON.stringify({
+        model: CAREERTEST_MODEL,
+        max_tokens: maxTokens,
+        system: CAREERTEST_SYSTEM,
+        messages: [{ role: 'user', content: e.parameter.prompt }]
+      }),
+      muteHttpExceptions: true
+    });
+
+    var data = JSON.parse(res.getContentText());
+    var text = '';
+    if (data.content) {
+      for (var i = 0; i < data.content.length; i++) {
+        if (data.content[i].type === 'text') text += data.content[i].text;
+      }
+    }
+
+    return json_({
+      text: text.replace(/^```html\s*/, '').replace(/```\s*$/, '').trim(),
+      usage: data.usage || null,
+      error: data.error ? data.error.message : null
+    });
+
+  } catch (err) {
+    return json_({ error: String(err && err.message || err) });
+  }
 }
+
+/* ------------------------------------------- POST — newPrjt01 진로상담 */
 
 /**
  * 본 요청. 클라이언트(assets/career.js)가 보내는 형태:

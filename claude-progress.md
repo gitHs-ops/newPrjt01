@@ -19,7 +19,7 @@ Codex·OpenHands 등 어떤 코딩 에이전트도 쓸 수 있다. 어떤 에이
   `career.js` API 11종 + fetch 경로 + 옵시디언 스텁 + 웹검색 지시 + 출처 경로,
   프록시 예시 4종, **저장소 내 `sk-ant-` 키 문자열 검사**, 프롬프트 생성물 동기화,
   `home.html`→`career.html` 링크, JSON 파싱, `python`, 포트.
-  **58개 항목 전부 통과해야 exit 0**
+  **59개 항목 전부 통과해야 exit 0**
 - **Standard start command**: `python -m http.server 8940` → http://localhost:8940/
   (`.claude/launch.json` 의 `newPrjt01-static` 과 동일 포트)
 - **Current highest-priority unfinished feature**: `career-008` — AI 프록시 주소·API 키 확정
@@ -194,6 +194,11 @@ Codex·OpenHands 등 어떤 코딩 에이전트도 쓸 수 있다. 어떤 에이
 - **구현**
   - 신규 `tools/career_proxy.example.gs` — 웹검색·이어달리기·출처수집·거절(refusal) 처리를
     포함한 참고 프록시. **API 키는 스크립트 속성에만** 두고 소스에 넣지 않는다
+  - **careerTest 와 배포를 공유할 수 있게 GET/POST 겸용으로 만들었다**(사용자 요청).
+    `doGet` 은 기존 `career_proxy.gs` ver4.1 과 동작이 같고(고정 system·HTML·검색 없음),
+    `doPost` 를 **추가**해 진로상담을 받는다. 하나의 `/exec`, 하나의 API 키.
+    GET 으로 합칠 수 없는 이유: 1차 프롬프트가 26KB 라 URL 쿼리에 실을 수 없고,
+    careerTest 의 system 은 소스 고정 + HTML 출력이다
   - `career.js` — 요청에 `web_search` / `search_max_uses` / `allowed_domains` 를 싣고,
     응답의 `sources` · `searches` · `truncated` 를 사례에 함께 저장.
     `OFFICIAL_DOMAINS` 16개 기관, `renderSources()` 추가
@@ -201,13 +206,14 @@ Codex·OpenHands 등 어떤 코딩 에이전트도 쓸 수 있다. 어떤 에이
   - 결과 화면에 **“참고한 웹 출처”** 카드 + 출처 0건 경고 + max_tokens 잘림 경고
   - 기본 모델을 `claude-sonnet-5` → **`claude-opus-5`** 로 변경
     (`web_search_20260209` 지원 모델이며 리서치 품질이 이 작업의 핵심)
-  - `init.ps1` 53 → **58개 항목**. 새 검사: 웹검색 지시 · 도메인/출처 경로 ·
-    프록시 예시 4종 · **저장소 내 `sk-ant-` 키 문자열 검사**
+  - `init.ps1` 53 → **59개 항목**. 새 검사: 웹검색 지시 · 도메인/출처 경로 ·
+    프록시 예시 4종 · **저장소 내 `sk-ant-` 키 문자열 검사** ·
+    **careerTest GET 경로 보존 여부**(배포를 덮어써 careerTest 를 죽이는 사고 방지)
 - **⚠ 판단이 필요했던 지점 — 도메인 화이트리스트 기본값**
   공식 도메인으로 검색을 제한하면 프롬프트의 출처 규정에는 맞지만,
   **대학 입학처는 학교마다 도메인이 달라** STEP 7-3(대학 정보·입시결과)이 통째로 막힌다.
   그래서 화이트리스트는 **옵션으로 두고 기본값을 꺼짐**으로 했다. 화면에도 경고를 넣었다.
-- **Verification run**: `.\init.ps1` → **58개 항목 전부 `[OK]`, exit 0**
+- **Verification run**: `.\init.ps1` → **59개 항목 전부 `[OK]`, exit 0**
 - **Evidence captured**
   - fetch 스텁으로 실제 payload 확인 — `web_search=true`, `search_max_uses=12`,
     `allowed_domains` 16건, `model=claude-opus-5`
@@ -220,5 +226,7 @@ Codex·OpenHands 등 어떤 코딩 에이전트도 쓸 수 있다. 어떤 에이
     ① Apps Script 6분 실행 한도 — 검색이 길어지면 초과할 수 있다
     ② `max_tokens` 부족으로 잘리는지(잘림 경고가 뜬다)
     ③ 검색 12회가 적절한지
+    ④ 기존 careerTest 가 계속 도는지(같은 배포를 공유할 경우 — 반드시 "새 배포"가 아니라
+      "배포 관리 → 새 버전"으로 갱신해야 /exec URL 이 유지된다)
   - 프록시 응답이 `sources` 를 안 주는 구버전이면 화면이 출처 0건 경고를 띄운다 —
     오작동이 아니라 의도된 경고다

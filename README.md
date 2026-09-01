@@ -18,7 +18,7 @@
 
 | 옵션 | 동작 |
 |---|---|
-| `.\init.ps1` | 검증만 수행 (58개 항목) |
+| `.\init.ps1` | 검증만 수행 (59개 항목) |
 | `.\init.ps1 -Start` | 검증 후 로컬 서버 기동 |
 | `.\init.ps1 -Start -OpenBrowser` | 기동 후 브라우저까지 열기 |
 | `-Port 9000` | 포트 변경 (기본 8940) |
@@ -52,7 +52,7 @@
 | `assets/career-prompts.js` | **자동 생성물** — 프롬프트 원문을 담은 파일 |
 | `assets/prompts/*.txt` | 프롬프트·입력명세 원문 (단일 원본) |
 | `tools/build-prompts.py` | `assets/prompts/*.txt` → `assets/career-prompts.js` 재생성 |
-| `tools/career_proxy.example.gs` | AI 프록시 참고 구현 (웹검색 포함, 키는 비어 있음) |
+| `tools/career_proxy.example.gs` | AI 프록시 참고 구현 — careerTest(GET) + 진로상담(POST) 겸용, 키는 비어 있음 |
 
 프롬프트 원문을 고쳤다면:
 
@@ -85,6 +85,32 @@ Content-Type: text/plain;charset=utf-8      ← GAS 웹앱 CORS preflight 회피
 참고 구현이 `tools/career_proxy.example.gs` 에 있다. Apps Script 에 붙여넣고
 스크립트 속성 `ANTHROPIC_API_KEY` 만 채우면 동작한다.
 **키를 소스에 적지 말 것** — `init.ps1` 이 저장소에서 `sk-ant-` 문자열을 찾으면 검증에 실패한다.
+
+#### careerTest 프록시와 배포 공유
+
+같은 Apps Script 배포·같은 API 키를 `careerTest` 와 함께 쓸 수 있다.
+참고 구현이 두 경로를 모두 갖고 있다.
+
+| 경로 | 쓰는 앱 | 동작 |
+|---|---|---|
+| `GET ?prompt=...&max_tokens=...` | careerTest | 기존 `career_proxy.gs` ver4.1 과 동일 — 고정 system, HTML 출력, 검색 없음 |
+| `POST {system, prompt, ...}` | newPrjt01 진로상담 | 프롬프트 전문 수신, md 출력, 웹검색 |
+
+**왜 GET 하나로 합칠 수 없나** — careerTest 는 프롬프트를 URL 쿼리에 싣는데,
+진로상담 1차 프롬프트는 **26KB**라 URL 인코딩하면 7만 자를 넘긴다. URL 길이 한계로 원천 불가다.
+게다가 careerTest 의 system 은 소스에 고정돼 있고 HTML 을 요구한다.
+그래서 GET 은 그대로 두고 POST 를 **추가**한다.
+
+기존 프로젝트에 얹을 때:
+
+1. 기존 Apps Script 프로젝트를 이 파일 내용으로 교체
+2. 소스에 박힌 API 키를 지우고 **스크립트 속성** `ANTHROPIC_API_KEY` 로 옮긴다
+3. 배포 → **배포 관리 → 편집 → 버전: 새 버전** → 배포
+   (⚠ "새 배포"를 만들면 `/exec` URL 이 바뀌어 careerTest 가 끊긴다)
+4. 같은 `/exec` URL 을 진로상담 [연결 설정]에 입력
+
+> ⚠ 키를 공유하면 두 앱의 사용량·요금·레이트리밋이 한 계정에 합산된다.
+> 진로상담 1회 분석은 웹검색까지 돌므로 careerTest 한 탭보다 훨씬 무겁다.
 
 ### 공식자료 웹검색
 
