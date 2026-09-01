@@ -209,6 +209,16 @@ if (Test-Path -LiteralPath 'tools\career_proxy.example.gs' -PathType Leaf) {
         Write-Fail "career_proxy.example.gs 에서 누락: $($missing -join ', ')"
     }
 
+    # 모델별 요청 형태 차이를 흡수하는가 —
+    # Haiku 4.5 는 동적 필터링 웹검색(_20260209)과 output_config.effort 를 받지 못한다.
+    # 이 분기가 사라지면 Haiku 로 호출할 때 400 이 난다.
+    if ($gs -match 'supportsNewWebTools_' -and $gs -match 'supportsEffort_' -and
+        $gs -match 'web_search_20250305') {
+        Write-Ok "프록시가 모델별 도구·effort 지원 여부를 분기"
+    } else {
+        Write-Fail "career_proxy.example.gs 에 모델별 분기가 없음 — Haiku 계열에서 400 이 난다"
+    }
+
     # Apps Script 6분 한도 대비 — 이어달리기를 늘려 놓으면 응답 없이 매달린다(2026-09-01 실제 발생)
     if ($gs -match 'MAX_CONTINUATIONS\s*=\s*[0-2]\b') {
         Write-Ok "이어달리기 상한이 안전 범위(0~2)"

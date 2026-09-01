@@ -42,7 +42,7 @@
     var DEFAULT_CONFIG = {
         /* --- AI 호출 (careerTest 의 GAS 프록시와 같은 방식) --- */
         endpoint: '',          /* 예: https://script.google.com/macros/s/.../exec  — 추후 결정 */
-        model: 'claude-opus-5',
+        model: 'claude-haiku-4-5',
         maxTokens1: 8000,
         maxTokens2: 6000,
         allowMock: true,       /* 엔드포인트 미설정 시 모의 응답으로 흐름 검증 */
@@ -898,7 +898,7 @@
             saveBtn.addEventListener('click', function () {
                 saveConfig({
                     endpoint: (document.getElementById('cfgEndpoint').value || '').trim(),
-                    model: (document.getElementById('cfgModel').value || '').trim() || 'claude-opus-5',
+                    model: (document.getElementById('cfgModel').value || '').trim() || 'claude-haiku-4-5',
                     maxTokens1: parseInt(document.getElementById('cfgTok1').value, 10) || 8000,
                     maxTokens2: parseInt(document.getElementById('cfgTok2').value, 10) || 6000,
                     allowMock: document.getElementById('cfgMock').checked,
@@ -981,7 +981,13 @@
                 '<div class="field"><label for="cfgEndpoint">프록시 URL</label>' +
                   '<div class="input-wrap"><input type="url" id="cfgEndpoint" placeholder="https://script.google.com/macros/s/.../exec  (추후 결정)"></div></div>' +
                 '<div class="field"><label for="cfgModel">모델</label>' +
-                  '<div class="input-wrap"><input type="text" id="cfgModel" placeholder="claude-sonnet-5"></div></div>' +
+                  '<select id="cfgModel">' +
+                    '<option value="claude-haiku-4-5">Haiku 4.5 — 빠르고 저렴 (기본)</option>' +
+                    '<option value="claude-sonnet-5">Sonnet 5 — 지시 준수·리서치 품질 우수</option>' +
+                    '<option value="claude-opus-5">Opus 5 — 최고 품질, 가장 느림</option>' +
+                  '</select>' +
+                  '<div class="hint">Haiku 는 <b>사고 깊이(effort) 설정을 받지 않습니다</b> — ' +
+                    '아래 effort 는 Sonnet·Opus 에서만 적용됩니다.</div></div>' +
                 '<div class="grid2">' +
                   '<div class="field"><label for="cfgTok1">1차 max_tokens</label>' +
                     '<div class="input-wrap"><input type="number" id="cfgTok1" min="1000" step="500"></div></div>' +

@@ -18,7 +18,7 @@
 
 | 옵션 | 동작 |
 |---|---|
-| `.\init.ps1` | 검증만 수행 (62개 항목) |
+| `.\init.ps1` | 검증만 수행 (63개 항목) |
 | `.\init.ps1 -Start` | 검증 후 로컬 서버 기동 |
 | `.\init.ps1 -Start -OpenBrowser` | 기동 후 브라우저까지 열기 |
 | `-Port 9000` | 포트 변경 (기본 8940) |
@@ -70,13 +70,14 @@ python tools/build-prompts.py
 POST <프록시 URL>
 Content-Type: text/plain;charset=utf-8      ← GAS 웹앱 CORS preflight 회피
 {
-  "system": "...", "prompt": "...", "max_tokens": 8000, "model": "claude-opus-5",
-  "web_search": true, "search_max_uses": 12,
+  "system": "...", "prompt": "...", "max_tokens": 8000, "model": "claude-haiku-4-5",
+  "web_search": true, "search_max_uses": 6, "effort": "low",
   "allowed_domains": ["career.go.kr", ...]        // 선택 — 공식자료 제한 옵션
 }
 
 200 { "text": "...", "usage": {...}, "sources": [{title,url}], "searches": 3,
-      "truncated": false, "error": null }
+      "model": "...", "web_tools": "basic|v2026",
+      "truncated": false, "incomplete": false, "elapsed_ms": 41230, "error": null }
 ```
 
 **프록시 배포와 API 키는 추후 결정 사항**이다(`career-008`). 비어 있으면 화면 흐름 확인용
@@ -123,8 +124,25 @@ Content-Type: text/plain;charset=utf-8      ← GAS 웹앱 CORS preflight 회피
 |---|---|---|
 | 웹검색 사용 | 켬 | 끄면 모델 기억만으로 답한다 — 프롬프트가 금지하는 상태 |
 | 분석 1회당 최대 검색 | 6 | `max_uses` 로 전달 |
-| 사고 깊이 (effort) | `low` | 실행시간을 좌우한다 — 아래 참조 |
+| 사고 깊이 (effort) | `low` | 실행시간을 좌우한다 — **Haiku 는 미지원** |
 | 공식 기관 도메인만 | **끔** | 켜면 `allowed_domains` 16개 기관으로 제한 |
+
+#### 모델 선택
+
+기본은 **Haiku 4.5**(`claude-haiku-4-5`)다. 빠르고 저렴해서 Apps Script 6분 한도 안에 들어오기 쉽다.
+설정에서 Sonnet 5 · Opus 5 로 올릴 수 있다.
+
+**모델에 따라 요청 형태가 달라진다.** 프록시가 두 헬퍼로 흡수한다.
+
+| | Haiku 4.5 (기본) | Sonnet 5 / Opus 5 |
+|---|---|---|
+| 웹검색 도구 | `web_search_20250305` (기본형) | `web_search_20260209` (동적 필터링) |
+| `output_config.effort` | **보내면 오류** → 생략 | 적용 |
+| 속도·비용 | 빠름 / $1·$5 per MTok | 느림 / Sonnet $2·$10, Opus $5·$25 |
+
+> ⚠ 품질 트레이드오프가 있다. 이 프롬프트는 `[확인]`·`[해석]`·`[제안]` 구분,
+> 근거 없는 수치 금지, "확인 불가" 표시 같은 **엄격한 지시 준수**를 요구한다.
+> Haiku 로 돌린 뒤 그 규칙이 지켜지는지 실제 출력으로 확인하고, 흐트러지면 Sonnet 5 로 올릴 것.
 
 #### ⚠ 실행시간 — Apps Script 6분 한도
 

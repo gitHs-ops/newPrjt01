@@ -13,7 +13,7 @@
   - 결과는 `localStorage`(`np_career_cases`)에 보존되고 md 파일로 저장된다
   - 보고서는 자체 마크다운 렌더러로 표·제목·인용·코드블록까지 그린다
 - **실제로 돌린 검증**
-  1. `.\init.ps1` → **62개 항목 전부 `[OK]`, exit 0**
+  1. `.\init.ps1` → **63개 항목 전부 `[OK]`, exit 0**
   2. 브라우저 실기동(http://localhost:8940) 전 경로 통과, 콘솔 오류 0건
   3. 실패 경로도 확인 — 잘못된 프록시 주소 → “프록시에 연결하지 못했습니다…” 화면
   4. 옵시디언 전송 클릭 → “추후 결정” 안내로 차단됨
@@ -24,7 +24,7 @@
   `career-step2.html` · `career-report2.html`
 - **신규 자산**: `assets/career.css` · `assets/career.js` · `assets/career-prompts.js`(생성물) ·
   `assets/prompts/*.txt`(원문 4종) · `tools/build-prompts.py`
-- **수정**: `home.html`(진입 카드) · `assets/auth.css`(`.app-card`) · `init.ps1`(26→**62 항목**) ·
+- **수정**: `home.html`(진입 카드) · `assets/auth.css`(`.app-card`) · `init.ps1`(26→**63 항목**) ·
   `feature_list.json`(`career-001`~`010` 주입, 기존 항목 우선순위 뒤로) · `README.md`
 - **AI 호출은 프록시 경유 방식으로 구현** — 프롬프트를 복사해 붙여넣는 방식이 아니다
 - **공식자료 웹검색을 붙였다**(`career-010`) — 프록시가 Anthropic 서버사이드 `web_search`
@@ -32,6 +32,9 @@
   참고 프록시 `tools/career_proxy.example.gs` 신규. 기본 모델 `claude-opus-5`
 - **프록시를 careerTest 와 공유 가능하게 GET/POST 겸용으로 만들었다** —
   `doGet`(careerTest, 기존 그대로) + `doPost`(진로상담) 한 파일. 배포 하나, 키 하나
+- **기본 모델을 Haiku 4.5 로 변경**(사용자 지시). 모델 문자열만 바꾼 게 아니라
+  프록시에 모델별 분기를 넣었다 — Haiku 는 기본형 웹검색(`_20250305`)을 쓰고
+  `output_config.effort` 를 받으면 오류가 나기 때문이다
 - **실행시간 초과 대응** — 배포 후 `testProxy()` 가 끝나지 않는 문제를 잡았다.
   `effort=low` 기본, `MAX_CONTINUATIONS 4→1`, `DEADLINE_MS`(4분) 시간 가드 추가.
   점검 함수를 `test1_key` → `test2_search` → `test3_load` → `test4_careertest` 로 분리
@@ -75,10 +78,11 @@
   ```
   POST <프록시 URL>
   Content-Type: text/plain;charset=utf-8
-  { "system": "...", "prompt": "...", "max_tokens": 8000, "model": "claude-opus-5",
-    "web_search": true, "search_max_uses": 12, "allowed_domains": [...] }
+  { "system": "...", "prompt": "...", "max_tokens": 8000, "model": "claude-haiku-4-5",
+    "web_search": true, "search_max_uses": 6, "effort": "low", "allowed_domains": [...] }
   → 200 { "text": "...", "usage": {...}, "sources": [{title,url}], "searches": 3,
-          "truncated": false, "error": null }
+          "model": "...", "web_tools": "basic|v2026",
+          "truncated": false, "incomplete": false, "elapsed_ms": 41230, "error": null }
   ```
 - **careerTest 배포에 얹는 경우** — 반드시 **배포 관리 → 편집 → 새 버전**으로 갱신할 것.
   “새 배포”를 만들면 `/exec` URL 이 바뀌어 careerTest 가 끊긴다.
@@ -95,6 +99,8 @@
   ① 응답이 잘리는지(잘림 경고) → `max_tokens` 조정
   ② “참고한 웹 출처” 카드에 공식 기관이 실제로 잡히는지
   ③ `incomplete` 경고가 뜨면 검색 횟수·effort 를 낮출 것
+  ④ **Haiku 4.5 가 프롬프트의 엄격한 규칙을 지키는지** — `[확인]`/`[해석]`/`[제안]` 구분,
+    근거 없는 수치 금지, "확인 불가" 표시. 흐트러지면 설정에서 Sonnet 5 로 올릴 것
 - **그래도 6분을 못 맞추면** — Apps Script 자체가 한계다.
   effort/검색횟수를 더 낮추거나, 실행 한도가 없는 런타임(Cloudflare Workers 등)으로
   프록시를 옮기는 것이 근본 해법이다. 계약(POST/JSON)은 그대로 쓸 수 있다
@@ -106,6 +112,9 @@
   - **`MAX_CONTINUATIONS` 를 올리지 말 것** — 무거운 호출이 직렬로 반복돼 6분 한도를 넘긴다.
     `init.ps1` 이 0~2 범위를 검사한다(2026-09-01 실제로 매달림)
   - **`DEADLINE_MS` 가드를 지우지 말 것** — 없으면 한도 초과 시 아무것도 못 돌려준다
+  - **`supportsNewWebTools_` / `supportsEffort_` 분기를 지우지 말 것** —
+    Haiku 4.5 에 `web_search_20260209` 나 `output_config.effort` 를 보내면 400 이 난다.
+    `init.ps1` 이 이 분기 존재를 검사한다
   - **“공식 기관 도메인만” 을 기본값으로 켜지 말 것** — 대학 입학처가 학교마다 도메인이 달라
     STEP 7-3(대학 정보·입시결과)이 통째로 막힌다
   - `assets/prompts/*.txt` 원문을 코드에서 직접 고치지 말 것 (생성기 경유)

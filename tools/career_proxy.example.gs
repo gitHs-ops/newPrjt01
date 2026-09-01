@@ -47,16 +47,31 @@
 var API_URL = 'https://api.anthropic.com/v1/messages';
 var ANTHROPIC_VERSION = '2023-06-01';
 
-/** 기본 모델. web_search_20260209(동적 필터링)은 Opus 5/4.8/4.7/4.6, Sonnet 5, Sonnet 4.6 에서 동작한다. */
-var DEFAULT_MODEL = 'claude-opus-5';
+/**
+ * 기본 모델. Haiku 4.5 는 빠르고 저렴해서 Apps Script 6분 한도 안에 들어오기 좋다.
+ * ⚠ 모델에 따라 요청 형태가 달라진다 — 아래 두 헬퍼가 그것을 흡수한다.
+ *   ① 웹검색 도구 버전:  동적 필터링(_20260209)은 Opus 5/4.8/4.7/4.6, Sonnet 5/4.6 전용.
+ *                        Haiku 4.5 는 기본 버전(_20250305 / _20250910)을 써야 한다.
+ *   ② effort:            Haiku 4.5 · Sonnet 4.5 에 output_config.effort 를 보내면 오류가 난다.
+ */
+var DEFAULT_MODEL = 'claude-haiku-4-5';
 
 /**
- * 기본 effort. Apps Script 실행 한도(개인 계정 6분) 때문에 이 값이 핵심이다.
- * Opus 5 는 적응형 사고가 기본으로 켜져 있고 effort 기본값이 high 라
- * 웹검색까지 겹치면 한 번 호출이 수 분씩 걸린다 → 한도를 넘겨 매달린다.
- * 'low' 로 시작해서 시간이 남으면 'medium' 으로 올릴 것.
+ * 기본 effort. effort 를 받는 모델에만 실린다(아래 supportsEffort_ 참조).
+ * Opus/Sonnet 계열은 적응형 사고가 켜져 있어 웹검색까지 겹치면 호출이 수 분씩 걸린다 →
+ * Apps Script 한도를 넘겨 매달린다. 'low' 로 시작해서 시간이 남으면 올릴 것.
  */
 var DEFAULT_EFFORT = 'low';
+
+/** 동적 필터링 web_search/web_fetch(_20260209)를 지원하는 모델인가 */
+function supportsNewWebTools_(model) {
+  return /^claude-(opus-(5|4-8|4-7|4-6)|sonnet-(5|4-6)|fable-5|mythos-5)\b/.test(String(model));
+}
+
+/** output_config.effort 를 받는 모델인가 (Haiku 4.5 · Sonnet 4.5 는 오류) */
+function supportsEffort_(model) {
+  return supportsNewWebTools_(model) || /^claude-opus-4-5\b/.test(String(model));
+}
 
 /**
  * 서버사이드 검색 루프가 10회에 도달하면 stop_reason=pause_turn 으로 끊긴다.
@@ -159,14 +174,16 @@ function doGet(e) {
  *     "system": "<1차 또는 2차 프롬프트 전문>",
  *     "prompt": "<학생 입력 데이터>",
  *     "max_tokens": 8000,
- *     "model": "claude-opus-5",
+ *     "model": "claude-haiku-4-5",
  *     "web_search": true,
- *     "search_max_uses": 12,
+ *     "search_max_uses": 6,
  *     "allowed_domains": ["career.go.kr", "kosis.kr"]   // 선택 — 비우면 제한 없음
  *   }
  *
  * 응답:
- *   { "text": "...md...", "usage": {...}, "sources": [{title,url}], "searches": 3, "error": null }
+ *   { "text": "...md...", "usage": {...}, "sources": [{title,url}], "searches": 3,
+ *     "model": "...", "web_tools": "basic|v2026", "incomplete": false, "elapsed_ms": 41230,
+ *     "truncated": false, "error": null }
  */
 function doPost(e) {
   try {
@@ -193,9 +210,15 @@ function callClaude_(req) {
   var useSearch = req.web_search !== false;   // 기본 켬
   var effort = req.effort || DEFAULT_EFFORT;
 
+  var newTools = supportsNewWebTools_(model);
+
   var tools = [];
   if (useSearch) {
-    var search = { type: 'web_search_20260209', name: 'web_search' };
+    /* 모델이 지원하는 버전을 골라야 한다. 지원하지 않는 type 을 보내면 400 이 난다. */
+    var search = {
+      type: newTools ? 'web_search_20260209' : 'web_search_20250305',
+      name: 'web_search'
+    };
 
     var maxUses = parseInt(req.search_max_uses, 10);
     if (maxUses > 0) search.max_uses = maxUses;
@@ -208,7 +231,10 @@ function callClaude_(req) {
     tools.push(search);
 
     // 검색으로 찾은 페이지 본문을 읽어야 기준연도·시행여부를 확인할 수 있다.
-    tools.push({ type: 'web_fetch_20260209', name: 'web_fetch' });
+    tools.push({
+      type: newTools ? 'web_fetch_20260209' : 'web_fetch_20250910',
+      name: 'web_fetch'
+    });
   }
 
   var system = String(req.system || '');
@@ -229,10 +255,10 @@ function callClaude_(req) {
       model: model,
       max_tokens: maxTokens,
       system: system,
-      messages: messages,
-      /* effort 가 실행시간을 좌우한다. GAS 6분 한도 안에 들어오려면 낮게 시작할 것. */
-      output_config: { effort: effort }
+      messages: messages
     };
+    /* effort 가 실행시간을 좌우한다. 단 Haiku 4.5 등은 이 파라미터를 받으면 오류가 난다. */
+    if (supportsEffort_(model)) body.output_config = { effort: effort };
     if (tools.length) body.tools = tools;
 
     var res = UrlFetchApp.fetch(API_URL, {
@@ -293,7 +319,9 @@ function callClaude_(req) {
     /* 시간이 모자라 검색 루프를 중간에 끊었다는 표시 — 보고서가 불완전할 수 있다 */
     incomplete: (stop === 'deadline' || stop === 'pause_turn'),
     elapsed_ms: Date.now() - started,
-    effort: effort,
+    model: model,
+    effort: supportsEffort_(model) ? effort : null,
+    web_tools: (tools.length ? (newTools ? 'v2026' : 'basic') : 'off'),
     error: null
   };
 }
@@ -377,7 +405,6 @@ function test1_key() {
     payload: JSON.stringify({
       model: DEFAULT_MODEL,
       max_tokens: 64,
-      output_config: { effort: 'low' },
       messages: [{ role: 'user', content: '한 단어로만 답하라: 대한민국의 수도는?' }]
     }),
     muteHttpExceptions: true
@@ -396,8 +423,8 @@ function test2_search() {
     search_max_uses: 1,
     effort: 'low'
   });
-  Logger.log('elapsed=%sms searches=%s sources=%s incomplete=%s',
-             out.elapsed_ms, out.searches, out.sources.length, out.incomplete);
+  Logger.log('model=%s tools=%s elapsed=%sms searches=%s sources=%s incomplete=%s',
+             out.model, out.web_tools, out.elapsed_ms, out.searches, out.sources.length, out.incomplete);
   Logger.log(out.text);
 }
 
@@ -413,8 +440,9 @@ function test3_load() {
     search_max_uses: 4,
     effort: 'low'
   });
-  Logger.log('elapsed=%sms searches=%s sources=%s incomplete=%s truncated=%s',
-             out.elapsed_ms, out.searches, out.sources.length, out.incomplete, out.truncated);
+  Logger.log('model=%s tools=%s elapsed=%sms searches=%s sources=%s incomplete=%s truncated=%s',
+             out.model, out.web_tools, out.elapsed_ms, out.searches, out.sources.length,
+             out.incomplete, out.truncated);
   Logger.log(out.text);
 }
 

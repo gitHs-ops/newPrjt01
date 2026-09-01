@@ -19,7 +19,7 @@ Codex·OpenHands 등 어떤 코딩 에이전트도 쓸 수 있다. 어떤 에이
   `career.js` API 11종 + fetch 경로 + 옵시디언 스텁 + 웹검색 지시 + 출처 경로,
   프록시 예시 4종, **저장소 내 `sk-ant-` 키 문자열 검사**, 프롬프트 생성물 동기화,
   `home.html`→`career.html` 링크, JSON 파싱, `python`, 포트.
-  **62개 항목 전부 통과해야 exit 0**
+  **63개 항목 전부 통과해야 exit 0**
 - **Standard start command**: `python -m http.server 8940` → http://localhost:8940/
   (`.claude/launch.json` 의 `newPrjt01-static` 과 동일 포트)
 - **Current highest-priority unfinished feature**: `career-008` — AI 프록시 주소·API 키 확정
@@ -249,6 +249,32 @@ Codex·OpenHands 등 어떤 코딩 에이전트도 쓸 수 있다. 어떤 에이
   - `node --check` 구문 통과
 - **아직 미검증**: 실제 프록시에서 얼마나 걸리는지. `test2_search` 시간을 재서
   `검색 1회 시간 × 검색 횟수` 로 예상치를 잡을 것
+
+#### Session 003 후속 3 — 기본 모델 Haiku 4.5 로 변경 (사용자 지시)
+
+- **지시**: "Opus 로 안 해도 되지 않나" → 기본 모델을 `claude-haiku-4-5` 로
+- **동의하는 이유**: 5배 저렴하고 훨씬 빨라 **6분 한도 문제에 직접 도움**이 된다
+- ⚠ **그냥 모델 문자열만 바꾸면 안 된다** — Haiku 4.5 는 요청 형태가 다르다
+  - `web_search_20260209`(동적 필터링)은 Opus 5/4.8/4.7/4.6, Sonnet 5/4.6 전용 →
+    Haiku 는 기본형 `web_search_20250305` / `web_fetch_20250910` 를 써야 한다
+  - **`output_config.effort` 를 보내면 오류가 난다**(Haiku 4.5 · Sonnet 4.5)
+  - 둘 다 그대로 두면 400 이 났을 것이다
+- **조치**
+  - 프록시에 `supportsNewWebTools_()` · `supportsEffort_()` 두 헬퍼를 넣어 모델별로 분기.
+    응답에 `model` · `web_tools`(basic|v2026) 를 실어 어떤 형태로 나갔는지 확인 가능
+  - 클라이언트 기본 모델 `claude-opus-5` → `claude-haiku-4-5`,
+    모델 입력을 자유 텍스트 → **선택 목록**(Haiku 4.5 / Sonnet 5 / Opus 5)으로 바꾸고
+    "Haiku 는 effort 를 받지 않는다" 안내를 붙임
+  - `init.ps1` 62 → **63개 항목**. 신규: 프록시의 모델별 분기 존재 검사
+- **Verification run**: `.\init.ps1` → **63개 항목 전부 `[OK]`, exit 0**
+- **Evidence captured**
+  - 분기 로직 단위 확인 — haiku-4-5: `basic`/effort=false, sonnet-5·opus-5: `v2026`/effort=true,
+    sonnet-4-5: `basic`/effort=false, opus-4-5: `basic`/effort=true
+  - fetch 스텁: 요청에 `model=claude-haiku-4-5` 실림 확인
+  - 설정 모달에 모델 선택 3종 + Haiku effort 안내 렌더(스크린샷)
+- **⚠ 남는 품질 리스크**: 이 프롬프트는 `[확인]`/`[해석]`/`[제안]` 구분, 근거 없는 수치 금지,
+  "확인 불가" 표시 같은 **엄격한 지시 준수**를 요구한다. Haiku 가 이걸 지키는지는
+  **실제 출력으로 확인해야 한다.** 흐트러지면 Sonnet 5 로 올릴 것 — 설정에서 바로 바꿀 수 있다
 
 - **남는 리스크**
   - **실제 프록시로는 아직 못 돌려봤다.** 배포 후 확인할 것:
