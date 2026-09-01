@@ -461,14 +461,21 @@ Session 004 의 손실은 대부분 "코드가 틀렸다"가 아니라 **"틀린
 1. `.\init.ps1` → 73개 항목 [OK], exit 0
 2. `.\init.ps1 -Live` (엔드포인트 파일 없음) → `[FAIL] -Live 인데 local.endpoint.txt 이 없다`
 3. `.\init.ps1 -Live` (없는 /exec) → `[FAIL] 배포본에 닿지 못함: (404)` — HTTP 경로 실행 확인
-4. `check-report.py` 실제 저장본 2건(19,678자 / 15,077자) → 전부 통과, exit 0
-5. `check-report.py` 2차 60% 절단본 → `단계 누락: STEP 10, STEP 11` + `면책 문장이 없다`, exit 1
-6. 인코딩 검사가 `check-report.py` 안의 U+FFFD 리터럴을 실제로 찍어냄 → `chr(0xFFFD)` 로 수정
+4. `.\init.ps1 -Live` (실제 `/exec`) → `[FAIL] 배포본이 낡았다 — 배포=1.7.1 / 저장소=1.7.2` — 실제 불일치 검출
+5. `check-report.py` 실제 저장본 2건(19,678자 / 15,077자) → 전부 통과, exit 0
+6. `check-report.py` 2차 60% 절단본 → `단계 누락: STEP 10, STEP 11` + `면책 문장이 없다`, exit 1
+7. 인코딩 검사가 `check-report.py` 안의 U+FFFD 리터럴을 실제로 찍어냄 → `chr(0xFFFD)` 로 수정
 
 #### 남은 리스크
 
-- ⚠ **`-Live` 의 "버전 일치" 분기는 아직 실측 못 함.** 404 경로까지만 확인했다.
-  `local.endpoint.txt` 에 진짜 `/exec` URL 을 넣고 한 번 돌려야 완결된다
+- ✅ **`-Live` 실배포 실측 완료 — 그리고 첫 실행에서 바로 걸렸다.**
+  `/exec` 응답 `version=1.7.1`, 저장소 `1.7.2` →
+  `[FAIL] 배포본이 낡았다 — 배포=1.7.1 / 저장소=1.7.2`
+  - **운영 상태**: 배포본에 v1.7.2(이어쓰기로 `tools` 를 비우는 바람에 시트 로그의
+    `web_tools` 가 `off` 로 뒤집히던 정정 + 이어쓰기 횟수 기록)가 빠져 있다.
+    분석 품질에는 영향이 없고 **시트 로그 열이 틀리게 적힌다**. 재배포하면 해소
+  - 이 상태에서는 앱 결과 화면에도 "프록시가 낡았습니다" 경고가 뜬다
+    (`career.js` 의 `EXPECTED_PROXY_VERSION` = 1.7.2)
 - ⚠ `check-report.py` 의 기대값은 프롬프트의 **출력 형식**에 묶여 있다.
   `assets/prompts/*.txt` 의 A~L / STEP 구조를 바꾸면 검사기도 같이 고칠 것
 - 문서 비대화는 손대지 않았다 — `claude-progress.md` 400줄 초과, `feature_list.json` 26KB.
