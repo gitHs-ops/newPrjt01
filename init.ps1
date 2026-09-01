@@ -294,9 +294,17 @@ if (Test-Path -LiteralPath 'tools\career_proxy.example.gs' -PathType Leaf) {
 
     # 토큰 사용량 기록 — careerTest 공용 탭 형식을 건드리면 그쪽이 깨진다
     if ($gs -match 'logUsage_' -and $gs -match 'SHARED_HEADERS' -and $gs -match 'USAGE_SHEET_NAME') {
-        Write-Ok "토큰 사용량 시트 기록 경로 존재 (전용 탭 + careerTest 공용 탭 미러링)"
+        Write-Ok "토큰 사용량 시트 기록 경로 존재 (전용 탭 + 되돌릴 수 있는 미러링 코드)"
     } else {
         Write-Fail "career_proxy.example.gs 에 토큰 사용량 기록 경로가 없음"
+    }
+
+    # v1.8.0 — 공용 '토큰로그' 탭 미러링을 껐다(한 분석이 두 탭에 이중으로 남던 문제).
+    # 코드는 되돌릴 수 있게 남겨 두므로, 플래그가 다시 true 로 새어 들어오지 않는지 본다.
+    if ($gs -match 'MIRROR_TO_SHARED\s*=\s*false') {
+        Write-Ok "공용 탭 미러링 꺼짐 (전용 탭에만 기록 — 이중 기록 없음)"
+    } else {
+        Write-Fail "MIRROR_TO_SHARED 가 false 가 아님 — 공용 '토큰로그' 탭에 이중 기록된다"
     }
 
     # careerTest 와 배포를 공유하므로 기존 GET 경로가 살아 있어야 한다

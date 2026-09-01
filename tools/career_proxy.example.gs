@@ -1,7 +1,7 @@
 /**
  * career_proxy.example.gs — 진로 계열 공용 AI 프록시 (참고 구현)
  *
- *   버전  1.7.2
+ *   버전  1.8.0
  *   날짜  2026-09-01
  *
  *   ⚠ 이 파일을 고치면 아래 PROXY_VERSION 도 함께 올릴 것.
@@ -9,6 +9,9 @@
  *     배포된 버전은 브라우저로 /exec 를 그냥 열어 보면 확인된다.
  *
  * ── 변경 이력 ────────────────────────────────────────────────────────────────
+ *   1.8.0  2026-09-01  공용 '토큰로그' 탭 미러링 중단(MIRROR_TO_SHARED=false).
+ *                      한 번의 분석이 두 탭에 이중으로 남는 게 혼란스럽다는 판단.
+ *                      전용 탭 '진로상담 토큰로그' 에만 기록한다
  *   1.7.2  2026-09-01  로그 정정 — 이어쓰기로 tools 를 비우는 바람에 web_tools 가
  *                      'off' 로 뒤집히던 문제. 이어쓰기 횟수를 비고에 기록
  *   1.7.1  2026-09-01  test5a_sheetRaw 추가 — 시트 오류를 삼키지 않고 그대로 노출
@@ -69,7 +72,7 @@
 
 /* 배포본 식별용. 파일을 고치면 반드시 함께 올린다.
    클라이언트가 이 값을 받아 기대 버전과 다르면 "프록시가 낡았다"고 알려 준다. */
-var PROXY_VERSION = '1.7.2';
+var PROXY_VERSION = '1.8.0';
 var PROXY_DATE = '2026-09-01';
 
 var API_URL = 'https://api.anthropic.com/v1/messages';
@@ -166,9 +169,13 @@ function apiKey_() {
 
    탭 구성 — 한 스프레드시트에 두 개를 쓴다.
      ① '진로상담 토큰로그' : 이 앱 전용 상세 기록(14열). 새로 만든다
-     ② '토큰로그'          : careerTest 가 이미 쓰는 탭(8열)에 **같은 형식으로 미러링**한다.
-                             기존 합계·차트가 진로상담 사용량까지 포함하도록 하기 위함이다.
-                             컬럼 형식을 바꾸면 careerTest 쪽이 깨지므로 절대 손대지 말 것.
+     ② '토큰로그'          : careerTest 공용 탭(8열). **v1.8.0 부터 쓰지 않는다.**
+                             한 번의 분석이 두 탭에 이중으로 남아 혼란스럽다는 판단이다.
+                             미러링 코드는 남겨 두되 MIRROR_TO_SHARED 로 꺼 둔다 —
+                             되돌리려면 그 값만 true 로 바꾸고 재배포하면 된다.
+                             ⚠ 되돌릴 때도 컬럼 형식은 손대지 말 것(careerTest 가 깨진다).
+                             ⚠ 미러링을 끈 만큼 careerTest 쪽 합계·차트에는
+                               진로상담 사용량이 더 이상 잡히지 않는다.
    ---------------------------------------------------------------------- */
 
 /* careerTest 의 스프레드시트. 스크립트 속성 CAREER_SHEET_ID 가 있으면 그쪽이 우선한다.
@@ -177,7 +184,8 @@ var DEFAULT_SHEET_ID = '100uaEYfmzJVZPahwoD5f-SRk-XfLtFV6X80gga7Luak';
 
 var USAGE_SHEET_NAME = '진로상담 토큰로그';   /* 이 앱 전용 상세 탭 */
 var SHARED_LOG_SHEET = '토큰로그';            /* careerTest 와 공용 탭 — 형식 고정 */
-var MIRROR_TO_SHARED = true;                  /* 공용 탭 미러링 사용 여부 */
+var MIRROR_TO_SHARED = false;                 /* v1.8.0 — 공용 탭 미러링 중단(이중 기록 방지).
+                                                 true 로 되돌리면 careerTest 합계에 다시 잡힌다 */
 
 var USAGE_HEADERS = ['일시(KST)', '사용자', '사례ID', '차수', '모델',
                      '입력토큰', '출력토큰', '합계토큰',
@@ -244,8 +252,9 @@ function logUsage_(req, out, errMsg) {
         .filter(function (x) { return x; }).join(' / ')
     ]);
 
-    /* ② careerTest 공용 탭에 미러링 — 기존 합계에 진로상담 사용량이 포함되도록.
-          실패한 호출은 토큰이 없으므로 공용 탭을 어지럽히지 않게 건너뛴다. */
+    /* ② careerTest 공용 탭 미러링 — v1.8.0 부터 MIRROR_TO_SHARED=false 라 돌지 않는다.
+          이중 기록을 없애려고 껐다. 코드는 되돌릴 수 있게 남겨 둔다.
+          (켤 경우) 실패한 호출은 토큰이 없으므로 공용 탭을 어지럽히지 않게 건너뛴다. */
     if (MIRROR_TO_SHARED && !errMsg && (inp || outp)) {
       ensureSheet_(ss, SHARED_LOG_SHEET, SHARED_HEADERS, '#4a4a6a').appendRow([
         kst, user, user, '진로상담:' + (round || '분석'),
