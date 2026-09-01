@@ -226,6 +226,18 @@
         });
     }
 
+
+    /* 모의 응답을 상담 자료로 내보내는 사고를 막는다 —
+       본문에 경고가 있어도 파일로 나가면 그 맥락이 쉽게 잊힌다. */
+    function confirmMock(rep, what) {
+        if (!rep || !rep.mock) return true;
+        return confirm(
+            '⚠ 이 보고서는 모의 응답입니다.\n\n' +
+            'AI 프록시가 설정되지 않아 만들어진 자리표시자이며, 실제 조사 결과가 아닙니다.\n' +
+            '상담 자료로 쓰면 안 됩니다.\n\n' +
+            '그래도 ' + what + '할까요?');
+    }
+
     /* ---------- 액션 ---------- */
     document.getElementById('retryBtn').addEventListener('click', run);
     document.getElementById('againBtn').addEventListener('click', function () {
@@ -247,6 +259,7 @@
     document.getElementById('mdBtn').addEventListener('click', function () {
         var rep = Career.getCase(kase.id).report2;
         if (!rep) return;
+        if (!confirmMock(rep, 'md 파일로 저장')) return;
         var name = Career.fileName(kase, 2);
         Career.downloadMd(name, Career.withFrontMatter(kase, 2, rep.md, rep.mock));
         Career.toast(name + ' 저장됨', 'ok');
@@ -255,6 +268,7 @@
     document.getElementById('bothBtn').addEventListener('click', function () {
         var c = Career.getCase(kase.id);
         var mock = !!((c.report1 && c.report1.mock) || (c.report2 && c.report2.mock));
+        if (!confirmMock({ mock: mock }, '1·2차 합본으로 저장')) return;
         var body = [
             '# 진로상담 종합 — ' + c.label,
             '',
@@ -276,6 +290,7 @@
     document.getElementById('obsBtn').addEventListener('click', function () {
         var rep = Career.getCase(kase.id).report2;
         if (!rep) return;
+        if (!confirmMock(rep, '옵시디언으로 전송')) return;
         var name = Career.fileName(kase, 2);
         Career.sendToObsidian(name, Career.withFrontMatter(kase, 2, rep.md, rep.mock))
             .then(function () { Career.toast('옵시디언으로 보냈습니다.', 'ok'); })
