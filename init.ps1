@@ -228,6 +228,13 @@ if (Test-Path -LiteralPath 'tools\career_proxy.example.gs' -PathType Leaf) {
         Write-Fail "MAX_CONTINUATIONS 가 너무 큼 — Apps Script 6분 한도를 넘겨 응답 없이 매달린다"
     }
 
+    # 토큰 사용량 기록 — careerTest 공용 탭 형식을 건드리면 그쪽이 깨진다
+    if ($gs -match 'logUsage_' -and $gs -match 'SHARED_HEADERS' -and $gs -match 'USAGE_SHEET_NAME') {
+        Write-Ok "토큰 사용량 시트 기록 경로 존재 (전용 탭 + careerTest 공용 탭 미러링)"
+    } else {
+        Write-Fail "career_proxy.example.gs 에 토큰 사용량 기록 경로가 없음"
+    }
+
     # careerTest 와 배포를 공유하므로 기존 GET 경로가 살아 있어야 한다
     if ($gs -match 'function doGet' -and $gs -match 'CAREERTEST_SYSTEM') {
         Write-Ok "프록시 예시가 careerTest GET 경로를 보존 (배포 공유 가능)"

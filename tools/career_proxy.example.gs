@@ -101,39 +101,68 @@ function apiKey_() {
    사용자 아이디별 AI 토큰 사용량을 구글 시트에 남긴다.
    기록은 **프록시에서** 한다 — usage 가 여기 있고, 클라이언트가 빠뜨리거나 위조할 수 없다.
 
-   설정: 스크립트 속성에 CAREER_SHEET_ID 를 넣는다(스프레드시트 URL 의 /d/ 와 /edit 사이 값).
-        비워 두면 로깅만 조용히 건너뛴다 — 로그 실패가 분석을 막으면 안 된다.
+   시트: careerTest 가 쓰는 스프레드시트를 그대로 재사용한다(아래 DEFAULT_SHEET_ID).
+        스크립트 속성 CAREER_SHEET_ID 를 넣으면 그쪽이 우선한다.
+        둘 다 없으면 로깅만 조용히 건너뛴다 — 로그 실패가 분석을 막으면 안 된다.
+
+   탭 구성 — 한 스프레드시트에 두 개를 쓴다.
+     ① '진로상담 토큰로그' : 이 앱 전용 상세 기록(14열). 새로 만든다
+     ② '토큰로그'          : careerTest 가 이미 쓰는 탭(8열)에 **같은 형식으로 미러링**한다.
+                             기존 합계·차트가 진로상담 사용량까지 포함하도록 하기 위함이다.
+                             컬럼 형식을 바꾸면 careerTest 쪽이 깨지므로 절대 손대지 말 것.
    ---------------------------------------------------------------------- */
-var USAGE_SHEET_NAME = '진로상담 토큰로그';
+
+/* careerTest 의 스프레드시트. 스크립트 속성 CAREER_SHEET_ID 가 있으면 그쪽이 우선한다.
+   ⚠ 이 저장소를 공개로 돌릴 계획이면 이 상수를 비우고 스크립트 속성만 쓸 것. */
+var DEFAULT_SHEET_ID = '100uaEYfmzJVZPahwoD5f-SRk-XfLtFV6X80gga7Luak';
+
+var USAGE_SHEET_NAME = '진로상담 토큰로그';   /* 이 앱 전용 상세 탭 */
+var SHARED_LOG_SHEET = '토큰로그';            /* careerTest 와 공용 탭 — 형식 고정 */
+var MIRROR_TO_SHARED = true;                  /* 공용 탭 미러링 사용 여부 */
 
 var USAGE_HEADERS = ['일시(KST)', '사용자', '사례ID', '차수', '모델',
                      '입력토큰', '출력토큰', '합계토큰',
                      '검색횟수', '소요(초)', '잘림', '미완', '웹도구', '비고'];
 
+/* careerTest 의 '토큰로그' 탭 형식. 순서를 바꾸면 안 된다. */
+var SHARED_HEADERS = ['일시(KST)', '학생이름', '로그인계정', '검사종류',
+                      '입력토큰', '출력토큰', '합계토큰', 'IP주소'];
+
+function sheetId_() {
+  return PropertiesService.getScriptProperties().getProperty('CAREER_SHEET_ID') || DEFAULT_SHEET_ID;
+}
+
+/* 시트를 가져오되 없으면 헤더와 함께 만든다 */
+function ensureSheet_(ss, name, headers, color) {
+  var sheet = ss.getSheetByName(name);
+  if (sheet) return sheet;
+  sheet = ss.insertSheet(name);
+  sheet.appendRow(headers);
+  sheet.getRange(1, 1, 1, headers.length)
+       .setFontWeight('bold').setBackground(color || '#4f46e5').setFontColor('#ffffff');
+  sheet.setFrozenRows(1);
+  return sheet;
+}
+
 function logUsage_(req, out, errMsg) {
   try {
-    var sheetId = PropertiesService.getScriptProperties().getProperty('CAREER_SHEET_ID');
-    if (!sheetId) return;   /* 미설정이면 조용히 건너뜀 */
+    var id = sheetId_();
+    if (!id) return;   /* 미설정이면 조용히 건너뜀 */
 
-    var ss = SpreadsheetApp.openById(sheetId);
-    var sheet = ss.getSheetByName(USAGE_SHEET_NAME);
-    if (!sheet) {
-      sheet = ss.insertSheet(USAGE_SHEET_NAME);
-      sheet.appendRow(USAGE_HEADERS);
-      sheet.getRange(1, 1, 1, USAGE_HEADERS.length)
-           .setFontWeight('bold').setBackground('#4f46e5').setFontColor('#ffffff');
-      sheet.setFrozenRows(1);
-    }
+    var ss = SpreadsheetApp.openById(id);
+    var kst = Utilities.formatDate(new Date(), 'Asia/Seoul', 'yyyy-MM-dd HH:mm:ss');
+    var user = req.user || '(미로그인)';
+    var round = req.round ? (req.round + '차') : '';
 
     var u = (out && out.usage) || {};
     var inp = u.input_tokens || 0;
     var outp = u.output_tokens || 0;
 
-    sheet.appendRow([
-      Utilities.formatDate(new Date(), 'Asia/Seoul', 'yyyy-MM-dd HH:mm:ss'),
-      req.user || '(미로그인)',
+    /* ① 이 앱 전용 상세 기록 */
+    ensureSheet_(ss, USAGE_SHEET_NAME, USAGE_HEADERS, '#4f46e5').appendRow([
+      kst, user,
       req.case_id || '',
-      req.round ? (req.round + '차') : '',
+      round,
       (out && out.model) || req.model || DEFAULT_MODEL,
       inp, outp, inp + outp,
       (out && out.searches) || 0,
@@ -143,6 +172,15 @@ function logUsage_(req, out, errMsg) {
       (out && out.web_tools) || '',
       errMsg || ''
     ]);
+
+    /* ② careerTest 공용 탭에 미러링 — 기존 합계에 진로상담 사용량이 포함되도록.
+          실패한 호출은 토큰이 없으므로 공용 탭을 어지럽히지 않게 건너뛴다. */
+    if (MIRROR_TO_SHARED && !errMsg && (inp || outp)) {
+      ensureSheet_(ss, SHARED_LOG_SHEET, SHARED_HEADERS, '#4a4a6a').appendRow([
+        kst, user, user, '진로상담:' + (round || '분석'),
+        inp, outp, inp + outp, '(프록시)'
+      ]);
+    }
   } catch (e) {
     /* 로깅 실패는 분석 결과에 영향을 주지 않는다 */
     Logger.log('토큰로그 기록 실패: ' + e.message);
