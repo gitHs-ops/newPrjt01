@@ -64,6 +64,7 @@
                 <button type="button" class="btn btn-sky" id="mdBtn">md 파일로 저장</button>
                 <button type="button" class="btn btn-ghost" id="obsBtn">옵시디언으로 전송</button>
                 <button type="button" class="btn btn-ghost" id="rawBtn">원문(md) 보기</button>
+                <button type="button" class="btn btn-ghost" id="copyBtn" style="display:none">원문 복사</button>
                 <button type="button" class="btn btn-ghost" id="bothBtn">1·2차 합본 md 저장</button>
                 <button type="button" class="btn btn-ghost" id="againBtn">다시 분석</button>
             </div>
@@ -314,10 +315,37 @@
     document.getElementById('prevBtn').addEventListener('click', function () {
         location.href = 'career-report1.html?case=' + encodeURIComponent(kase.id);
     });
+    /* 원문 보기 — 렌더된 보고서와 **바꿔서** 보여준다.
+       둘을 동시에 띄우면 같은 내용이 두 번 나와 페이지만 길어진다. */
     document.getElementById('rawBtn').addEventListener('click', function () {
         var raw = document.getElementById('raw');
-        raw.classList.toggle('show');
-        this.textContent = raw.classList.contains('show') ? '원문 접기' : '원문(md) 보기';
+        var on = !raw.classList.contains('show');
+        raw.classList.toggle('show', on);
+        document.getElementById('report').style.display = on ? 'none' : '';
+        document.getElementById('copyBtn').style.display = on ? '' : 'none';
+        this.textContent = on ? '보고서로 돌아가기' : '원문(md) 보기';
+    });
+
+    /* 원문을 클립보드로 — 다른 도구에 붙여넣는 것이 이 기능의 주 용도다 */
+    document.getElementById('copyBtn').addEventListener('click', function () {
+        var md = document.getElementById('raw').textContent;
+        var done = function () { Career.toast('원문을 복사했습니다.', 'ok'); };
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(md).then(done, fallback);
+        } else { fallback(); }
+
+        function fallback() {
+            /* 구형 브라우저·비보안 컨텍스트 대비 */
+            var ta = document.createElement('textarea');
+            ta.value = md;
+            ta.style.position = 'fixed';
+            ta.style.opacity = '0';
+            document.body.appendChild(ta);
+            ta.select();
+            try { document.execCommand('copy'); done(); }
+            catch (e) { alert('복사에 실패했습니다. 원문을 직접 선택해 복사하세요.'); }
+            document.body.removeChild(ta);
+        }
     });
 
     document.getElementById('mdBtn').addEventListener('click', function () {
