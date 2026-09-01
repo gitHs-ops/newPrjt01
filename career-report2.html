@@ -82,10 +82,21 @@
 
         <div class="card">
             <h2>2차 분석 보고서</h2>
+            <div class="notice" id="staleNotice" style="display:none">
+                <span class="ico">🔄</span>
+                <span><b>프록시가 낡았습니다.</b>
+                    배포본 <span class="mono" id="proxyVer">—</span> ·
+                    필요 <span class="mono" id="proxyNeed">—</span><br>
+                    <code>tools/career_proxy.example.gs</code> 내용을 Apps Script 에 다시 붙여넣고
+                    <b>배포 관리 → 새 버전</b>으로 갱신하세요. 최신 수정이 적용되지 않은 상태입니다.</span>
+            </div>
             <div class="notice" id="truncNotice" style="display:none">
                 <span class="ico">⚠</span>
                 <span><b>응답이 잘렸습니다.</b> max_tokens 한도(<span class="mono" id="curTok">—</span>)에 걸려
                     뒷부분이 통째로 빠졌습니다. 아래 버튼으로 한도를 올리고 다시 실행하세요.<br>
+                    <span id="truncCause" style="display:none"><br>
+                        ⚠ <b>다만 위의 “프록시가 낡았습니다”를 먼저 해결하세요.</b>
+                        최신 프록시는 잘리면 스스로 이어쓰므로, 재배포만으로 해결될 수 있습니다.</span><br>
                     <button type="button" class="btn btn-ghost" id="bumpBtn"
                         style="width:auto;padding:8px 16px;margin-top:9px">한도 올리고 다시 분석</button></span>
             </div>
@@ -95,14 +106,6 @@
                     중간에 멈췄습니다. 보고서가 불완전할 수 있습니다 —
                     연결 설정에서 <b>검색 횟수</b>나 <b>사고 깊이(effort)</b>를 낮추고 다시 분석하세요.
                     <span class="mono" id="elapsedTxt"></span></span>
-            </div>
-            <div class="notice" id="staleNotice" style="display:none">
-                <span class="ico">🔄</span>
-                <span><b>프록시가 낡았습니다.</b>
-                    배포본 <span class="mono" id="proxyVer">—</span> ·
-                    필요 <span class="mono" id="proxyNeed">—</span><br>
-                    <code>tools/career_proxy.example.gs</code> 내용을 Apps Script 에 다시 붙여넣고
-                    <b>배포 관리 → 새 버전</b>으로 갱신하세요. 최신 수정이 적용되지 않은 상태입니다.</span>
             </div>
             <div class="notice" id="logNotice" style="display:none">
                 <span class="ico">📋</span>
@@ -211,6 +214,10 @@
         } else { tt.style.display = 'none'; }
         document.getElementById('mockNotice').style.display = rep.mock ? '' : 'none';
         document.getElementById('truncNotice').style.display = rep.truncated ? '' : 'none';
+        /* 배포본이 낡았으면 잘림의 진짜 원인은 '이어쓰기 코드가 없어서'다.
+           한도만 올리라고 안내하면 헛수고를 시킨다. */
+        document.getElementById('truncCause').style.display =
+            (rep.truncated && rep.proxyStale) ? '' : 'none';
         if (rep.truncated) {
             document.getElementById('curTok').textContent =
                 Career.fmtNum(Career.loadConfig().maxTokens2);
