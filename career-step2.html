@@ -96,6 +96,7 @@
             <div class="actions" style="margin-top:16px">
                 <button type="submit" class="btn btn-sky grow" id="runBtn">2차 분석 실행 →</button>
                 <button type="button" class="btn btn-ghost" id="saveBtn">임시 저장</button>
+                <button type="button" class="btn btn-ghost" id="sampleBtn" title="테스트용 예시로 채우기">예시 채우기</button>
             </div>
         </div>
 
@@ -126,19 +127,38 @@
     document.getElementById('caseLine').innerHTML = '사례 <b>' + Career.esc(kase.label) + '</b>';
 
     /* ---------- 선택 항목 필드를 정의에서 생성 ---------- */
+    /* 선택지가 정해져 있는 항목만 드롭다운을 붙인다.
+       나머지는 학생마다 내용이 달라 자유입력이 맞다. */
+    var PICKS = {
+        exp_teamRole: { list: Career.CHOICES.teamRole,  label: '＋ 역할 고르기' },
+        exp_asked:    { list: Career.CHOICES.askedFor,  label: '＋ 부탁받는 일 고르기' },
+        exp_liked:    { list: Career.CHOICES.workStyle, label: '＋ 활동 유형 고르기' },
+        exp_disliked: { list: Career.CHOICES.workStyle, label: '＋ 활동 유형 고르기' },
+        exp_selfGood: { list: Career.CHOICES.workStyle, label: '＋ 강점 유형 고르기' }
+    };
+
     function buildFields(boxId, defs, prefix) {
         var box = document.getElementById(boxId);
         var html = ['<div class="grid2">'];
         defs.forEach(function (f) {
+            var id = prefix + f.key;
             html.push(
                 '<div class="field full">' +
-                    '<label for="' + prefix + f.key + '">' + Career.esc(f.label) +
+                    '<label for="' + id + '">' + Career.esc(f.label) +
                         ' <span class="opt">선택</span></label>' +
-                    '<textarea id="' + prefix + f.key + '"></textarea>' +
+                    (PICKS[id] ? '<div class="pick-row"><select id="pick_' + id + '" class="pick"></select></div>' : '') +
+                    '<textarea id="' + id + '"></textarea>' +
                 '</div>');
         });
         html.push('</div>');
         box.innerHTML = html.join('');
+
+        defs.forEach(function (f) {
+            var id = prefix + f.key;
+            if (!PICKS[id]) return;
+            Career.fillSelect(document.getElementById('pick_' + id), PICKS[id].list, PICKS[id].label);
+            Career.bindQuickPick('pick_' + id, id);
+        });
     }
 
     buildFields('expBox', Career.FIELDS_2_EXP, 'exp_');
@@ -235,6 +255,39 @@
     refreshPreview();
 
     /* ---------- 액션 ---------- */
+    /* 테스트용 예시 — 2차 입력을 한 번에 채운다. 1차 결과는 건드리지 않는다. */
+    document.getElementById('sampleBtn').addEventListener('click', function () {
+        if (!confirm('테스트용 예시로 2차 입력을 채웁니다. (1차 결과는 그대로 둡니다) 계속할까요?')) return;
+        var setRadio = function (name, val) {
+            var r = document.querySelector('input[name="' + name + '"][value="' + val + '"]');
+            if (r) { r.checked = true; r.dispatchEvent(new Event('change', { bubbles: true })); }
+        };
+        setRadio('hasExp', 'yes');
+        setRadio('hasSchool', 'yes');
+        var set = function (id, v) { var el = document.getElementById(id); if (el) el.value = v; };
+        set('exp_memorable', '물리 수행평가에서 브레드보드로 간단한 회로를 만들어 발표했다');
+        set('exp_liked', '분석·문제해결 — 원인을 찾아 하나씩 확인');
+        set('exp_disliked', '표현·콘텐츠 — 글·영상·디자인으로 표현하는 것');
+        set('exp_retry', '동아리 로봇이 계속 멈춰서 끝내 원인을 못 찾았는데 다시 해보고 싶다고 함');
+        set('exp_teamRole', '자료조사');
+        set('exp_asked', '컴퓨터·기기 문제 해결');
+        set('exp_alone', '유튜브에서 기계 분해·조립 영상을 자주 본다');
+        set('exp_goodResult', '과학탐구대회 교내 장려상');
+        set('exp_selfGood', '분석·문제해결 — 원인을 찾아 하나씩 확인');
+        set('sch_grades', '수학·물리 상위권, 국어·영어는 중위권');
+        set('sch_sebu', '실험에서 오차 원인을 스스로 찾아 재실험을 제안함');
+        set('sch_perform', '물리 회로 제작, 화학 반응속도 실험');
+        set('sch_inquiry', '태양광 패널 각도에 따른 발전량 비교');
+        set('sch_club', '과학탐구 동아리 2년째');
+        set('sch_autonomy', '학급 기자재 관리 담당');
+        set('sch_careerAct', '반도체 기업 견학, 전자공학과 학과 체험');
+        set('sch_etc', '조용한 편이나 관심 주제에는 질문이 많음');
+        set('teacherAsk', '성적이 좋은 과목을 실제로 좋아하는지 구분하고 싶다');
+        syncCollapse();
+        refreshPreview();
+        Career.toast('예시로 채웠습니다. 필요한 곳만 고치세요.', 'ok');
+    });
+
     document.getElementById('saveBtn').addEventListener('click', function () {
         Career.updateCase(kase.id, { extra2: collect() });
         Career.toast('2차 입력을 저장했습니다.', 'ok');

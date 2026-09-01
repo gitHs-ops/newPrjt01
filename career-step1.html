@@ -57,6 +57,10 @@
 
             <div class="field">
                 <label for="subjects">현재 관심 과목 및 강점 <span class="req">*</span></label>
+                <div class="pick-row">
+                    <select id="pickSubject" class="pick"></select>
+                    <span class="pick-hint">고르면 아래에 추가됩니다 · 직접 입력도 됩니다</span>
+                </div>
                 <textarea id="subjects" required
                     placeholder="예: 물리Ⅰ·수학을 좋아하고 실험 설계를 잘한다는 말을 자주 듣는다"></textarea>
             </div>
@@ -74,44 +78,60 @@
             <div class="grid2">
                 <div class="field full">
                     <label for="industry">관심 있는 산업 또는 분야 <span class="opt">선택</span></label>
+                    <div class="pick-row">
+                        <select id="pickIndustry" class="pick"></select>
+                        <span class="pick-hint">여러 개 고를 수 있습니다</span>
+                    </div>
                     <textarea id="industry" placeholder="예: 반도체, 자동차 전장, 콘텐츠"></textarea>
                 </div>
 
                 <div class="field full">
                     <label for="trigger">관심을 갖게 된 계기 <span class="opt">선택</span></label>
+                    <div class="pick-row">
+                        <select id="pickTrigger" class="pick"></select>
+                        <span class="pick-hint">고른 뒤 구체적으로 덧붙이면 좋습니다</span>
+                    </div>
                     <textarea id="trigger" placeholder="예: 다큐멘터리를 보고 / 동아리에서 아두이노를 만져보고"></textarea>
                 </div>
 
                 <div class="field full">
                     <label for="style">좋아하는 활동 또는 문제해결 방식 <span class="opt">선택</span></label>
+                    <div class="pick-row">
+                        <select id="pickStyle" class="pick"></select>
+                        <span class="pick-hint">2차 분석의 “일하는 방식” 분류와 같은 어휘입니다</span>
+                    </div>
                     <textarea id="style" placeholder="예: 원인을 하나씩 확인해 찾아내는 쪽을 좋아함"></textarea>
                 </div>
 
-                <div class="field">
+                <div class="field full">
                     <label for="major">현재 생각하고 있는 전공 <span class="opt">선택</span></label>
+                    <div class="pick-row">
+                        <select id="pickMajor" class="pick"></select>
+                        <span class="pick-hint">목록에 없으면 직접 입력</span>
+                    </div>
                     <textarea id="major" placeholder="예: 전자공학과"></textarea>
                 </div>
 
                 <div class="field">
                     <label for="score">현재 교과 성적 또는 수준 <span class="opt">선택</span></label>
-                    <textarea id="score" placeholder="예: 수학·과학 2등급대, 영어 3등급"></textarea>
+                    <select id="score"></select>
+                    <div class="hint" id="scoreHint">학교급을 먼저 고르면 그에 맞는 항목이 나옵니다.</div>
                 </div>
 
                 <div class="field">
                     <label for="univ">희망 대학 또는 대학 수준 <span class="opt">선택</span></label>
-                    <textarea id="univ" placeholder="예: 수도권 4년제"></textarea>
+                    <select id="univ"></select>
                 </div>
 
                 <div class="field">
                     <label for="region">희망 지역 <span class="opt">선택</span></label>
-                    <textarea id="region" placeholder="예: 수도권"></textarea>
+                    <select id="region"></select>
                 </div>
 
                 <div class="field">
                     <label for="entryYear">대학 진학 예정 연도 <span class="opt">선택</span></label>
-                    <div class="input-wrap">
-                        <input type="text" id="entryYear" inputmode="numeric" placeholder="예: 2028" maxlength="12">
-                    </div>
+                    <select id="entryYear"></select>
+                    <div class="hint" id="yearHint">학교급·학년에서 자동으로 계산됩니다.</div>
                 </div>
 
                 <div class="field full">
@@ -131,6 +151,7 @@
             <div class="actions" style="margin-top:16px">
                 <button type="submit" class="btn btn-sky grow" id="runBtn">1차 분석 실행 →</button>
                 <button type="button" class="btn btn-ghost" id="saveBtn">임시 저장</button>
+                <button type="button" class="btn btn-ghost" id="sampleBtn" title="테스트용 예시로 전 항목 채우기">예시 채우기</button>
             </div>
         </div>
 
@@ -164,12 +185,67 @@
 
     var KEYS = Career.FIELDS_1.map(function (f) { return f.key; });
 
+    /* ---------- 드롭다운 채우기 ---------- */
+    var C = Career.CHOICES;
+    Career.fillSelect(document.getElementById('pickSubject'),  C.subject,   '＋ 과목 고르기');
+    Career.fillSelect(document.getElementById('pickIndustry'), C.industry,  '＋ 산업 고르기');
+    Career.fillSelect(document.getElementById('pickTrigger'),  C.trigger,   '＋ 계기 고르기');
+    Career.fillSelect(document.getElementById('pickStyle'),    C.workStyle, '＋ 방식 고르기');
+    Career.fillSelect(document.getElementById('pickMajor'),    C.major,     '＋ 전공 고르기');
+    Career.fillSelect(document.getElementById('univ'),   C.univ,   '선택하세요 (비워도 됩니다)');
+    Career.fillSelect(document.getElementById('region'), C.region, '선택하세요 (비워도 됩니다)');
+
+    Career.bindQuickPick('pickSubject',  'subjects');
+    Career.bindQuickPick('pickIndustry', 'industry');
+    Career.bindQuickPick('pickTrigger',  'trigger');
+    Career.bindQuickPick('pickStyle',    'style');
+    Career.bindQuickPick('pickMajor',    'major');
+
+    /* 성적 체계와 진학 연도는 학교급·학년에 따라 달라진다.
+       중학교에 "등급"을 쓰거나 학년과 진학연도가 어긋나면
+       프롬프트가 일관성 검증에서 [확인 필요] 로 걸어 분석이 새 버린다. */
+    function syncByGrade(keepValues) {
+        var grade = document.getElementById('grade').value;
+        var isHigh = grade.indexOf('고등학교') === 0;
+        var scoreEl = document.getElementById('score');
+        var yearEl = document.getElementById('entryYear');
+        var prevScore = keepValues ? scoreEl.value : '';
+        var prevYear = keepValues ? yearEl.value : '';
+
+        Career.fillSelect(scoreEl, grade ? C.score[isHigh ? '고등학교' : '중학교'] : [],
+                          grade ? '선택하세요 (비워도 됩니다)' : '학교급을 먼저 고르세요');
+        document.getElementById('scoreHint').textContent = !grade ? '학교급을 먼저 고르면 그에 맞는 항목이 나옵니다.'
+            : (isHigh ? '고등학교는 내신 등급 체계입니다.' : '중학교는 등급이 아니라 성취도(A~E) 체계입니다.');
+        if (prevScore) scoreEl.value = prevScore;
+
+        var auto = Career.entryYearFor(grade);
+        var years = [];
+        if (auto) {
+            var a = parseInt(auto, 10);
+            for (var y = a - 1; y <= a + 2; y++) years.push(String(y) + (y === a ? ' (자동 계산)' : ''));
+        }
+        years.push('재수·편입 등 미정');
+        Career.fillSelect(yearEl, years, grade ? '선택하세요 (비워도 됩니다)' : '학교급을 먼저 고르세요');
+        document.getElementById('yearHint').textContent = auto
+            ? grade + ' 기준 대학 입학은 ' + auto + '년입니다.'
+            : '학교급·학년에서 자동으로 계산됩니다.';
+        if (prevYear) {
+            yearEl.value = prevYear;
+            if (!yearEl.value) yearEl.selectedIndex = 0;
+        } else if (auto) {
+            yearEl.value = auto + ' (자동 계산)';
+        }
+    }
+    document.getElementById('grade').addEventListener('change', function () { syncByGrade(false); refreshPreview(); });
+
     function collect() {
         var o = {};
         KEYS.forEach(function (k) {
             var el = document.getElementById(k);
             o[k] = el ? el.value.trim() : '';
         });
+        /* 화면 표시용 꼬리표는 AI 로 보내지 않는다 */
+        o.entryYear = o.entryYear.replace(/\s*\(자동 계산\)\s*$/, '');
         return o;
     }
 
@@ -184,13 +260,16 @@
         document.getElementById('preview').textContent = Career.buildUserMessage1(collect());
     }
 
+    syncByGrade(false);
     fill(kase.student);
+    syncByGrade(true);
     refreshPreview();
 
     KEYS.forEach(function (k) {
         var el = document.getElementById(k);
-        if (el) el.addEventListener('input', refreshPreview);
-        if (el && el.tagName === 'SELECT') el.addEventListener('change', refreshPreview);
+        if (!el) return;
+        el.addEventListener('input', refreshPreview);
+        el.addEventListener('change', refreshPreview);
     });
 
     function validate() {
@@ -211,6 +290,30 @@
         err.style.display = 'none';
         return true;
     }
+
+    /* 테스트용 예시 — 전 항목을 한 번에 채운다.
+       전 과정을 반복 검증할 때 매번 손으로 채우는 부담을 없애기 위한 것이다. */
+    document.getElementById('sampleBtn').addEventListener('click', function () {
+        if (!confirm('테스트용 예시로 모든 항목을 덮어씁니다. 계속할까요?')) return;
+        var g = '고등학교 2학년';
+        document.getElementById('grade').value = g;
+        syncByGrade(false);
+        var set = function (id, v) { var el = document.getElementById(id); if (el) el.value = v; };
+        set('hope', '반도체를 하고 싶다');
+        set('subjects', '물리, 수학');
+        set('industry', '반도체, 자동차·모빌리티');
+        set('trigger', '수업에서 배우고 흥미가 생김');
+        set('style', '분석·문제해결 — 원인을 찾아 하나씩 확인');
+        set('major', '전자공학과');
+        document.getElementById('score').value = '내신 3~4등급';
+        document.getElementById('univ').value = '수도권 4년제';
+        document.getElementById('region').value = '수도권(경기·인천)';
+        var y = Career.entryYearFor(g);
+        document.getElementById('entryYear').value = y ? y + ' (자동 계산)' : '';
+        set('ask', '이 전공이 어떤 산업들과 연결되는지 알고 싶다');
+        refreshPreview();
+        Career.toast('예시로 채웠습니다. 필요한 곳만 고치세요.', 'ok');
+    });
 
     document.getElementById('saveBtn').addEventListener('click', function () {
         Career.updateCase(kase.id, { student: collect() });

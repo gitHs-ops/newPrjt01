@@ -252,6 +252,101 @@
         { key: 'etc',      label: '기타 학생을 이해하는 데 필요한 학교자료' }
     ];
 
+    /* =========================================================
+       입력 보조 — 드롭다운 선택지
+       ---------------------------------------------------------
+       매번 자유입력을 채우는 부담을 줄인다. 단일 선택 항목은 select 가 값을 그대로 넣고,
+       여러 개를 고를 수 있는 항목은 "빠른 추가" select 가 textarea 에 덧붙인다.
+       ⚠ 희망 직업·직무는 드롭다운으로 만들지 않는다 —
+          프롬프트 STEP 0 이 "학생이 말한 표현" 자체를 해석 대상으로 삼기 때문이다.
+       ========================================================= */
+    var CHOICES = {
+        /* 성적은 학교급에 따라 체계가 다르다. 중학교에 "등급"을 쓰면 프롬프트가
+           일관성 검증에서 [확인 필요] 로 걸어야 하는 모순이 된다. */
+        score: {
+            중학교: ['성취도 A (90점 이상)', '성취도 B (80점대)', '성취도 C (70점대)',
+                     '성취도 D (60점대)', '성취도 E (60점 미만)',
+                     '전반적으로 상위권', '전반적으로 중위권', '전반적으로 하위권'],
+            고등학교: ['내신 1~2등급', '내신 3~4등급', '내신 5~6등급', '내신 7~9등급',
+                       '과목별 편차가 큼', '전반적으로 상위권', '전반적으로 중위권', '전반적으로 하위권']
+        },
+        univ: ['최상위권 대학', '수도권 상위권 대학', '수도권 4년제', '지방 거점 국립대',
+               '지방 4년제', '전문대학', '특성화대학·폴리텍', '아직 정하지 않음'],
+        region: ['서울', '수도권(경기·인천)', '충청권', '강원권', '영남권(부산·대구·경남북)',
+                 '호남권', '제주', '지역은 상관없음', '아직 정하지 않음'],
+        subject: ['국어', '영어', '수학', '통합과학', '물리', '화학', '생명과학', '지구과학',
+                  '정보·컴퓨터', '기술·가정', '사회', '역사', '지리', '경제',
+                  '미술', '음악', '체육', '제2외국어'],
+        industry: ['반도체', '디스플레이', '이차전지', '자동차·모빌리티', '조선·해양', '항공우주',
+                   '로봇·자동화', 'AI·소프트웨어', '게임', '콘텐츠·미디어', '바이오·제약', '의료·헬스케어',
+                   '화학·소재', '에너지·신재생', '건설·인프라', '금융', '물류·유통', '식품',
+                   '환경·탄소중립', '교육', '공공·행정'],
+        trigger: ['수업에서 배우고 흥미가 생김', '동아리 활동', '다큐멘터리·영상', '뉴스·기사',
+                  '책', '게임·취미', '가족·지인의 영향', '진로체험·박람회', '학교 진로수업',
+                  '친구 이야기', '특정 기업·제품을 보고'],
+        /* 2차 프롬프트가 열거한 '일하는 방식' 9종을 그대로 쓴다 —
+           1차 입력과 2차 분석의 어휘를 맞추면 대조가 쉬워진다. */
+        workStyle: ['원리 탐구 — 왜 그런지 알아내는 것', '분석·문제해결 — 원인을 찾아 하나씩 확인',
+                    '설계·개발 — 구조나 방법을 새로 만드는 것', '제작·현장 — 도구·장비를 직접 다루는 것',
+                    '기획·구조화 — 목표와 순서를 세우는 것', '데이터·계산 — 숫자와 패턴으로 푸는 것',
+                    '설명·소통 — 이해한 것을 남에게 설명하는 것', '사람지원 — 남을 돕고 문제를 풀어주는 것',
+                    '표현·콘텐츠 — 글·영상·디자인으로 표현하는 것'],
+        major: ['전자공학과', '전기공학과', '기계공학과', '컴퓨터공학과', '소프트웨어학과',
+                '신소재공학과', '화학공학과', '산업공학과', '조선해양공학과', '항공우주공학과',
+                '건축학과', '토목공학과', '생명공학과', '의예과', '간호학과', '약학과',
+                '물리학과', '화학과', '수학과', '통계학과', '경영학과', '경제학과',
+                '심리학과', '교육학과', '디자인학과', '미디어커뮤니케이션학과'],
+        teamRole: ['기획·리더 역할', '자료조사', '발표', '정리·기록', '제작·실습',
+                   '아이디어 제시', '갈등 조정', '특별히 정해진 역할 없음'],
+        askedFor: ['공부·과제 설명해 주기', '문제 풀이 도와주기', '컴퓨터·기기 문제 해결',
+                   '발표 맡기', '자료 정리·정돈', '만들기·꾸미기', '중재·상담',
+                   '특별히 부탁받는 일 없음']
+    };
+
+    /* 학년으로 대학 진학 예정 연도를 계산한다.
+       프롬프트가 "현재 학년과 진학 예정 연도가 일치하는가"를 검증 항목으로 두고 있어,
+       손으로 넣다 어긋나면 분석이 [확인 필요] 로 새 버린다. */
+    function entryYearFor(grade) {
+        var m = /(중학교|고등학교)\s*([1-3])학년/.exec(String(grade || ''));
+        if (!m) return '';
+        var left = (m[1] === '고등학교' ? 3 : 6) - parseInt(m[2], 10);  /* 남은 학년 수 */
+        return String(new Date().getFullYear() + left + 1);
+    }
+
+    /* select 의 선택값을 textarea 에 덧붙인다(중복은 무시). 고른 뒤 select 는 초기화. */
+    function bindQuickPick(selectId, targetId, sep) {
+        var sel = document.getElementById(selectId);
+        var box = document.getElementById(targetId);
+        if (!sel || !box) return;
+        sep = sep || ', ';
+        sel.addEventListener('change', function () {
+            var v = sel.value;
+            sel.selectedIndex = 0;
+            if (!v) return;
+            var cur = box.value.trim();
+            if (cur.split(/\s*,\s*|\n/).indexOf(v) >= 0) return;
+            box.value = cur ? cur + sep + v : v;
+            box.dispatchEvent(new Event('input', { bubbles: true }));
+            box.focus();
+        });
+    }
+
+    /* select 요소를 옵션 배열로 채운다 */
+    function fillSelect(el, items, placeholder) {
+        if (!el) return;
+        el.innerHTML = '';
+        var o0 = document.createElement('option');
+        o0.value = '';
+        o0.textContent = placeholder || '선택하세요';
+        el.appendChild(o0);
+        (items || []).forEach(function (t) {
+            var o = document.createElement('option');
+            o.value = t;
+            o.textContent = t;
+            el.appendChild(o);
+        });
+    }
+
     function line(label, value) {
         var v = (value == null ? '' : String(value)).trim();
         return '* ' + label + ': ' + (v || '(입력 없음)');
@@ -1217,7 +1312,11 @@
         deleteCase: deleteCase,
         currentOwner: currentOwner,
 
-        /* 입력 정의 */
+        /* 입력 정의 · 보조 */
+        CHOICES: CHOICES,
+        entryYearFor: entryYearFor,
+        bindQuickPick: bindQuickPick,
+        fillSelect: fillSelect,
         FIELDS_1: FIELDS_1,
         FIELDS_2_EXP: FIELDS_2_EXP,
         FIELDS_2_SCHOOL: FIELDS_2_SCHOOL,

@@ -150,7 +150,8 @@ if (Test-Path -LiteralPath 'assets\career.js' -PathType Leaf) {
     $cjs = Get-Content -LiteralPath 'assets\career.js' -Raw -Encoding UTF8
     $needed = @('createCase', 'listCases', 'updateCase', 'deleteCase',
                 'buildUserMessage1', 'buildUserMessage2', 'callAI',
-                'mdToHtml', 'downloadMd', 'sendToObsidian', 'mountChrome')
+                'mdToHtml', 'downloadMd', 'sendToObsidian', 'mountChrome',
+                'CHOICES', 'entryYearFor', 'bindQuickPick', 'fillSelect')
     $missing = @()
     foreach ($fn in $needed) {
         if ($cjs -notmatch [regex]::Escape($fn)) { $missing += $fn }
