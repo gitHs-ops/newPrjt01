@@ -168,11 +168,11 @@ if (Test-Path -LiteralPath 'assets\career.js' -PathType Leaf) {
         Write-Fail "career.js 에 AI 호출용 fetch 가 보이지 않음"
     }
 
-    # 옵시디언 전송은 아직 '표시만' — 스텁이 살아 있는지 확인
-    if ($cjs -match 'OBSIDIAN_PENDING_MSG') {
-        Write-Ok "옵시디언 전송 스텁 존재 (추후 결정 상태)"
+    # 옵시디언 전송이 실제 PUT 경로를 갖는가 (2026-09-01 연결 실측 통과 후 구현됨)
+    if ($cjs -match "method:\s*'PUT'" -and $cjs -match 'testObsidian' -and $cjs -match 'OBSIDIAN_PENDING_MSG') {
+        Write-Ok "옵시디언 전송 구현 (PUT + 연결 테스트 + 미설정 가드)"
     } else {
-        Write-Fail "옵시디언 전송 스텁이 사라짐 — 연결 여부를 확인할 것"
+        Write-Fail "career.js 의 옵시디언 전송 경로가 불완전 — PUT / testObsidian / 미설정 가드 확인"
     }
 
     # 공식자료 웹검색 지시가 요청에 실려 나가는가 (프롬프트가 요구하는 전제)

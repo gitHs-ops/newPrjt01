@@ -13,7 +13,7 @@
   - 결과는 `localStorage`(`np_career_cases`)에 보존되고 md 파일로 저장된다
   - 보고서는 자체 마크다운 렌더러로 표·제목·인용·코드블록까지 그린다
 - **실제로 돌린 검증**
-  1. `.\init.ps1` → **63개 항목 전부 `[OK]`, exit 0**
+  1. `.\init.ps1` → **64개 항목 전부 `[OK]`, exit 0**
   2. 브라우저 실기동(http://localhost:8940) 전 경로 통과, 콘솔 오류 0건
   3. 실패 경로도 확인 — 잘못된 프록시 주소 → “프록시에 연결하지 못했습니다…” 화면
   4. 옵시디언 전송 클릭 → “추후 결정” 안내로 차단됨
@@ -24,7 +24,7 @@
   `career-step2.html` · `career-report2.html`
 - **신규 자산**: `assets/career.css` · `assets/career.js` · `assets/career-prompts.js`(생성물) ·
   `assets/prompts/*.txt`(원문 4종) · `tools/build-prompts.py`
-- **수정**: `home.html`(진입 카드) · `assets/auth.css`(`.app-card`) · `init.ps1`(26→**63 항목**) ·
+- **수정**: `home.html`(진입 카드) · `assets/auth.css`(`.app-card`) · `init.ps1`(26→**64 항목**) ·
   `feature_list.json`(`career-001`~`010` 주입, 기존 항목 우선순위 뒤로) · `README.md`
 - **AI 호출은 프록시 경유 방식으로 구현** — 프롬프트를 복사해 붙여넣는 방식이 아니다
 - **공식자료 웹검색을 붙였다**(`career-010`) — 프록시가 Anthropic 서버사이드 `web_search`
@@ -38,7 +38,10 @@
 - **실행시간 초과 대응** — 배포 후 `testProxy()` 가 끝나지 않는 문제를 잡았다.
   `effort=low` 기본, `MAX_CONTINUATIONS 4→1`, `DEADLINE_MS`(4분) 시간 가드 추가.
   점검 함수를 `test1_key` → `test2_search` → `test3_load` → `test4_careertest` 로 분리
-- **옵시디언은 표시만** — 실제 PUT 코드는 `sendToObsidian()` 안 TODO 블록에 준비돼 있다
+- **옵시디언 전송 구현됨**(`career-009`, in_progress) — 연결 실측 ①~④ 통과 후
+  `sendToObsidian()` 의 실제 `PUT` 을 열었다. `testObsidian()`(연결 테스트) 추가,
+  설정 모달 입력란 활성화, 기본 주소 `http://127.0.0.1:27123`.
+  신설 `tools/obsidian-check.html` 로 5단계 판정 가능
 
 ## Broken Or Unverified
 
@@ -47,7 +50,10 @@
   - ⚠ **`career-008` — AI 프록시 배포·API 키.** 지금 나오는 결과는 **전부 모의 응답**이다.
     상담 자료로 쓰면 안 된다. 화면·md 양쪽에 모의 경고가 붙는다.
     프록시 코드는 `tools/career_proxy.example.gs` 에 다 있고, 남은 건 배포와 키뿐이다
-  - ⚠ **`career-009` — 옵시디언 Local REST API 접속정보.** 주소·API 키·볼트 폴더 미정
+  - ⚠ **`career-009` — 실제 쓰기(PUT) 1건만 미검증.** 연결·CORS·preflight·인증은 실측 통과했고
+    (잘못된 키로 HTTP 401 수신 = 요청이 플러그인에 도달함을 증명), 코드도 다 열어 놨다.
+    **유효한 API 키는 자격증명이라 입력하지 않았다** — 사용자가 설정에 키를 넣고
+    [옵시디언으로 전송]을 한 번 누르면 `passing` 으로 올릴 수 있다
 - **미검증 경로**
   - **실제 AI 응답으로는 한 번도 돌려보지 못했다.** 프록시가 붙으면
     ① 긴 응답의 md 렌더 ② `max_tokens` 부족으로 잘리는 경우 ③ 응답 지연 시 UX 를 다시 봐야 한다
@@ -112,6 +118,8 @@
   - **`MAX_CONTINUATIONS` 를 올리지 말 것** — 무거운 호출이 직렬로 반복돼 6분 한도를 넘긴다.
     `init.ps1` 이 0~2 범위를 검사한다(2026-09-01 실제로 매달림)
   - **`DEADLINE_MS` 가드를 지우지 말 것** — 없으면 한도 초과 시 아무것도 못 돌려준다
+  - **옵시디언 기본 주소를 HTTPS(27124)로 되돌리지 말 것** — 자체서명 인증서라
+    브라우저 `fetch` 가 거부한다. 로컬 전용이므로 HTTP 27123 이 맞다
   - **`supportsNewWebTools_` / `supportsEffort_` 분기를 지우지 말 것** —
     Haiku 4.5 에 `web_search_20260209` 나 `output_config.effort` 를 보내면 400 이 난다.
     `init.ps1` 이 이 분기 존재를 검사한다
@@ -132,5 +140,6 @@
   - 진로상담 바로 열기: http://localhost:8940/career.html (로그인 필요)
   - 계정 초기화: `localStorage.removeItem('np_users')`
   - 상담 사례 초기화: `localStorage.removeItem('np_career_cases')`
-  - 연결 설정(프록시·웹검색) 초기화: `localStorage.removeItem('np_career_config')`
+  - 연결 설정(프록시·웹검색·옵시디언) 초기화: `localStorage.removeItem('np_career_config')`
+  - 옵시디언 연결 진단: http://localhost:8940/tools/obsidian-check.html
   - 세션만 해제: `localStorage.removeItem('np_session'); sessionStorage.removeItem('np_session')`

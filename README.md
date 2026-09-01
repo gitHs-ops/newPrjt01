@@ -53,6 +53,7 @@
 | `assets/prompts/*.txt` | 프롬프트·입력명세 원문 (단일 원본) |
 | `tools/build-prompts.py` | `assets/prompts/*.txt` → `assets/career-prompts.js` 재생성 |
 | `tools/career_proxy.example.gs` | AI 프록시 참고 구현 — careerTest(GET) + 진로상담(POST) 겸용, 키는 비어 있음 |
+| `tools/obsidian-check.html` | 옵시디언 연결 5단계 실측 도구 |
 
 프롬프트 원문을 고쳤다면:
 
@@ -172,9 +173,32 @@ Apps Script는 개인 계정 기준 **실행 6분에서 강제 종료**된다 �
 
 ### 옵시디언 전송
 
-**Obsidian Local REST API 직접 호출**로 방침이 정해졌으나 접속 주소·API 키·볼트 폴더 규칙이
-미정이라 **버튼만 표시**되고 전송은 막혀 있다(`career-009`).
-확정되면 `assets/career.js` 의 `sendToObsidian()` 안 TODO 블록만 열면 된다.
+**Obsidian Local REST API** 플러그인으로 볼트에 바로 쓴다.
+결과 화면의 **[옵시디언으로 전송]** 버튼이 `PUT {baseUrl}/vault/{폴더}/{파일}.md` 를 호출한다.
+
+준비:
+
+1. 옵시디언 → 커뮤니티 플러그인에서 **`Local REST API with MCP`**(저자 Adam Coddington) 설치·활성화
+   — 등록 이름이 바뀌었으니 `REST` 로 검색할 것
+2. 플러그인 설정에서 **"Enable Non-encrypted (HTTP) Server"** 켜기 (27123)
+3. **API 키** 복사
+4. 진로상담 → [연결 설정] → 옵시디언 전송에 주소·키·폴더 입력 → **연결 테스트**
+
+> ⚠ **HTTPS(27124)는 쓰지 말 것.** 자체서명 인증서라 브라우저 `fetch` 가 거부한다.
+> 굳이 쓰려면 주소창에 직접 열어 인증서 예외를 등록해야 한다. HTTP 27123 이 마찰이 없다.
+
+> ⚠ **API 키는 `localStorage` 에 평문 저장된다.** 로컬 전용 키이고 이 브라우저에만 남지만
+> 공용 PC 에서는 쓰지 말 것.
+
+문제가 생기면 **연결 실측 도구**로 어느 단계가 막혔는지 확인한다:
+
+```bash
+start http://localhost:8940/tools/obsidian-check.html
+```
+
+도달 → CORS → 인증서 → 인증(preflight) → 쓰기 5단계를 순서대로 판정한다.
+`no-cors` 프로브로 **연결 거부와 CORS 차단을 구분**하는 것이 핵심 —
+둘 다 `fetch` 에서는 똑같이 `Failed to fetch` 로 보인다.
 
 ## 데이터
 
@@ -183,7 +207,7 @@ Apps Script는 개인 계정 기준 **실행 6분에서 강제 종료**된다 �
 | `np_users` | `localStorage` | 계정 목록 — `id`, `salt`, `hash`, `provider`, `createdAt` |
 | `np_session` | 상태유지 켬 → `localStorage`<br>끔 → `sessionStorage` | `id`, `provider`, `remember`, `loginAt` |
 | `np_career_cases` | `localStorage` | 상담 사례 — `label`, `owner`, `student`, `report1`, `extra2`, `report2` |
-| `np_career_config` | `localStorage` | 연결 설정 — 프록시 URL, 모델, max_tokens, 웹검색 옵션, 옵시디언 설정 |
+| `np_career_config` | `localStorage` | 연결 설정 — 프록시 URL, 모델, max_tokens, 웹검색 옵션, **옵시디언 주소·API 키·폴더** |
 
 초기화: 개발자도구 콘솔에서
 `localStorage.removeItem('np_users')` / `localStorage.removeItem('np_career_cases')`
@@ -202,7 +226,8 @@ Apps Script는 개인 계정 기준 **실행 6분에서 강제 종료**된다 �
 진로상담 쪽 한계:
 
 - **AI 프록시가 배포되지 않았다.** 지금은 모의 응답으로만 흐름이 돌아간다 (`career-008`)
-- **옵시디언 전송이 연결되지 않았다.** 버튼만 있고 눌러도 안내만 나온다 (`career-009`)
+- **옵시디언 전송은 플러그인 설정이 끝나야 동작한다.** 연결 실측은 ④단계까지 통과했고,
+  실제 쓰기(⑤)는 사용자가 API 키를 넣고 한 번 눌러야 확인된다 (`career-009`)
 - **사례가 브라우저별로 격리된다.** 로그인 데모와 같은 한계다
 - **웹검색은 프록시가 배포되어야 실제로 돈다.** 클라이언트는 지시를 보내지만
   프록시가 `web_search` 도구를 켜지 않으면 “확인 불가”가 대량으로 나온다 —

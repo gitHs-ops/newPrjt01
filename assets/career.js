@@ -58,8 +58,10 @@
 
         /* --- Obsidian Local REST API (기능 표시만, 연결은 추후 결정) --- */
         obsidian: {
-            enabled: false,    /* 추후 결정 전까지 false 고정 */
-            baseUrl: 'https://127.0.0.1:27124',
+            enabled: false,    /* 주소·키가 채워지면 켤 수 있다 */
+            /* HTTPS(27124)는 자체서명 인증서라 브라우저가 막는다.
+               플러그인 설정에서 비암호화 HTTP 를 켜고 27123 을 쓰는 편이 마찰이 없다. */
+            baseUrl: 'http://127.0.0.1:27123',
             apiKey: '',
             folder: '진로상담'
         }
@@ -668,45 +670,103 @@
     }
 
     /* =========================================================
-       Obsidian Local REST API — 기능 표시만 (연결은 추후 결정)
+       Obsidian Local REST API — 볼트로 직접 전송
        ---------------------------------------------------------
-       확정되면 아래 sendToObsidian 의 TODO 블록만 열면 된다.
          PUT {baseUrl}/vault/{folder}/{file}.md
          Authorization: Bearer {apiKey}
          Content-Type: text/markdown
-       선행 확인 필요: 자체서명 인증서 신뢰, CORS 허용 여부, 볼트 경로 규칙
+
+       2026-09-01 실측(tools/obsidian-check.html)으로 확인한 것:
+         · 27123(HTTP) 도달 · CORS 통과 · Authorization preflight 통과 · 키 인증 200
+       HTTPS(27124)는 자체서명 인증서라 브라우저가 거부한다 —
+       플러그인 설정에서 비암호화 HTTP 를 켜고 27123 을 쓰는 편이 마찰이 없다.
        ========================================================= */
     var OBSIDIAN_PENDING_MSG =
-        '옵시디언 전송은 아직 연결되지 않았습니다.\n\n' +
-        'Obsidian Local REST API 로 직접 HTTP 호출하는 방식으로 정해져 있으나, ' +
-        '접속 주소·API 키·볼트 폴더 규칙이 추후 결정 사항으로 남아 있습니다.\n\n' +
-        '지금은 md 파일로 저장한 뒤 볼트에 옮겨 주십시오.';
+        '옵시디언 전송이 설정되지 않았습니다.\n\n' +
+        '우측 상단 [연결 설정] → 옵시디언 전송에서 주소·API 키·폴더를 넣고 ' +
+        '“연결 테스트”가 통과하면 사용할 수 있습니다.\n\n' +
+        '설정 전에는 md 파일로 저장한 뒤 볼트에 옮겨 주십시오.';
 
     function obsidianReady() {
         var c = loadConfig().obsidian;
         return !!(c.enabled && c.baseUrl && c.apiKey);
     }
 
+    /* 볼트 기준 경로. 폴더·파일명에 한글이 들어가므로 인코딩이 필요하다.
+       encodeURI 는 '/' 를 남기므로 경로 구분자가 깨지지 않는다. */
+    function vaultUrl(cfg, name) {
+        var path = cfg.folder ? (cfg.folder.replace(/^\/+|\/+$/g, '') + '/' + name) : name;
+        return cfg.baseUrl.replace(/\/+$/, '') + '/vault/' + encodeURI(path);
+    }
+
+    /* 실패 원인을 사람이 읽을 수 있는 말로 바꾼다 —
+       fetch 는 연결거부·CORS·인증서 실패를 전부 'Failed to fetch' 로 뭉뚱그린다. */
+    function obsidianNetworkError(cfg) {
+        var https = cfg.baseUrl.indexOf('https:') === 0;
+        return new Error(
+            '옵시디언에 연결하지 못했습니다 (' + cfg.baseUrl + ').\n\n' +
+            '· 옵시디언이 실행 중이고 Local REST API 플러그인이 켜져 있는지\n' +
+            '· 주소·포트가 맞는지\n' +
+            (https ? '· HTTPS(27124)는 자체서명 인증서라 브라우저가 막습니다 —\n' +
+                     '  플러그인 설정에서 비암호화 HTTP 를 켜고 27123 을 쓰는 것을 권합니다\n' : '') +
+            '\n자세한 진단은 tools/obsidian-check.html 에서 할 수 있습니다.');
+    }
+
     function sendToObsidian(name, content) {
-        if (!obsidianReady()) {
-            return Promise.reject(new Error(OBSIDIAN_PENDING_MSG));
-        }
-        /* TODO(추후 결정): 접속정보 확정 후 아래 주석을 해제하고 실제 PUT 을 수행한다.
-        var c = loadConfig().obsidian;
-        var path = encodeURI(c.folder ? (c.folder + '/' + name) : name);
-        return fetch(c.baseUrl.replace(/\/+$/, '') + '/vault/' + path, {
+        var cfg = loadConfig().obsidian;
+        if (!obsidianReady()) return Promise.reject(new Error(OBSIDIAN_PENDING_MSG));
+
+        return fetch(vaultUrl(cfg, name), {
             method: 'PUT',
+            mode: 'cors',
             headers: {
-                'Authorization': 'Bearer ' + c.apiKey,
+                'Authorization': 'Bearer ' + cfg.apiKey,
                 'Content-Type': 'text/markdown; charset=utf-8'
             },
             body: content
+        }).catch(function () {
+            throw obsidianNetworkError(cfg);
         }).then(function (res) {
-            if (!res.ok) throw new Error('옵시디언 응답 오류 (HTTP ' + res.status + ')');
+            if (res.status === 401 || res.status === 403) {
+                throw new Error('API 키가 거부되었습니다 (HTTP ' + res.status + '). ' +
+                                '플러그인 설정의 키를 다시 복사해 넣으세요.');
+            }
+            if (!res.ok && res.status !== 204) {
+                return res.text().then(function (t) {
+                    throw new Error('옵시디언 응답 오류 (HTTP ' + res.status + ')\n' + t.slice(0, 200));
+                });
+            }
             return true;
         });
-        */
-        return Promise.reject(new Error(OBSIDIAN_PENDING_MSG));
+    }
+
+    /* 설정 화면의 "연결 테스트" — 쓰기 없이 상태·인증만 확인한다. */
+    function testObsidian(patch) {
+        var cfg = loadConfig().obsidian;
+        if (patch) {
+            for (var k in patch) {
+                if (Object.prototype.hasOwnProperty.call(patch, k)) cfg[k] = patch[k];
+            }
+        }
+        if (!cfg.baseUrl) return Promise.reject(new Error('주소를 입력하세요.'));
+        if (!cfg.apiKey)  return Promise.reject(new Error('API 키를 입력하세요.'));
+
+        var base = cfg.baseUrl.replace(/\/+$/, '');
+        return fetch(base + '/vault/', {
+            method: 'GET',
+            mode: 'cors',
+            headers: { 'Authorization': 'Bearer ' + cfg.apiKey }
+        }).catch(function () {
+            throw obsidianNetworkError(cfg);
+        }).then(function (res) {
+            if (res.status === 401 || res.status === 403) {
+                throw new Error('API 키가 거부되었습니다 (HTTP ' + res.status + ').');
+            }
+            if (!res.ok) throw new Error('옵시디언 응답 오류 (HTTP ' + res.status + ')');
+            return res.json();
+        }).then(function (data) {
+            return { files: (data && data.files) ? data.files.length : 0 };
+        });
     }
 
     /* =========================================================
@@ -905,12 +965,39 @@
                     webSearch: document.getElementById('cfgSearch').checked,
                     searchMaxUses: parseInt(document.getElementById('cfgSearchUses').value, 10) || 12,
                     officialOnly: document.getElementById('cfgOfficial').checked,
-                    effort: document.getElementById('cfgEffort').value || 'low'
+                    effort: document.getElementById('cfgEffort').value || 'low',
+                    obsidian: {
+                        enabled: document.getElementById('cfgObsOn').checked,
+                        baseUrl: (document.getElementById('cfgObsUrl').value || '').trim(),
+                        apiKey: (document.getElementById('cfgObsKey').value || '').trim(),
+                        folder: (document.getElementById('cfgObsFolder').value || '').trim()
+                    }
                 });
                 refreshBadges();
                 if (modal) modal.close();
                 toast('연결 설정을 저장했습니다.', 'ok');
                 if (opts.onConfigSaved) opts.onConfigSaved();
+            });
+        }
+
+        var obsTest = document.getElementById('cfgObsTest');
+        if (obsTest) {
+            obsTest.addEventListener('click', function () {
+                var st = document.getElementById('cfgObsStatus');
+                st.className = 'hint';
+                st.textContent = '확인 중…';
+                obsTest.disabled = true;
+                testObsidian({
+                    baseUrl: (document.getElementById('cfgObsUrl').value || '').trim(),
+                    apiKey: (document.getElementById('cfgObsKey').value || '').trim(),
+                    folder: (document.getElementById('cfgObsFolder').value || '').trim()
+                }).then(function (r) {
+                    st.className = 'hint ok';
+                    st.textContent = '연결 성공 — 볼트 루트에 ' + r.files + '개 항목이 보입니다.';
+                }).catch(function (e) {
+                    st.className = 'hint error';
+                    st.textContent = String(e.message || e).split('\n')[0];
+                }).then(function () { obsTest.disabled = false; });
             });
         }
 
@@ -962,6 +1049,10 @@
         set('cfgEffort', c.effort);
         set('cfgObsUrl', c.obsidian.baseUrl);
         set('cfgObsFolder', c.obsidian.folder);
+        set('cfgObsKey', c.obsidian.apiKey);
+        check('cfgObsOn', c.obsidian.enabled);
+        var st = document.getElementById('cfgObsStatus');
+        if (st) { st.className = 'hint'; st.textContent = ''; }
         var dom = document.getElementById('cfgDomains');
         if (dom) dom.textContent = OFFICIAL_DOMAINS.join(' · ');
     }
@@ -1028,16 +1119,24 @@
               '</div>' +
               '<div class="seg">' +
                 '<div class="seg-title">③ 옵시디언 전송 ' +
-                  '<span class="chip wait">추후 결정</span></div>' +
-                '<div class="seg-desc">Obsidian <b>Local REST API</b> 로 직접 HTTP 호출하는 방식으로 정해져 있습니다. ' +
-                  '접속 주소·API 키·볼트 폴더 규칙이 확정되지 않아 <b>지금은 표시만</b> 하고 전송은 막아 두었습니다. ' +
-                  '확정되면 <code>assets/career.js</code> 의 <code>sendToObsidian()</code> TODO 블록만 열면 됩니다.</div>' +
-                '<div class="field"><label for="cfgObsUrl">Local REST API 주소</label>' +
-                  '<div class="input-wrap"><input type="text" id="cfgObsUrl" value="https://127.0.0.1:27124" disabled></div></div>' +
+                  '<span class="chip">선택</span></div>' +
+                '<div class="seg-desc">Obsidian <b>Local REST API</b> 플러그인으로 볼트에 바로 씁니다. ' +
+                  '플러그인 설정에서 <b>비암호화 HTTP(27123)</b> 를 켜고 API 키를 복사해 넣으세요 — ' +
+                  'HTTPS(27124)는 자체서명 인증서라 브라우저가 막습니다.<br>' +
+                  '⚠ API 키는 <b>이 브라우저에만</b> 저장됩니다. 공용 PC 에서는 쓰지 마세요.</div>' +
+                '<label class="checkbox"><input type="checkbox" id="cfgObsOn">' +
+                  '<span><b>옵시디언 전송 사용</b></span></label>' +
+                '<div class="field" style="margin-top:12px"><label for="cfgObsUrl">Local REST API 주소</label>' +
+                  '<div class="input-wrap"><input type="text" id="cfgObsUrl" placeholder="http://127.0.0.1:27123"></div></div>' +
                 '<div class="field"><label for="cfgObsFolder">볼트 폴더</label>' +
-                  '<div class="input-wrap"><input type="text" id="cfgObsFolder" value="진로상담" disabled></div></div>' +
+                  '<div class="input-wrap"><input type="text" id="cfgObsFolder" placeholder="진로상담"></div></div>' +
                 '<div class="field"><label for="cfgObsKey">API 키</label>' +
-                  '<div class="input-wrap"><input type="password" id="cfgObsKey" placeholder="추후 결정" disabled></div></div>' +
+                  '<div class="input-wrap"><input type="password" id="cfgObsKey" placeholder="플러그인 설정에서 복사"></div></div>' +
+                '<button type="button" class="btn btn-ghost" id="cfgObsTest" ' +
+                  'style="width:auto;padding:9px 18px">연결 테스트</button>' +
+                '<div class="hint" id="cfgObsStatus" style="margin-top:8px"></div>' +
+                '<div class="seg-desc" style="margin-top:8px">진단이 더 필요하면 ' +
+                  '<a href="tools/obsidian-check.html" target="_blank" rel="noopener">연결 실측 도구</a> 를 쓰세요.</div>' +
               '</div>' +
             '</div>' +
             '<div class="modal-actions">' +
@@ -1085,6 +1184,7 @@
         fileName: fileName,
         downloadMd: downloadMd,
         sendToObsidian: sendToObsidian,
+        testObsidian: testObsidian,
 
         /* UI */
         toast: toast,

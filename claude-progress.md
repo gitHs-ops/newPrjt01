@@ -19,7 +19,7 @@ Codex·OpenHands 등 어떤 코딩 에이전트도 쓸 수 있다. 어떤 에이
   `career.js` API 11종 + fetch 경로 + 옵시디언 스텁 + 웹검색 지시 + 출처 경로,
   프록시 예시 4종, **저장소 내 `sk-ant-` 키 문자열 검사**, 프롬프트 생성물 동기화,
   `home.html`→`career.html` 링크, JSON 파싱, `python`, 포트.
-  **63개 항목 전부 통과해야 exit 0**
+  **64개 항목 전부 통과해야 exit 0**
 - **Standard start command**: `python -m http.server 8940` → http://localhost:8940/
   (`.claude/launch.json` 의 `newPrjt01-static` 과 동일 포트)
 - **Current highest-priority unfinished feature**: `career-008` — AI 프록시 주소·API 키 확정
@@ -272,6 +272,43 @@ Codex·OpenHands 등 어떤 코딩 에이전트도 쓸 수 있다. 어떤 에이
     sonnet-4-5: `basic`/effort=false, opus-4-5: `basic`/effort=true
   - fetch 스텁: 요청에 `model=claude-haiku-4-5` 실림 확인
   - 설정 모달에 모델 선택 3종 + Haiku effort 안내 렌더(스크린샷)
+#### Session 003 후속 4 — 옵시디언 연결 실측 및 구현 (`career-009`)
+
+- **1차 실측(플러그인 설치 전)**: 27123·27124 모두 ERR_CONNECTION_REFUSED,
+  `Test-NetConnection` 도 listening=False. 볼트 `C:\myPrjt01\myWorkspace01` 의
+  `community-plugins.json` 확인 결과 `obsidian-local-rest-api` **미설치** 확정.
+  (현재 떠 있던 27200 은 별개의 `mcp-tools-istefox` 이며 CORS 헤더가 없어 브라우저에서 불가)
+- **설치가 안 되던 원인**: 레지스트리에서 **표시 이름이 바뀌었다** —
+  id 는 `obsidian-local-rest-api` 그대로지만 이름이 **`Local REST API with MCP`**(저자 Adam Coddington).
+  "Local REST API" 로 찾으면 다른 것으로 보여 지나치게 된다.
+  네트워크는 정상이었다(레지스트리·GitHub 모두 200)
+- **계측기 신설**: `tools/obsidian-check.html` — 진로상담 앱과 **같은 출처**에서
+  도달 → CORS → 인증서 → 인증(preflight) → 쓰기 5단계를 판정.
+  핵심 설계는 **`no-cors` 프로브로 연결거부와 CORS 차단을 구분**한 것 —
+  둘 다 `fetch` 에서는 똑같이 `Failed to fetch` 로 보여 원인 특정이 안 된다
+- **2차 실측(설치 후) — ①~④ 전부 통과**
+  - ① 27123 응답 17ms  ② ③ CORS·인증서 통과 HTTP 200 (플러그인 v5.1.0)
+  - ④ Authorization preflight + 키 인증 HTTP 200
+- **구현**: `sendToObsidian()` 의 TODO 블록을 열어 실제 `PUT` 수행.
+  `testObsidian()`(쓰기 없이 상태·인증만 확인) 추가, 설정 모달의 옵시디언 입력란 활성화 +
+  **연결 테스트** 버튼, 기본 주소를 실측 통과한 `http://127.0.0.1:27123` 으로
+- **⚠ 판단**: HTTPS(27124)를 기본값에서 뺐다. 자체서명 인증서라 브라우저 `fetch` 가 거부하는데,
+  인증서 예외 등록은 사용자가 매번 겪을 마찰이다. 로컬 전용이므로 HTTP 가 합리적이다
+- **Verification run**: `.\init.ps1` → **64개 항목 전부 `[OK]`, exit 0**
+- **Evidence captured**
+  - 앱에서 잘못된 키로 호출 → **HTTP 401** 수신. 요청이 실제로 플러그인에 닿고
+    CORS·preflight 를 통과했다는 직접 증거다
+  - 없는 포트(27999) → "옵시디언에 연결하지 못했습니다" 안내
+  - 미설정 상태 → 전송 대신 설정 안내로 차단
+  - URL 생성: baseUrl 끝 슬래시·folder 앞뒤 슬래시 정규화 + 한글 인코딩 확인 →
+    `/vault/진로상담/진로1차_고2 A - 반도체_20260901-1535.md`, PUT, text/markdown
+  - 설정 모달 렌더 확인(입력란 활성, 연결 테스트 버튼, 사용 토글) — 스크린샷
+- **미검증 1건**: ⑤ 실제 쓰기(PUT). **유효한 API 키가 필요한데 자격증명은 입력하지 않았다** —
+  사용자가 설정에 키를 넣고 [옵시디언으로 전송]을 한 번 누르면 확인된다.
+  그래서 `career-009` 는 `passing` 이 아니라 **`in_progress`** 로 둔다
+- **⚠ 보안 메모**: API 키가 `localStorage`(`np_career_config`)에 평문으로 저장된다.
+  로컬 전용 키이고 사용자 브라우저에만 남지만 공용 PC 에서는 쓰지 말 것. 화면에도 경고를 넣었다
+
 - **⚠ 남는 품질 리스크**: 이 프롬프트는 `[확인]`/`[해석]`/`[제안]` 구분, 근거 없는 수치 금지,
   "확인 불가" 표시 같은 **엄격한 지시 준수**를 요구한다. Haiku 가 이걸 지키는지는
   **실제 출력으로 확인해야 한다.** 흐트러지면 Sonnet 5 로 올릴 것 — 설정에서 바로 바꿀 수 있다
