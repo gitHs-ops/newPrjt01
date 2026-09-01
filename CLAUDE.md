@@ -27,6 +27,20 @@ start http://localhost:8940/tools/obsidian-check.html   # 옵시디언 연결 5�
 전 항목 일괄 실행이며, `[FAIL]` 이 하나라도 있으면 exit 1 이다.
 `.claude/launch.json` 의 `newPrjt01-static` 은 같은 서버(`python -m http.server 8940`)를 띄운다.
 
+### 용어 (기록할 때 이 말을 쓴다)
+
+저장소 문서·커밋·`claude-progress.md` 가 이미 이 용어로 씌어 있다. 새 이름을 만들지 말 것.
+
+| 대상 | 이름 |
+|---|---|
+| `.\init.ps1` | **표준 시작 경로**(Standard startup path) — 검증만 |
+| `-Start` / `-Start -OpenBrowser` | 그 경로의 **기동 모드** |
+| `python -m http.server 8940` | **Standard start command** |
+| 브라우저로 전 경로를 직접 밟아 확인하는 행위 | **실기동 검증** (기록 문구: "실기동 전 경로 통과") |
+
+`init.ps1` 은 저장소 텍스트와 배포본 버전만 본다. **화면 동작·시트 기록·옵시디언 쓰기는
+실기동 검증으로만 확인된다** — 하네스를 아무리 다시 돌려도 그쪽은 검증되지 않는다.
+
 ## Architecture
 
 ### 정적 앱 (빌드 없음, 서버 없음)
