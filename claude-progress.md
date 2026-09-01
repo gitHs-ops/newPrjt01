@@ -519,6 +519,26 @@ Session 004 의 후보가 그대로 유효하다. 하네스 쪽으로는 위 "�
 - **미검증**: 재배포 후 실제 1회 분석을 돌려 시트의 `web_tools` 열이 바르게 적히는지는
   아직 확인하지 않았다(v1.7.2 가 고친 바로 그 증상). 다음 실사용 때 시트에서 확인할 것
 
+#### 추가 — `/exec` URL 유출 방지 검사 (`init.ps1` 5c-5)
+
+GitHub Pages 로 연 사이트에서 "프록시 URL 이 없다"는 보고에서 나왔다. 원인은 정상 동작이다 —
+설정은 `np_career_config`(오리진별 `localStorage`)에 있어 주소가 다르면 비어 있다.
+`local.endpoint.txt` 는 앱이 읽지 않는다(`init.ps1 -Live` 전용).
+
+**진짜 위험은 그다음 행동**이다. 브라우저마다 다시 입력하기 귀찮으면
+`DEFAULT_CONFIG.endpoint` 에 URL 을 박고 싶어지는데, GitHub Pages 는 공개라
+소스가 그대로 노출된다. `/exec` URL 만 알면 **누구나 이 계정의 API 키로 호출**하고
+요금은 이쪽에 붙는다. 기존 `sk-ant-` 검사로는 못 잡는다 — 키가 아니라 URL 이라서다.
+
+검사는 배포 ID 20자 이상만 본다. 문서·플레이스홀더의 `.../exec` 는 걸리지 않는다.
+`career_proxy.gs`(gitignore 대상, 실 파일)는 제외한다.
+
+- 양성 시험: `_exec_probe.js` 에 실제 `/exec` URL 을 넣고 실행 →
+  `[FAIL] 소스에 /exec URL 이 박혀 있음: _exec_probe.js`, exit 1. 확인 후 삭제
+- 음성 시험: `career.js` 의 자리표시자 2곳(`endpoint` 주석, 입력 placeholder)은 통과
+
+문서에도 같이 적었다 — `README.md`(프록시 절), `CLAUDE.md`(지뢰), `session-handoff.md`(바꾸면 안 되는 것).
+
 #### Next best step
 
 다음 실제 분석 1회를 돌린 뒤 **시트 전용 탭의 `web_tools` 열**을 확인해 v1.7.2 정정이

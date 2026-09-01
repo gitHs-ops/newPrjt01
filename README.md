@@ -113,6 +113,12 @@ Content-Type: text/plain;charset=utf-8      ← GAS 웹앱 CORS preflight 회피
 스크립트 속성 `ANTHROPIC_API_KEY` 만 채우면 동작한다.
 **키를 소스에 적지 말 것** — `init.ps1` 이 저장소에서 `sk-ant-` 문자열을 찾으면 검증에 실패한다.
 
+> ⚠ **배포된 `/exec` URL 도 소스에 박지 말 것.** 설정은 오리진별 `localStorage` 에 들어가므로
+> GitHub Pages 같은 다른 주소에서 열면 [연결 설정]을 다시 입력해야 한다. 그게 귀찮다고
+> `DEFAULT_CONFIG.endpoint` 에 URL 을 넣으면 **공개된 소스에 그대로 노출되어 누구나
+> 이 계정의 API 키로 호출**할 수 있다. `init.ps1` 이 소스에서 실제 `/exec` URL 을 찾으면
+> 검증에 실패시킨다(자리표시자 `.../exec` 는 걸리지 않는다). URL 은 `local.endpoint.txt` 에만 둔다.
+
 #### careerTest 프록시와 배포 공유
 
 같은 Apps Script 배포·같은 API 키를 `careerTest` 와 함께 쓸 수 있다.

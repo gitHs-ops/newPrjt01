@@ -91,6 +91,10 @@ career-step2 → career-report2`.
 - 보고서 끝단(STEP 11 최종 브리프·면책 문장) 잘림이 네 번 재발했다.
   보고서 산출 경로를 건드렸으면 **눈으로 보지 말고** `tools/check-report.py` 로 확인한다.
 - `sk-ant-` 문자열이 저장소 어디든 들어가면 검증이 실패한다.
+- **배포된 `/exec` URL 도 소스에 박으면 실패한다.** 설정은 오리진별 `localStorage` 라
+  다른 주소(GitHub Pages 등)에서는 [연결 설정]을 다시 넣어야 하는데, 그걸 피하려고
+  `DEFAULT_CONFIG.endpoint` 에 박으면 공개 소스로 URL 이 새어 누구나 이 계정의
+  API 키로 호출한다. URL 은 `local.endpoint.txt` 에만 둔다(자리표시자 `.../exec` 는 무해).
 - 학생 개인정보가 담긴 `*.report.md` / `reports/` 는 커밋 금지(`.gitignore`).
 
 ## Operating Loop

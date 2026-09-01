@@ -320,6 +320,24 @@ if ($keyHits.Count -eq 0) {
     Write-Fail "API 키로 보이는 문자열 발견: $($keyHits -join ', ') — 즉시 제거하고 키를 폐기할 것"
 }
 
+# 5c-5) 배포된 /exec URL 이 소스에 박혀 있지 않은가
+#   GitHub Pages 로 공개 배포하면 소스가 그대로 노출된다. /exec URL 만 알면 누구나
+#   이쪽 API 키로 호출할 수 있고 요금은 이 계정에 붙는다. sk-ant- 검사로는 안 잡힌다
+#   — 키가 아니라 URL 이라서다. 브라우저마다 [연결 설정]에 입력하는 것이 귀찮다고
+#   DEFAULT_CONFIG.endpoint 에 박아 넣는 지름길을 여기서 막는다.
+#   `.../exec` 같은 자리표시자는 걸리지 않는다 (배포 ID 20자 이상만 본다).
+$execHits = @()
+foreach ($f in (Get-ChildItem -Recurse -File -Include *.gs, *.js, *.html, *.md, *.json, *.ps1, *.py |
+                Where-Object { $_.FullName -notmatch '\\\.git\\' -and $_.Name -ne 'career_proxy.gs' })) {
+    $t = Get-Content -LiteralPath $f.FullName -Raw -Encoding UTF8
+    if ($t -match 'script\.google\.com/macros/s/[A-Za-z0-9_-]{20,}/exec') { $execHits += $f.Name }
+}
+if ($execHits.Count -eq 0) {
+    Write-Ok "소스에 배포된 /exec URL 없음 (연결 설정으로만 주입)"
+} else {
+    Write-Fail "소스에 /exec URL 이 박혀 있음: $($execHits -join ', ') — 공개 배포 시 누구나 호출한다. local.endpoint.txt 로 옮길 것"
+}
+
 # 5d) 프롬프트 생성물이 원문과 동기화되어 있는가
 if ((Test-Path -LiteralPath 'assets\career-prompts.js' -PathType Leaf) -and
     (Test-Path -LiteralPath 'tools\build-prompts.py' -PathType Leaf)) {
