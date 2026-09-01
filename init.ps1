@@ -58,8 +58,30 @@ foreach ($f in $appFiles) {
     if (Test-Path -LiteralPath $f -PathType Leaf) { Write-Ok $f } else { Write-Fail "$f 없음" }
 }
 
+# 2b) 앱 파일 — 진로상담 일습
+$careerFiles = @(
+    'career.html',
+    'career-step1.html',
+    'career-report1.html',
+    'career-step2.html',
+    'career-report2.html',
+    'assets\career.css',
+    'assets\career.js',
+    'assets\career-prompts.js',
+    'assets\prompts\prompt-1st.txt',
+    'assets\prompts\prompt-2nd.txt',
+    'assets\prompts\input-1st.txt',
+    'assets\prompts\input-2nd.txt',
+    'tools\build-prompts.py'
+)
+foreach ($f in $careerFiles) {
+    if (Test-Path -LiteralPath $f -PathType Leaf) { Write-Ok $f } else { Write-Fail "$f 없음" }
+}
+
 # 3) HTML 무결성 — 비어 있지 않고 <html> 을 포함하는가
-foreach ($f in @('index.html', 'login.html', 'signup.html', 'home.html', 'error.html')) {
+foreach ($f in @('index.html', 'login.html', 'signup.html', 'home.html', 'error.html',
+                 'career.html', 'career-step1.html', 'career-report1.html',
+                 'career-step2.html', 'career-report2.html')) {
     if (-not (Test-Path -LiteralPath $f -PathType Leaf)) { continue }
     $content = Get-Content -LiteralPath $f -Raw -Encoding UTF8
     if ($content.Length -gt 0 -and $content -match '(?i)<html') {
@@ -102,6 +124,87 @@ if (Test-Path -LiteralPath 'assets\auth.js' -PathType Leaf) {
         Write-Ok "비밀번호 해싱(PBKDF2) 경로 존재"
     } else {
         Write-Fail "auth.js 에 PBKDF2 해싱이 보이지 않음 — 평문 저장 여부 확인 필요"
+    }
+}
+
+# 5b) 진로상담 페이지가 공통 자산을 참조하는가
+foreach ($f in @('career.html', 'career-step1.html', 'career-report1.html',
+                 'career-step2.html', 'career-report2.html')) {
+    if (-not (Test-Path -LiteralPath $f -PathType Leaf)) { continue }
+    $content = Get-Content -LiteralPath $f -Raw -Encoding UTF8
+    $hasCss     = $content -match 'assets/career\.css'
+    $hasJs      = $content -match 'assets/career\.js'
+    $hasPrompts = $content -match 'assets/career-prompts\.js'
+    $hasAuth    = $content -match 'assets/auth\.js'
+    if ($hasCss -and $hasJs -and $hasPrompts -and $hasAuth) {
+        Write-Ok "$f 가 career.css / career.js / career-prompts.js / auth.js 를 참조"
+    } else {
+        Write-Fail "$f 의 공통 자산 참조 누락 (css=$hasCss js=$hasJs prompts=$hasPrompts auth=$hasAuth)"
+    }
+}
+
+# 5c) career.js 의 공개 API 가 살아 있는가
+if (Test-Path -LiteralPath 'assets\career.js' -PathType Leaf) {
+    $cjs = Get-Content -LiteralPath 'assets\career.js' -Raw -Encoding UTF8
+    $needed = @('createCase', 'listCases', 'updateCase', 'deleteCase',
+                'buildUserMessage1', 'buildUserMessage2', 'callAI',
+                'mdToHtml', 'downloadMd', 'sendToObsidian', 'mountChrome')
+    $missing = @()
+    foreach ($fn in $needed) {
+        if ($cjs -notmatch [regex]::Escape($fn)) { $missing += $fn }
+    }
+    if ($missing.Count -eq 0) {
+        Write-Ok "career.js 공개 API $($needed.Count)종 확인"
+    } else {
+        Write-Fail "career.js 에서 누락된 API: $($missing -join ', ')"
+    }
+
+    # AI 호출이 실제 네트워크 경로를 갖는가 (프롬프트 복사 방식으로 되돌아가지 않았는지)
+    if ($cjs -match 'fetch\(endpoint') {
+        Write-Ok "AI 호출 경로(fetch) 존재"
+    } else {
+        Write-Fail "career.js 에 AI 호출용 fetch 가 보이지 않음"
+    }
+
+    # 옵시디언 전송은 아직 '표시만' — 스텁이 살아 있는지 확인
+    if ($cjs -match 'OBSIDIAN_PENDING_MSG') {
+        Write-Ok "옵시디언 전송 스텁 존재 (추후 결정 상태)"
+    } else {
+        Write-Fail "옵시디언 전송 스텁이 사라짐 — 연결 여부를 확인할 것"
+    }
+}
+
+# 5d) 프롬프트 생성물이 원문과 동기화되어 있는가
+if ((Test-Path -LiteralPath 'assets\career-prompts.js' -PathType Leaf) -and
+    (Test-Path -LiteralPath 'tools\build-prompts.py' -PathType Leaf)) {
+    $gen = Get-Item -LiteralPath 'assets\career-prompts.js'
+    $stale = @()
+    foreach ($p in @('prompt-1st.txt', 'prompt-2nd.txt', 'input-1st.txt', 'input-2nd.txt')) {
+        $src = Join-Path 'assets\prompts' $p
+        if (-not (Test-Path -LiteralPath $src -PathType Leaf)) { continue }
+        if ((Get-Item -LiteralPath $src).LastWriteTime -gt $gen.LastWriteTime) { $stale += $p }
+    }
+    if ($stale.Count -eq 0) {
+        Write-Ok "career-prompts.js 가 프롬프트 원문보다 최신"
+    } else {
+        Write-Fail "프롬프트 원문이 더 최신임 ($($stale -join ', ')) — python tools/build-prompts.py 실행 필요"
+    }
+
+    $gjs = Get-Content -LiteralPath 'assets\career-prompts.js' -Raw -Encoding UTF8
+    if ($gjs -match 'CareerPrompts' -and $gjs.Length -gt 20000) {
+        Write-Ok "career-prompts.js 에 프롬프트 원문이 담겨 있음 ($([int]($gjs.Length/1024))KB)"
+    } else {
+        Write-Fail "career-prompts.js 가 비었거나 CareerPrompts 전역이 없음"
+    }
+}
+
+# 5e) 로그인 성공 페이지가 진로상담으로 연결되는가
+if (Test-Path -LiteralPath 'home.html' -PathType Leaf) {
+    $homeHtml = Get-Content -LiteralPath 'home.html' -Raw -Encoding UTF8
+    if ($homeHtml -match 'career\.html') {
+        Write-Ok "home.html 에서 진로상담(career.html) 진입 링크 확인"
+    } else {
+        Write-Fail "home.html 에 career.html 링크가 없음"
     }
 }
 
@@ -158,6 +261,7 @@ Write-Host "    python -m http.server $Port" -ForegroundColor Yellow
 Write-Host "    http://localhost:$Port/           첫 화면" -ForegroundColor DarkGray
 Write-Host "    http://localhost:$Port/login.html 로그인" -ForegroundColor DarkGray
 Write-Host "    http://localhost:$Port/signup.html 회원가입" -ForegroundColor DarkGray
+Write-Host "    http://localhost:$Port/career.html 진로상담 (로그인 필요)" -ForegroundColor DarkGray
 
 if (-not $Start) {
     Write-Host ""

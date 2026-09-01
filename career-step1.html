@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="color-scheme" content="light">
+<meta name="theme-color" content="#eef2ff">
+<title>1차 입력 · 학생 정보 — newPrjt01</title>
+<link rel="stylesheet" as="style" crossorigin
+      href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.css" />
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/auth.css">
+<link rel="stylesheet" href="assets/career.css">
+</head>
+<body class="doc">
+
+<div class="doc-wrap">
+
+    <div class="topbar" id="topbar"></div>
+
+    <div class="page-head">
+        <div class="eyebrow">Step 1 — Student Input</div>
+        <h1>1차 입력 · 학생 정보</h1>
+        <p id="caseLine">사례를 불러오는 중…</p>
+    </div>
+
+    <div class="steps" id="steps"></div>
+
+    <form id="form" novalidate>
+
+        <div class="card">
+            <h2>필수 항목 <span class="tag">3개</span></h2>
+            <p class="card-desc">
+                이 세 가지가 있어야 1차 리서치를 시작할 수 있습니다.
+                학생이 말한 표현을 <b>고치지 말고 그대로</b> 적어 주세요 —
+                프롬프트가 표현 자체를 해석 대상으로 삼습니다.
+            </p>
+
+            <div class="field">
+                <label for="grade">학교급 및 학년 <span class="req">*</span></label>
+                <select id="grade" required>
+                    <option value="">선택하세요</option>
+                    <option>중학교 1학년</option>
+                    <option>중학교 2학년</option>
+                    <option>중학교 3학년</option>
+                    <option>고등학교 1학년</option>
+                    <option>고등학교 2학년</option>
+                    <option>고등학교 3학년</option>
+                </select>
+            </div>
+
+            <div class="field">
+                <label for="hope">희망 직업 / 직무 / 계열 <span class="req">*</span></label>
+                <textarea id="hope" required
+                    placeholder="예: 반도체를 하고 싶다 / 회로설계를 하고 싶다 / 삼성전자에 가고 싶다&#10;— 학생이 말한 그대로 적으세요. 직업으로 다듬지 마세요."></textarea>
+            </div>
+
+            <div class="field">
+                <label for="subjects">현재 관심 과목 및 강점 <span class="req">*</span></label>
+                <textarea id="subjects" required
+                    placeholder="예: 물리Ⅰ·수학을 좋아하고 실험 설계를 잘한다는 말을 자주 듣는다"></textarea>
+            </div>
+
+            <div class="hint error" id="err" style="display:none"></div>
+        </div>
+
+        <div class="card">
+            <h2>선택 항목 <span class="tag opt">9개 · 비워도 됩니다</span></h2>
+            <p class="card-desc">
+                모르는 항목은 <b>비워 두세요</b>. 억지로 채우면 프롬프트가 금지한
+                “없는 정보 만들어내기”를 유도하게 됩니다. 빈 항목은 <code>(입력 없음)</code>으로 전달됩니다.
+            </p>
+
+            <div class="grid2">
+                <div class="field full">
+                    <label for="industry">관심 있는 산업 또는 분야 <span class="opt">선택</span></label>
+                    <textarea id="industry" placeholder="예: 반도체, 자동차 전장, 콘텐츠"></textarea>
+                </div>
+
+                <div class="field full">
+                    <label for="trigger">관심을 갖게 된 계기 <span class="opt">선택</span></label>
+                    <textarea id="trigger" placeholder="예: 다큐멘터리를 보고 / 동아리에서 아두이노를 만져보고"></textarea>
+                </div>
+
+                <div class="field full">
+                    <label for="style">좋아하는 활동 또는 문제해결 방식 <span class="opt">선택</span></label>
+                    <textarea id="style" placeholder="예: 원인을 하나씩 확인해 찾아내는 쪽을 좋아함"></textarea>
+                </div>
+
+                <div class="field">
+                    <label for="major">현재 생각하고 있는 전공 <span class="opt">선택</span></label>
+                    <textarea id="major" placeholder="예: 전자공학과"></textarea>
+                </div>
+
+                <div class="field">
+                    <label for="score">현재 교과 성적 또는 수준 <span class="opt">선택</span></label>
+                    <textarea id="score" placeholder="예: 수학·과학 2등급대, 영어 3등급"></textarea>
+                </div>
+
+                <div class="field">
+                    <label for="univ">희망 대학 또는 대학 수준 <span class="opt">선택</span></label>
+                    <textarea id="univ" placeholder="예: 수도권 4년제"></textarea>
+                </div>
+
+                <div class="field">
+                    <label for="region">희망 지역 <span class="opt">선택</span></label>
+                    <textarea id="region" placeholder="예: 수도권"></textarea>
+                </div>
+
+                <div class="field">
+                    <label for="entryYear">대학 진학 예정 연도 <span class="opt">선택</span></label>
+                    <div class="input-wrap">
+                        <input type="text" id="entryYear" inputmode="numeric" placeholder="예: 2028" maxlength="12">
+                    </div>
+                </div>
+
+                <div class="field full">
+                    <label for="ask">추가적으로 알고 싶은 내용 <span class="opt">선택</span></label>
+                    <textarea id="ask" placeholder="예: 이 전공이 어떤 산업들과 연결되는지 알고 싶다"></textarea>
+                </div>
+            </div>
+        </div>
+
+        <div class="card">
+            <h2>보낼 내용 미리보기</h2>
+            <p class="card-desc">
+                아래 텍스트가 <code>assets/prompts/prompt-1st.txt</code>(시스템 프롬프트)와 함께 AI 로 전달됩니다.
+                사례 이름은 전달되지 않습니다.
+            </p>
+            <pre class="raw-md show" id="preview" style="max-height:280px"></pre>
+            <div class="actions" style="margin-top:16px">
+                <button type="submit" class="btn btn-sky grow" id="runBtn">1차 분석 실행 →</button>
+                <button type="button" class="btn btn-ghost" id="saveBtn">임시 저장</button>
+            </div>
+        </div>
+
+    </form>
+
+</div>
+
+<script src="assets/auth.js"></script>
+<script src="assets/career-prompts.js"></script>
+<script src="assets/career.js"></script>
+<script>
+(function () {
+    'use strict';
+
+    var session = Auth.requireAuth('login.html');
+    if (!session) return;
+
+    Career.mountChrome({ back: 'career.html', backLabel: '진로상담 홈' });
+    Career.renderSteps(document.getElementById('steps'), 1);
+
+    var caseId = Career.qs('case');
+    var kase = caseId ? Career.getCase(caseId) : null;
+    if (!kase) {
+        alert('사례를 찾을 수 없습니다. 진로상담 홈에서 다시 시작하세요.');
+        location.replace('career.html');
+        return;
+    }
+    document.getElementById('caseLine').innerHTML =
+        '사례 <b>' + Career.esc(kase.label) + '</b> · ' +
+        '학생이 말한 표현을 그대로 입력하면 1차 리서치가 그 표현부터 해석합니다.';
+
+    var KEYS = Career.FIELDS_1.map(function (f) { return f.key; });
+
+    function collect() {
+        var o = {};
+        KEYS.forEach(function (k) {
+            var el = document.getElementById(k);
+            o[k] = el ? el.value.trim() : '';
+        });
+        return o;
+    }
+
+    function fill(student) {
+        KEYS.forEach(function (k) {
+            var el = document.getElementById(k);
+            if (el && student && student[k]) el.value = student[k];
+        });
+    }
+
+    function refreshPreview() {
+        document.getElementById('preview').textContent = Career.buildUserMessage1(collect());
+    }
+
+    fill(kase.student);
+    refreshPreview();
+
+    KEYS.forEach(function (k) {
+        var el = document.getElementById(k);
+        if (el) el.addEventListener('input', refreshPreview);
+        if (el && el.tagName === 'SELECT') el.addEventListener('change', refreshPreview);
+    });
+
+    function validate() {
+        var err = document.getElementById('err');
+        var missing = Career.FIELDS_1.filter(function (f) {
+            if (!f.required) return false;
+            var el = document.getElementById(f.key);
+            return !el || !el.value.trim();
+        });
+        if (missing.length) {
+            err.style.display = '';
+            err.textContent = '필수 항목을 채워 주세요 — ' +
+                missing.map(function (f) { return f.label; }).join(', ');
+            var first = document.getElementById(missing[0].key);
+            if (first) first.focus();
+            return false;
+        }
+        err.style.display = 'none';
+        return true;
+    }
+
+    document.getElementById('saveBtn').addEventListener('click', function () {
+        Career.updateCase(kase.id, { student: collect() });
+        Career.toast('입력 내용을 저장했습니다.', 'ok');
+    });
+
+    document.getElementById('form').addEventListener('submit', function (e) {
+        e.preventDefault();
+        if (!validate()) return;
+        Career.updateCase(kase.id, { student: collect() });
+        location.href = 'career-report1.html?case=' + encodeURIComponent(kase.id) + '&run=1';
+    });
+})();
+</script>
+</body>
+</html>

@@ -14,22 +14,33 @@ Codex·OpenHands 등 어떤 코딩 에이전트도 쓸 수 있다. 어떤 에이
   - `.\init.ps1` — 검증만 / `.\init.ps1 -Start` — 검증 후 서버 기동 / `-OpenBrowser` — 브라우저까지 염
   - ⚠ **`init.ps1` 은 반드시 UTF-8 BOM 으로 저장할 것.** Windows PowerShell 5.1 은 BOM 없는
     `.ps1` 을 cp949 로 읽어 한글 문자열이 깨지고 파서 오류가 난다(2026-08-31 실제 발생)
-- **Standard verification path**: `init.ps1` 에 포함 — 하네스 5파일 + 앱 7파일 존재,
-  HTML 무결성 5건, 공통자산 참조 4건, `auth.js` 공개 API 8종, PBKDF2 존재,
-  `feature_list.json` 파싱, `python` 가용성, 포트 상태. **26개 항목 전부 통과해야 exit 0**
+- **Standard verification path**: `init.ps1` 에 포함 — 하네스 5파일 + 로그인 7파일 +
+  진로상담 13파일 존재, HTML 무결성 10건, 공통자산 참조 9건, `auth.js` API 8종 + PBKDF2,
+  `career.js` API 11종 + fetch 경로 + 옵시디언 스텁, 프롬프트 생성물 동기화,
+  `home.html`→`career.html` 링크, JSON 파싱, `python`, 포트.
+  **53개 항목 전부 통과해야 exit 0**
 - **Standard start command**: `python -m http.server 8940` → http://localhost:8940/
   (`.claude/launch.json` 의 `newPrjt01-static` 과 동일 포트)
-- **Current highest-priority unfinished feature**: `auth-006` — 서버 기반 인증으로 전환
-- **Current blocker**: 없음
+- **Current highest-priority unfinished feature**: `career-008` — AI 프록시 주소·API 키 확정
+- **Current blocker**: `career-008`·`career-009` 둘 다 **사용자 결정 대기**.
+  코드는 준비돼 있고 값만 넣으면 된다
 
 ## 이 저장소의 성격
 
-- **정적 HTML 로그인 데모.** 빌드 단계 없음, `package.json` 없음, npm 사용 안 함
-- 화면: `index.html`(랜딩) · `login.html` · `signup.html` · `home.html`(성공) · `error.html`(실패)
-- 공통 자산: `assets/auth.css`(디자인 시스템) · `assets/auth.js`(인증 로직)
-- 계정 저장소는 **localStorage**(`np_users`) — 테스트 목적으로 사용자가 명시 허가.
-  다만 **비밀번호는 평문이 아니라 PBKDF2-SHA256(10만회) + 사용자별 랜덤 솔트 해시**로 보관
-- 세션: 상태유지 켬 → `localStorage`, 끔 → `sessionStorage` (키 `np_session`)
+- **정적 HTML 앱 두 벌.** 빌드 단계 없음, `package.json` 없음, npm 사용 안 함
+- **① 로그인 데모** — `index.html`(랜딩) · `login.html` · `signup.html` ·
+  `home.html`(성공) · `error.html`(실패), 공통 자산 `assets/auth.css` · `assets/auth.js`
+  - 계정 저장소는 **localStorage**(`np_users`) — 테스트 목적으로 사용자가 명시 허가.
+    다만 **비밀번호는 평문이 아니라 PBKDF2-SHA256(10만회) + 사용자별 랜덤 솔트 해시**로 보관
+  - 세션: 상태유지 켬 → `localStorage`, 끔 → `sessionStorage` (키 `np_session`)
+- **② 진로상담 분석** — `career.html`(홈) · `career-step1` → `career-report1` →
+  `career-step2` → `career-report2`, 공통 자산 `assets/career.css` · `assets/career.js` ·
+  `assets/career-prompts.js`(자동 생성)
+  - 사례 저장소는 **localStorage**(`np_career_cases`), 설정은 `np_career_config`
+  - 프롬프트 원문은 `assets/prompts/*.txt` 가 단일 원본,
+    `python tools/build-prompts.py` 로 `career-prompts.js` 를 재생성한다
+  - AI 호출은 **프록시 경유**(POST · text/plain). 프록시 미설정 시 **모의 응답**으로만 동작
+  - `home.html` 에서 진입한다 (로그인 필요)
 - 상위 `C:\myPrjt01\CLAUDE.md` 의 워크스페이스 지침도 함께 적용된다
 
 ## Session Log
@@ -75,7 +86,8 @@ Codex·OpenHands 등 어떤 코딩 에이전트도 쓸 수 있다. 어떤 에이
   - 실패 로그인 → `error.html` 이동 + 세션 `null`
   - 세션 없이 `home.html` 접근 → `login.html` 로 차단
   - 로그인/회원가입/성공 화면 스크린샷 3장
-- **Commits**: (아직 커밋하지 않음 — 사용자 확인 대기)
+- **Commits**: `65be780` — Session 003 시작 시 확인해 보니 이미 커밋되어 있었다
+  (당시 기록이 뒤처져 있던 것)
 - **Files or artifacts updated**:
   신규 `login.html`·`signup.html`·`home.html`·`error.html`·`assets/auth.css`·`assets/auth.js`·`init.ps1` /
   수정 `index.html`·`AGENTS.md`·`CLAUDE.md`·`feature_list.json`·`claude-progress.md`·`session-handoff.md`·`README.md` /
@@ -96,12 +108,69 @@ Codex·OpenHands 등 어떤 코딩 에이전트도 쓸 수 있다. 어떤 에이
 
 ### Session 003
 
-- Date:
-- Goal:
-- Completed:
-- Verification run:
-- Evidence captured:
-- Commits:
-- Files or artifacts updated:
-- Known risk or unresolved issue:
-- Next best step:
+- **Date**: 2026-09-01
+- **Goal**: 새 기능 영역 주입 — **진로상담 분석 웹페이지** 신규 구축
+  (1차 입력 → 1차 분석 → 2차 추가정보 → 2차 분석, 결과 로컬 보존 + md 저장,
+  로그인 성공 페이지에서 연결). `auth-006` 은 사용자 지시로 보류.
+- **Completed**:
+  - **입력 자료 반입**: 사용자가 준 프롬프트 4종을 `assets/prompts/` 로 복사
+    (`prompt-1st.txt` 26KB · `prompt-2nd.txt` 15KB · `input-1st.txt` · `input-2nd.txt`)
+  - **프롬프트 생성기**: `tools/build-prompts.py` → `assets/career-prompts.js`(21KB) 생성.
+    원문은 `.txt` 가 단일 원본이고 생성물은 커밋한다 — **앱에는 빌드 단계가 없다**
+  - **화면 5종 신규 작성**: `career.html`(홈·사례목록) · `career-step1.html`(학생 정보 12항목) ·
+    `career-report1.html` · `career-step2.html`(경험/학교자료 있음·없음 라디오) ·
+    `career-report2.html`(합본 저장 포함)
+  - **공통 자산 신설**: `assets/career.css`(문서형 레이아웃·보고서 스타일),
+    `assets/career.js`(사례 저장소 · AI 호출 · 자체 마크다운 렌더러 · md 저장 · 옵시디언 스텁 ·
+    공통 상단바/설정 모달 주입)
+  - **AI 호출 방식**: 프롬프트 복사 방식이 아니라 **프록시 경유 호출**로 구현
+    (careerTest 와 동일한 형태, POST + `text/plain` 으로 GAS CORS preflight 회피).
+    **프록시 주소·API 키는 추후 결정** — 미설정이면 모의 응답으로 흐름만 검증되고
+    화면·md 양쪽에 모의라고 표시된다
+  - **옵시디언 전송**: Local REST API 직접 호출 방침. 지금은 **버튼만 표시**하고
+    `sendToObsidian()` 안에 실제 PUT 코드를 TODO 블록으로 넣어 두었다
+  - `home.html` 에 진로상담 진입 카드 추가 (+ `assets/auth.css` 에 `.app-card` 스타일)
+  - **`init.ps1` 검증 26개 → 53개로 확장** (진로상담 파일·자산참조·API·프롬프트 동기화·
+    home 링크 검사 추가). UTF-8 BOM 유지 확인함
+  - `feature_list.json` 에 `career-001`~`career-009` 주입. 기존 기능은 우선순위를 뒤로 밀고
+    `auth-006` 에 보류 사유를 기록
+- **Verification run**:
+  1. `.\init.ps1` → **53개 항목 전부 `[OK]`, exit 0**
+  2. 브라우저 실기동(http://localhost:8940) 전 경로 통과 —
+     로그인 → home 진입 카드 → 사례 생성 → 1차 입력 → 1차 분석 → 2차 입력 → 2차 분석 →
+     md 저장 → 옵시디언 차단 확인. 콘솔 오류 0건
+- **Evidence captured**:
+  - `init.ps1` 출력 53행 전부 `[OK]`
+  - 1차 미리보기: 12항목이 `input-1st.txt` 순서와 1:1 일치, 미입력 9항목 `(입력 없음)` 직렬화
+  - 1차 분석 → `report1` 저장(md 1109자), 보고서에 표 1개(9행)·제목 7개·인용 1개 렌더
+  - 2차: 경험 “있음” → 9항목 펼침 / 학교자료 “없음” → 미리보기에 `학교자료 없음` 출력
+  - md 저장 → 토스트 `진로2차_고2 A - 반도체 관심_20260901-1535.md`, 프론트매터 7줄(`mock: true`)
+  - 옵시디언 전송 클릭 → 안내로 차단(`obsidianBlocked=true`)
+  - 잘못된 프록시 주소 → 배지 “AI 연결됨” + 실패 화면 “프록시에 연결하지 못했습니다…”
+  - 설정 모달: 우측 상단 X · 하단 취소/저장 · ESC 닫기 전부 동작, 옵시디언 입력란 disabled
+  - 스크린샷: home 진입 카드 / career 홈 / 1차 입력 / 1차 결과 / 2차 입력 / 2차 결과 /
+    실패 화면 / 설정 모달
+- **Commits**: (이 세션 종료 시 커밋 예정)
+- **Files or artifacts updated**:
+  신규 `career.html`·`career-step1.html`·`career-report1.html`·`career-step2.html`·
+  `career-report2.html`·`assets/career.css`·`assets/career.js`·`assets/career-prompts.js`·
+  `assets/prompts/*.txt`(4)·`tools/build-prompts.py` /
+  수정 `home.html`·`assets/auth.css`·`init.ps1`·`feature_list.json`·`README.md`·
+  `claude-progress.md`·`session-handoff.md`
+- **Known risk or unresolved issue**:
+  - ⚠ **`career-008` 미결** — AI 프록시 주소·API 키 미정. 지금 결과는 전부 모의 응답이다.
+    상담 자료로 쓰면 안 된다(화면에도 경고 표시)
+  - ⚠ **`career-009` 미결** — 옵시디언 접속 주소·API 키·볼트 폴더 규칙 미정.
+    자체서명 인증서 신뢰와 플러그인 CORS 허용 여부를 먼저 확인해야 한다
+  - ⚠ **careerTest 의 `career_proxy.gs` 에 Anthropic API 키가 평문으로 들어 있다.**
+    이 저장소로 그대로 복사하지 말 것. (그 파일은 careerTest 의 `.gitignore` 대상)
+  - ⚠ 프롬프트가 요구하는 **공식자료 웹검색**은 프록시 구현에 달려 있다.
+    검색 도구 없이 호출하면 “확인 불가” 항목이 대량으로 나온다 — 프록시 설계 시 고려할 것
+  - `assets/career-prompts.js` 는 생성물이다. `.txt` 를 고치면
+    `python tools/build-prompts.py` 를 반드시 다시 돌릴 것 (`init.ps1` 이 시각을 비교해 잡아낸다)
+  - 브라우저 패널의 스크롤 캡처가 긴 문서에서 빈 화면으로 찍힌다 — **앱 문제가 아니라
+    캡처 도구 한계**다(순수 텍스트 파일에서도 동일 재현). 검증은 DOM 판독으로 했다
+  - `AGENTS.md` 와 `CLAUDE.md` 는 여전히 내용이 거의 같다 — 규칙 변경 시 양쪽 동시 갱신 필요
+- **Next best step**:
+  `career-008`(AI 프록시 주소·API 키) 확정. 이것만 들어오면 진로상담이 실제로 동작한다.
+  그다음이 `career-009`(옵시디언). `auth-006` 은 보류 상태 유지.

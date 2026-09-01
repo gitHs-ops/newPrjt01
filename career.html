@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="color-scheme" content="light">
+<meta name="theme-color" content="#eef2ff">
+<title>진로상담 분석 — newPrjt01</title>
+<link rel="stylesheet" as="style" crossorigin
+      href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.css" />
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/auth.css">
+<link rel="stylesheet" href="assets/career.css">
+</head>
+<body class="doc">
+
+<div class="doc-wrap">
+
+    <div class="topbar" id="topbar"></div>
+
+    <div class="page-head">
+        <div class="eyebrow">Career Counseling</div>
+        <h1>진로상담 분석</h1>
+        <p>
+            학생 정보를 입력하면 <b>1차 진로·산업·진학 리서치</b>를 수행하고,
+            추가 경험·학교자료를 더해 <b>2차 진로 가설 분석</b>까지 이어집니다.
+            결과는 이 브라우저에 보존되고 <b>md 파일</b>로 저장할 수 있습니다.
+        </p>
+    </div>
+
+    <div class="card">
+        <h2>새 상담 시작</h2>
+        <p class="card-desc">
+            사례 이름은 이 브라우저에서 사례를 구분하기 위한 라벨입니다.
+            <b>AI 에게 전달되지 않으며</b>, 학생 실명 대신 별칭을 쓰는 것을 권합니다.
+        </p>
+        <form id="newForm" novalidate>
+            <div class="field">
+                <label for="label">사례 이름 <span class="req">*</span></label>
+                <div class="input-wrap">
+                    <input type="text" id="label" placeholder="예: 3학년 A · 반도체 관심" maxlength="60" autocomplete="off" required>
+                </div>
+                <div class="hint" id="labelHint"></div>
+            </div>
+            <div class="actions">
+                <button type="submit" class="btn btn-sky grow">1차 입력으로 →</button>
+            </div>
+        </form>
+    </div>
+
+    <div class="card">
+        <h2>저장된 사례 <span class="tag" id="caseCount">0건</span></h2>
+        <p class="card-desc">
+            이 브라우저(<span class="mono" id="ownerName">—</span> 계정)에 보존된 상담 사례입니다.
+            브라우저 저장소를 지우면 함께 사라집니다.
+        </p>
+        <div id="caseList" class="case-list"></div>
+    </div>
+
+    <div class="notice info">
+        <span class="ico">ℹ</span>
+        <span>
+            <b>미결 사항 2가지.</b>
+            ① AI 호출용 <b>프록시 주소·API 키</b>가 아직 정해지지 않았습니다 —
+            비어 있으면 화면 흐름 확인용 <b>모의 응답</b>으로 동작합니다.
+            ② <b>옵시디언 전송</b>은 Obsidian Local REST API 직접 호출 방식으로 정해졌으나
+            접속정보가 미정이라 <b>버튼만 표시</b>되고 실제 전송은 막혀 있습니다.
+        </span>
+    </div>
+
+</div>
+
+<script src="assets/auth.js"></script>
+<script src="assets/career-prompts.js"></script>
+<script src="assets/career.js"></script>
+<script>
+(function () {
+    'use strict';
+
+    var session = Auth.requireAuth('login.html');
+    if (!session) return;
+
+    Career.mountChrome({ back: 'home.html', backLabel: '로그인 홈', showHome: false });
+
+    document.getElementById('ownerName').textContent = Career.currentOwner();
+
+    /* ---------- 사례 목록 ---------- */
+    function render() {
+        var list = Career.listCases();
+        var box = document.getElementById('caseList');
+        document.getElementById('caseCount').textContent = list.length + '건';
+
+        if (!list.length) {
+            box.innerHTML = '<div class="empty"><span class="big">🗂️</span>' +
+                '아직 저장된 사례가 없습니다.<br>위에서 새 상담을 시작하세요.</div>';
+            return;
+        }
+
+        box.innerHTML = '';
+        list.forEach(function (c) {
+            var el = document.createElement('div');
+            el.className = 'case-item';
+
+            var body = document.createElement('div');
+            body.className = 'body';
+
+            var t = document.createElement('div');
+            t.className = 'title';
+            t.textContent = c.label;
+
+            var meta = document.createElement('div');
+            meta.className = 'meta';
+            meta.innerHTML =
+                '<span class="mono">' + Career.esc(Career.fmtDateTime(c.updatedAt)) + '</span>' +
+                '<span class="chip ' + (c.report1 ? 'ok' : 'wait') + '">1차 ' + (c.report1 ? '완료' : '대기') + '</span>' +
+                '<span class="chip ' + (c.report2 ? 'ok' : 'wait') + '">2차 ' + (c.report2 ? '완료' : '대기') + '</span>' +
+                ((c.report1 && c.report1.mock) || (c.report2 && c.report2.mock)
+                    ? '<span class="chip">모의 응답 포함</span>' : '');
+
+            body.appendChild(t);
+            body.appendChild(meta);
+
+            var go = document.createElement('div');
+            go.className = 'go';
+
+            var open = document.createElement('button');
+            open.type = 'button';
+            open.className = 'icon-btn';
+            open.title = '이어서 진행';
+            open.textContent = '→';
+            open.addEventListener('click', function () { location.href = nextUrl(c); });
+
+            var del = document.createElement('button');
+            del.type = 'button';
+            del.className = 'icon-btn danger';
+            del.title = '삭제';
+            del.textContent = '🗑';
+            del.addEventListener('click', function () {
+                if (!confirm('“' + c.label + '” 사례를 삭제할까요?\n저장된 1·2차 분석 결과도 함께 사라집니다.')) return;
+                Career.deleteCase(c.id);
+                Career.toast('사례를 삭제했습니다.');
+                render();
+            });
+
+            go.appendChild(open);
+            go.appendChild(del);
+            el.appendChild(body);
+            el.appendChild(go);
+            box.appendChild(el);
+        });
+    }
+
+    /* 진행 상태에 따라 이어갈 화면을 고른다 */
+    function nextUrl(c) {
+        if (!c.report1) return 'career-step1.html?case=' + encodeURIComponent(c.id);
+        if (!c.report2) return 'career-report1.html?case=' + encodeURIComponent(c.id);
+        return 'career-report2.html?case=' + encodeURIComponent(c.id);
+    }
+
+    /* ---------- 새 사례 ---------- */
+    document.getElementById('newForm').addEventListener('submit', function (e) {
+        e.preventDefault();
+        var input = document.getElementById('label');
+        var hint = document.getElementById('labelHint');
+        var v = input.value.trim();
+        if (!v) {
+            hint.className = 'hint error';
+            hint.textContent = '사례 이름을 입력하세요.';
+            input.focus();
+            return;
+        }
+        var c = Career.createCase(v, {});
+        location.href = 'career-step1.html?case=' + encodeURIComponent(c.id);
+    });
+
+    render();
+})();
+</script>
+</body>
+</html>

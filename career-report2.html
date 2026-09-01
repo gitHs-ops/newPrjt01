@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="color-scheme" content="light">
+<meta name="theme-color" content="#eef2ff">
+<title>2차 분석 결과 — newPrjt01</title>
+<link rel="stylesheet" as="style" crossorigin
+      href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.css" />
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/auth.css">
+<link rel="stylesheet" href="assets/career.css">
+</head>
+<body class="doc">
+
+<div class="doc-wrap">
+
+    <div class="topbar" id="topbar"></div>
+
+    <div class="page-head">
+        <div class="eyebrow">Step 4 — Second Analysis</div>
+        <h1>2차 진로 가설 분석</h1>
+        <p id="caseLine">사례를 불러오는 중…</p>
+    </div>
+
+    <div class="steps" id="steps"></div>
+
+    <div class="notice" id="mockNotice" style="display:none">
+        <span class="ico">⚠</span>
+        <span>
+            <b>모의 응답입니다.</b> AI 프록시 주소가 아직 설정되지 않아 화면 흐름 확인용
+            자리표시자를 생성했습니다. 상담 자료로 사용하지 마십시오.
+        </span>
+    </div>
+
+    <div class="card" id="runCard">
+        <div class="runbox">
+            <div class="spinner"></div>
+            <div class="msg" id="runMsg">2차 분석을 요청하는 중…</div>
+            <div class="sub">1차 후보를 학생의 실제 경험과 대조해 진로 가설을 만드는 중입니다.</div>
+            <div class="elapsed" id="elapsed">0.0s</div>
+        </div>
+    </div>
+
+    <div class="card" id="errCard" style="display:none">
+        <h2>분석 실패</h2>
+        <p class="card-desc" id="errMsg">—</p>
+        <div class="actions">
+            <button type="button" class="btn btn-sky" id="retryBtn">다시 시도</button>
+            <button type="button" class="btn btn-ghost" id="backEditBtn">입력 고치기</button>
+        </div>
+    </div>
+
+    <div id="resultWrap" style="display:none">
+
+        <div class="card">
+            <h2>결과 저장 <span class="tag" id="savedAt">—</span></h2>
+            <p class="card-desc">
+                결과는 이 브라우저에 보존되었습니다. md 파일로 내려받거나 옵시디언으로 보낼 수 있습니다.
+            </p>
+            <div class="actions">
+                <button type="button" class="btn btn-sky" id="mdBtn">md 파일로 저장</button>
+                <button type="button" class="btn btn-ghost" id="obsBtn">옵시디언으로 전송</button>
+                <button type="button" class="btn btn-ghost" id="rawBtn">원문(md) 보기</button>
+                <button type="button" class="btn btn-ghost" id="bothBtn">1·2차 합본 md 저장</button>
+                <button type="button" class="btn btn-ghost" id="againBtn">다시 분석</button>
+            </div>
+        </div>
+
+        <div class="card">
+            <h2>2차 분석 보고서</h2>
+            <div class="report" id="report"></div>
+            <pre class="raw-md" id="raw"></pre>
+        </div>
+
+        <div class="card">
+            <h2>상담 준비 완료</h2>
+            <p class="card-desc">
+                2차 분석의 목적은 진로를 정하는 것이 아니라 <b>다음 상담에서 확인할 것</b>과
+                <b>학생이 해볼 작은 경험</b>을 정하는 것입니다.
+            </p>
+            <div class="actions">
+                <a class="btn btn-sky grow" href="career.html">사례 목록으로</a>
+                <button type="button" class="btn btn-ghost" id="prevBtn">1차 결과 다시 보기</button>
+                <a class="btn btn-ghost" href="home.html">로그인 홈</a>
+            </div>
+        </div>
+
+    </div>
+
+</div>
+
+<script src="assets/auth.js"></script>
+<script src="assets/career-prompts.js"></script>
+<script src="assets/career.js"></script>
+<script>
+(function () {
+    'use strict';
+
+    var session = Auth.requireAuth('login.html');
+    if (!session) return;
+
+    Career.mountChrome({ back: 'career.html', backLabel: '진로상담 홈' });
+    Career.renderSteps(document.getElementById('steps'), 4);
+
+    var caseId = Career.qs('case');
+    var kase = caseId ? Career.getCase(caseId) : null;
+    if (!kase) {
+        alert('사례를 찾을 수 없습니다. 진로상담 홈에서 다시 시작하세요.');
+        location.replace('career.html');
+        return;
+    }
+    document.getElementById('caseLine').innerHTML = '사례 <b>' + Career.esc(kase.label) + '</b>';
+
+    if (!kase.extra2) {
+        location.replace('career-step2.html?case=' + encodeURIComponent(kase.id));
+        return;
+    }
+
+    var runCard = document.getElementById('runCard');
+    var errCard = document.getElementById('errCard');
+    var wrap = document.getElementById('resultWrap');
+    var timer = null, t0 = 0;
+
+    function showRunning(on) {
+        runCard.style.display = on ? '' : 'none';
+        if (on) {
+            t0 = Date.now();
+            errCard.style.display = 'none';
+            wrap.style.display = 'none';
+            var msgs = ['2차 분석을 요청하는 중…', '학생의 반복 행동을 정리하는 중…',
+                        '강점 후보와 근거를 대조하는 중…', '진로 가설을 만드는 중…',
+                        '진로 병목과 검증 활동을 정리하는 중…'];
+            var i = 0;
+            timer = setInterval(function () {
+                document.getElementById('elapsed').textContent =
+                    ((Date.now() - t0) / 1000).toFixed(1) + 's';
+                if ((Date.now() - t0) > (i + 1) * 6000 && i < msgs.length - 1) {
+                    i++;
+                    document.getElementById('runMsg').textContent = msgs[i];
+                }
+            }, 100);
+        } else if (timer) {
+            clearInterval(timer);
+            timer = null;
+        }
+    }
+
+    function showError(msg) {
+        showRunning(false);
+        errCard.style.display = '';
+        document.getElementById('errMsg').textContent = msg;
+    }
+
+    function render(rep) {
+        showRunning(false);
+        errCard.style.display = 'none';
+        wrap.style.display = '';
+        document.getElementById('report').innerHTML = Career.mdToHtml(rep.md);
+        document.getElementById('raw').textContent = rep.md;
+        document.getElementById('savedAt').textContent = Career.fmtDateTime(rep.at);
+        document.getElementById('mockNotice').style.display = rep.mock ? '' : 'none';
+    }
+
+    function run() {
+        var cfg = Career.loadConfig();
+        var x = kase.extra2;
+        showRunning(true);
+        Career.callAI({
+            round: 2,
+            system: CareerPrompts.second,
+            user: Career.buildUserMessage2(x.report1Md, x),
+            maxTokens: cfg.maxTokens2,
+            extra: x
+        }).then(function (res) {
+            var rep = {
+                md: res.text,
+                at: new Date().toISOString(),
+                mock: !!res.mock,
+                usage: res.usage || null
+            };
+            Career.updateCase(kase.id, { report2: rep });
+            kase = Career.getCase(kase.id);
+            render(rep);
+            Career.toast(res.mock ? '모의 응답을 생성했습니다.' : '2차 분석이 저장되었습니다.',
+                         res.mock ? '' : 'ok');
+        }).catch(function (e) {
+            showError(e && e.message ? e.message : String(e));
+        });
+    }
+
+    /* ---------- 액션 ---------- */
+    document.getElementById('retryBtn').addEventListener('click', run);
+    document.getElementById('againBtn').addEventListener('click', function () {
+        if (!confirm('다시 분석하면 저장된 2차 결과를 덮어씁니다. 계속할까요?')) return;
+        run();
+    });
+    document.getElementById('backEditBtn').addEventListener('click', function () {
+        location.href = 'career-step2.html?case=' + encodeURIComponent(kase.id);
+    });
+    document.getElementById('prevBtn').addEventListener('click', function () {
+        location.href = 'career-report1.html?case=' + encodeURIComponent(kase.id);
+    });
+    document.getElementById('rawBtn').addEventListener('click', function () {
+        var raw = document.getElementById('raw');
+        raw.classList.toggle('show');
+        this.textContent = raw.classList.contains('show') ? '원문 접기' : '원문(md) 보기';
+    });
+
+    document.getElementById('mdBtn').addEventListener('click', function () {
+        var rep = Career.getCase(kase.id).report2;
+        if (!rep) return;
+        var name = Career.fileName(kase, 2);
+        Career.downloadMd(name, Career.withFrontMatter(kase, 2, rep.md, rep.mock));
+        Career.toast(name + ' 저장됨', 'ok');
+    });
+
+    document.getElementById('bothBtn').addEventListener('click', function () {
+        var c = Career.getCase(kase.id);
+        var mock = !!((c.report1 && c.report1.mock) || (c.report2 && c.report2.mock));
+        var body = [
+            '# 진로상담 종합 — ' + c.label,
+            '',
+            '## 1차 진로·산업·진학 리서치',
+            '',
+            (c.report1 ? c.report1.md : '(1차 결과 없음)'),
+            '',
+            '---',
+            '',
+            '## 2차 진로 가설 분석',
+            '',
+            (c.report2 ? c.report2.md : '(2차 결과 없음)')
+        ].join('\n');
+        var name = '진로종합_' + c.label.replace(/[\\/:*?"<>|]/g, '_').trim() + '.md';
+        Career.downloadMd(name, Career.withFrontMatter(c, '종합', body, mock));
+        Career.toast(name + ' 저장됨', 'ok');
+    });
+
+    document.getElementById('obsBtn').addEventListener('click', function () {
+        var rep = Career.getCase(kase.id).report2;
+        if (!rep) return;
+        var name = Career.fileName(kase, 2);
+        Career.sendToObsidian(name, Career.withFrontMatter(kase, 2, rep.md, rep.mock))
+            .then(function () { Career.toast('옵시디언으로 보냈습니다.', 'ok'); })
+            .catch(function (e) { alert(e.message); });
+    });
+
+    /* ---------- 진입 ---------- */
+    if (Career.qs('run') === '1' || !kase.report2) {
+        run();
+    } else {
+        render(kase.report2);
+    }
+})();
+</script>
+</body>
+</html>

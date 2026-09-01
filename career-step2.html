@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="color-scheme" content="light">
+<meta name="theme-color" content="#eef2ff">
+<title>2차 추가정보 입력 — newPrjt01</title>
+<link rel="stylesheet" as="style" crossorigin
+      href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.css" />
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/auth.css">
+<link rel="stylesheet" href="assets/career.css">
+</head>
+<body class="doc">
+
+<div class="doc-wrap">
+
+    <div class="topbar" id="topbar"></div>
+
+    <div class="page-head">
+        <div class="eyebrow">Step 3 — Second Input</div>
+        <h1>2차 추가정보 입력</h1>
+        <p id="caseLine">사례를 불러오는 중…</p>
+    </div>
+
+    <div class="steps" id="steps"></div>
+
+    <form id="form" novalidate>
+
+        <div class="card">
+            <h2>1차 진로·산업·진학 리서치 결과 <span class="tag">필수</span></h2>
+            <p class="card-desc">
+                저장된 1차 결과를 자동으로 채웠습니다. 필요하면 고쳐도 되고,
+                다른 도구에서 만든 1차 결과를 붙여 넣어도 됩니다.
+            </p>
+            <div class="field">
+                <label for="report1">1차 분석 결과 (md)</label>
+                <textarea id="report1" class="tall" required></textarea>
+                <div class="hint" id="r1hint"></div>
+            </div>
+        </div>
+
+        <div class="card">
+            <h2>학생의 추가 경험·행동 정보 <span class="tag opt">선택 · 기본값 없음</span></h2>
+            <p class="card-desc">
+                2차 분석은 학생이 말한 강점을 그대로 믿지 않고 <b>실제 경험에서 근거를 찾습니다.</b>
+                자료가 없으면 “없음”으로 두세요 — 없는 정보를 채우면 분석이 왜곡됩니다.
+            </p>
+            <div class="radio-row">
+                <label class="radio-pill"><input type="radio" name="hasExp" value="no" checked><span>없음</span></label>
+                <label class="radio-pill"><input type="radio" name="hasExp" value="yes"><span>있음</span></label>
+            </div>
+            <div class="collapse" id="expBox"></div>
+        </div>
+
+        <div class="card">
+            <h2>학교 자료 정보 <span class="tag opt">선택 · 기본값 없음</span></h2>
+            <p class="card-desc">
+                ⚠ <b>개인식별정보와 민감정보는 입력하지 마세요.</b>
+                이름·학번·연락처·건강·가정환경 등은 제외하고, 학생을 이해하는 데 필요한 기록만 넣습니다.
+            </p>
+            <div class="radio-row">
+                <label class="radio-pill"><input type="radio" name="hasSchool" value="no" checked><span>없음</span></label>
+                <label class="radio-pill"><input type="radio" name="hasSchool" value="yes"><span>있음</span></label>
+            </div>
+            <div class="collapse" id="schoolBox"></div>
+        </div>
+
+        <div class="card">
+            <h2>교사가 특별히 확인하고 싶은 내용 <span class="tag opt">선택</span></h2>
+            <p class="card-desc">
+                이번 상담에서 꼭 갈라내고 싶은 질문이 있으면 적어 주세요.
+            </p>
+            <div class="field">
+                <label for="teacherAsk">확인하고 싶은 내용</label>
+                <textarea id="teacherAsk"
+                    placeholder="예: 성적이 좋은 과목을 실제로 좋아하는지 구분하고 싶다"></textarea>
+            </div>
+        </div>
+
+        <div class="card">
+            <h2>보낼 내용 미리보기</h2>
+            <p class="card-desc">
+                아래 텍스트가 <code>assets/prompts/prompt-2nd.txt</code>(시스템 프롬프트)와 함께 AI 로 전달됩니다.
+            </p>
+            <pre class="raw-md show" id="preview" style="max-height:300px"></pre>
+            <div class="actions" style="margin-top:16px">
+                <button type="submit" class="btn btn-sky grow" id="runBtn">2차 분석 실행 →</button>
+                <button type="button" class="btn btn-ghost" id="saveBtn">임시 저장</button>
+            </div>
+        </div>
+
+    </form>
+
+</div>
+
+<script src="assets/auth.js"></script>
+<script src="assets/career-prompts.js"></script>
+<script src="assets/career.js"></script>
+<script>
+(function () {
+    'use strict';
+
+    var session = Auth.requireAuth('login.html');
+    if (!session) return;
+
+    Career.mountChrome({ back: 'career.html', backLabel: '진로상담 홈' });
+    Career.renderSteps(document.getElementById('steps'), 3);
+
+    var caseId = Career.qs('case');
+    var kase = caseId ? Career.getCase(caseId) : null;
+    if (!kase) {
+        alert('사례를 찾을 수 없습니다. 진로상담 홈에서 다시 시작하세요.');
+        location.replace('career.html');
+        return;
+    }
+    document.getElementById('caseLine').innerHTML = '사례 <b>' + Career.esc(kase.label) + '</b>';
+
+    /* ---------- 선택 항목 필드를 정의에서 생성 ---------- */
+    function buildFields(boxId, defs, prefix) {
+        var box = document.getElementById(boxId);
+        var html = ['<div class="grid2">'];
+        defs.forEach(function (f) {
+            html.push(
+                '<div class="field full">' +
+                    '<label for="' + prefix + f.key + '">' + Career.esc(f.label) +
+                        ' <span class="opt">선택</span></label>' +
+                    '<textarea id="' + prefix + f.key + '"></textarea>' +
+                '</div>');
+        });
+        html.push('</div>');
+        box.innerHTML = html.join('');
+    }
+
+    buildFields('expBox', Career.FIELDS_2_EXP, 'exp_');
+    buildFields('schoolBox', Career.FIELDS_2_SCHOOL, 'sch_');
+
+    /* ---------- 값 수집 / 채우기 ---------- */
+    function radioVal(name) {
+        var el = document.querySelector('input[name="' + name + '"]:checked');
+        return el ? el.value : 'no';
+    }
+
+    function collect() {
+        var exp = {}, school = {};
+        Career.FIELDS_2_EXP.forEach(function (f) {
+            var el = document.getElementById('exp_' + f.key);
+            exp[f.key] = el ? el.value.trim() : '';
+        });
+        Career.FIELDS_2_SCHOOL.forEach(function (f) {
+            var el = document.getElementById('sch_' + f.key);
+            school[f.key] = el ? el.value.trim() : '';
+        });
+        return {
+            report1Md: document.getElementById('report1').value,
+            hasExp: radioVal('hasExp'),
+            exp: exp,
+            hasSchool: radioVal('hasSchool'),
+            school: school,
+            teacherAsk: document.getElementById('teacherAsk').value.trim()
+        };
+    }
+
+    function fill(x) {
+        if (!x) return;
+        if (x.hasExp === 'yes') {
+            var re = document.querySelector('input[name="hasExp"][value="yes"]');
+            if (re) re.checked = true;
+        }
+        if (x.hasSchool === 'yes') {
+            var rs = document.querySelector('input[name="hasSchool"][value="yes"]');
+            if (rs) rs.checked = true;
+        }
+        Career.FIELDS_2_EXP.forEach(function (f) {
+            var el = document.getElementById('exp_' + f.key);
+            if (el && x.exp && x.exp[f.key]) el.value = x.exp[f.key];
+        });
+        Career.FIELDS_2_SCHOOL.forEach(function (f) {
+            var el = document.getElementById('sch_' + f.key);
+            if (el && x.school && x.school[f.key]) el.value = x.school[f.key];
+        });
+        if (x.teacherAsk) document.getElementById('teacherAsk').value = x.teacherAsk;
+    }
+
+    /* 1차 결과 채우기 — 저장된 2차 입력이 있으면 그쪽을 우선 */
+    var r1 = document.getElementById('report1');
+    var hint = document.getElementById('r1hint');
+    if (kase.extra2 && kase.extra2.report1Md) {
+        r1.value = kase.extra2.report1Md;
+        hint.className = 'hint';
+        hint.textContent = '이전에 저장한 2차 입력에서 불러왔습니다.';
+    } else if (kase.report1 && kase.report1.md) {
+        r1.value = kase.report1.md;
+        hint.className = 'hint ok';
+        hint.textContent = '저장된 1차 분석 결과(' + Career.fmtDateTime(kase.report1.at) + ')를 불러왔습니다.' +
+            (kase.report1.mock ? ' ⚠ 모의 응답입니다.' : '');
+    } else {
+        hint.className = 'hint warn';
+        hint.textContent = '저장된 1차 결과가 없습니다. 직접 붙여 넣거나 1차 분석을 먼저 실행하세요.';
+    }
+
+    fill(kase.extra2);
+
+    /* ---------- 접힘 토글 ---------- */
+    function syncCollapse() {
+        document.getElementById('expBox').classList.toggle('show', radioVal('hasExp') === 'yes');
+        document.getElementById('schoolBox').classList.toggle('show', radioVal('hasSchool') === 'yes');
+    }
+    Array.prototype.forEach.call(document.querySelectorAll('input[name="hasExp"], input[name="hasSchool"]'),
+        function (r) {
+            r.addEventListener('change', function () { syncCollapse(); refreshPreview(); });
+        });
+    Career.bindRadioPills(document);
+    syncCollapse();
+
+    /* ---------- 미리보기 ---------- */
+    function refreshPreview() {
+        var x = collect();
+        document.getElementById('preview').textContent =
+            Career.buildUserMessage2(x.report1Md, x);
+    }
+    document.addEventListener('input', function (e) {
+        if (e.target && (e.target.tagName === 'TEXTAREA' || e.target.tagName === 'INPUT')) refreshPreview();
+    });
+    refreshPreview();
+
+    /* ---------- 액션 ---------- */
+    document.getElementById('saveBtn').addEventListener('click', function () {
+        Career.updateCase(kase.id, { extra2: collect() });
+        Career.toast('2차 입력을 저장했습니다.', 'ok');
+    });
+
+    document.getElementById('form').addEventListener('submit', function (e) {
+        e.preventDefault();
+        var x = collect();
+        if (!x.report1Md.trim()) {
+            hint.className = 'hint error';
+            hint.textContent = '1차 분석 결과가 비어 있습니다. 2차 분석은 1차 결과를 입력받아야 수행됩니다.';
+            r1.focus();
+            return;
+        }
+        Career.updateCase(kase.id, { extra2: x });
+        location.href = 'career-report2.html?case=' + encodeURIComponent(kase.id) + '&run=1';
+    });
+})();
+</script>
+</body>
+</html>

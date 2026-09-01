@@ -445,3 +445,53 @@ input:disabled { opacity: .6; cursor: not-allowed; }
 @media (max-width: 420px) {
     .container { padding: 30px 22px 24px; border-radius: 18px; }
 }
+
+/* ---------- 홈에서 진입하는 앱 카드 (home.html) ---------- */
+.app-launch {
+    text-align: left;
+    margin: 0 0 20px;
+}
+.app-launch-head {
+    font-size: 11.5px;
+    font-weight: 700;
+    letter-spacing: .6px;
+    color: var(--text-secondary);
+    margin-bottom: 9px;
+    padding-left: 2px;
+}
+.app-card {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 15px 16px;
+    border-radius: 15px;
+    text-decoration: none;
+    color: inherit;
+    background: rgba(255, 255, 255, .72);
+    border: 1px solid var(--field-border);
+    box-shadow: 0 6px 18px rgba(15, 23, 42, .05);
+}
+.app-card:hover {
+    transform: translateY(-2px);
+    border-color: var(--accent-primary);
+    box-shadow: 0 12px 26px rgba(99, 102, 241, .16);
+}
+.app-card:active { transform: translateY(0) scale(.99); }
+.app-ico {
+    flex: 0 0 auto;
+    width: 42px; height: 42px;
+    display: grid; place-items: center;
+    font-size: 21px;
+    border-radius: 12px;
+    background: rgba(99, 102, 241, .12);
+}
+.app-body { flex: 1 1 auto; min-width: 0; display: block; }
+.app-title { display: block; font-size: 14.5px; font-weight: 800; margin-bottom: 3px; }
+.app-desc  { display: block; font-size: 11.5px; color: var(--text-secondary); line-height: 1.55; }
+.app-go {
+    flex: 0 0 auto;
+    font-family: var(--font-accent);
+    font-size: 17px;
+    font-weight: 700;
+    color: var(--accent-primary);
+}
