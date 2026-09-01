@@ -22,9 +22,10 @@ Codex·OpenHands 등 어떤 코딩 에이전트도 쓸 수 있다. 어떤 에이
   **64개 항목 전부 통과해야 exit 0**
 - **Standard start command**: `python -m http.server 8940` → http://localhost:8940/
   (`.claude/launch.json` 의 `newPrjt01-static` 과 동일 포트)
-- **Current highest-priority unfinished feature**: `career-008` — AI 프록시 주소·API 키 확정
-- **Current blocker**: `career-008`·`career-009` 둘 다 **사용자 결정 대기**.
-  코드는 준비돼 있고 값만 넣으면 된다
+- **Current highest-priority unfinished feature**: `career-008` — AI 프록시 배포·API 키
+- **Current blocker**: `career-008` 하나. 프록시 코드(`tools/career_proxy.example.gs`)는
+  다 짜여 있고 Apps Script 배포와 키만 넣으면 된다.
+  (`career-009` 옵시디언 전송은 2026-09-01 실전송 성공으로 **passing**)
 
 ## 이 저장소의 성격
 
@@ -303,9 +304,13 @@ Codex·OpenHands 등 어떤 코딩 에이전트도 쓸 수 있다. 어떤 에이
   - URL 생성: baseUrl 끝 슬래시·folder 앞뒤 슬래시 정규화 + 한글 인코딩 확인 →
     `/vault/진로상담/진로1차_고2 A - 반도체_20260901-1535.md`, PUT, text/markdown
   - 설정 모달 렌더 확인(입력란 활성, 연결 테스트 버튼, 사용 토글) — 스크린샷
-- **미검증 1건**: ⑤ 실제 쓰기(PUT). **유효한 API 키가 필요한데 자격증명은 입력하지 않았다** —
-  사용자가 설정에 키를 넣고 [옵시디언으로 전송]을 한 번 누르면 확인된다.
-  그래서 `career-009` 는 `passing` 이 아니라 **`in_progress`** 로 둔다
+- **⑤ 실제 쓰기까지 통과 — `career-009` passing (2026-09-01 17:27)**
+  - 사용자가 설정에 키를 넣고 [옵시디언으로 전송] 실행 → 성공
+  - 볼트에서 직접 확인: `C:\myPrjt01\myWorkspace01\진로상담\` 폴더가 **PUT 시점에 자동 생성**되고
+    `진로1차_2학년 김현수_20260901-1727.md`(2412B) 생성.
+    프론트매터 7줄(`mock: true` 포함) 정상 기록
+  - 폴더를 미리 만들 필요가 없다는 것도 확인됨 — 플러그인 `main.js` 의
+    `vault.createFolder(dirname(filePath))` 경로가 동작
 - **⚠ 보안 메모**: API 키가 `localStorage`(`np_career_config`)에 평문으로 저장된다.
   로컬 전용 키이고 사용자 브라우저에만 남지만 공용 PC 에서는 쓰지 말 것. 화면에도 경고를 넣었다
 
