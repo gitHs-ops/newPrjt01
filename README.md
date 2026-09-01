@@ -18,7 +18,7 @@
 
 | 옵션 | 동작 |
 |---|---|
-| `.\init.ps1` | 검증만 수행 (53개 항목) |
+| `.\init.ps1` | 검증만 수행 (58개 항목) |
 | `.\init.ps1 -Start` | 검증 후 로컬 서버 기동 |
 | `.\init.ps1 -Start -OpenBrowser` | 기동 후 브라우저까지 열기 |
 | `-Port 9000` | 포트 변경 (기본 8940) |
@@ -52,6 +52,7 @@
 | `assets/career-prompts.js` | **자동 생성물** — 프롬프트 원문을 담은 파일 |
 | `assets/prompts/*.txt` | 프롬프트·입력명세 원문 (단일 원본) |
 | `tools/build-prompts.py` | `assets/prompts/*.txt` → `assets/career-prompts.js` 재생성 |
+| `tools/career_proxy.example.gs` | AI 프록시 참고 구현 (웹검색 포함, 키는 비어 있음) |
 
 프롬프트 원문을 고쳤다면:
 
@@ -68,13 +69,43 @@ python tools/build-prompts.py
 ```
 POST <프록시 URL>
 Content-Type: text/plain;charset=utf-8      ← GAS 웹앱 CORS preflight 회피
-{ "system": "...", "prompt": "...", "max_tokens": 8000, "model": "claude-sonnet-5" }
+{
+  "system": "...", "prompt": "...", "max_tokens": 8000, "model": "claude-opus-5",
+  "web_search": true, "search_max_uses": 12,
+  "allowed_domains": ["career.go.kr", ...]        // 선택 — 공식자료 제한 옵션
+}
 
-200 { "text": "...", "usage": {...}, "error": null }
+200 { "text": "...", "usage": {...}, "sources": [{title,url}], "searches": 3,
+      "truncated": false, "error": null }
 ```
 
-**프록시 주소와 API 키는 추후 결정 사항**이다(`career-008`). 비어 있으면 화면 흐름 확인용
+**프록시 배포와 API 키는 추후 결정 사항**이다(`career-008`). 비어 있으면 화면 흐름 확인용
 **모의 응답**으로 동작하며, 화면과 md 파일 모두에 모의라고 표시된다.
+
+참고 구현이 `tools/career_proxy.example.gs` 에 있다. Apps Script 에 붙여넣고
+스크립트 속성 `ANTHROPIC_API_KEY` 만 채우면 동작한다.
+**키를 소스에 적지 말 것** — `init.ps1` 이 저장소에서 `sk-ant-` 문자열을 찾으면 검증에 실패한다.
+
+### 공식자료 웹검색
+
+진로상담 프롬프트는 커리어넷·KOSIS·어디가·Q-Net 같은 **공식자료 확인**을 전제로 씌어 있다.
+검색 없이 호출하면 "확인 불가"만 잔뜩 나온다. 그래서 프록시가 Anthropic의
+**서버사이드 web_search 도구**(`web_search_20260209`, 동적 필터링)를 켠다 —
+별도 검색 API는 필요 없다. `web_fetch` 도 함께 켜서 기준연도·시행 여부를 원문에서 확인한다.
+
+| 설정 | 기본값 | 설명 |
+|---|---|---|
+| 웹검색 사용 | 켬 | 끄면 모델 기억만으로 답한다 — 프롬프트가 금지하는 상태 |
+| 분석 1회당 최대 검색 | 12 | `max_uses` 로 전달 |
+| 공식 기관 도메인만 | **끔** | 켜면 `allowed_domains` 16개 기관으로 제한 |
+
+> ⚠ **"공식 기관 도메인만" 을 켜면 대학 입학처·학과 홈페이지가 막힌다**(학교마다 도메인이 다름).
+> 대학 정보·입시결과가 필요한 고3 상담에서는 꺼 둘 것. 그래서 기본값이 꺼짐이다.
+
+결과 화면의 **"참고한 웹 출처"** 카드에 실제로 조회한 페이지가 나열된다.
+출처가 하나도 없으면 경고가 뜬다 — 그 보고서는 모델 기억에 의존한 것이므로 신뢰하면 안 된다.
+
+서버 도구 루프는 10회에서 `pause_turn` 으로 끊기므로 프록시가 이어달리기를 한다(최대 4회).
 
 ### 옵시디언 전송
 
@@ -89,7 +120,7 @@ Content-Type: text/plain;charset=utf-8      ← GAS 웹앱 CORS preflight 회피
 | `np_users` | `localStorage` | 계정 목록 — `id`, `salt`, `hash`, `provider`, `createdAt` |
 | `np_session` | 상태유지 켬 → `localStorage`<br>끔 → `sessionStorage` | `id`, `provider`, `remember`, `loginAt` |
 | `np_career_cases` | `localStorage` | 상담 사례 — `label`, `owner`, `student`, `report1`, `extra2`, `report2` |
-| `np_career_config` | `localStorage` | 연결 설정 — 프록시 URL, 모델, max_tokens, 옵시디언 설정 |
+| `np_career_config` | `localStorage` | 연결 설정 — 프록시 URL, 모델, max_tokens, 웹검색 옵션, 옵시디언 설정 |
 
 초기화: 개발자도구 콘솔에서
 `localStorage.removeItem('np_users')` / `localStorage.removeItem('np_career_cases')`
@@ -107,11 +138,12 @@ Content-Type: text/plain;charset=utf-8      ← GAS 웹앱 CORS preflight 회피
 
 진로상담 쪽 한계:
 
-- **AI 프록시가 연결되지 않았다.** 지금은 모의 응답으로만 흐름이 돌아간다 (`career-008`)
+- **AI 프록시가 배포되지 않았다.** 지금은 모의 응답으로만 흐름이 돌아간다 (`career-008`)
 - **옵시디언 전송이 연결되지 않았다.** 버튼만 있고 눌러도 안내만 나온다 (`career-009`)
 - **사례가 브라우저별로 격리된다.** 로그인 데모와 같은 한계다
-- 프롬프트가 요구하는 **공식자료 웹검색**은 프록시 쪽 구현에 달려 있다.
-  검색 없이 호출하면 “확인 불가” 항목이 많아진다
+- **웹검색은 프록시가 배포되어야 실제로 돈다.** 클라이언트는 지시를 보내지만
+  프록시가 `web_search` 도구를 켜지 않으면 “확인 불가”가 대량으로 나온다 —
+  결과 화면이 **출처 0건 경고**로 알려준다
 
 → 남은 과제는 `feature_list.json` 의 `career-008`·`career-009`,
 그리고 보류된 `auth-006`(서버 인증) · `auth-007`(실제 OAuth) 참고.

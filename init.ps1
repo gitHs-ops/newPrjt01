@@ -72,7 +72,8 @@ $careerFiles = @(
     'assets\prompts\prompt-2nd.txt',
     'assets\prompts\input-1st.txt',
     'assets\prompts\input-2nd.txt',
-    'tools\build-prompts.py'
+    'tools\build-prompts.py',
+    'tools\career_proxy.example.gs'
 )
 foreach ($f in $careerFiles) {
     if (Test-Path -LiteralPath $f -PathType Leaf) { Write-Ok $f } else { Write-Fail "$f 없음" }
@@ -172,6 +173,47 @@ if (Test-Path -LiteralPath 'assets\career.js' -PathType Leaf) {
     } else {
         Write-Fail "옵시디언 전송 스텁이 사라짐 — 연결 여부를 확인할 것"
     }
+
+    # 공식자료 웹검색 지시가 요청에 실려 나가는가 (프롬프트가 요구하는 전제)
+    if ($cjs -match 'web_search:' -and $cjs -match 'search_max_uses') {
+        Write-Ok "요청에 웹검색 지시(web_search / search_max_uses) 포함"
+    } else {
+        Write-Fail "career.js 가 웹검색 지시를 보내지 않음 — 확인 불가 응답이 대량 발생한다"
+    }
+
+    if ($cjs -match 'OFFICIAL_DOMAINS' -and $cjs -match 'renderSources') {
+        Write-Ok "공식 도메인 목록 · 출처 표시 경로 존재"
+    } else {
+        Write-Fail "career.js 에 OFFICIAL_DOMAINS / renderSources 가 없음"
+    }
+}
+
+# 5c-2) 프록시 참고 구현이 웹검색을 켜는가
+if (Test-Path -LiteralPath 'tools\career_proxy.example.gs' -PathType Leaf) {
+    $gs = Get-Content -LiteralPath 'tools\career_proxy.example.gs' -Raw -Encoding UTF8
+    $needed = @('web_search_20260209', 'pause_turn', 'web_search_tool_result', 'doPost')
+    $missing = @()
+    foreach ($k in $needed) {
+        if ($gs -notmatch [regex]::Escape($k)) { $missing += $k }
+    }
+    if ($missing.Count -eq 0) {
+        Write-Ok "프록시 예시가 웹검색·이어달리기·출처수집을 구현 ($($needed.Count)종)"
+    } else {
+        Write-Fail "career_proxy.example.gs 에서 누락: $($missing -join ', ')"
+    }
+}
+
+# 5c-3) API 키가 저장소에 섞여 들어가지 않았는가 (careerTest 프록시 복사 사고 방지)
+$keyHits = @()
+foreach ($f in (Get-ChildItem -Recurse -File -Include *.gs, *.js, *.html, *.md, *.json, *.ps1, *.py |
+                Where-Object { $_.FullName -notmatch '\\\.git\\' })) {
+    $t = Get-Content -LiteralPath $f.FullName -Raw -Encoding UTF8
+    if ($t -match 'sk-ant-[A-Za-z0-9]') { $keyHits += $f.Name }
+}
+if ($keyHits.Count -eq 0) {
+    Write-Ok "저장소에 Anthropic API 키 문자열 없음"
+} else {
+    Write-Fail "API 키로 보이는 문자열 발견: $($keyHits -join ', ') — 즉시 제거하고 키를 폐기할 것"
 }
 
 # 5d) 프롬프트 생성물이 원문과 동기화되어 있는가

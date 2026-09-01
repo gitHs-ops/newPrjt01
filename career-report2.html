@@ -68,8 +68,23 @@
             </div>
         </div>
 
+        <div class="card" id="srcCard" style="display:none">
+            <h2>참고한 웹 출처 <span class="tag opt" id="srcCount">—</span></h2>
+            <p class="card-desc">
+                2차 분석은 새 조사를 반복하지 않는 것이 원칙이라 보통 출처가 적거나 없습니다.
+                많이 잡혔다면 1차 조사를 되풀이한 것은 아닌지 확인하세요.
+            </p>
+            <div class="notice src-head"></div>
+            <div class="src-list"></div>
+        </div>
+
         <div class="card">
             <h2>2차 분석 보고서</h2>
+            <div class="notice" id="truncNotice" style="display:none">
+                <span class="ico">⚠</span>
+                <span><b>응답이 잘렸습니다.</b> max_tokens 한도에 걸렸습니다.
+                    연결 설정에서 2차 max_tokens 를 올리고 다시 분석하세요.</span>
+            </div>
             <div class="report" id="report"></div>
             <pre class="raw-md" id="raw"></pre>
         </div>
@@ -161,6 +176,10 @@
         document.getElementById('raw').textContent = rep.md;
         document.getElementById('savedAt').textContent = Career.fmtDateTime(rep.at);
         document.getElementById('mockNotice').style.display = rep.mock ? '' : 'none';
+        document.getElementById('truncNotice').style.display = rep.truncated ? '' : 'none';
+
+        Career.renderSources(document.getElementById('srcCard'), rep);
+        document.getElementById('srcCount').textContent = ((rep.sources || []).length) + '건';
     }
 
     function run() {
@@ -178,7 +197,10 @@
                 md: res.text,
                 at: new Date().toISOString(),
                 mock: !!res.mock,
-                usage: res.usage || null
+                usage: res.usage || null,
+                sources: res.sources || [],
+                searches: res.searches || 0,
+                truncated: !!res.truncated
             };
             Career.updateCase(kase.id, { report2: rep });
             kase = Career.getCase(kase.id);

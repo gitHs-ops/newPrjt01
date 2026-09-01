@@ -16,13 +16,41 @@
        endpoint / apiKey / 옵시디언 접속정보는 모두 "추후 결정" 항목이다.
        비어 있으면 UI 가 미설정 상태를 표시하고, 분석은 모의 모드로만 돌아간다.
        ========================================================= */
+    /* 진로상담 프롬프트가 "공식 정보 출처 제한" 절에서 지정한 기관 도메인.
+       [공식자료 우선] 옵션을 켜면 웹검색을 이 목록으로 제한한다.
+       ⚠ 대학 입학처는 학교마다 도메인이 달라 여기에 담을 수 없다 —
+          켜면 STEP 7-3(대학 정보·입시결과) 조회가 막힌다. 기본값을 끔으로 두는 이유다. */
+    var OFFICIAL_DOMAINS = [
+        'career.go.kr',        /* 커리어넷 — 직업·학과정보 */
+        'work.go.kr',          /* 고용24 */
+        'keis.or.kr',          /* 한국고용정보원 */
+        'moel.go.kr',          /* 고용노동부 */
+        'kosis.kr',            /* 국가통계포털 */
+        'kostat.go.kr',        /* 통계청 */
+        'motie.go.kr',         /* 산업통상자원부 */
+        'kiet.re.kr',          /* 산업연구원 */
+        'mss.go.kr',           /* 중소벤처기업부 */
+        'msit.go.kr',          /* 과학기술정보통신부 */
+        'moe.go.kr',           /* 교육부 */
+        'ncic.re.kr',          /* 국가교육과정정보센터 */
+        'adiga.kr',            /* 대입정보포털 어디가 */
+        'academyinfo.go.kr',   /* 대학알리미 — 취업률 */
+        'q-net.or.kr',         /* 자격 */
+        'dart.fss.or.kr'       /* 전자공시 */
+    ];
+
     var DEFAULT_CONFIG = {
         /* --- AI 호출 (careerTest 의 GAS 프록시와 같은 방식) --- */
         endpoint: '',          /* 예: https://script.google.com/macros/s/.../exec  — 추후 결정 */
-        model: 'claude-sonnet-5',
+        model: 'claude-opus-5',
         maxTokens1: 8000,
         maxTokens2: 6000,
         allowMock: true,       /* 엔드포인트 미설정 시 모의 응답으로 흐름 검증 */
+
+        /* --- 공식자료 웹검색 (프록시의 서버사이드 web_search 도구) --- */
+        webSearch: true,       /* 끄면 모델 기억만으로 답한다 — 프롬프트가 금지하는 상태 */
+        searchMaxUses: 12,     /* 한 번의 분석에서 허용할 검색 횟수 */
+        officialOnly: false,   /* 켜면 위 OFFICIAL_DOMAINS 로 검색을 제한 */
 
         /* --- Obsidian Local REST API (기능 표시만, 연결은 추후 결정) --- */
         obsidian: {
@@ -52,6 +80,9 @@
             if (raw.maxTokens1 > 0) c.maxTokens1 = raw.maxTokens1 | 0;
             if (raw.maxTokens2 > 0) c.maxTokens2 = raw.maxTokens2 | 0;
             if (typeof raw.allowMock === 'boolean') c.allowMock = raw.allowMock;
+            if (typeof raw.webSearch === 'boolean') c.webSearch = raw.webSearch;
+            if (raw.searchMaxUses > 0) c.searchMaxUses = raw.searchMaxUses | 0;
+            if (typeof raw.officialOnly === 'boolean') c.officialOnly = raw.officialOnly;
             if (raw.obsidian && typeof raw.obsidian === 'object') {
                 if (typeof raw.obsidian.baseUrl === 'string') c.obsidian.baseUrl = raw.obsidian.baseUrl.trim();
                 if (typeof raw.obsidian.apiKey === 'string')  c.obsidian.apiKey  = raw.obsidian.apiKey;
@@ -266,7 +297,7 @@
                     'AI 엔드포인트가 설정되지 않았습니다. 우측 상단 연결 설정에서 프록시 URL을 입력하세요.'));
             }
             return mockAnswer(opts).then(function (md) {
-                return { text: md, usage: null, mock: true };
+                return { text: md, usage: null, sources: [], searches: 0, truncated: false, mock: true };
             });
         }
 
@@ -274,8 +305,15 @@
             system: opts.system || '',
             prompt: opts.user || '',
             max_tokens: opts.maxTokens || 4000,
-            model: cfg.model
+            model: cfg.model,
+            /* 프록시가 서버사이드 web_search 도구를 켜도록 지시한다.
+               이게 없으면 모델 기억만으로 답해 "확인 불가"가 대량으로 나온다. */
+            web_search: !!cfg.webSearch,
+            search_max_uses: cfg.searchMaxUses
         };
+        if (cfg.webSearch && cfg.officialOnly) {
+            payload.allowed_domains = OFFICIAL_DOMAINS.slice();
+        }
 
         return fetch(endpoint, {
             method: 'POST',
@@ -293,7 +331,15 @@
             if (data && data.error) throw new Error(String(data.error));
             var text = (data && data.text) ? String(data.text) : '';
             if (!text.trim()) throw new Error('응답이 비어 있습니다.');
-            return { text: stripFence(text), usage: (data && data.usage) || null, mock: false };
+            return {
+                text: stripFence(text),
+                usage: (data && data.usage) || null,
+                /* 프록시가 돌려준 웹검색 흔적. 구버전 프록시면 없을 수 있다. */
+                sources: (data && data.sources) || [],
+                searches: (data && data.searches) || 0,
+                truncated: !!(data && data.truncated),
+                mock: false
+            };
         });
     }
 
@@ -739,6 +785,65 @@
         return m ? decodeURIComponent(m[1].replace(/\+/g, ' ')) : '';
     }
 
+    /* 보고서에 실제로 참고한 웹 출처를 보여준다.
+       프롬프트가 요구하는 "출처 및 신뢰도" 표를 교사가 교차 확인할 수 있게 하는 장치다. */
+    function renderSources(card, rep) {
+        if (!card) return;
+        var list = (rep && rep.sources) || [];
+        var searches = (rep && rep.searches) || 0;
+
+        if (rep && rep.mock) {
+            card.style.display = 'none';
+            return;
+        }
+        card.style.display = '';
+
+        var head = card.querySelector('.src-head');
+        var body = card.querySelector('.src-list');
+        if (!body) return;
+
+        if (!list.length) {
+            if (head) {
+                head.className = 'notice src-head';
+                head.innerHTML = '<span class="ico">⚠</span><span>' +
+                    '<b>웹검색 흔적이 없습니다.</b> 프록시가 <code>web_search</code> 도구를 켜지 않았거나, ' +
+                    '검색 결과를 <code>sources</code> 로 돌려주지 않는 구버전입니다. ' +
+                    '이 상태의 보고서는 모델 기억에 의존하므로 “확인 불가”가 많거나 부정확할 수 있습니다.' +
+                    '</span>';
+            }
+            body.innerHTML = '';
+            return;
+        }
+
+        if (head) {
+            head.className = 'notice ok src-head';
+            head.innerHTML = '<span class="ico">✓</span><span>웹검색 <b>' + searches + '회</b>로 ' +
+                '<b>' + list.length + '건</b>의 출처를 참고했습니다. ' +
+                '보고서의 “출처 및 신뢰도” 표와 대조해 확인하세요.</span>';
+        }
+
+        body.innerHTML = '';
+        list.forEach(function (s) {
+            var a = document.createElement('a');
+            a.className = 'src-item';
+            a.href = s.url;
+            a.target = '_blank';
+            a.rel = 'noopener noreferrer';
+
+            var t = document.createElement('span');
+            t.className = 'src-title';
+            t.textContent = s.title || s.url;
+
+            var u = document.createElement('span');
+            u.className = 'src-url';
+            try { u.textContent = new URL(s.url).hostname; } catch (e) { u.textContent = s.url; }
+
+            a.appendChild(t);
+            a.appendChild(u);
+            body.appendChild(a);
+        });
+    }
+
     /* =========================================================
        공통 크롬(상단바 + 연결 설정 모달) 주입
        모든 진로상담 페이지가 동일한 배지·설정을 쓰도록 한 곳에서 만든다.
@@ -758,6 +863,8 @@
                 '<span class="spacer"></span>' +
                 '<button type="button" class="badge" id="aiBadge" title="AI 연결 설정">' +
                     '<span class="dot"></span><span class="t">—</span></button>' +
+                '<button type="button" class="badge" id="searchBadge" title="공식자료 웹검색 설정">' +
+                    '<span class="dot"></span><span class="t">—</span></button>' +
                 '<button type="button" class="badge todo" id="obsBadge" title="옵시디언 전송 — 추후 결정">' +
                     '<span class="dot"></span><span class="t">옵시디언 미연결</span></button>';
         }
@@ -773,16 +880,21 @@
         if (aiBadge && modal) aiBadge.addEventListener('click', modal.open);
         var obsBadge = document.getElementById('obsBadge');
         if (obsBadge && modal) obsBadge.addEventListener('click', modal.open);
+        var searchBadge = document.getElementById('searchBadge');
+        if (searchBadge && modal) searchBadge.addEventListener('click', modal.open);
 
         var saveBtn = document.getElementById('cfgSave');
         if (saveBtn) {
             saveBtn.addEventListener('click', function () {
                 saveConfig({
                     endpoint: (document.getElementById('cfgEndpoint').value || '').trim(),
-                    model: (document.getElementById('cfgModel').value || '').trim() || 'claude-sonnet-5',
+                    model: (document.getElementById('cfgModel').value || '').trim() || 'claude-opus-5',
                     maxTokens1: parseInt(document.getElementById('cfgTok1').value, 10) || 8000,
                     maxTokens2: parseInt(document.getElementById('cfgTok2').value, 10) || 6000,
-                    allowMock: document.getElementById('cfgMock').checked
+                    allowMock: document.getElementById('cfgMock').checked,
+                    webSearch: document.getElementById('cfgSearch').checked,
+                    searchMaxUses: parseInt(document.getElementById('cfgSearchUses').value, 10) || 12,
+                    officialOnly: document.getElementById('cfgOfficial').checked
                 });
                 refreshBadges();
                 if (modal) modal.close();
@@ -808,19 +920,38 @@
             o.className = 'badge ' + (ok ? 'on' : 'todo');
             o.querySelector('.t').textContent = ok ? '옵시디언 연결됨' : '옵시디언 미연결';
         }
+        var s = document.getElementById('searchBadge');
+        if (s) {
+            var c = loadConfig();
+            if (!c.webSearch) {
+                s.className = 'badge off';
+                s.querySelector('.t').textContent = '웹검색 꺼짐';
+            } else if (c.officialOnly) {
+                s.className = 'badge on';
+                s.querySelector('.t').textContent = '웹검색 · 공식자료만';
+            } else {
+                s.className = 'badge on';
+                s.querySelector('.t').textContent = '웹검색 켜짐';
+            }
+        }
     }
 
     function fillConfigForm() {
         var c = loadConfig();
         var set = function (id, v) { var el = document.getElementById(id); if (el) el.value = v; };
+        var check = function (id, v) { var el = document.getElementById(id); if (el) el.checked = !!v; };
         set('cfgEndpoint', c.endpoint);
         set('cfgModel', c.model);
         set('cfgTok1', c.maxTokens1);
         set('cfgTok2', c.maxTokens2);
-        var m = document.getElementById('cfgMock');
-        if (m) m.checked = !!c.allowMock;
+        check('cfgMock', c.allowMock);
+        check('cfgSearch', c.webSearch);
+        set('cfgSearchUses', c.searchMaxUses);
+        check('cfgOfficial', c.officialOnly);
         set('cfgObsUrl', c.obsidian.baseUrl);
         set('cfgObsFolder', c.obsidian.folder);
+        var dom = document.getElementById('cfgDomains');
+        if (dom) dom.textContent = OFFICIAL_DOMAINS.join(' · ');
     }
 
     function settingsModalHtml() {
@@ -849,7 +980,25 @@
                   '<span>프록시 미설정 시 <b>모의 응답</b>으로 흐름 확인 허용</span></label>' +
               '</div>' +
               '<div class="seg">' +
-                '<div class="seg-title">② 옵시디언 전송 ' +
+                '<div class="seg-title">② 공식자료 웹검색 ' +
+                  '<span class="chip ok">권장</span></div>' +
+                '<div class="seg-desc">진로상담 프롬프트는 커리어넷·KOSIS·어디가·Q-Net 같은 ' +
+                  '<b>공식자료 확인</b>을 전제로 씌어 있습니다. 검색 없이 호출하면 “확인 불가”가 대량으로 나옵니다. ' +
+                  '프록시가 Anthropic의 <b>서버사이드 web_search 도구</b>를 켜도록 지시합니다 — ' +
+                  '별도 검색 API는 필요 없습니다. 참고 구현은 <code>tools/career_proxy.example.gs</code>.</div>' +
+                '<label class="checkbox"><input type="checkbox" id="cfgSearch">' +
+                  '<span><b>웹검색 사용</b> (끄면 모델 기억만으로 답합니다 — 권장하지 않음)</span></label>' +
+                '<div class="field" style="margin-top:12px"><label for="cfgSearchUses">분석 1회당 최대 검색 횟수</label>' +
+                  '<div class="input-wrap"><input type="number" id="cfgSearchUses" min="1" max="30" step="1"></div></div>' +
+                '<label class="checkbox"><input type="checkbox" id="cfgOfficial">' +
+                  '<span><b>공식 기관 도메인만</b> 검색</span></label>' +
+                '<div class="seg-desc" style="margin-top:8px">' +
+                  '⚠ 켜면 <b>대학 입학처·학과 홈페이지가 막힙니다</b>(학교마다 도메인이 다름). ' +
+                  '대학 정보·입시결과가 필요한 고3 상담에서는 꺼 두세요.<br>' +
+                  '<span class="mono" id="cfgDomains" style="font-size:10.5px;word-break:break-all"></span></div>' +
+              '</div>' +
+              '<div class="seg">' +
+                '<div class="seg-title">③ 옵시디언 전송 ' +
                   '<span class="chip wait">추후 결정</span></div>' +
                 '<div class="seg-desc">Obsidian <b>Local REST API</b> 로 직접 HTTP 호출하는 방식으로 정해져 있습니다. ' +
                   '접속 주소·API 키·볼트 폴더 규칙이 확정되지 않아 <b>지금은 표시만</b> 하고 전송은 막아 두었습니다. ' +
@@ -913,6 +1062,8 @@
         bindModal: bindModal,
         mountChrome: mountChrome,
         refreshBadges: refreshBadges,
+        renderSources: renderSources,
+        OFFICIAL_DOMAINS: OFFICIAL_DOMAINS,
         renderSteps: renderSteps,
         bindRadioPills: bindRadioPills,
         fmtDateTime: fmtDateTime,

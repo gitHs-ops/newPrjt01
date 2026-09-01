@@ -1,6 +1,6 @@
 # Session Handoff
 
-> 최종 갱신: 2026-09-01 (Session 003)
+> 최종 갱신: 2026-09-01 (Session 003 + 웹검색 후속)
 > 상세 이력은 `claude-progress.md`, 기능 상태는 `feature_list.json` 참고.
 
 ## Verified Now
@@ -13,7 +13,7 @@
   - 결과는 `localStorage`(`np_career_cases`)에 보존되고 md 파일로 저장된다
   - 보고서는 자체 마크다운 렌더러로 표·제목·인용·코드블록까지 그린다
 - **실제로 돌린 검증**
-  1. `.\init.ps1` → **53개 항목 전부 `[OK]`, exit 0**
+  1. `.\init.ps1` → **58개 항목 전부 `[OK]`, exit 0**
   2. 브라우저 실기동(http://localhost:8940) 전 경로 통과, 콘솔 오류 0건
   3. 실패 경로도 확인 — 잘못된 프록시 주소 → “프록시에 연결하지 못했습니다…” 화면
   4. 옵시디언 전송 클릭 → “추후 결정” 안내로 차단됨
@@ -24,17 +24,21 @@
   `career-step2.html` · `career-report2.html`
 - **신규 자산**: `assets/career.css` · `assets/career.js` · `assets/career-prompts.js`(생성물) ·
   `assets/prompts/*.txt`(원문 4종) · `tools/build-prompts.py`
-- **수정**: `home.html`(진입 카드) · `assets/auth.css`(`.app-card`) · `init.ps1`(26→53 항목) ·
-  `feature_list.json`(`career-001`~`009` 주입, 기존 항목 우선순위 뒤로) · `README.md`
+- **수정**: `home.html`(진입 카드) · `assets/auth.css`(`.app-card`) · `init.ps1`(26→**58 항목**) ·
+  `feature_list.json`(`career-001`~`010` 주입, 기존 항목 우선순위 뒤로) · `README.md`
 - **AI 호출은 프록시 경유 방식으로 구현** — 프롬프트를 복사해 붙여넣는 방식이 아니다
+- **공식자료 웹검색을 붙였다**(`career-010`) — 프록시가 Anthropic 서버사이드 `web_search`
+  도구를 켜도록 요청에 지시를 싣고, 결과 화면에 참고한 출처를 나열한다.
+  참고 프록시 `tools/career_proxy.example.gs` 신규. 기본 모델 `claude-opus-5`
 - **옵시디언은 표시만** — 실제 PUT 코드는 `sendToObsidian()` 안 TODO 블록에 준비돼 있다
 
 ## Broken Or Unverified
 
 - **알려진 결함**: 없음(현재 범위 기준)
 - **미결(사용자 결정 대기)**
-  - ⚠ **`career-008` — AI 프록시 주소·API 키.** 지금 나오는 결과는 **전부 모의 응답**이다.
-    상담 자료로 쓰면 안 된다. 화면·md 양쪽에 모의 경고가 붙는다
+  - ⚠ **`career-008` — AI 프록시 배포·API 키.** 지금 나오는 결과는 **전부 모의 응답**이다.
+    상담 자료로 쓰면 안 된다. 화면·md 양쪽에 모의 경고가 붙는다.
+    프록시 코드는 `tools/career_proxy.example.gs` 에 다 있고, 남은 건 배포와 키뿐이다
   - ⚠ **`career-009` — 옵시디언 Local REST API 접속정보.** 주소·API 키·볼트 폴더 미정
 - **미검증 경로**
   - **실제 AI 응답으로는 한 번도 돌려보지 못했다.** 프록시가 붙으면
@@ -46,8 +50,10 @@
     `python tools/build-prompts.py` 를 다시 돌릴 것 — `init.ps1` 이 수정시각을 비교해 잡는다
   - ⚠ **careerTest 의 `career_proxy.gs` 에 Anthropic API 키가 평문으로 있다.**
     프록시를 만들 때 참고는 하되 **키를 이 저장소로 옮기지 말 것**
-  - ⚠ 프롬프트가 요구하는 **공식자료 웹검색**은 프록시 쪽 몫이다.
-    검색 없이 호출하면 “확인 불가”가 대량으로 나온다
+  - ⚠ **웹검색은 프록시가 배포되어야 실제로 돈다.** 클라이언트는 지시만 보낸다.
+    프록시가 도구를 안 켜면 결과 화면에 **출처 0건 경고**가 뜬다 — 의도된 경고다
+  - ⚠ **API 키를 소스에 넣지 말 것.** `init.ps1` 이 저장소에서 `sk-ant-` 를 찾으면 검증 실패한다.
+    키는 Apps Script 스크립트 속성에만 둔다
   - 브라우저 패널의 스크롤 스크린샷이 긴 문서에서 빈 화면으로 찍힌다 —
     **앱 문제가 아니라 캡처 도구 한계**(순수 텍스트 파일에서도 동일). DOM 판독으로 검증할 것
   - `AGENTS.md` 와 `CLAUDE.md` 내용이 거의 동일 — 규칙 변경 시 양쪽 동시 갱신
@@ -59,17 +65,27 @@
   지금은 모의 응답이라 실사용이 불가능하다
 - **무엇이 통과 기준인가**: 연결 설정에 프록시 URL 을 넣으면 배지가 “AI 연결됨”으로 바뀌고,
   1·2차 분석이 실제 응답을 받아 오며 모의 경고 배너가 뜨지 않을 것
-- **프록시 계약 (이미 확정, 구현만 하면 됨)**
+- **프록시는 이미 다 짜여 있다** — `tools/career_proxy.example.gs` 를 Apps Script 에 붙여넣고
+  스크립트 속성 `ANTHROPIC_API_KEY` 만 채운 뒤 `/exec` URL 을 [연결 설정]에 넣으면 끝이다.
   ```
   POST <프록시 URL>
   Content-Type: text/plain;charset=utf-8
-  { "system": "...", "prompt": "...", "max_tokens": 8000, "model": "claude-sonnet-5" }
-  → 200 { "text": "...", "usage": {...}, "error": null }
+  { "system": "...", "prompt": "...", "max_tokens": 8000, "model": "claude-opus-5",
+    "web_search": true, "search_max_uses": 12, "allowed_domains": [...] }
+  → 200 { "text": "...", "usage": {...}, "sources": [{title,url}], "searches": 3,
+          "truncated": false, "error": null }
   ```
+- **배포 직후 확인할 것 3가지**
+  ① Apps Script 6분 실행 한도 — 검색이 길어지면 초과할 수 있다
+  ② 응답이 잘리는지(잘림 경고가 뜬다) → `max_tokens` 조정
+  ③ “참고한 웹 출처” 카드에 공식 기관이 실제로 잡히는지
 - **그 단계에서 바꾸면 안 되는 것**
   - `init.ps1` 의 검증 게이트를 느슨하게 만들지 말 것 — 프록시가 붙으면 검증을 **추가**하는 방향
   - 모의 응답 경로를 지우지 말 것 — 프록시 장애 시 흐름 검증 수단이 사라진다
   - 모의 응답에 사실 정보를 지어 넣지 말 것 — 지금은 의도적으로 “확인 불가”만 채운다
+  - **웹검색 기본값을 끄지 말 것** — 끄면 프롬프트가 금지한 “기억으로 답하기”가 된다
+  - **“공식 기관 도메인만” 을 기본값으로 켜지 말 것** — 대학 입학처가 학교마다 도메인이 달라
+    STEP 7-3(대학 정보·입시결과)이 통째로 막힌다
   - `assets/prompts/*.txt` 원문을 코드에서 직접 고치지 말 것 (생성기 경유)
 
 ## Commands
@@ -83,5 +99,5 @@
   - 진로상담 바로 열기: http://localhost:8940/career.html (로그인 필요)
   - 계정 초기화: `localStorage.removeItem('np_users')`
   - 상담 사례 초기화: `localStorage.removeItem('np_career_cases')`
-  - 연결 설정 초기화: `localStorage.removeItem('np_career_config')`
+  - 연결 설정(프록시·웹검색) 초기화: `localStorage.removeItem('np_career_config')`
   - 세션만 해제: `localStorage.removeItem('np_session'); sessionStorage.removeItem('np_session')`

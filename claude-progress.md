@@ -15,10 +15,11 @@ Codex·OpenHands 등 어떤 코딩 에이전트도 쓸 수 있다. 어떤 에이
   - ⚠ **`init.ps1` 은 반드시 UTF-8 BOM 으로 저장할 것.** Windows PowerShell 5.1 은 BOM 없는
     `.ps1` 을 cp949 로 읽어 한글 문자열이 깨지고 파서 오류가 난다(2026-08-31 실제 발생)
 - **Standard verification path**: `init.ps1` 에 포함 — 하네스 5파일 + 로그인 7파일 +
-  진로상담 13파일 존재, HTML 무결성 10건, 공통자산 참조 9건, `auth.js` API 8종 + PBKDF2,
-  `career.js` API 11종 + fetch 경로 + 옵시디언 스텁, 프롬프트 생성물 동기화,
+  진로상담 14파일 존재, HTML 무결성 10건, 공통자산 참조 9건, `auth.js` API 8종 + PBKDF2,
+  `career.js` API 11종 + fetch 경로 + 옵시디언 스텁 + 웹검색 지시 + 출처 경로,
+  프록시 예시 4종, **저장소 내 `sk-ant-` 키 문자열 검사**, 프롬프트 생성물 동기화,
   `home.html`→`career.html` 링크, JSON 파싱, `python`, 포트.
-  **53개 항목 전부 통과해야 exit 0**
+  **58개 항목 전부 통과해야 exit 0**
 - **Standard start command**: `python -m http.server 8940` → http://localhost:8940/
   (`.claude/launch.json` 의 `newPrjt01-static` 과 동일 포트)
 - **Current highest-priority unfinished feature**: `career-008` — AI 프록시 주소·API 키 확정
@@ -40,6 +41,8 @@ Codex·OpenHands 등 어떤 코딩 에이전트도 쓸 수 있다. 어떤 에이
   - 프롬프트 원문은 `assets/prompts/*.txt` 가 단일 원본,
     `python tools/build-prompts.py` 로 `career-prompts.js` 를 재생성한다
   - AI 호출은 **프록시 경유**(POST · text/plain). 프록시 미설정 시 **모의 응답**으로만 동작
+  - 프록시는 Anthropic **서버사이드 web_search 도구**로 공식자료를 조회한다.
+    참고 구현 `tools/career_proxy.example.gs` (키는 스크립트 속성에만 둔다)
   - `home.html` 에서 진입한다 (로그인 필요)
 - 상위 `C:\myPrjt01\CLAUDE.md` 의 워크스페이스 지침도 함께 적용된다
 
@@ -174,3 +177,48 @@ Codex·OpenHands 등 어떤 코딩 에이전트도 쓸 수 있다. 어떤 에이
 - **Next best step**:
   `career-008`(AI 프록시 주소·API 키) 확정. 이것만 들어오면 진로상담이 실제로 동작한다.
   그다음이 `career-009`(옵시디언). `auth-006` 은 보류 상태 유지.
+
+#### Session 003 후속 — 공식자료 웹검색 (`career-010`)
+
+- **문제**: 진로상담 프롬프트는 커리어넷·KOSIS·어디가·Q-Net 등 공식자료 확인을 전제로 하는데,
+  검색 도구 없는 프록시로 호출하면 “확인 불가”가 대량으로 나온다 (Session 003 종료 시 남긴 리스크).
+- **택한 해법**: 별도 검색 API를 붙이지 않고 **Anthropic 서버사이드 web_search 도구**를
+  프록시에서 켠다. 검색이 Anthropic 서버에서 실행되므로 추가 인프라가 없다.
+  - 도구: `web_search_20260209`(동적 필터링) + `web_fetch_20260209`.
+    동적 필터링이 내장이라 `code_execution` 을 따로 선언하면 안 된다
+  - 서버 도구 루프는 10회에서 `stop_reason: pause_turn` 으로 끊긴다 →
+    프록시가 user + assistant 응답을 그대로 되돌려 보내 이어간다(최대 4회).
+    “계속하세요” 같은 메시지를 덧붙이면 안 된다
+  - 서버 도구 오류는 예외가 아니라 200 응답 안에 온다 —
+    `web_search_tool_result.content` 가 성공이면 배열, 오류면 `{error_code}` 객체
+- **구현**
+  - 신규 `tools/career_proxy.example.gs` — 웹검색·이어달리기·출처수집·거절(refusal) 처리를
+    포함한 참고 프록시. **API 키는 스크립트 속성에만** 두고 소스에 넣지 않는다
+  - `career.js` — 요청에 `web_search` / `search_max_uses` / `allowed_domains` 를 싣고,
+    응답의 `sources` · `searches` · `truncated` 를 사례에 함께 저장.
+    `OFFICIAL_DOMAINS` 16개 기관, `renderSources()` 추가
+  - 설정 모달에 “② 공식자료 웹검색” 절 추가, 상단에 웹검색 상태 배지 추가
+  - 결과 화면에 **“참고한 웹 출처”** 카드 + 출처 0건 경고 + max_tokens 잘림 경고
+  - 기본 모델을 `claude-sonnet-5` → **`claude-opus-5`** 로 변경
+    (`web_search_20260209` 지원 모델이며 리서치 품질이 이 작업의 핵심)
+  - `init.ps1` 53 → **58개 항목**. 새 검사: 웹검색 지시 · 도메인/출처 경로 ·
+    프록시 예시 4종 · **저장소 내 `sk-ant-` 키 문자열 검사**
+- **⚠ 판단이 필요했던 지점 — 도메인 화이트리스트 기본값**
+  공식 도메인으로 검색을 제한하면 프롬프트의 출처 규정에는 맞지만,
+  **대학 입학처는 학교마다 도메인이 달라** STEP 7-3(대학 정보·입시결과)이 통째로 막힌다.
+  그래서 화이트리스트는 **옵션으로 두고 기본값을 꺼짐**으로 했다. 화면에도 경고를 넣었다.
+- **Verification run**: `.\init.ps1` → **58개 항목 전부 `[OK]`, exit 0**
+- **Evidence captured**
+  - fetch 스텁으로 실제 payload 확인 — `web_search=true`, `search_max_uses=12`,
+    `allowed_domains` 16건, `model=claude-opus-5`
+  - 출처 3건 응답 → “웹검색 5회로 3건의 출처를 참고했습니다” + 출처 카드 3개 렌더(스크린샷)
+  - `sources=[]` → “웹검색 흔적이 없습니다” 경고 / `mock=true` → 출처 카드 숨김
+  - 설정 모달 3개 절(AI 호출 · 공식자료 웹검색 · 옵시디언) 렌더 확인(스크린샷)
+  - 배지 상태 전환 확인 — 웹검색 켜짐 / 웹검색 · 공식자료만 / 웹검색 꺼짐
+- **남는 리스크**
+  - **실제 프록시로는 아직 못 돌려봤다.** 배포 후 확인할 것:
+    ① Apps Script 6분 실행 한도 — 검색이 길어지면 초과할 수 있다
+    ② `max_tokens` 부족으로 잘리는지(잘림 경고가 뜬다)
+    ③ 검색 12회가 적절한지
+  - 프록시 응답이 `sources` 를 안 주는 구버전이면 화면이 출처 0건 경고를 띄운다 —
+    오작동이 아니라 의도된 경고다

@@ -69,8 +69,23 @@
             </div>
         </div>
 
+        <div class="card" id="srcCard" style="display:none">
+            <h2>참고한 웹 출처 <span class="tag opt" id="srcCount">—</span></h2>
+            <p class="card-desc">
+                이 보고서를 쓰기 위해 실제로 조회한 페이지입니다. 프롬프트가 요구하는
+                “출처 및 신뢰도” 표와 대조해 <b>기준연도·시행 여부</b>를 확인하세요.
+            </p>
+            <div class="notice src-head"></div>
+            <div class="src-list"></div>
+        </div>
+
         <div class="card">
             <h2>1차 분석 보고서</h2>
+            <div class="notice" id="truncNotice" style="display:none">
+                <span class="ico">⚠</span>
+                <span><b>응답이 잘렸습니다.</b> max_tokens 한도에 걸렸습니다.
+                    연결 설정에서 1차 max_tokens 를 올리고 다시 분석하세요.</span>
+            </div>
             <div class="report" id="report"></div>
             <pre class="raw-md" id="raw"></pre>
         </div>
@@ -156,6 +171,11 @@
         document.getElementById('raw').textContent = rep.md;
         document.getElementById('savedAt').textContent = Career.fmtDateTime(rep.at);
         document.getElementById('mockNotice').style.display = rep.mock ? '' : 'none';
+        document.getElementById('truncNotice').style.display = rep.truncated ? '' : 'none';
+
+        var srcCard = document.getElementById('srcCard');
+        Career.renderSources(srcCard, rep);
+        document.getElementById('srcCount').textContent = ((rep.sources || []).length) + '건';
     }
 
     function run() {
@@ -172,7 +192,10 @@
                 md: res.text,
                 at: new Date().toISOString(),
                 mock: !!res.mock,
-                usage: res.usage || null
+                usage: res.usage || null,
+                sources: res.sources || [],
+                searches: res.searches || 0,
+                truncated: !!res.truncated
             };
             Career.updateCase(kase.id, { report1: rep });
             kase = Career.getCase(kase.id);

@@ -435,6 +435,47 @@ body.doc {
 .notice b { font-weight: 800; }
 .notice .ico { flex: 0 0 auto; font-size: 15px; line-height: 1.4; }
 
+/* ---------- 참고 출처 목록 ---------- */
+.src-list {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+}
+@media (max-width: 700px) { .src-list { grid-template-columns: 1fr; } }
+
+.src-item {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    padding: 10px 13px;
+    border-radius: 11px;
+    background: var(--paper-bg);
+    border: 1px solid var(--field-border);
+    text-decoration: none;
+    color: inherit;
+    min-width: 0;
+}
+.src-item:hover { border-color: var(--career-accent); transform: translateY(-1px); }
+.src-title {
+    font-size: 12.5px;
+    font-weight: 700;
+    line-height: 1.45;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+}
+.src-url {
+    font-family: var(--font-accent);
+    font-size: 10.5px;
+    color: var(--career-accent-2);
+    letter-spacing: .2px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
 /* ---------- 토스트 ---------- */
 .toast-wrap {
     position: fixed;
