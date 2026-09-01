@@ -1,6 +1,6 @@
 # Session Handoff
 
-> 최종 갱신: 2026-09-01 (Session 004)
+> 최종 갱신: 2026-09-01 (Session 005 — 하네스 보강)
 > 상세 이력은 `claude-progress.md`, 기능 상태는 `feature_list.json` 참고.
 
 ## Verified Now
@@ -53,6 +53,9 @@ Apps Script 6분 한도 안에는 들어오지만 여유가 많지는 않다.
 
 ## 다음 세션이 반드시 알아야 할 것
 
+0. **세션 시작을 `.\init.ps1 -Live` 로 하라.** 저장소 안의 텍스트만 보는 검사는
+   전부 `[OK]` 인데 실제로는 낡은 프록시가 도는 상태를 놓친다(9/1 최대 시간 손실).
+   `local.endpoint.txt` 는 git 에 없으므로 기기마다 한 번 만들어야 한다
 1. **프록시를 고치면 `PROXY_VERSION` 을 올린다.** `init.ps1` 이 `.gs` 와
    `career.js` 의 `EXPECTED_PROXY_VERSION` 불일치를 실패시킨다
 2. **배포는 "배포 관리 → 편집 → 새 버전".** "새 배포"를 만들면 `/exec` URL 이 바뀌어
@@ -89,7 +92,12 @@ Apps Script 6분 한도 안에는 들어오지만 여유가 많지는 않다.
 ## Commands
 
 - **Startup(검증만)**: `.\init.ps1`
+- **Startup(배포본까지 확인 — 권장)**: `.\init.ps1 -Live`
+  - `local.endpoint.txt` 에 배포된 `/exec` URL 한 줄이 있어야 한다(git 추적 안 됨)
+  - 배포를 잊었으면 여기서 "배포본이 낡았다 — 배포=x / 저장소=y" 로 30초에 잡힌다
 - **Startup(서버까지)**: `.\init.ps1 -Start` / 브라우저까지: `.\init.ps1 -Start -OpenBrowser`
+- **보고서 완결성 검사**: `python tools/check-report.py "<저장된 보고서.md>"`
+  - 잘림·모의응답·인코딩 사고를 잡는다. 보고서 경로를 고쳤으면 **반드시** 이걸로 확인
 - **프롬프트 재생성**: `python tools/build-prompts.py`
 - **Focused debug**
   - 서버만: `python -m http.server 8940`

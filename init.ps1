@@ -5,7 +5,8 @@
     설치할 의존성이 없고, 검증은 "파일이 제자리에 있고 형태가 온전한가"로 대체한다.
 
     사용법:
-      .\init.ps1                    검증만 수행
+      .\init.ps1                    검증만 수행 (저장소 안만 본다)
+      .\init.ps1 -Live              + 실제 배포된 프록시까지 확인 (권장)
       .\init.ps1 -Start             검증 후 로컬 서버 기동
       .\init.ps1 -Start -OpenBrowser  기동 후 브라우저까지 염
 
@@ -16,6 +17,7 @@
 param(
     [switch]$Start,
     [switch]$OpenBrowser,
+    [switch]$Live,
     [int]$Port = 8940
 )
 
@@ -241,6 +243,40 @@ if (Test-Path -LiteralPath 'tools\career_proxy.example.gs' -PathType Leaf) {
         Write-Fail "프록시 버전 불일치 — .gs=$pv / career.js 기대=$cv (둘을 같이 올릴 것)"
     }
 
+    # 5c-4) 실제 배포본 확인 (-Live)
+    #   위 검사는 전부 "저장소 안의 텍스트"만 본다. 코드를 고쳐 놓고 Apps Script 재배포를
+    #   잊으면 전부 [OK] 인데 실제로는 낡은 프록시가 돌아간다 — 2026-09-01 세션의 최대
+    #   시간 손실이 이것이었고, 3분짜리 분석을 돌린 뒤에야 알았다. 여기서 30초에 잡는다.
+    if ($Live) {
+        $epFile = 'local.endpoint.txt'
+        if (-not (Test-Path -LiteralPath $epFile -PathType Leaf)) {
+            Write-Fail "-Live 인데 $epFile 이 없다 — 배포된 /exec URL 을 한 줄 넣을 것 (git 추적 안 됨)"
+        } else {
+            $ep = (Get-Content -LiteralPath $epFile -Raw -Encoding UTF8).Trim()
+            if ($ep -notmatch '^https://script\.google\.com/.+/exec$') {
+                Write-Fail "$epFile 이 /exec URL 형식이 아니다: $ep"
+            } else {
+                try {
+                    [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+                    $resp = Invoke-WebRequest -Uri $ep -UseBasicParsing -TimeoutSec 30
+                    $liveVer = ''
+                    if ($resp.Content -match '"version"\s*:\s*"([0-9.]+)"') { $liveVer = $Matches[1] }
+                    if (-not $liveVer) {
+                        Write-Fail "배포본이 version 을 응답하지 않는다 — 낡은 배포이거나 /exec 가 다른 스크립트다"
+                    } elseif ($liveVer -eq $pv) {
+                        Write-Ok "배포본 살아있음 · 버전 일치 ($liveVer)"
+                    } else {
+                        Write-Fail "배포본이 낡았다 — 배포=$liveVer / 저장소=$pv (배포 관리 -> 편집 -> 새 버전)"
+                    }
+                } catch {
+                    Write-Fail "배포본에 닿지 못함: $($_.Exception.Message)"
+                }
+            }
+        }
+    } else {
+        Write-Note "참고: 실제 배포본은 확인하지 않았다 — .\init.ps1 -Live 로 확인할 수 있다"
+    }
+
     # 시트 기록 실패를 조용히 삼키지 않는가 (안 쌓이는 걸 알 방법이 있어야 한다)
     if ($gs -match 'lastLogError' -and $gs -match 'test5_sheet') {
         Write-Ok "시트 기록 실패 노출 · 권한 점검 함수 존재"
@@ -329,9 +365,74 @@ if (Test-Path -LiteralPath 'feature_list.json' -PathType Leaf) {
         if ($blocked.Count -gt 0) {
             Write-Note "주의: blocked 상태 기능 $($blocked.Count)건 — $($blocked.id -join ', ')"
         }
+
+        # 이 저장소의 규칙 passing_requires_evidence 를 실제로 집행한다.
+        # 규칙을 적어만 두고 검사하지 않으면 "코드를 넣었으니 passing" 이 슬금슬금 들어온다.
+        $noEvidence = @($features | Where-Object {
+            $_.status -eq 'passing' -and (@($_.evidence).Count -eq 0)
+        })
+        if ($noEvidence.Count -eq 0) {
+            Write-Ok "passing 기능 전부에 근거가 기록돼 있음 ($(@($features | Where-Object { $_.status -eq 'passing' }).Count)건)"
+        } else {
+            Write-Fail "근거 없이 passing 인 기능: $($noEvidence.id -join ', ')"
+        }
     } catch {
         Write-Fail "feature_list.json 이 올바른 JSON 이 아님: $($_.Exception.Message)"
     }
+}
+
+# 6b) git 위생 — 비밀이 새는 경로와 직전 세션의 잔재를 본다
+if (Test-Path -LiteralPath '.gitignore' -PathType Leaf) {
+    $gi = Get-Content -LiteralPath '.gitignore' -Raw -Encoding UTF8
+    $mustIgnore = @('career_proxy.gs', 'local.endpoint.txt')
+    $giMissing = @()
+    foreach ($m in $mustIgnore) { if ($gi -notmatch [regex]::Escape($m)) { $giMissing += $m } }
+    if ($giMissing.Count -eq 0) {
+        Write-Ok ".gitignore 가 실 프록시·로컬설정을 막고 있음"
+    } else {
+        Write-Fail ".gitignore 에 누락: $($giMissing -join ', ')"
+    }
+} else {
+    Write-Fail ".gitignore 가 없음 — API 키가 든 career_proxy.gs 가 그대로 커밋될 수 있다"
+}
+
+$gitCmd = Get-Command git -ErrorAction SilentlyContinue
+if ($gitCmd) {
+    $dirty = @(& git status --porcelain 2>$null)
+    if ($dirty.Count -eq 0) {
+        Write-Ok "작업트리 깨끗함 (이어받기 안전)"
+    } else {
+        Write-Note "참고: 커밋되지 않은 변경 $($dirty.Count)건 — 직전 세션의 잔재인지 먼저 확인할 것"
+    }
+}
+
+# 6c) 인코딩 — 한글이 cp949/UTF-8 사이에서 깨진 채 커밋되면 되돌리기 어렵다
+$badEnc = @()
+foreach ($f in (Get-ChildItem -Recurse -File -Include *.ps1, *.gs, *.js, *.html, *.md, *.json, *.py, *.txt |
+                Where-Object { $_.FullName -notmatch '\\\.git\\' })) {
+    $t = Get-Content -LiteralPath $f.FullName -Raw -Encoding UTF8
+    if ($t -and $t.Contains([char]0xFFFD)) { $badEnc += $f.Name }
+}
+if ($badEnc.Count -eq 0) {
+    Write-Ok "텍스트 파일에 깨진 문자 없음"
+} else {
+    Write-Fail "깨진 문자(U+FFFD) 발견: $($badEnc -join ', ')"
+}
+
+# init.ps1 자신은 BOM 이 있어야 PowerShell 5.1 이 한글을 바로 읽는다 (AGENTS.md 의 지뢰)
+$initBytes = [System.IO.File]::ReadAllBytes((Join-Path $PSScriptRoot 'init.ps1'))
+if ($initBytes.Length -ge 3 -and $initBytes[0] -eq 0xEF -and
+    $initBytes[1] -eq 0xBB -and $initBytes[2] -eq 0xBF) {
+    Write-Ok "init.ps1 이 UTF-8 BOM 으로 저장돼 있음"
+} else {
+    Write-Fail "init.ps1 에 BOM 이 없음 — PowerShell 5.1 이 cp949 로 읽어 한글이 깨진다"
+}
+
+# 6d) 보고서 완결성 검사기 — 잘림 회귀를 사람 눈이 아니라 명령으로 잡는다
+if (Test-Path -LiteralPath 'tools\check-report.py' -PathType Leaf) {
+    Write-Ok "tools\check-report.py 존재 (저장된 보고서 검사용)"
+} else {
+    Write-Fail "tools\check-report.py 가 없음 — 보고서 잘림을 눈으로만 확인하게 된다"
 }
 
 # 7) 실행에 필요한 python

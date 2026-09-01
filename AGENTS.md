@@ -13,6 +13,8 @@ Before writing code:
 3. Read `feature_list.json` and choose the highest-priority unfinished feature.
 4. Review recent commits with `git log --oneline -5`.
 5. Run `.\init.ps1` (Windows PowerShell). 이 저장소의 표준 시작 경로다.
+   외부 연결까지 건드릴 세션이면 `.\init.ps1 -Live` 로 시작한다 — 저장소 안의
+   텍스트 검사만으로는 **"고쳤지만 배포를 잊은"** 상태를 잡을 수 없다.
 6. Run the required smoke or end-to-end verification before starting new work.
 
 If baseline verification is already failing, fix that first. Do not stack new
@@ -33,6 +35,10 @@ feature work on top of a broken starting state.
 - `claude-progress.md`: session log and current verified status
 - `init.ps1`: standard startup and verification path (Windows PowerShell 5.1 호환, UTF-8 **BOM** 필요)
 - `session-handoff.md`: optional compact handoff for larger sessions
+- `tools/check-report.py`: 저장된 상담 보고서가 끝까지 나왔는지 검사한다.
+  보고서 산출 경로를 건드렸으면 **눈으로 보지 말고 이 명령으로 확인**한다.
+- `.gitignore`: 실 프록시(`career_proxy.gs`)와 `local.endpoint.txt` 가 커밋되는 것을 막는다.
+  이 두 항목을 지우지 말 것 — API 키와 배포 URL 이 들어간다.
 
 ## Definition Of Done
 
@@ -41,6 +47,7 @@ A feature is done only when all of the following are true:
 - the target behavior is implemented
 - the required verification actually ran
 - evidence is recorded in `feature_list.json` or `claude-progress.md`
+  (`init.ps1` 이 "근거 없는 passing" 을 실패로 처리한다 — 형식적 규칙이 아니다)
 - the repository remains restartable from the standard startup path
 
 ## End Of Session

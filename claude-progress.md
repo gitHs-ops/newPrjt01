@@ -12,6 +12,7 @@ Codex·OpenHands 등 어떤 코딩 에이전트도 쓸 수 있다. 어떤 에이
 - **Repository root**: `C:\myPrjt01\newPrjt01`
 - **Standard startup path**: `.\init.ps1` (Windows PowerShell)
   - `.\init.ps1` — 검증만 / `.\init.ps1 -Start` — 검증 후 서버 기동 / `-OpenBrowser` — 브라우저까지 염
+  - `.\init.ps1 -Live` — **배포된 프록시까지 확인**(권장). `local.endpoint.txt` 에 `/exec` URL 필요
   - ⚠ **`init.ps1` 은 반드시 UTF-8 BOM 으로 저장할 것.** Windows PowerShell 5.1 은 BOM 없는
     `.ps1` 을 cp949 로 읽어 한글 문자열이 깨지고 파서 오류가 난다(2026-08-31 실제 발생)
 - **Standard verification path**: `init.ps1` 에 포함 — 하네스 5파일 + 로그인 7파일 +
@@ -419,3 +420,61 @@ Codex·OpenHands 등 어떤 코딩 에이전트도 쓸 수 있다. 어떤 에이
 ① 실제 학생 사례로 운영해 보며 프롬프트·모델 조정
 ② 보류된 `auth-006`(서버 인증) 재개
 ③ 사용량이 커지면 프록시를 Apps Script 밖(실행 한도 없는 런타임)으로 이전
+
+### Session 005 — 하네스 자체 보강
+
+- **Date**: 2026-09-01
+- **Goal**: Session 004 에서 반복된 결함들이 왜 늦게 발견됐는지를 하네스 문제로 보고,
+  같은 종류가 다시 늦게 발견되지 않도록 검증 경로를 넓힌다. 앱 기능은 건드리지 않았다.
+- **결과**: `setup-003`·`setup-004` passing. `.\init.ps1` 68 → **73개 항목**, exit 0.
+
+#### 먼저 한 일 — 오늘 이전 상태 보관
+
+- 태그 `pre-2026-09-01` → `65be780` (원격 push 완료)
+- `C:\myPrjt01\_backup\newPrjt01-harness-2026-08-31_65be780\` — 하네스 8파일 원본
+- `C:\myPrjt01\_backup\newPrjt01-full-2026-08-31_65be780.zip` — 저장소 전체
+
+#### 무엇이 문제였나
+
+Session 004 의 손실은 대부분 "코드가 틀렸다"가 아니라 **"틀린 걸 늦게 알았다"** 였다.
+
+| 사건 | 왜 늦게 알았나 |
+|---|---|
+| 낡은 프록시가 계속 돌았다 | 검증이 저장소 안의 텍스트만 봤다. 배포본은 아무도 안 봤다 |
+| 보고서 끝단 잘림이 4번 재발 | 완결성 확인이 사람 눈에만 있었다 (a17e853, fa7cb8f, ee933d2, 281e859) |
+| 모의 응답이 볼트로 나갔다 | 산출물을 기계가 검사하지 않았다 |
+
+#### 넣은 것
+
+1. **`.\init.ps1 -Live`** — `local.endpoint.txt` 의 `/exec` 를 실제로 GET 해서
+   응답 `version` 과 저장소 `PROXY_VERSION` 을 대조한다. 재배포 누락을 세션 시작에 잡는다.
+2. **`tools/check-report.py`** — 저장된 보고서 md 검사.
+   1차는 A~L 섹션 + 출처 구분 3개, 2차는 STEP 1~11, 양쪽 다 면책 문장이
+   **문서 끝 25줄 안에** 있어야 통과. 모의 응답 표시·깨진 문자·과소 분량도 실패 처리.
+3. **근거 없는 `passing` 을 실패로** — `passing_requires_evidence` 규칙을 init 이 집행한다.
+4. **`.gitignore` 신설 + 검사** — `career_proxy.gs`(API 키), `local.endpoint.txt`,
+   저장된 보고서(학생 개인정보)가 커밋되는 경로를 막는다. 작업트리 dirty 여부도 알려준다.
+5. **인코딩 검사** — 텍스트 파일의 U+FFFD 스캔 + `init.ps1` 자신의 BOM 확인.
+
+#### 실제로 돌린 검증
+
+1. `.\init.ps1` → 73개 항목 [OK], exit 0
+2. `.\init.ps1 -Live` (엔드포인트 파일 없음) → `[FAIL] -Live 인데 local.endpoint.txt 이 없다`
+3. `.\init.ps1 -Live` (없는 /exec) → `[FAIL] 배포본에 닿지 못함: (404)` — HTTP 경로 실행 확인
+4. `check-report.py` 실제 저장본 2건(19,678자 / 15,077자) → 전부 통과, exit 0
+5. `check-report.py` 2차 60% 절단본 → `단계 누락: STEP 10, STEP 11` + `면책 문장이 없다`, exit 1
+6. 인코딩 검사가 `check-report.py` 안의 U+FFFD 리터럴을 실제로 찍어냄 → `chr(0xFFFD)` 로 수정
+
+#### 남은 리스크
+
+- ⚠ **`-Live` 의 "버전 일치" 분기는 아직 실측 못 함.** 404 경로까지만 확인했다.
+  `local.endpoint.txt` 에 진짜 `/exec` URL 을 넣고 한 번 돌려야 완결된다
+- ⚠ `check-report.py` 의 기대값은 프롬프트의 **출력 형식**에 묶여 있다.
+  `assets/prompts/*.txt` 의 A~L / STEP 구조를 바꾸면 검사기도 같이 고칠 것
+- 문서 비대화는 손대지 않았다 — `claude-progress.md` 400줄 초과, `feature_list.json` 26KB.
+  아카이브 정책은 이력 손실 우려가 있어 보류(사용자 판단 대기)
+
+#### Next best step
+
+Session 004 의 후보가 그대로 유효하다. 하네스 쪽으로는 위 "남은 리스크" 첫 줄
+(진짜 엔드포인트로 `-Live` 실측)이 가장 값싼 다음 걸음이다.

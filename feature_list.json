@@ -359,8 +359,50 @@
       "notes": "init.sh 를 init.ps1 로 변환함(2026-08-31). ⚠ Windows PowerShell 5.1 은 BOM 없는 .ps1 을 cp949 로 읽어 한글이 깨진다 — 이 파일은 반드시 UTF-8 BOM 으로 저장할 것."
     },
     {
-      "id": "auth-006",
+      "id": "setup-003",
       "priority": 18,
+      "area": "setup",
+      "title": "하네스가 실제 배포본과 자기 규칙을 검사한다",
+      "user_visible_behavior": ".\\init.ps1 -Live 로 배포된 프록시가 낡았는지 세션 시작에 알 수 있고, 근거 없는 passing·비밀 유출 경로·인코딩 사고를 init 이 스스로 잡는다.",
+      "status": "passing",
+      "verification": [
+        ".\\init.ps1 실행 → 전부 [OK], exit 0",
+        ".\\init.ps1 -Live 를 local.endpoint.txt 없이 실행 → 안내와 함께 실패한다",
+        "local.endpoint.txt 에 닿지 않는 URL 을 넣고 -Live → HTTP 오류를 그대로 보고한다",
+        "깨진 문자(U+FFFD)가 든 파일을 만들면 인코딩 검사가 파일명을 찍는다"
+      ],
+      "evidence": [
+        "2026-09-01 실행: 73개 항목 [OK], exit 0",
+        "-Live (엔드포인트 파일 없음) → \"[FAIL] -Live 인데 local.endpoint.txt 이 없다\"",
+        "-Live (존재하지 않는 /exec) → \"[FAIL] 배포본에 닿지 못함: (404)\" — HTTP 경로 실행 확인",
+        "인코딩 검사가 check-report.py 의 U+FFFD 리터럴을 실제로 찍어냄(수정함)",
+        "passing 17건 전부 근거 보유 확인, .gitignore 검사 통과"
+      ],
+      "notes": "⚠ 실배포와의 버전 일치 분기는 아직 실측 못 함 — local.endpoint.txt 에 진짜 /exec URL 을 넣고 한 번 돌려야 완결된다. 저장소 안의 텍스트 검사만으로는 \"고쳤지만 배포를 잊은\" 상태를 잡을 수 없다는 것이 2026-09-01 세션의 최대 교훈이다."
+    },
+    {
+      "id": "setup-004",
+      "priority": 19,
+      "area": "setup",
+      "title": "보고서 완결성 검사기 (잘림 회귀 방지)",
+      "user_visible_behavior": "저장된 보고서 md 를 명령 하나로 검사해 어떤 단계가 빠졌는지 즉시 알 수 있다.",
+      "status": "passing",
+      "verification": [
+        "python tools/check-report.py <실제 저장본 1차> <2차> → 전부 통과, exit 0",
+        "2차 보고서를 60% 지점에서 자른 파일 → 누락 단계와 면책 문장 부재를 지적하고 exit 1",
+        "깨진 문자가 든 파일 → 인코딩 사고로 실패",
+        "모의 응답 표시가 있으면 실패"
+      ],
+      "evidence": [
+        "2026-09-01 실제 저장본 2건(진로1차 19,678자 / 진로2차 15,077자) 통과",
+        "60% 절단본 → \"[FAIL] 단계 누락: STEP 10, STEP 11\" + \"[FAIL] 면책 문장이 없다\" exit 1",
+        "U+FFFD 포함 파일 → \"[FAIL] 깨진 문자가 있다(인코딩 사고)\""
+      ],
+      "notes": "잘림 결함이 하루에 네 번 재발(a17e853, fa7cb8f, ee933d2, 281e859)했고 매번 사람이 눈으로 확인했다. 1차는 A~L 섹션, 2차는 STEP 1~11 이 출력 형식이다 — 프롬프트의 출력 형식을 바꾸면 이 검사기의 기대값도 같이 고칠 것."
+    },
+    {
+      "id": "auth-006",
+      "priority": 20,
       "area": "auth",
       "title": "서버 기반 인증으로 전환",
       "user_visible_behavior": "계정과 세션이 서버에서 관리되어 다른 기기·브라우저에서도 같은 계정으로 로그인할 수 있다.",
@@ -374,7 +416,7 @@
     },
     {
       "id": "auth-007",
-      "priority": 19,
+      "priority": 21,
       "area": "auth",
       "title": "실제 Google OAuth 연동",
       "user_visible_behavior": "실제 Google 계정으로 로그인할 수 있다.",
