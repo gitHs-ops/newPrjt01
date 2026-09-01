@@ -181,6 +181,12 @@ if (Test-Path -LiteralPath 'assets\career.js' -PathType Leaf) {
         Write-Fail "career.js 가 웹검색 지시를 보내지 않음 — 확인 불가 응답이 대량 발생한다"
     }
 
+    if ($cjs -match 'effort') {
+        Write-Ok "요청에 effort(사고 깊이) 포함 — 실행시간 제어 경로 존재"
+    } else {
+        Write-Fail "career.js 가 effort 를 보내지 않음 — 프록시 실행시간을 제어할 수 없다"
+    }
+
     if ($cjs -match 'OFFICIAL_DOMAINS' -and $cjs -match 'renderSources') {
         Write-Ok "공식 도메인 목록 · 출처 표시 경로 존재"
     } else {
@@ -191,15 +197,23 @@ if (Test-Path -LiteralPath 'assets\career.js' -PathType Leaf) {
 # 5c-2) 프록시 참고 구현이 웹검색을 켜는가
 if (Test-Path -LiteralPath 'tools\career_proxy.example.gs' -PathType Leaf) {
     $gs = Get-Content -LiteralPath 'tools\career_proxy.example.gs' -Raw -Encoding UTF8
-    $needed = @('web_search_20260209', 'pause_turn', 'web_search_tool_result', 'doPost')
+    $needed = @('web_search_20260209', 'pause_turn', 'web_search_tool_result', 'doPost',
+                'DEADLINE_MS', 'output_config')
     $missing = @()
     foreach ($k in $needed) {
         if ($gs -notmatch [regex]::Escape($k)) { $missing += $k }
     }
     if ($missing.Count -eq 0) {
-        Write-Ok "프록시 예시가 웹검색·이어달리기·출처수집을 구현 ($($needed.Count)종)"
+        Write-Ok "프록시 예시가 웹검색·이어달리기·시간가드·effort 를 구현 ($($needed.Count)종)"
     } else {
         Write-Fail "career_proxy.example.gs 에서 누락: $($missing -join ', ')"
+    }
+
+    # Apps Script 6분 한도 대비 — 이어달리기를 늘려 놓으면 응답 없이 매달린다(2026-09-01 실제 발생)
+    if ($gs -match 'MAX_CONTINUATIONS\s*=\s*[0-2]\b') {
+        Write-Ok "이어달리기 상한이 안전 범위(0~2)"
+    } else {
+        Write-Fail "MAX_CONTINUATIONS 가 너무 큼 — Apps Script 6분 한도를 넘겨 응답 없이 매달린다"
     }
 
     # careerTest 와 배포를 공유하므로 기존 GET 경로가 살아 있어야 한다

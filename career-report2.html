@@ -85,6 +85,13 @@
                 <span><b>응답이 잘렸습니다.</b> max_tokens 한도에 걸렸습니다.
                     연결 설정에서 2차 max_tokens 를 올리고 다시 분석하세요.</span>
             </div>
+            <div class="notice" id="incompleteNotice" style="display:none">
+                <span class="ico">⏱</span>
+                <span><b>검색을 끝까지 못 돌렸습니다.</b> 프록시가 실행 시간 한도에 걸려
+                    중간에 멈췄습니다. 보고서가 불완전할 수 있습니다 —
+                    연결 설정에서 <b>검색 횟수</b>나 <b>사고 깊이(effort)</b>를 낮추고 다시 분석하세요.
+                    <span class="mono" id="elapsedTxt"></span></span>
+            </div>
             <div class="report" id="report"></div>
             <pre class="raw-md" id="raw"></pre>
         </div>
@@ -177,6 +184,11 @@
         document.getElementById('savedAt').textContent = Career.fmtDateTime(rep.at);
         document.getElementById('mockNotice').style.display = rep.mock ? '' : 'none';
         document.getElementById('truncNotice').style.display = rep.truncated ? '' : 'none';
+        document.getElementById('incompleteNotice').style.display = rep.incomplete ? '' : 'none';
+        if (rep.elapsedMs) {
+            document.getElementById('elapsedTxt').textContent =
+                '(' + (rep.elapsedMs / 1000).toFixed(1) + '초 소요)';
+        }
 
         Career.renderSources(document.getElementById('srcCard'), rep);
         document.getElementById('srcCount').textContent = ((rep.sources || []).length) + '건';
@@ -200,7 +212,9 @@
                 usage: res.usage || null,
                 sources: res.sources || [],
                 searches: res.searches || 0,
-                truncated: !!res.truncated
+                truncated: !!res.truncated,
+                incomplete: !!res.incomplete,
+                elapsedMs: res.elapsedMs || 0
             };
             Career.updateCase(kase.id, { report2: rep });
             kase = Career.getCase(kase.id);

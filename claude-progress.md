@@ -19,7 +19,7 @@ Codex·OpenHands 등 어떤 코딩 에이전트도 쓸 수 있다. 어떤 에이
   `career.js` API 11종 + fetch 경로 + 옵시디언 스텁 + 웹검색 지시 + 출처 경로,
   프록시 예시 4종, **저장소 내 `sk-ant-` 키 문자열 검사**, 프롬프트 생성물 동기화,
   `home.html`→`career.html` 링크, JSON 파싱, `python`, 포트.
-  **59개 항목 전부 통과해야 exit 0**
+  **62개 항목 전부 통과해야 exit 0**
 - **Standard start command**: `python -m http.server 8940` → http://localhost:8940/
   (`.claude/launch.json` 의 `newPrjt01-static` 과 동일 포트)
 - **Current highest-priority unfinished feature**: `career-008` — AI 프록시 주소·API 키 확정
@@ -221,6 +221,35 @@ Codex·OpenHands 등 어떤 코딩 에이전트도 쓸 수 있다. 어떤 에이
   - `sources=[]` → “웹검색 흔적이 없습니다” 경고 / `mock=true` → 출처 카드 숨김
   - 설정 모달 3개 절(AI 호출 · 공식자료 웹검색 · 옵시디언) 렌더 확인(스크린샷)
   - 배지 상태 전환 확인 — 웹검색 켜짐 / 웹검색 · 공식자료만 / 웹검색 꺼짐
+#### Session 003 후속 2 — 실행시간 초과 대응 (프록시 배포 후 발견)
+
+- **증상**: 배포 후 `testProxy()` 실행이 **비정상적으로 오래 걸리고 끝나지 않음**
+- **원인 (겹침)**
+  - `claude-opus-5` 는 **적응형 사고가 기본 ON**, `effort` 기본값 `high` → 한 번 호출이 수 분
+  - 거기에 `web_search` + `web_fetch` 서버 루프가 얹힘
+  - **`MAX_CONTINUATIONS = 4`** → 무거운 호출을 최대 **5회 직렬** 반복
+  - Apps Script 는 개인 계정 기준 **실행 6분에서 강제 종료**, GAS 는 스트리밍 불가
+  → 즉 "무거운 요청 1개"가 아니라 "무거운 요청 5개 직렬"이라 한도 초과가 사실상 확정이었다
+- **조치**
+  - 프록시: `DEFAULT_EFFORT='low'`, `MAX_CONTINUATIONS 4→1`,
+    **`DEADLINE_MS`(4분) 시간 가드** — 넘기면 스스로 끊고 받은 만큼 반환(`incomplete: true`),
+    `elapsed_ms`·`effort` 를 응답에 실어 측정 가능하게 함
+  - `output_config: {effort}` 를 요청에 추가(GA, 베타헤더 불필요)
+  - 점검 함수를 **단계별로 분리** — `test1_key`(검색 없음, 수 초) →
+    `test2_search`(검색 1회) → `test3_load`(검색 4회) → `test4_careertest`(GET 회귀).
+    어디서 느려지는지 좁혀 나가도록 함
+  - 클라이언트: `effort` 설정 추가(기본 low, 모달에서 선택), 기본 검색 횟수 12→6,
+    결과 화면에 **“검색을 끝까지 못 돌렸습니다” 경고 + 소요 시간** 표시
+  - `init.ps1` 59 → **62개 항목**. 신규: `effort` 전달 여부, 프록시의 시간가드/`output_config`,
+    **`MAX_CONTINUATIONS` 상한(0~2) 검사** — 나중에 누가 늘려 놓으면 같은 사고가 재발한다
+- **Verification run**: `.\init.ps1` → **62개 항목 전부 `[OK]`, exit 0**
+- **Evidence captured**
+  - fetch 스텁: 요청에 `effort=low`, `search_max_uses=6` 실림 확인
+  - `incomplete:true, elapsed_ms:241000` 응답 → 결과 화면에 경고 + `(241.0초 소요)` 표시 확인
+  - `node --check` 구문 통과
+- **아직 미검증**: 실제 프록시에서 얼마나 걸리는지. `test2_search` 시간을 재서
+  `검색 1회 시간 × 검색 횟수` 로 예상치를 잡을 것
+
 - **남는 리스크**
   - **실제 프록시로는 아직 못 돌려봤다.** 배포 후 확인할 것:
     ① Apps Script 6분 실행 한도 — 검색이 길어지면 초과할 수 있다

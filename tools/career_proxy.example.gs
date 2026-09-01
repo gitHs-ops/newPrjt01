@@ -50,8 +50,26 @@ var ANTHROPIC_VERSION = '2023-06-01';
 /** 기본 모델. web_search_20260209(동적 필터링)은 Opus 5/4.8/4.7/4.6, Sonnet 5, Sonnet 4.6 에서 동작한다. */
 var DEFAULT_MODEL = 'claude-opus-5';
 
-/** 서버사이드 검색 루프가 10회에 도달하면 stop_reason=pause_turn 으로 끊긴다. 이어붙일 최대 횟수. */
-var MAX_CONTINUATIONS = 4;
+/**
+ * 기본 effort. Apps Script 실행 한도(개인 계정 6분) 때문에 이 값이 핵심이다.
+ * Opus 5 는 적응형 사고가 기본으로 켜져 있고 effort 기본값이 high 라
+ * 웹검색까지 겹치면 한 번 호출이 수 분씩 걸린다 → 한도를 넘겨 매달린다.
+ * 'low' 로 시작해서 시간이 남으면 'medium' 으로 올릴 것.
+ */
+var DEFAULT_EFFORT = 'low';
+
+/**
+ * 서버사이드 검색 루프가 10회에 도달하면 stop_reason=pause_turn 으로 끊긴다.
+ * 이어붙일 최대 횟수 — 무거운 호출을 직렬로 반복하면 6분 한도를 넘긴다.
+ * 아래 DEADLINE_MS 로 시간까지 함께 막는다.
+ */
+var MAX_CONTINUATIONS = 1;
+
+/**
+ * 이 시간을 넘기면 이어달리기를 중단하고 지금까지 받은 내용을 돌려준다.
+ * Apps Script 가 6분에 강제 종료되면 아무것도 못 돌려주므로, 그 전에 스스로 끊는다.
+ */
+var DEADLINE_MS = 4 * 60 * 1000;
 
 /** 응답 형식을 md 로 유지하기 위한 최소 지시. 본 프롬프트는 클라이언트가 system 으로 보낸다. */
 var SYSTEM_SUFFIX = '\n\n---\n\n웹검색 도구를 사용할 수 있다면 위 "공식 정보 출처 제한" 절에 열거된 ' +
@@ -169,9 +187,11 @@ function doPost(e) {
 /* ----------------------------------------------------------------- 호출 */
 
 function callClaude_(req) {
+  var started = Date.now();
   var model = req.model || DEFAULT_MODEL;
   var maxTokens = parseInt(req.max_tokens, 10) || 8000;
   var useSearch = req.web_search !== false;   // 기본 켬
+  var effort = req.effort || DEFAULT_EFFORT;
 
   var tools = [];
   if (useSearch) {
@@ -209,7 +229,9 @@ function callClaude_(req) {
       model: model,
       max_tokens: maxTokens,
       system: system,
-      messages: messages
+      messages: messages,
+      /* effort 가 실행시간을 좌우한다. GAS 6분 한도 안에 들어오려면 낮게 시작할 것. */
+      output_config: { effort: effort }
     };
     if (tools.length) body.tools = tools;
 
@@ -243,6 +265,13 @@ function callClaude_(req) {
 
     if (stop !== 'pause_turn') break;
 
+    // 남은 시간이 없으면 이어달리기를 포기하고 지금까지 받은 내용을 돌려준다.
+    // 여기서 멈추지 않으면 Apps Script 가 6분에 강제 종료해 아무것도 못 돌려준다.
+    if (Date.now() - started > DEADLINE_MS) {
+      stop = 'deadline';
+      break;
+    }
+
     // 이어달리기: 사용자 메시지 + 지금까지의 assistant 응답을 그대로 되돌려 보낸다.
     messages = [
       { role: 'user', content: String(req.prompt) },
@@ -261,6 +290,10 @@ function callClaude_(req) {
     sources: dedupe_(sources),
     searches: searches,
     truncated: (stop === 'max_tokens'),
+    /* 시간이 모자라 검색 루프를 중간에 끊었다는 표시 — 보고서가 불완전할 수 있다 */
+    incomplete: (stop === 'deadline' || stop === 'pause_turn'),
+    elapsed_ms: Date.now() - started,
+    effort: effort,
     error: null
   };
 }
@@ -328,10 +361,48 @@ function json_(obj) {
     .setMimeType(ContentService.MimeType.JSON);
 }
 
-/* ----------------------------------------------------------------- 점검용 */
+/* ----------------------------------------------------------------- 점검용
+   ⚠ 순서대로 실행할 것. 1단계부터 시작해 어디서 느려지는지 좁혀 나간다.
+      Apps Script 는 개인 계정 기준 실행 6분에서 강제 종료되므로,
+      "끝나지 않음" 은 대부분 요청이 무거워서지 고장이 아니다.
+   ------------------------------------------------------------------ */
 
-/** Apps Script 편집기에서 직접 실행해 배포 전에 확인한다. */
-function testProxy() {
+/** 1단계 — 키·네트워크만 확인. 검색 없음, 사고 최소, 출력 아주 짧음. 수 초 안에 끝나야 정상. */
+function test1_key() {
+  var t = Date.now();
+  var res = UrlFetchApp.fetch(API_URL, {
+    method: 'post',
+    contentType: 'application/json',
+    headers: { 'x-api-key': apiKey_(), 'anthropic-version': ANTHROPIC_VERSION },
+    payload: JSON.stringify({
+      model: DEFAULT_MODEL,
+      max_tokens: 64,
+      output_config: { effort: 'low' },
+      messages: [{ role: 'user', content: '한 단어로만 답하라: 대한민국의 수도는?' }]
+    }),
+    muteHttpExceptions: true
+  });
+  Logger.log('HTTP %s  %sms', res.getResponseCode(), Date.now() - t);
+  Logger.log(res.getContentText().slice(0, 500));
+}
+
+/** 2단계 — 검색을 1회만. 여기서 몇 초 걸리는지 재 두면 실제 분석 시간을 가늠할 수 있다. */
+function test2_search() {
+  var out = callClaude_({
+    system: '공식자료만 사용하고, 확인되지 않으면 "[확인 불가]" 라고 표시하라. md 로 답하라.',
+    prompt: '커리어넷(career.go.kr)이 현재 운영 중인지 검색해 한 줄로만 답하라.',
+    max_tokens: 500,
+    web_search: true,
+    search_max_uses: 1,
+    effort: 'low'
+  });
+  Logger.log('elapsed=%sms searches=%s sources=%s incomplete=%s',
+             out.elapsed_ms, out.searches, out.sources.length, out.incomplete);
+  Logger.log(out.text);
+}
+
+/** 3단계 — 실제 분석에 가까운 부하. 2단계 시간 × 검색횟수로 예상치를 먼저 계산해 볼 것. */
+function test3_load() {
   var out = callClaude_({
     system: '당신은 대한민국 진로교사를 돕는 리서치 어시스턴트다. 공식자료만 사용하고, ' +
             '확인되지 않으면 "[확인 불가]" 라고 표시하라. 답변은 md 로 작성하라.',
@@ -339,8 +410,19 @@ function testProxy() {
             '확인된 사실만 3줄로 정리하라.',
     max_tokens: 2000,
     web_search: true,
-    search_max_uses: 5
+    search_max_uses: 4,
+    effort: 'low'
   });
-  Logger.log('searches=%s sources=%s', out.searches, out.sources.length);
+  Logger.log('elapsed=%sms searches=%s sources=%s incomplete=%s truncated=%s',
+             out.elapsed_ms, out.searches, out.sources.length, out.incomplete, out.truncated);
   Logger.log(out.text);
+}
+
+/** careerTest GET 경로 회귀 확인 — 배포를 공유할 때 이것도 함께 돌려 볼 것. */
+function test4_careertest() {
+  var out = doGet({ parameter: {
+    prompt: '학생[김현수|고등학교2학년|IT소프트웨어|RI|언어수리|-|영어]\n과제:진로방향종합분석\nHTML형식으로작성',
+    max_tokens: '800'
+  }});
+  Logger.log(out.getContent().slice(0, 600));
 }

@@ -49,8 +49,12 @@
 
         /* --- 공식자료 웹검색 (프록시의 서버사이드 web_search 도구) --- */
         webSearch: true,       /* 끄면 모델 기억만으로 답한다 — 프롬프트가 금지하는 상태 */
-        searchMaxUses: 12,     /* 한 번의 분석에서 허용할 검색 횟수 */
+        searchMaxUses: 6,      /* 한 번의 분석에서 허용할 검색 횟수 */
         officialOnly: false,   /* 켜면 위 OFFICIAL_DOMAINS 로 검색을 제한 */
+
+        /* 사고 깊이. 실행시간을 좌우한다 —
+           프록시가 Apps Script 라면 실행 한도(개인 계정 6분)가 있어 낮게 시작해야 한다. */
+        effort: 'low',
 
         /* --- Obsidian Local REST API (기능 표시만, 연결은 추후 결정) --- */
         obsidian: {
@@ -83,6 +87,7 @@
             if (typeof raw.webSearch === 'boolean') c.webSearch = raw.webSearch;
             if (raw.searchMaxUses > 0) c.searchMaxUses = raw.searchMaxUses | 0;
             if (typeof raw.officialOnly === 'boolean') c.officialOnly = raw.officialOnly;
+            if (typeof raw.effort === 'string' && raw.effort) c.effort = raw.effort;
             if (raw.obsidian && typeof raw.obsidian === 'object') {
                 if (typeof raw.obsidian.baseUrl === 'string') c.obsidian.baseUrl = raw.obsidian.baseUrl.trim();
                 if (typeof raw.obsidian.apiKey === 'string')  c.obsidian.apiKey  = raw.obsidian.apiKey;
@@ -297,7 +302,8 @@
                     'AI 엔드포인트가 설정되지 않았습니다. 우측 상단 연결 설정에서 프록시 URL을 입력하세요.'));
             }
             return mockAnswer(opts).then(function (md) {
-                return { text: md, usage: null, sources: [], searches: 0, truncated: false, mock: true };
+                return { text: md, usage: null, sources: [], searches: 0,
+                         truncated: false, incomplete: false, elapsedMs: 0, mock: true };
             });
         }
 
@@ -309,7 +315,8 @@
             /* 프록시가 서버사이드 web_search 도구를 켜도록 지시한다.
                이게 없으면 모델 기억만으로 답해 "확인 불가"가 대량으로 나온다. */
             web_search: !!cfg.webSearch,
-            search_max_uses: cfg.searchMaxUses
+            search_max_uses: cfg.searchMaxUses,
+            effort: cfg.effort
         };
         if (cfg.webSearch && cfg.officialOnly) {
             payload.allowed_domains = OFFICIAL_DOMAINS.slice();
@@ -338,6 +345,9 @@
                 sources: (data && data.sources) || [],
                 searches: (data && data.searches) || 0,
                 truncated: !!(data && data.truncated),
+                /* 프록시가 시간이 모자라 검색 루프를 끊었다는 표시 */
+                incomplete: !!(data && data.incomplete),
+                elapsedMs: (data && data.elapsed_ms) || 0,
                 mock: false
             };
         });
@@ -894,7 +904,8 @@
                     allowMock: document.getElementById('cfgMock').checked,
                     webSearch: document.getElementById('cfgSearch').checked,
                     searchMaxUses: parseInt(document.getElementById('cfgSearchUses').value, 10) || 12,
-                    officialOnly: document.getElementById('cfgOfficial').checked
+                    officialOnly: document.getElementById('cfgOfficial').checked,
+                    effort: document.getElementById('cfgEffort').value || 'low'
                 });
                 refreshBadges();
                 if (modal) modal.close();
@@ -948,6 +959,7 @@
         check('cfgSearch', c.webSearch);
         set('cfgSearchUses', c.searchMaxUses);
         check('cfgOfficial', c.officialOnly);
+        set('cfgEffort', c.effort);
         set('cfgObsUrl', c.obsidian.baseUrl);
         set('cfgObsFolder', c.obsidian.folder);
         var dom = document.getElementById('cfgDomains');
@@ -988,8 +1000,19 @@
                   '별도 검색 API는 필요 없습니다. 참고 구현은 <code>tools/career_proxy.example.gs</code>.</div>' +
                 '<label class="checkbox"><input type="checkbox" id="cfgSearch">' +
                   '<span><b>웹검색 사용</b> (끄면 모델 기억만으로 답합니다 — 권장하지 않음)</span></label>' +
-                '<div class="field" style="margin-top:12px"><label for="cfgSearchUses">분석 1회당 최대 검색 횟수</label>' +
-                  '<div class="input-wrap"><input type="number" id="cfgSearchUses" min="1" max="30" step="1"></div></div>' +
+                '<div class="grid2" style="margin-top:12px">' +
+                  '<div class="field"><label for="cfgSearchUses">분석 1회당 최대 검색</label>' +
+                    '<div class="input-wrap"><input type="number" id="cfgSearchUses" min="1" max="30" step="1"></div></div>' +
+                  '<div class="field"><label for="cfgEffort">사고 깊이 (effort)</label>' +
+                    '<select id="cfgEffort">' +
+                      '<option value="low">low — 가장 빠름 (권장 시작점)</option>' +
+                      '<option value="medium">medium</option>' +
+                      '<option value="high">high — 느림</option>' +
+                    '</select></div>' +
+                '</div>' +
+                '<div class="seg-desc" style="margin-top:-4px">⚠ 프록시가 Apps Script 라면 ' +
+                  '<b>실행 한도(개인 계정 6분)</b>가 있습니다. effort 와 검색 횟수를 올리면 ' +
+                  '한도를 넘겨 <b>응답 없이 매달립니다</b> — low 로 시작해 시간이 남을 때만 올리세요.</div>' +
                 '<label class="checkbox"><input type="checkbox" id="cfgOfficial">' +
                   '<span><b>공식 기관 도메인만</b> 검색</span></label>' +
                 '<div class="seg-desc" style="margin-top:8px">' +

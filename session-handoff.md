@@ -13,7 +13,7 @@
   - 결과는 `localStorage`(`np_career_cases`)에 보존되고 md 파일로 저장된다
   - 보고서는 자체 마크다운 렌더러로 표·제목·인용·코드블록까지 그린다
 - **실제로 돌린 검증**
-  1. `.\init.ps1` → **59개 항목 전부 `[OK]`, exit 0**
+  1. `.\init.ps1` → **62개 항목 전부 `[OK]`, exit 0**
   2. 브라우저 실기동(http://localhost:8940) 전 경로 통과, 콘솔 오류 0건
   3. 실패 경로도 확인 — 잘못된 프록시 주소 → “프록시에 연결하지 못했습니다…” 화면
   4. 옵시디언 전송 클릭 → “추후 결정” 안내로 차단됨
@@ -24,7 +24,7 @@
   `career-step2.html` · `career-report2.html`
 - **신규 자산**: `assets/career.css` · `assets/career.js` · `assets/career-prompts.js`(생성물) ·
   `assets/prompts/*.txt`(원문 4종) · `tools/build-prompts.py`
-- **수정**: `home.html`(진입 카드) · `assets/auth.css`(`.app-card`) · `init.ps1`(26→**59 항목**) ·
+- **수정**: `home.html`(진입 카드) · `assets/auth.css`(`.app-card`) · `init.ps1`(26→**62 항목**) ·
   `feature_list.json`(`career-001`~`010` 주입, 기존 항목 우선순위 뒤로) · `README.md`
 - **AI 호출은 프록시 경유 방식으로 구현** — 프롬프트를 복사해 붙여넣는 방식이 아니다
 - **공식자료 웹검색을 붙였다**(`career-010`) — 프록시가 Anthropic 서버사이드 `web_search`
@@ -32,6 +32,9 @@
   참고 프록시 `tools/career_proxy.example.gs` 신규. 기본 모델 `claude-opus-5`
 - **프록시를 careerTest 와 공유 가능하게 GET/POST 겸용으로 만들었다** —
   `doGet`(careerTest, 기존 그대로) + `doPost`(진로상담) 한 파일. 배포 하나, 키 하나
+- **실행시간 초과 대응** — 배포 후 `testProxy()` 가 끝나지 않는 문제를 잡았다.
+  `effort=low` 기본, `MAX_CONTINUATIONS 4→1`, `DEADLINE_MS`(4분) 시간 가드 추가.
+  점검 함수를 `test1_key` → `test2_search` → `test3_load` → `test4_careertest` 로 분리
 - **옵시디언은 표시만** — 실제 PUT 코드는 `sendToObsidian()` 안 TODO 블록에 준비돼 있다
 
 ## Broken Or Unverified
@@ -80,16 +83,29 @@
 - **careerTest 배포에 얹는 경우** — 반드시 **배포 관리 → 편집 → 새 버전**으로 갱신할 것.
   “새 배포”를 만들면 `/exec` URL 이 바뀌어 careerTest 가 끊긴다.
   기존 소스에 박힌 API 키는 지우고 스크립트 속성으로 옮긴다
-- **배포 직후 확인할 것 4가지**
-  ① Apps Script 6분 실행 한도 — 검색이 길어지면 초과할 수 있다
-  ② 응답이 잘리는지(잘림 경고가 뜬다) → `max_tokens` 조정
-  ③ “참고한 웹 출처” 카드에 공식 기관이 실제로 잡히는지
-  ④ **기존 careerTest 가 계속 도는지**(배포를 공유한 경우)
+- **배포 직후 점검 순서** — Apps Script 편집기에서 **순서대로** 실행할 것.
+  “끝나지 않음”은 대부분 고장이 아니라 요청이 무거워 6분 한도에 걸린 것이다.
+  | 함수 | 확인하는 것 | 기대 |
+  |---|---|---|
+  | `test1_key` | 키·네트워크 (검색 없음) | 수 초 안에 HTTP 200 |
+  | `test2_search` | 검색 1회 소요 시간 | `elapsed=` 값을 기록해 둘 것 |
+  | `test3_load` | 검색 4회 부하 | `test2 시간 × 4` 가 4분을 넘으면 검색 횟수를 낮춘다 |
+  | `test4_careertest` | 기존 GET 경로 회귀 | careerTest 가 계속 도는지 |
+- **그다음 확인**
+  ① 응답이 잘리는지(잘림 경고) → `max_tokens` 조정
+  ② “참고한 웹 출처” 카드에 공식 기관이 실제로 잡히는지
+  ③ `incomplete` 경고가 뜨면 검색 횟수·effort 를 낮출 것
+- **그래도 6분을 못 맞추면** — Apps Script 자체가 한계다.
+  effort/검색횟수를 더 낮추거나, 실행 한도가 없는 런타임(Cloudflare Workers 등)으로
+  프록시를 옮기는 것이 근본 해법이다. 계약(POST/JSON)은 그대로 쓸 수 있다
 - **그 단계에서 바꾸면 안 되는 것**
   - `init.ps1` 의 검증 게이트를 느슨하게 만들지 말 것 — 프록시가 붙으면 검증을 **추가**하는 방향
   - 모의 응답 경로를 지우지 말 것 — 프록시 장애 시 흐름 검증 수단이 사라진다
   - 모의 응답에 사실 정보를 지어 넣지 말 것 — 지금은 의도적으로 “확인 불가”만 채운다
   - **웹검색 기본값을 끄지 말 것** — 끄면 프롬프트가 금지한 “기억으로 답하기”가 된다
+  - **`MAX_CONTINUATIONS` 를 올리지 말 것** — 무거운 호출이 직렬로 반복돼 6분 한도를 넘긴다.
+    `init.ps1` 이 0~2 범위를 검사한다(2026-09-01 실제로 매달림)
+  - **`DEADLINE_MS` 가드를 지우지 말 것** — 없으면 한도 초과 시 아무것도 못 돌려준다
   - **“공식 기관 도메인만” 을 기본값으로 켜지 말 것** — 대학 입학처가 학교마다 도메인이 달라
     STEP 7-3(대학 정보·입시결과)이 통째로 막힌다
   - `assets/prompts/*.txt` 원문을 코드에서 직접 고치지 말 것 (생성기 경유)
