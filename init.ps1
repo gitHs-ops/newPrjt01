@@ -228,6 +228,19 @@ if (Test-Path -LiteralPath 'tools\career_proxy.example.gs' -PathType Leaf) {
         Write-Fail "MAX_CONTINUATIONS 가 너무 큼 — Apps Script 6분 한도를 넘겨 응답 없이 매달린다"
     }
 
+    # 프록시 버전과 클라이언트 기대 버전이 어긋나면 재배포를 잊었을 때 알 방법이 없다
+    $pv = ''
+    if ($gs -match "PROXY_VERSION\s*=\s*'([0-9.]+)'") { $pv = $Matches[1] }
+    $cv = ''
+    if ((Test-Path -LiteralPath 'assets\career.js') -and
+        ((Get-Content -LiteralPath 'assets\career.js' -Raw -Encoding UTF8) -match
+         "EXPECTED_PROXY_VERSION\s*=\s*'([0-9.]+)'")) { $cv = $Matches[1] }
+    if ($pv -and $cv -and ($pv -eq $cv)) {
+        Write-Ok "프록시 버전 일치 ($pv)"
+    } else {
+        Write-Fail "프록시 버전 불일치 — .gs=$pv / career.js 기대=$cv (둘을 같이 올릴 것)"
+    }
+
     # 시트 기록 실패를 조용히 삼키지 않는가 (안 쌓이는 걸 알 방법이 있어야 한다)
     if ($gs -match 'lastLogError' -and $gs -match 'test5_sheet') {
         Write-Ok "시트 기록 실패 노출 · 권한 점검 함수 존재"

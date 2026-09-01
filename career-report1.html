@@ -96,6 +96,14 @@
                     연결 설정에서 <b>검색 횟수</b>나 <b>사고 깊이(effort)</b>를 낮추고 다시 분석하세요.
                     <span class="mono" id="elapsedTxt"></span></span>
             </div>
+            <div class="notice" id="staleNotice" style="display:none">
+                <span class="ico">🔄</span>
+                <span><b>프록시가 낡았습니다.</b>
+                    배포본 <span class="mono" id="proxyVer">—</span> ·
+                    필요 <span class="mono" id="proxyNeed">—</span><br>
+                    <code>tools/career_proxy.example.gs</code> 내용을 Apps Script 에 다시 붙여넣고
+                    <b>배포 관리 → 새 버전</b>으로 갱신하세요. 최신 수정이 적용되지 않은 상태입니다.</span>
+            </div>
             <div class="notice" id="logNotice" style="display:none">
                 <span class="ico">📋</span>
                 <span><b>구글 시트에 사용량을 기록하지 못했습니다.</b>
@@ -202,6 +210,13 @@
                 Career.fmtNum(Career.loadConfig().maxTokens1);
         }
         document.getElementById('incompleteNotice').style.display = rep.incomplete ? '' : 'none';
+        var sn = document.getElementById('staleNotice');
+        if (rep.proxyStale && !rep.mock) {
+            sn.style.display = '';
+            document.getElementById('proxyVer').textContent = rep.proxyVersion || '(버전 없음)';
+            document.getElementById('proxyNeed').textContent = Career.EXPECTED_PROXY_VERSION;
+        } else { sn.style.display = 'none'; }
+
         var ln = document.getElementById('logNotice');
         if (rep.logError) {
             ln.style.display = '';
@@ -236,6 +251,8 @@
                 sources: res.sources || [],
                 continued: res.continued || 0,
                 logError: res.logError || '',
+                proxyVersion: res.proxyVersion || '',
+                proxyStale: !!res.proxyStale,
                 searches: res.searches || 0,
                 truncated: !!res.truncated,
                 incomplete: !!res.incomplete,

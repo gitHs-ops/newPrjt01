@@ -1,5 +1,25 @@
 /**
  * career_proxy.example.gs — 진로 계열 공용 AI 프록시 (참고 구현)
+ *
+ *   버전  1.7.0
+ *   날짜  2026-09-01
+ *
+ *   ⚠ 이 파일을 고치면 아래 PROXY_VERSION 도 함께 올릴 것.
+ *     클라이언트(assets/career.js)가 기대 버전과 대조해 배포본이 낡았으면 경고한다.
+ *     배포된 버전은 브라우저로 /exec 를 그냥 열어 보면 확인된다.
+ *
+ * ── 변경 이력 ────────────────────────────────────────────────────────────────
+ *   1.7.0  2026-09-01  본문 이어쓰기 전용 마감(TEXT_DEADLINE_MS) 분리 —
+ *                      1차가 검색 마감에 걸려 잘린 채 끝나던 문제.
+ *                      시트 기록 실패를 응답에 노출(lastLogError) + test5_sheet 추가
+ *   1.6.0  2026-09-01  잘린 응답 자동 이어쓰기(프리필) + 끝맺음 지시(COMPLETION_SUFFIX).
+ *                      2차 보고서의 최종 브리프·면책 문장이 빠지던 문제
+ *   1.5.0  2026-09-01  careerTest 구글 시트 재사용 — 전용 탭 + 공용 탭 미러링
+ *   1.4.0  2026-09-01  사용자별 토큰 사용량 시트 기록
+ *   1.3.0  2026-09-01  기본 모델 Haiku 4.5 + 모델별 도구·effort 분기
+ *   1.2.0  2026-09-01  Apps Script 6분 한도 대응 — effort/이어달리기 상한/시간 가드
+ *   1.1.0  2026-09-01  careerTest doGet 병합 — 배포·API 키 공유
+ *   1.0.0  2026-09-01  최초 — 서버사이드 web_search 로 공식자료 조회
  * =============================================================================
  * 하나의 Apps Script 배포로 **두 앱을 함께** 받는다. API 키도 하나만 쓴다.
  *
@@ -43,6 +63,11 @@
  */
 
 /* ----------------------------------------------------------------- 설정 */
+
+/* 배포본 식별용. 파일을 고치면 반드시 함께 올린다.
+   클라이언트가 이 값을 받아 기대 버전과 다르면 "프록시가 낡았다"고 알려 준다. */
+var PROXY_VERSION = '1.7.0';
+var PROXY_DATE = '2026-09-01';
 
 var API_URL = 'https://api.anthropic.com/v1/messages';
 var ANTHROPIC_VERSION = '2023-06-01';
@@ -251,6 +276,8 @@ function doGet(e) {
     if (!e || !e.parameter || !e.parameter.prompt) {
       return json_({
         status: 'career proxy OK',
+        version: PROXY_VERSION,
+        date: PROXY_DATE,
         get: 'careerTest (HTML)',
         post: 'newPrjt01 진로상담 (md + web_search)',
         model: DEFAULT_MODEL
@@ -488,6 +515,7 @@ function callClaude_(req) {
     searches: searches,
     truncated: (stop === 'max_tokens'),
     continued: textCont,
+    proxy_version: PROXY_VERSION,
     /* 시간이 모자라 검색 루프를 중간에 끊었다는 표시 — 보고서가 불완전할 수 있다 */
     incomplete: (stop === 'deadline' || stop === 'pause_turn'),
     elapsed_ms: Date.now() - started,

@@ -7,6 +7,12 @@
 (function (g) {
     'use strict';
 
+    /* 이 클라이언트가 기대하는 프록시 버전.
+       tools/career_proxy.example.gs 의 PROXY_VERSION 과 맞춰 둔다.
+       배포본이 낮으면 결과 화면에서 "프록시가 낡았다"고 알려 준다 —
+       파일을 고쳐 놓고 재배포를 잊는 일이 반복돼 넣었다. */
+    var EXPECTED_PROXY_VERSION = '1.7.0';
+
     var CASES_KEY  = 'np_career_cases';
     var CONFIG_KEY = 'np_career_config';
 
@@ -491,9 +497,23 @@
                 continued: (data && data.continued) || 0,
                 /* 프록시가 시트에 기록하지 못한 사유(있을 때만) */
                 logError: (data && data.log_error) || '',
+                proxyVersion: (data && data.proxy_version) || '',
+                proxyStale: isStaleProxy((data && data.proxy_version) || ''),
                 mock: false
             };
         });
+    }
+
+    /* 배포된 프록시가 기대 버전보다 낮은가. 버전을 안 실어 보내면(구버전) 그것도 낡은 것이다. */
+    function isStaleProxy(v) {
+        if (!v) return true;
+        var a = String(v).split('.').map(Number);
+        var b = EXPECTED_PROXY_VERSION.split('.').map(Number);
+        for (var i = 0; i < 3; i++) {
+            if ((a[i] || 0) < (b[i] || 0)) return true;
+            if ((a[i] || 0) > (b[i] || 0)) return false;
+        }
+        return false;
     }
 
     function stripFence(t) {
@@ -1415,6 +1435,7 @@
         refreshBadges: refreshBadges,
         renderSources: renderSources,
         OFFICIAL_DOMAINS: OFFICIAL_DOMAINS,
+        EXPECTED_PROXY_VERSION: EXPECTED_PROXY_VERSION,
         recordUsage: recordUsage,
         usageSummary: usageSummary,
         fmtNum: fmtNum,

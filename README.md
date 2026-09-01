@@ -104,7 +104,12 @@ Content-Type: text/plain;charset=utf-8      ← GAS 웹앱 CORS preflight 회피
 **프록시 배포와 API 키는 추후 결정 사항**이다(`career-008`). 비어 있으면 화면 흐름 확인용
 **모의 응답**으로 동작하며, 화면과 md 파일 모두에 모의라고 표시된다.
 
-참고 구현이 `tools/career_proxy.example.gs` 에 있다. Apps Script 에 붙여넣고
+참고 구현이 `tools/career_proxy.example.gs` 에 있다. 파일 첫머리에 **버전과 변경 이력**이 있고,
+배포된 버전은 브라우저로 `/exec` 를 그냥 열어 보면 확인된다.
+클라이언트가 응답의 버전을 기대값과 대조해, **배포본이 낡았으면 결과 화면에서 알려 준다** —
+파일을 고쳐 놓고 재배포를 잊는 사고를 막기 위함이다.
+(`init.ps1` 도 `.gs` 의 `PROXY_VERSION` 과 `career.js` 의 `EXPECTED_PROXY_VERSION` 이
+어긋나면 검증에 실패시킨다.) Apps Script 에 붙여넣고
 스크립트 속성 `ANTHROPIC_API_KEY` 만 채우면 동작한다.
 **키를 소스에 적지 말 것** — `init.ps1` 이 저장소에서 `sk-ant-` 문자열을 찾으면 검증에 실패한다.
 
