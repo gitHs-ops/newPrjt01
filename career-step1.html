@@ -28,6 +28,7 @@
 
     <div class="actions" style="margin-bottom:20px">
         <button type="button" class="btn btn-ghost" id="sampleBtn" title="테스트용 예시로 전 항목 채우기">예시 채우기</button>
+        <button type="button" class="btn btn-ghost" id="clearBtn" title="예시 채우기로 넣은 값을 지웁니다">예시 지우기</button>
     </div>
 
     <form id="form" novalidate>
@@ -297,7 +298,6 @@
     /* 테스트용 예시 — 전 항목을 한 번에 채운다.
        전 과정을 반복 검증할 때 매번 손으로 채우는 부담을 없애기 위한 것이다. */
     document.getElementById('sampleBtn').addEventListener('click', function () {
-        if (!confirm('테스트용 예시로 모든 항목을 덮어씁니다. 계속할까요?')) return;
         var g = '고등학교 2학년';
         document.getElementById('grade').value = g;
         syncByGrade(false);
@@ -316,6 +316,20 @@
         set('ask', '이 전공이 어떤 산업들과 연결되는지 알고 싶다');
         refreshPreview();
         Career.toast('예시로 채웠습니다. 필요한 곳만 고치세요.', 'ok');
+    });
+
+    /* '예시 채우기' 가 넣은 항목만 정확히 되돌린다 — 직접 입력한 값이 섞여 있어도
+       이 버튼이 건드리는 필드는 예시가 채웠던 필드와 같다. */
+    document.getElementById('clearBtn').addEventListener('click', function () {
+        document.getElementById('grade').value = '';
+        syncByGrade(false);
+        ['hope', 'subjects', 'industry', 'trigger', 'style', 'major', 'ask'].forEach(function (id) {
+            document.getElementById(id).value = '';
+        });
+        document.getElementById('univ').value = '';
+        document.getElementById('region').value = '';
+        refreshPreview();
+        Career.toast('예시를 지웠습니다.');
     });
 
     document.getElementById('saveBtn').addEventListener('click', function () {
