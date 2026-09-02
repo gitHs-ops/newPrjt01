@@ -276,6 +276,15 @@ select.pick:focus { box-shadow: 0 0 0 3px var(--accent-glow); }
 .collapse.show { display: block; animation: cardIn .35s var(--ease) both; }
 
 /* ---------- 액션바 ---------- */
+/* 확인창(confirmModal)의 파괴적 동작용 강조 버튼 — 사례 삭제 등 */
+.btn-danger {
+    background: var(--danger);
+    color: #fff;
+    box-shadow: 0 8px 20px rgba(239,68,68,.30);
+}
+.btn-danger:hover  { transform: translateY(-2px); box-shadow: 0 12px 26px rgba(239,68,68,.38); }
+.btn-danger:active { transform: translateY(0) scale(.985); }
+
 .actions {
     display: flex;
     gap: 10px;

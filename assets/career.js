@@ -976,6 +976,67 @@
         return { open: open, close: close, el: back };
     }
 
+    /* 확인창 대체 — 네이티브 confirm() 은 Chrome 이 짧은 시간에 여러 번 뜨면
+       "이 페이지가 추가 대화상자를 만들지 못하게 함" 을 제안하고, 한 번 체크되면
+       그 뒤로는 다이얼로그 없이 즉시 false 를 반환한다. 사용자에게는 버튼이
+       무반응인 것처럼 보인다(실제로 겪은 결함, 2026-09-02). 자체 모달로 대체해
+       이 문제를 원천 차단한다. 전역 모달 규칙(우측 상단 X + 하단 버튼)을 그대로 따른다.
+       Promise<boolean> 을 반환한다 — true = 확인, false = 취소/닫기/바깥 클릭/ESC. */
+    var _confirmEl = null;
+    function confirmModal(message, opts) {
+        opts = opts || {};
+        if (!_confirmEl) {
+            _confirmEl = document.createElement('div');
+            _confirmEl.className = 'modal-backdrop';
+            _confirmEl.innerHTML =
+                '<div class="modal">' +
+                    '<button type="button" class="modal-close" aria-label="닫기">✕</button>' +
+                    '<h2></h2>' +
+                    '<p class="desc" style="white-space:pre-line"></p>' +
+                    '<div class="modal-actions">' +
+                        '<button type="button" class="btn btn-ghost" data-act="cancel">취소</button>' +
+                        '<button type="button" class="btn" data-act="ok"></button>' +
+                    '</div>' +
+                '</div>';
+            document.body.appendChild(_confirmEl);
+        }
+        var h2 = _confirmEl.querySelector('h2');
+        var desc = _confirmEl.querySelector('.desc');
+        var okBtn = _confirmEl.querySelector('[data-act="ok"]');
+        var cancelBtn = _confirmEl.querySelector('[data-act="cancel"]');
+        var xBtn = _confirmEl.querySelector('.modal-close');
+        h2.textContent = opts.title || '확인';
+        desc.textContent = message;
+        okBtn.textContent = opts.okLabel || '확인';
+        okBtn.className = 'btn ' + (opts.danger ? 'btn-danger' : 'btn-primary');
+
+        return new Promise(function (resolve) {
+            function done(v) {
+                _confirmEl.classList.remove('show');
+                cleanup();
+                resolve(v);
+            }
+            function onCancel() { done(false); }
+            function onOk() { done(true); }
+            function onBackdrop(e) { if (e.target === _confirmEl) done(false); }
+            function onKey(e) { if (e.key === 'Escape') done(false); }
+            function cleanup() {
+                xBtn.removeEventListener('click', onCancel);
+                cancelBtn.removeEventListener('click', onCancel);
+                okBtn.removeEventListener('click', onOk);
+                _confirmEl.removeEventListener('click', onBackdrop);
+                document.removeEventListener('keydown', onKey);
+            }
+            xBtn.addEventListener('click', onCancel);
+            cancelBtn.addEventListener('click', onCancel);
+            okBtn.addEventListener('click', onOk);
+            _confirmEl.addEventListener('click', onBackdrop);
+            document.addEventListener('keydown', onKey);
+            _confirmEl.classList.add('show');
+            okBtn.focus();
+        });
+    }
+
     /* 상단 진행 단계 표시 */
     function renderSteps(el, current) {
         if (!el) return;
@@ -1431,6 +1492,7 @@
         /* UI */
         toast: toast,
         bindModal: bindModal,
+        confirmModal: confirmModal,
         mountChrome: mountChrome,
         refreshBadges: refreshBadges,
         renderSources: renderSources,

@@ -678,3 +678,75 @@ Chrome 은 같은 페이지에서 `confirm()`/`alert()` 이 짧은 시간에 여
 
 특별히 없음. `deleteCase`(사례 삭제) 등 다른 곳에도 같은 `confirm()` 패턴이 있는지는
 확인하지 않았다 — 이번 세션 범위 밖. 필요하면 다음에 훑어볼 것.
+
+
+### Session 009 — confirm() 전수 조사 · 자체 모달로 전면 교체
+
+Session 008 에서 고친 `confirm()` 억제 결함이 딱 한 곳만의 문제일 리 없다고 보고
+"이어서 확인 바람" 지시에 따라 저장소 전체를 훑었다.
+
+#### 찾은 것 — `confirm()` 6곳
+
+| 파일 | 위치 | 내용 |
+|---|---|---|
+| `career.html` | 사례 삭제 | "삭제할까요? 1·2차 결과도 함께 사라집니다" |
+| `career-report1.html` | 재분석 | "다시 분석하면 저장된 1차 결과를 덮어씁니다" |
+| `career-report1.html` | `confirmMock()` (md 저장·옵시디언 전송 2곳에서 공유) | 모의 응답을 상담 자료로 내보내는 사고 방지 |
+| `career-report2.html` | 재분석 | 위와 동일, 2차 |
+| `career-report2.html` | `confirmMock()` (md 저장·합본 저장·옵시디언 전송 3곳에서 공유) | 위와 동일 |
+| `tools/obsidian-check.html` | 실제 파일 쓰기 전 | "볼트에 실제로 파일을 만듭니다" |
+
+전부 **같은 억제 위험**에 노출돼 있었다 — Chrome 이 짧은 시간에 여러 `confirm()` 을
+보면 "추가 대화상자 만들지 못하게 함" 을 제안하고, 체크되면 그 뒤로는 다이얼로그 없이
+즉시 `false` 를 반환한다. 사례 삭제·모의 응답 저장 경고 같은 곳은 Session 008 의
+`sampleBtn` 과 정확히 같은 증상(버튼이 무반응인 것처럼 보임)을 낼 수 있었다.
+
+`alert()` 도 11곳 있었지만 다른 범주다 — `alert()` 는 흐름을 막지 않고 이후 코드가
+그대로 실행되므로, 억제되어도 "메시지를 못 보는 것"이지 "기능이 안 되는 것"은 아니다.
+이번 세션에서는 손대지 않았다(범위 밖으로 남겨 둠. 아래 "남은 것" 참고).
+
+#### 고친 것 — `Career.confirmModal()` 신설
+
+`career.js` 에 `bindModal()` 바로 아래 `confirmModal(message, opts)` 를 추가했다.
+`Promise<boolean>` 을 반환하고, 기존 `.modal-backdrop`/`.modal`/`.modal-close` CSS
+(로그인 화면의 비밀번호 재설정 모달과 같은 것)를 그대로 쓴다 — **전역 모달 규칙**
+(우측 상단 X 버튼 + 하단 취소/확인 버튼, 하나를 다른 하나로 대체하지 않음)을 그대로 지킨다.
+DOM 은 최초 호출 시 한 번만 만들어 재사용한다. 취소·X·바깥 클릭·ESC 전부 `false` 로 닫힌다.
+
+- `career.html`: 삭제 확인 → `confirmModal(..., { danger: true })`. 새 `.btn-danger`
+  스타일(`--danger` 토큰 배경)을 `career.css` 에 추가해 파괴적 동작임을 색으로도 표시
+- `career-report1.html` · `career-report2.html`: `confirmMock()` 을 Promise 반환으로
+  바꾸고 재분석 confirm 도 교체. 호출부(`mdBtn`/`bothBtn`/`obsBtn`/`againBtn`) 는
+  `if (!x) return` 동기 패턴에서 `.then(function (ok) {...})` 로 바뀌었다
+- `tools/obsidian-check.html`: `career.js` 를 안 쓰는 독립 도구라 **같은 패턴을
+  최소 버전으로 그대로 복제**해 넣었다(CSS 는 이미 `../assets/auth.css` 를 참조하고 있어
+  그대로 재사용 가능했다)
+
+#### Verification run
+
+- `.\init.ps1` → 전 항목 `[OK]`, exit 0
+- **`career.html` 삭제 — 실제 DOM 클릭으로 종단 검증**: 삭제 버튼 클릭 → 모달 렌더
+  확인(제목 "사례 삭제", X 버튼, 취소/삭제 빨간 버튼) → [취소] → 모달만 닫히고
+  사례 그대로 존재 확인 → 다시 열어 [삭제] → `localStorage` 에서 실제로 사라지고
+  "사례를 삭제했습니다." 토스트 확인
+- `career-report1.html`: `mdBtn`(모의 응답 경고) · `againBtn`(재분석 경고) 모달 렌더
+  확인, 문구·버튼 라벨 일치
+- `career-report2.html`: `mdBtn` · `bothBtn`(합본) · `obsBtn` · `againBtn` 4곳 전부
+  모달 렌더 확인
+- `tools/obsidian-check.html`: 로드 시 콘솔 오류 0, `writeBtn` 클릭 → "실제 파일 생성"
+  모달 렌더 확인(실제 네트워크 요청은 발생 전에 취소로 중단)
+- ⚠ 자동화 도구의 좌표 기반 클릭(`computer` ref 클릭)이 이 페이지에서 뷰포트 스케일
+  불일치로 몇 차례 빗나갔다 — 실제 DOM 엘리먼트를 찾아 `.click()` 하는 방식으로 바꿔
+  재현·검증했다. 앱 코드의 결함이 아니라 이번 세션의 자동화 툴링 이슈였다
+
+#### 상태
+
+`career-002`(passing)에 이번 조사·수정 evidence 추가. 새 기능이 아니라 결함 수정 +
+안정성 개선이라 상태 변경은 없음.
+
+#### 남은 것
+
+- **`alert()` 11곳은 그대로 뒀다.** 실패 방향이 달라(메시지 누락이지 기능 정지가
+  아님) 이번 범위에 넣지 않았다. 원하면 같은 `confirmModal` 패턴 옆에 `Career.toast`
+  기반 `alertModal` 을 만들어 교체할 수 있다
+- 클립보드 관련 결함은 이 저장소에 해당 없음(newPrjt02 의 별개 이슈)

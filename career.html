@@ -178,10 +178,15 @@
             del.title = '삭제';
             del.textContent = '🗑';
             del.addEventListener('click', function () {
-                if (!confirm('“' + c.label + '” 사례를 삭제할까요?\n저장된 1·2차 분석 결과도 함께 사라집니다.')) return;
-                Career.deleteCase(c.id);
-                Career.toast('사례를 삭제했습니다.');
-                render();
+                Career.confirmModal(
+                    '“' + c.label + '” 사례를 삭제할까요?\n저장된 1·2차 분석 결과도 함께 사라집니다.',
+                    { title: '사례 삭제', okLabel: '삭제', danger: true }
+                ).then(function (ok) {
+                    if (!ok) return;
+                    Career.deleteCase(c.id);
+                    Career.toast('사례를 삭제했습니다.');
+                    render();
+                });
             });
 
             go.appendChild(open);

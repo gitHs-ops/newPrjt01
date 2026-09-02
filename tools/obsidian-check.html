@@ -166,6 +166,60 @@
     function key()    { return document.getElementById('key').value.trim(); }
     function folder() { return document.getElementById('folder').value.trim(); }
 
+    /* 네이티브 confirm() 대체 — career.js 를 안 쓰는 독립 도구라 여기서도 최소 버전을
+       똑같이 둔다. Chrome 이 반복된 confirm() 을 억제하면 다이얼로그 없이 조용히
+       false 를 반환해 버튼이 무반응인 것처럼 보인다(2026-09-02 실제로 겪은 결함,
+       career-step1/2.html 참고). auth.css 의 .modal-backdrop 패턴을 그대로 쓴다. */
+    var _confirmEl = null;
+    function confirmModal(message, opts) {
+        opts = opts || {};
+        if (!_confirmEl) {
+            _confirmEl = document.createElement('div');
+            _confirmEl.className = 'modal-backdrop';
+            _confirmEl.innerHTML =
+                '<div class="modal">' +
+                    '<button type="button" class="modal-close" aria-label="닫기">✕</button>' +
+                    '<h2></h2>' +
+                    '<p class="desc" style="white-space:pre-line"></p>' +
+                    '<div class="modal-actions">' +
+                        '<button type="button" class="btn btn-ghost" data-act="cancel">취소</button>' +
+                        '<button type="button" class="btn btn-primary" data-act="ok"></button>' +
+                    '</div>' +
+                '</div>';
+            document.body.appendChild(_confirmEl);
+        }
+        var h2 = _confirmEl.querySelector('h2');
+        var desc = _confirmEl.querySelector('.desc');
+        var okBtn = _confirmEl.querySelector('[data-act="ok"]');
+        var cancelBtn = _confirmEl.querySelector('[data-act="cancel"]');
+        var xBtn = _confirmEl.querySelector('.modal-close');
+        h2.textContent = opts.title || '확인';
+        desc.textContent = message;
+        okBtn.textContent = opts.okLabel || '확인';
+
+        return new Promise(function (resolve) {
+            function done(v) { _confirmEl.classList.remove('show'); cleanup(); resolve(v); }
+            function onCancel() { done(false); }
+            function onOk() { done(true); }
+            function onBackdrop(e) { if (e.target === _confirmEl) done(false); }
+            function onKey(e) { if (e.key === 'Escape') done(false); }
+            function cleanup() {
+                xBtn.removeEventListener('click', onCancel);
+                cancelBtn.removeEventListener('click', onCancel);
+                okBtn.removeEventListener('click', onOk);
+                _confirmEl.removeEventListener('click', onBackdrop);
+                document.removeEventListener('keydown', onKey);
+            }
+            xBtn.addEventListener('click', onCancel);
+            cancelBtn.addEventListener('click', onCancel);
+            okBtn.addEventListener('click', onOk);
+            _confirmEl.addEventListener('click', onBackdrop);
+            document.addEventListener('keydown', onKey);
+            _confirmEl.classList.add('show');
+            okBtn.focus();
+        });
+    }
+
     /* ① 포트가 열려 있는지 — no-cors 는 CORS 와 무관하게 "연결이 되는가"만 본다.
        연결 거부면 throw, 서버가 있으면 opaque 응답이 돌아온다. */
     function probeReachable(url) {
@@ -315,57 +369,60 @@
     document.getElementById('writeBtn').addEventListener('click', function () {
         if (!key()) { alert('API 키를 먼저 입력하세요.'); return; }
         var path = testPath();
-        if (!confirm('볼트에 다음 파일을 실제로 만듭니다.\n\n' + path + '\n\n계속할까요?')) return;
-
         var btn = this;
-        btn.disabled = true;
-        var url = base() + '/vault/' + encodeURI(path);
-        var body = '# 연결 테스트\n\n' +
-                   'newPrjt01 진로상담에서 보낸 테스트 노트입니다.\n' +
-                   '이 파일이 보이면 옵시디언 직접 전송이 동작합니다.\n';
-        var t = Date.now();
+        confirmModal('볼트에 다음 파일을 실제로 만듭니다.\n\n' + path,
+            { title: '실제 파일 생성', okLabel: '만들기' }
+        ).then(function (ok) {
+            if (!ok) return;
+            btn.disabled = true;
+            var url = base() + '/vault/' + encodeURI(path);
+            var body = '# 연결 테스트\n\n' +
+                       'newPrjt01 진로상담에서 보낸 테스트 노트입니다.\n' +
+                       '이 파일이 보이면 옵시디언 직접 전송이 동작합니다.\n';
+            var t = Date.now();
 
-        fetch(url, {
-            method: 'PUT',
-            mode: 'cors',
-            headers: {
-                'Authorization': 'Bearer ' + key(),
-                'Content-Type': 'text/markdown; charset=utf-8'
-            },
-            body: body
-        }).then(function (r) {
-            if (r.ok || r.status === 204) {
-                add('pass', '⑤ 쓰기 성공 (HTTP ' + r.status + ')',
-                    '<code>' + esc(path) + '</code> 생성 완료 (' + (Date.now() - t) + 'ms). ' +
-                    '옵시디언에서 확인해 보세요.');
-                say('ok', '<b>전 단계 통과 — 이 방식으로 갈 수 있습니다.</b><br>' +
-                    '이제 <code>assets/career.js</code> 의 <code>sendToObsidian()</code> TODO 블록을 열고, ' +
-                    '설정에 주소·키·폴더를 저장하면 됩니다. ' +
-                    '<button type="button" class="btn btn-ghost" id="delBtn" ' +
-                    'style="width:auto;padding:8px 16px;margin-top:10px">테스트 파일 삭제</button>');
-                var del = document.getElementById('delBtn');
-                if (del) {
-                    del.addEventListener('click', function () {
-                        fetch(url, { method: 'DELETE', mode: 'cors',
-                                     headers: { 'Authorization': 'Bearer ' + key() } })
-                            .then(function (rr) { alert(rr.ok ? '삭제했습니다.' : '삭제 실패 (HTTP ' + rr.status + ')'); })
-                            .catch(function (e) { alert('삭제 실패: ' + e.message); });
+            fetch(url, {
+                method: 'PUT',
+                mode: 'cors',
+                headers: {
+                    'Authorization': 'Bearer ' + key(),
+                    'Content-Type': 'text/markdown; charset=utf-8'
+                },
+                body: body
+            }).then(function (r) {
+                if (r.ok || r.status === 204) {
+                    add('pass', '⑤ 쓰기 성공 (HTTP ' + r.status + ')',
+                        '<code>' + esc(path) + '</code> 생성 완료 (' + (Date.now() - t) + 'ms). ' +
+                        '옵시디언에서 확인해 보세요.');
+                    say('ok', '<b>전 단계 통과 — 이 방식으로 갈 수 있습니다.</b><br>' +
+                        '이제 <code>assets/career.js</code> 의 <code>sendToObsidian()</code> TODO 블록을 열고, ' +
+                        '설정에 주소·키·폴더를 저장하면 됩니다. ' +
+                        '<button type="button" class="btn btn-ghost" id="delBtn" ' +
+                        'style="width:auto;padding:8px 16px;margin-top:10px">테스트 파일 삭제</button>');
+                    var del = document.getElementById('delBtn');
+                    if (del) {
+                        del.addEventListener('click', function () {
+                            fetch(url, { method: 'DELETE', mode: 'cors',
+                                         headers: { 'Authorization': 'Bearer ' + key() } })
+                                .then(function (rr) { alert(rr.ok ? '삭제했습니다.' : '삭제 실패 (HTTP ' + rr.status + ')'); })
+                                .catch(function (e) { alert('삭제 실패: ' + e.message); });
+                        });
+                    }
+                } else {
+                    return r.text().then(function (tx) {
+                        add('fail', '⑤ 쓰기 실패 (HTTP ' + r.status + ')',
+                            '<code>' + esc(tx.slice(0, 300)) + '</code>');
+                        say('mid', '읽기는 되는데 쓰기가 막혔습니다. 경로(<code>' + esc(path) + '</code>)나 ' +
+                            '플러그인 권한 설정을 확인하세요.');
                     });
                 }
-            } else {
-                return r.text().then(function (tx) {
-                    add('fail', '⑤ 쓰기 실패 (HTTP ' + r.status + ')',
-                        '<code>' + esc(tx.slice(0, 300)) + '</code>');
-                    say('mid', '읽기는 되는데 쓰기가 막혔습니다. 경로(<code>' + esc(path) + '</code>)나 ' +
-                        '플러그인 권한 설정을 확인하세요.');
-                });
-            }
-        }).catch(function (e) {
-            add('fail', '⑤ 쓰기 요청 자체가 막혔습니다',
-                'PUT + <code>Authorization</code> + <code>Content-Type</code> 조합은 preflight 를 유발합니다.<br>' +
-                '오류: <code>' + esc(e.message || e) + '</code>');
-            say('no', '<b>쓰기 preflight 차단.</b> 이 방식으로는 전송할 수 없습니다.');
-        }).then(function () { btn.disabled = false; });
+            }).catch(function (e) {
+                add('fail', '⑤ 쓰기 요청 자체가 막혔습니다',
+                    'PUT + <code>Authorization</code> + <code>Content-Type</code> 조합은 preflight 를 유발합니다.<br>' +
+                    '오류: <code>' + esc(e.message || e) + '</code>');
+                say('no', '<b>쓰기 preflight 차단.</b> 이 방식으로는 전송할 수 없습니다.');
+            }).then(function () { btn.disabled = false; });
+        });
     });
 })();
 </script>
