@@ -67,6 +67,7 @@
                 <button type="button" class="btn btn-ghost" id="rawBtn">원문(md) 보기</button>
                 <button type="button" class="btn btn-ghost" id="copyBtn" style="display:none">원문 복사</button>
                 <button type="button" class="btn btn-ghost" id="bothBtn">1·2차 합본 md 저장</button>
+                <button type="button" class="btn btn-ghost" id="promptBtn">사용한 프롬프트 보기</button>
                 <button type="button" class="btn btn-ghost" id="againBtn">다시 분석</button>
             </div>
         </div>
@@ -118,6 +119,7 @@
             </div>
             <div class="report" id="report"></div>
             <pre class="raw-md" id="raw"></pre>
+            <pre class="raw-md" id="promptView"></pre>
         </div>
 
         <div class="card">
@@ -230,6 +232,9 @@
         wrap.style.display = '';
         document.getElementById('report').innerHTML = Career.mdToHtml(rep.md);
         document.getElementById('raw').textContent = rep.md;
+        document.getElementById('promptView').textContent = rep.system
+            ? ('=== 시스템 프롬프트 ===\n\n' + rep.system + '\n\n\n=== 사용자 메시지(1차 결과+2차 입력) ===\n\n' + (rep.user || ''))
+            : '이 보고서는 프롬프트 기록 기능 이전에 생성되어 원문이 없습니다. "다시 분석"하면 이후로는 기록됩니다.';
         document.getElementById('savedAt').textContent = Career.fmtDateTime(rep.at);
         var tt = document.getElementById('tokenTag');
         if (rep.usage && (rep.usage.input_tokens || rep.usage.output_tokens)) {
@@ -273,12 +278,14 @@
     function run() {
         var cfg = Career.loadConfig();
         var x = kase.extra2;
+        var systemText = CareerPrompts.second;
+        var userText = Career.buildUserMessage2(x.report1Md, x);
         showRunning(true);
         Career.callAI({
             round: 2,
             caseId: kase.id,
-            system: CareerPrompts.second,
-            user: Career.buildUserMessage2(x.report1Md, x),
+            system: systemText,
+            user: userText,
             maxTokens: cfg.maxTokens2,
             onDelta: appendStreamDelta,
             onPhase: onStreamPhase,
@@ -297,7 +304,9 @@
                 searches: res.searches || 0,
                 truncated: !!res.truncated,
                 incomplete: !!res.incomplete,
-                elapsedMs: res.elapsedMs || 0
+                elapsedMs: res.elapsedMs || 0,
+                system: systemText,
+                user: userText
             };
             Career.recordUsage(res);
             Career.updateCase(kase.id, { report2: rep });
@@ -352,15 +361,28 @@
     document.getElementById('prevBtn').addEventListener('click', function () {
         location.href = 'career-report1.html?case=' + encodeURIComponent(kase.id);
     });
-    /* 원문 보기 — 렌더된 보고서와 **바꿔서** 보여준다.
-       둘을 동시에 띄우면 같은 내용이 두 번 나와 페이지만 길어진다. */
+    /* 원문 보기 / 프롬프트 보기 — 렌더된 보고서와 **바꿔서** 보여준다(셋 중 하나만).
+       다 같이 띄우면 같은 내용이 여러 번 나와 페이지만 길어진다. */
     document.getElementById('rawBtn').addEventListener('click', function () {
         var raw = document.getElementById('raw');
         var on = !raw.classList.contains('show');
         raw.classList.toggle('show', on);
+        document.getElementById('promptView').classList.remove('show');
+        document.getElementById('promptBtn').textContent = '사용한 프롬프트 보기';
         document.getElementById('report').style.display = on ? 'none' : '';
         document.getElementById('copyBtn').style.display = on ? '' : 'none';
         this.textContent = on ? '보고서로 돌아가기' : '원문(md) 보기';
+    });
+
+    document.getElementById('promptBtn').addEventListener('click', function () {
+        var pv = document.getElementById('promptView');
+        var on = !pv.classList.contains('show');
+        pv.classList.toggle('show', on);
+        document.getElementById('raw').classList.remove('show');
+        document.getElementById('copyBtn').style.display = 'none';
+        document.getElementById('rawBtn').textContent = '원문(md) 보기';
+        document.getElementById('report').style.display = on ? 'none' : '';
+        this.textContent = on ? '보고서로 돌아가기' : '사용한 프롬프트 보기';
     });
 
     /* 원문을 클립보드로 — 다른 도구에 붙여넣는 것이 이 기능의 주 용도다 */
