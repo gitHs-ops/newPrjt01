@@ -283,8 +283,8 @@
             system: systemText,
             user: userText,
             maxTokens: cfg.maxTokens1,
-            onDelta: appendStreamDelta,
-            onPhase: onStreamPhase,
+            onDelta: cfg.streamDisplay !== false ? appendStreamDelta : null,
+            onPhase: cfg.streamDisplay !== false ? onStreamPhase : null,
             student: kase.student || {}
         }).then(function (res) {
             var rep = {

@@ -52,6 +52,10 @@
         maxTokens1: 12000,
         maxTokens2: 12000,
         allowMock: true,       /* 엔드포인트 미설정 시 모의 응답으로 흐름 검증 */
+        /* 새 백엔드(/api/stream)일 때만 의미 있다 — 꺼면 델타 콜백을 안 넘겨 예전처럼
+           끝날 때 한 번에 뜬다(회전 문구만 보임). 백엔드 호출 자체는 그대로 스트리밍이라
+           비용·속도는 안 바뀐다. 순수 화면 표시 여부 토글. */
+        streamDisplay: true,
 
         /* --- 공식자료 웹검색 (프록시의 서버사이드 web_search 도구) --- */
         webSearch: true,       /* 끄면 모델 기억만으로 답한다 — 프롬프트가 금지하는 상태 */
@@ -96,6 +100,7 @@
             if (raw.maxTokens1 > 0) c.maxTokens1 = raw.maxTokens1 | 0;
             if (raw.maxTokens2 > 0) c.maxTokens2 = raw.maxTokens2 | 0;
             if (typeof raw.allowMock === 'boolean') c.allowMock = raw.allowMock;
+            if (typeof raw.streamDisplay === 'boolean') c.streamDisplay = raw.streamDisplay;
             if (typeof raw.webSearch === 'boolean') c.webSearch = raw.webSearch;
             if (raw.searchMaxUses > 0) c.searchMaxUses = raw.searchMaxUses | 0;
             if (typeof raw.officialOnly === 'boolean') c.officialOnly = raw.officialOnly;
@@ -1371,6 +1376,7 @@
                     maxTokens2: parseInt(document.getElementById('cfgTok2').value, 10) || 12000,
                     timeoutSec: parseInt(document.getElementById('cfgTimeout').value, 10) || 400,
                     allowMock: document.getElementById('cfgMock').checked,
+                    streamDisplay: document.getElementById('cfgStreamDisplay').checked,
                     webSearch: document.getElementById('cfgSearch').checked,
                     searchMaxUses: parseInt(document.getElementById('cfgSearchUses').value, 10) || 12,
                     officialOnly: document.getElementById('cfgOfficial').checked,
@@ -1453,6 +1459,7 @@
         set('cfgTok2', c.maxTokens2);
         set('cfgTimeout', c.timeoutSec);
         check('cfgMock', c.allowMock);
+        check('cfgStreamDisplay', c.streamDisplay);
         check('cfgSearch', c.webSearch);
         set('cfgSearchUses', c.searchMaxUses);
         check('cfgOfficial', c.officialOnly);
@@ -1481,6 +1488,9 @@
                   '<b>API 키·프록시 주소는 추후 결정 사항</b>이라 비워 두면 모의 모드로 동작합니다.</div>' +
                 '<div class="field"><label for="cfgEndpoint">프록시 URL</label>' +
                   '<div class="input-wrap"><input type="url" id="cfgEndpoint" placeholder="https://script.google.com/macros/s/.../exec  (추후 결정)"></div></div>' +
+                '<label class="checkbox" style="margin-top:2px"><input type="checkbox" id="cfgStreamDisplay">' +
+                  '<span><b>실시간 스트리밍 표시</b> — 새 백엔드(.../api/stream)일 때만 적용됩니다. ' +
+                  '꺼도 호출 자체는 그대로라 속도는 안 바뀌고, 화면에 실시간 텍스트만 안 뜹니다.</span></label>' +
                 '<div class="field"><label for="cfgModel">모델</label>' +
                   '<select id="cfgModel">' +
                     '<option value="claude-haiku-4-5">Haiku 4.5 — 빠르고 저렴 (기본)</option>' +

@@ -288,8 +288,8 @@
             system: systemText,
             user: userText,
             maxTokens: cfg.maxTokens2,
-            onDelta: appendStreamDelta,
-            onPhase: onStreamPhase,
+            onDelta: cfg.streamDisplay !== false ? appendStreamDelta : null,
+            onPhase: cfg.streamDisplay !== false ? onStreamPhase : null,
             extra: x
         }).then(function (res) {
             var rep = {
