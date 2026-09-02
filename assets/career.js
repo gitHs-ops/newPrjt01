@@ -95,11 +95,6 @@
             if (typeof raw.model === 'string' && raw.model) c.model = raw.model.trim();
             if (raw.maxTokens1 > 0) c.maxTokens1 = raw.maxTokens1 | 0;
             if (raw.maxTokens2 > 0) c.maxTokens2 = raw.maxTokens2 | 0;
-            /* 저장된 설정이 기본값을 덮어쓰므로, 기본값만 올려서는 기존 사용자에게 적용되지 않는다.
-               2차 보고서가 STEP 11(최종 브리프)까지 나오려면 6000 으로는 모자라 실제로 잘렸다.
-               옛 기본값 그대로인 설정은 새 기본값으로 끌어올린다. 손으로 더 크게 잡아 둔 값은 존중. */
-            if (c.maxTokens1 < DEFAULT_CONFIG.maxTokens1) c.maxTokens1 = DEFAULT_CONFIG.maxTokens1;
-            if (c.maxTokens2 < DEFAULT_CONFIG.maxTokens2) c.maxTokens2 = DEFAULT_CONFIG.maxTokens2;
             if (typeof raw.allowMock === 'boolean') c.allowMock = raw.allowMock;
             if (typeof raw.webSearch === 'boolean') c.webSearch = raw.webSearch;
             if (raw.searchMaxUses > 0) c.searchMaxUses = raw.searchMaxUses | 0;
