@@ -180,6 +180,8 @@
         if (on) {
             t0 = Date.now();
             streaming = false;
+            pendingDelta = '';
+            flushScheduled = false;
             streamPreview.textContent = '';
             streamPreview.classList.remove('show');
             errCard.style.display = 'none';
@@ -203,15 +205,30 @@
         }
     }
 
-    /* 스트리밍 백엔드(/api/stream)일 때만 실제로 호출된다 — GAS 경로는 완료 시 한 번에 온다 */
+    /* 스트리밍 백엔드(/api/stream)일 때만 실제로 호출된다 — GAS 경로는 완료 시 한 번에 온다.
+       델타를 받을 때마다 바로 DOM 을 고치면 짧은 시간에 다시 그리기가 몰려 (특히 배경
+       블러 효과와 겹치면) 화면이 버벅일 수 있어, 한 프레임(rAF) 안에 온 것들을 모아
+       한 번만 반영한다 — 눈에 보이는 실시간성은 그대로다. */
+    var pendingDelta = '';
+    var flushScheduled = false;
+    function flushStreamPreview() {
+        flushScheduled = false;
+        if (!pendingDelta) return;
+        streamPreview.textContent += pendingDelta;
+        pendingDelta = '';
+        streamPreview.scrollTop = streamPreview.scrollHeight;
+    }
     function appendStreamDelta(delta) {
         if (!streaming) {
             streaming = true;
             document.getElementById('runMsg').textContent = '실시간으로 응답을 받는 중…';
             streamPreview.classList.add('show');
         }
-        streamPreview.textContent += delta;
-        streamPreview.scrollTop = streamPreview.scrollHeight;
+        pendingDelta += delta;
+        if (!flushScheduled) {
+            flushScheduled = true;
+            (window.requestAnimationFrame || setTimeout)(flushStreamPreview, 50);
+        }
     }
 
     function onStreamPhase(phase) {
