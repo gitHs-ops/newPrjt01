@@ -404,7 +404,43 @@
          body: {"system": "...", "prompt": "...", "max_tokens": 8000, "model": "..."}
          200 : {"text": "...", "usage": {...}, "error": null}
        careerTest/career_proxy.gs 와 동일한 응답 형태를 전제로 한다.
+
+       엔드포인트가 새 백엔드(newPrjt01-backend)의 /api/stream 이면 SSE 스트리밍
+       경로(callAIStreaming)를 쓴다 — URL 로 분기, GAS 논스트리밍 경로는 그대로 둔다.
+       두 경로 모두 같은 모양의 결과 객체로 resolve 하므로 호출부(run())는 바뀌지 않는다.
        ========================================================= */
+
+    /* /exec(GAS) 대신 새 백엔드의 스트리밍 엔드포인트를 가리키는가 */
+    function isStreamEndpoint(endpoint) {
+        return /\/api\/stream(?:[/?#]|$)/.test(endpoint || '');
+    }
+
+    /* 논스트리밍 응답(JSON)이든 스트리밍 done 이벤트든 같은 필드 이름을 쓰므로
+       매핑 로직을 하나로 공유한다. */
+    function mapProxyResult(data) {
+        if (data && data.error) throw new Error(String(data.error));
+        var text = (data && data.text) ? String(data.text) : '';
+        if (!text.trim()) throw new Error('응답이 비어 있습니다.');
+        return {
+            text: stripFence(text),
+            usage: (data && data.usage) || null,
+            /* 프록시가 돌려준 웹검색 흔적. 구버전 프록시면 없을 수 있다. */
+            sources: (data && data.sources) || [],
+            searches: (data && data.searches) || 0,
+            truncated: !!(data && data.truncated),
+            /* 프록시가 시간이 모자라 검색 루프를 끊었다는 표시 */
+            incomplete: !!(data && data.incomplete),
+            elapsedMs: (data && data.elapsed_ms) || 0,
+            /* 프록시가 잘린 응답을 이어붙인 횟수 */
+            continued: (data && data.continued) || 0,
+            /* 프록시가 시트에 기록하지 못한 사유(있을 때만) */
+            logError: (data && data.log_error) || '',
+            proxyVersion: (data && data.proxy_version) || '',
+            proxyStale: isStaleProxy((data && data.proxy_version) || ''),
+            mock: false
+        };
+    }
+
     function callAI(opts) {
         var cfg = loadConfig();
         var endpoint = cfg.endpoint;
@@ -438,6 +474,10 @@
         };
         if (cfg.webSearch && cfg.officialOnly) {
             payload.allowed_domains = OFFICIAL_DOMAINS.slice();
+        }
+
+        if (isStreamEndpoint(endpoint)) {
+            return callAIStreaming(endpoint, payload, cfg, opts.onDelta, opts.onPhase);
         }
 
         /* ⚠ 반드시 타임아웃을 건다.
@@ -480,33 +520,113 @@
             return res.json();
         }).then(function (data) {
             clearTimeout(timer);
-            if (data && data.error) throw new Error(String(data.error));
-            var text = (data && data.text) ? String(data.text) : '';
-            if (!text.trim()) throw new Error('응답이 비어 있습니다.');
-            return {
-                text: stripFence(text),
-                usage: (data && data.usage) || null,
-                /* 프록시가 돌려준 웹검색 흔적. 구버전 프록시면 없을 수 있다. */
-                sources: (data && data.sources) || [],
-                searches: (data && data.searches) || 0,
-                truncated: !!(data && data.truncated),
-                /* 프록시가 시간이 모자라 검색 루프를 끊었다는 표시 */
-                incomplete: !!(data && data.incomplete),
-                elapsedMs: (data && data.elapsed_ms) || 0,
-                /* 프록시가 잘린 응답을 이어붙인 횟수 */
-                continued: (data && data.continued) || 0,
-                /* 프록시가 시트에 기록하지 못한 사유(있을 때만) */
-                logError: (data && data.log_error) || '',
-                proxyVersion: (data && data.proxy_version) || '',
-                proxyStale: isStaleProxy((data && data.proxy_version) || ''),
-                mock: false
-            };
+            return mapProxyResult(data);
+        });
+    }
+
+    /* 새 백엔드(/api/stream)용 SSE 경로. fetch() + ReadableStream 리더로 직접
+       프레임을 읽는다 — EventSource 는 GET 전용이라 POST 바디(system/prompt)를
+       못 보낸다. text 이벤트마다 onDelta 로 즉시 넘기고, done 이벤트가 오면
+       논스트리밍과 동일한 모양으로 resolve 한다(mapProxyResult 공유). */
+    function callAIStreaming(endpoint, payload, cfg, onDelta, onPhase) {
+        var ctl = (typeof AbortController !== 'undefined') ? new AbortController() : null;
+        var timedOut = false;
+        var timer = setTimeout(function () {
+            timedOut = true;
+            if (ctl) ctl.abort();
+        }, cfg.timeoutSec * 1000);
+
+        var opt = {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        };
+        if (ctl) opt.signal = ctl.signal;
+
+        return fetch(endpoint, opt).catch(function () {
+            if (timedOut) {
+                throw new Error(cfg.timeoutSec + '초 안에 응답이 오지 않아 중단했습니다.');
+            }
+            throw new Error('백엔드에 연결하지 못했습니다. 주소가 맞는지 확인하세요. (' + endpoint + ')');
+        }).then(function (res) {
+            if (!res.ok) { clearTimeout(timer); throw new Error('서버 오류 (HTTP ' + res.status + ')'); }
+            if (!res.body || !res.body.getReader) {
+                clearTimeout(timer);
+                throw new Error('이 브라우저는 스트리밍 응답을 읽을 수 없습니다.');
+            }
+
+            var reader = res.body.getReader();
+            var decoder = new TextDecoder('utf-8');
+            var buf = '';
+
+            return new Promise(function (resolve, reject) {
+                var settled = false;
+                function finish(fn, arg) {
+                    if (settled) return;
+                    settled = true;
+                    clearTimeout(timer);
+                    try { reader.cancel(); } catch (e) {}
+                    fn(arg);
+                }
+
+                function handleFrame(frame) {
+                    /* "event: text\ndata: {...}" 형식 — 필드 순서는 항상 event 먼저 */
+                    var eventName = 'message', dataLine = '';
+                    frame.split('\n').forEach(function (line) {
+                        if (line.indexOf('event:') === 0) eventName = line.slice(6).trim();
+                        else if (line.indexOf('data:') === 0) dataLine += line.slice(5).trim();
+                    });
+                    if (!dataLine) return;
+                    var data;
+                    try { data = JSON.parse(dataLine); } catch (e) { return; }
+
+                    if (eventName === 'text') {
+                        if (onDelta && data.delta) onDelta(data.delta);
+                    } else if (eventName === 'meta') {
+                        if (onPhase && data.phase) onPhase(data.phase);
+                    } else if (eventName === 'done') {
+                        try { var mapped = mapProxyResult(data); finish(resolve, mapped); }
+                        catch (e) { finish(reject, e); }
+                    } else if (eventName === 'error') {
+                        finish(reject, new Error(data.message || '스트리밍 중 오류가 발생했습니다.'));
+                    }
+                }
+
+                function pump() {
+                    if (settled) return;
+                    reader.read().then(function (r) {
+                        if (settled) return;
+                        if (r.done) {
+                            /* done/error 이벤트 없이 스트림만 끊긴 경우 */
+                            finish(reject, new Error('응답이 완료되지 않고 끊겼습니다.'));
+                            return;
+                        }
+                        buf += decoder.decode(r.value, { stream: true });
+                        var frames = buf.split('\n\n');
+                        buf = frames.pop(); /* 마지막 조각은 미완성일 수 있으니 버퍼에 남긴다 */
+                        frames.forEach(handleFrame);
+                        pump();
+                    }).catch(function (err) {
+                        if (settled) return;
+                        if (timedOut) {
+                            finish(reject, new Error(cfg.timeoutSec + '초 안에 응답이 오지 않아 중단했습니다.'));
+                        } else {
+                            finish(reject, err);
+                        }
+                    });
+                }
+                pump();
+            });
         });
     }
 
     /* 배포된 프록시가 기대 버전보다 낮은가. 버전을 안 실어 보내면(구버전) 그것도 낡은 것이다. */
     function isStaleProxy(v) {
         if (!v) return true;
+        /* Apps Script 프록시(PROXY_VERSION)만 "x.y.z" 형태다. 새 백엔드(newPrjt01-backend)는
+           "newPrjt01-backend/0.2.0 (phase-B, ...)" 처럼 다른 버전 체계를 쓴다 — 재배포를
+           잊는 사고를 잡기 위한 이 검사는 GAS 쪽에만 해당하므로, 형태가 다르면 건너뛴다. */
+        if (!/^\d+\.\d+\.\d+$/.test(String(v))) return false;
         var a = String(v).split('.').map(Number);
         var b = EXPECTED_PROXY_VERSION.split('.').map(Number);
         for (var i = 0; i < 3; i++) {

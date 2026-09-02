@@ -375,6 +375,26 @@ select.pick:focus { box-shadow: 0 0 0 3px var(--accent-glow); }
 .runbox .sub { font-size: 12.5px; color: var(--text-secondary); line-height: 1.65; }
 .runbox .elapsed { font-family: var(--font-accent); font-size: 12px; color: var(--text-secondary); margin-top: 10px; }
 
+/* 스트리밍 백엔드일 때만 나타나는 실시간 응답 미리보기 (Phase B) */
+.runbox .stream-preview {
+    display: none;
+    text-align: left;
+    white-space: pre-wrap;
+    word-break: break-word;
+    font-family: var(--font-accent);
+    font-size: 12px;
+    line-height: 1.65;
+    color: var(--text-secondary);
+    background: rgba(15,23,42,.04);
+    border: 1px solid var(--field-border);
+    border-radius: 12px;
+    padding: 14px 16px;
+    margin-top: 14px;
+    max-height: 220px;
+    overflow-y: auto;
+}
+.runbox .stream-preview.show { display: block; }
+
 /* ---------- 보고서 뷰 ---------- */
 .report {
     background: rgba(255,255,255,.82);

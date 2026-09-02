@@ -28,6 +28,11 @@ Codex·OpenHands 등 어떤 코딩 에이전트도 쓸 수 있다. 어떤 에이
 - **운영 상태**: AI 프록시·공식자료 웹검색·옵시디언 전송·토큰 사용량 시트 기록까지 실동작 확인.
   시트 `웹도구` 열 = `basic` 실기동 확인(2026-09-01).
   ⚠ **프록시 v1.8.0(공용 탭 미러링 중단) 재배포 대기 중** — 저장소=1.8.0 / 배포=1.7.2
+- **스트리밍 백엔드(`career-011`, opt-in)**: 별도 저장소 `C:\myPrjt01\newPrjt01-backend`
+  (Vercel Edge Functions)에 Phase A·B 완료·실브라우저 검증됨(2026-09-02, Session 010).
+  `[연결 설정]` 기본값은 그대로라 이 저장소 자체의 기본 동작은 안 바뀜 — endpoint 를
+  `https://new-prjt01-backend.vercel.app/api/stream` 으로 직접 넣어야 켜진다.
+  Phase C(시트 로깅 연결)·D(기본값 전환)는 미착수. 상세: `session-handoff.md`
 
 ## 이 저장소의 성격
 
@@ -750,3 +755,108 @@ DOM 은 최초 호출 시 한 번만 만들어 재사용한다. 취소·X·바�
   아님) 이번 범위에 넣지 않았다. 원하면 같은 `confirmModal` 패턴 옆에 `Career.toast`
   기반 `alertModal` 을 만들어 교체할 수 있다
 - 클립보드 관련 결함은 이 저장소에 해당 없음(newPrjt02 의 별개 이슈)
+
+### Session 010 — 스트리밍 백엔드 Phase A(패리티+모델고정+캐싱)·Phase B(SSE) 구축
+
+#### 배경
+
+`career-report1/2.html` 이 Apps Script 프록시(`UrlFetchApp`, 동기)를 거치느라 분석
+한 번에 2~3분 빈 스피너만 보였다. 사용자가 이 지연과, 설정 화면에서 아무나 Sonnet/Opus
+로 올릴 수 있어 회당 $1+ 나올 수 있는 비용 리스크를 지적 — 스트리밍 가능한 백엔드로
+옮기는 작업을 설계(계획서: `C:\Users\user\.claude\plans\goofy-rolling-whistle.md`,
+사용자 승인됨)한 뒤 이번 세션에서 Phase A·B 를 구현했다.
+
+#### 새 저장소 — `C:\myPrjt01\newPrjt01-backend` (이 저장소 밖)
+
+`init.ps1` 이 저장소 전체를 3곳에서 재귀 스캔하는데(`*.gs,*.js,*.html,...`), 여기에
+npm 백엔드를 넣으면 스캔이 느려지고 서드파티 코드가 `/exec`·`sk-ant-` 검사에 잘못
+걸릴 위험이 있다. `CLAUDE.md` 가 이 저장소를 "빌드 단계 없는 정적 HTML 앱"으로
+못박아 둔 것과도 어긋난다 — 그래서 별도 프로젝트로 뺐다. **이 저장소(`newPrjt01`)는
+`session-handoff.md` 갱신 외에는 코드 변경이 없다가**, Phase B 프론트엔드 연동
+단계에서 `assets/career.js`·`assets/career.css`·`career-report1/2.html` 을 고쳤다
+(아래 참고).
+
+#### Phase A — 무스트리밍 패리티 포트
+
+`tools/career_proxy.example.gs` 의 `callClaude_` 로직(이어달리기·마감·프리필·검색)을
+그대로 이식하고, 모델을 `claude-haiku-4-5` 로 서버에서 고정(`req.model` 자체를 안 읽음)
++ system 프롬프트에 `cache_control: ephemeral` 캐싱을 추가했다.
+
+- **플랫폼을 Cloudflare Workers → Vercel Edge Functions 로 바꿨다.** Cloudflare 로
+  먼저 배포했으나 Worker→api.anthropic.com 구간이 간헐적으로 막혔다 — 재현 테스트에서
+  403 `{"error":{"type":"forbidden","message":"Request not allowed"}}` 가 30~70%
+  확률로 뜨는데, 응답에 Anthropic `requestID` 가 없고 Cloudflare 보안 헤더(`cf-ray`,
+  `content-security-policy` 등)만 붙어 있었다. Anthropic Console **로그**에 해당
+  요청이 아예 안 찍혀 있는 것으로 최종 확정(Anthropic 애플리케이션까지 도달도 못함).
+  같은 코드를 Vercel Edge Functions 로 옮겨 배포하니 연속 호출 성공률 100%(5/5) —
+  이후 재현 안 됨. **재시도 로직(403+requestID 없음 신호에서만 최대 4회 재시도)은
+  방어적으로 남겨 뒀다.**
+- 배포 중 사고: `vercel link` 에서 "기존 프로젝트에 연결?" 질문에 사용자가 무심코
+  "예"를 눌러 완전히 무관한 기존 프로젝트(`toss-payment-admin`)에 연결될 뻔했다 —
+  배포 직전에 발견해 `vercel unlink` 후 새 프로젝트로 재연결, 잘못 받은
+  `.env.local`(그 프로젝트의 비밀값)도 즉시 삭제했다. 실제 배포는 안 나감.
+- curl 실측: 모델 고정 확인(payload 에 `model:"claude-opus-5"` 를 스푸핑해도
+  응답은 `claude-haiku-4-5` 로만 옴 — 서버가 애초에 안 읽으므로), 프롬프트 캐싱 확인
+  (같은 대형 system 반복 호출 시 1차 `cache_creation_input_tokens:15007` →
+  2차부터 `cache_read_input_tokens:15007`)
+
+#### Phase B — SSE 스트리밍
+
+`newPrjt01-backend/lib/anthropic.ts` 로 공유 로직을 뽑아내고, `api/index.ts`
+(논스트리밍, 유지) 옆에 `api/stream.ts` 를 추가했다. 계약(계획서 그대로):
+`event: text {delta}` (매 text_delta) · `event: meta {phase}` (이어달리기 전환,
+선택) · `event: done <ProxyResult>` (논스트리밍과 동일 모양) · `event: error {message}`.
+curl `-N` 으로 프레임 순서 확인(`text`... → `done`) 완료.
+
+**프론트엔드 연동** (`newPrjt01` 쪽 변경):
+- `assets/career.js` — `callAI()` 에 `isStreamEndpoint(endpoint)` 로 URL 분기 추가
+  (`/api/stream` 로 끝나면 새 `callAIStreaming()`, 아니면 기존 GAS `text/plain` 경로
+  그대로). 두 경로 모두 `mapProxyResult()` 하나를 공유해 같은 모양으로 resolve —
+  호출부(`run()`)는 완료 처리 로직을 안 바꿔도 된다. `callAIStreaming()` 은
+  `fetch()` + `ReadableStream` 리더로 SSE 프레임을 직접 파싱한다(EventSource 는
+  GET 전용이라 POST 바디를 못 보냄).
+- `career-report1.html` / `career-report2.html` — `.runbox` 안에
+  `<pre id="streamPreview">` 추가(`career.css` 에 `.stream-preview` 스타일 신설,
+  `.raw-md` 톤 재사용). `showRunning()` 은 실행 시작 시 프리뷰를 비우고,
+  `run()` 이 `Career.callAI({..., onDelta: appendStreamDelta, onPhase: onStreamPhase})`
+  로 콜백을 넘긴다. 첫 델타가 오면 가짜 회전 문구(`setInterval`)를 멈추고 실시간
+  텍스트로 바꾼다. `run()`/`render()` 자체의 완료 처리 로직은 무수정.
+- **부수 결함 발견·수정**: 새 백엔드의 `proxy_version` 이 `"newPrjt01-backend/0.2.0
+  (phase-B, vercel-edge)"` 형태라, GAS 전용 `x.y.z` 버전비교(`isStaleProxy`)가
+  파싱에 실패해 "프록시가 낡았습니다" 오탐을 냈다(실브라우저 검증 중 실제로 뜬 것을
+  보고 발견). `isStaleProxy` 에 `/^\d+\.\d+\.\d+$/` 형식 가드를 추가해 GAS 가 아닌
+  백엔드는 이 검사를 건너뛰도록 수정, 같은 케이스로 재확인해 사라짐을 확인했다.
+
+#### Verification run
+
+- `newPrjt01-backend`: `npx tsc --noEmit` 통과(Phase A·B 각 변경마다), 배포 후
+  curl 로 GET 상태·POST 논스트리밍·POST 스트리밍(`-N`) 전부 확인
+- `newPrjt01`: `.\init.ps1` → 68개 항목 전부 `[OK]`, exit 0 (수정 전후 모두)
+- **실브라우저 종단 검증** — `[연결 설정]` endpoint 를
+  `https://new-prjt01-backend.vercel.app/api/stream` 으로 설정 후:
+  - 새 사례 "Phase B 스트리밍 테스트" 생성 → 1차 입력 예시 채우기 → 1차 분석 실행
+    → 실시간 텍스트가 `.stream-preview` 박스에 찍히는 것을 스크린샷으로 확인
+    (13.8s → 42.3s → 115.4s → 181.5s 구간별). "분량이 길어 이어서 쓰는 중…"
+    (프리필 이어쓰기 `meta` 이벤트)도 실제로 뜸. 최종 render() 정상(토큰 입력
+    12,685+출력 19,320, 출처 39건), 콘솔 에러 0
+  - 2차 입력 예시 채우기 → 2차 분석 실행 → 동일하게 실시간 스트리밍 확인, 최종
+    render() 정상(토큰 입력 50,703+출력 13,000), 1-2차 합본 저장 버튼 정상
+  - `isStaleProxy` 수정 후 저장된 report1 재열람 → "프록시가 낡았습니다" 경고
+    더 이상 안 뜨는 것 확인(추가 비용 없이 저장된 결과로 재검증)
+
+#### 상태
+
+`feature_list.json` 에 `career-011`(passing, evidence 포함) 신설. 기존
+`career-001`~`010` 은 무수정·영향 없음. `[연결 설정]` 기본값은 그대로 비어 있어
+opt-in 상태 — 사용자가 직접 새 백엔드 URL 을 넣어야만 이 경로가 켜진다.
+
+#### 남은 것 (Phase C·D, 계획서 참고)
+
+- **Phase C** — `tools/career_proxy.example.gs` 에 로그 전용 경로 추가(공유 비밀
+  헤더로 보호), 새 백엔드가 분석 완료 후 서버 대 서버로 호출해 `logUsage_` 재사용.
+  지금은 새 백엔드 경로로 분석해도 **구글 시트에 토큰 사용량이 기록되지 않는다**
+  (Phase A/B 는 커버 안 함, 알려진 제약).
+- **Phase D** — `[연결 설정]` 기본값을 새 백엔드로 전환, `career_proxy.example.gs`
+  의 옛 `doPost`→`callClaude_` 경로를 "대체됨, 롤백용 보존" 주석으로 표시(삭제 아님),
+  `doGet`(careerTest 전용)은 전 단계 통틀어 한 번도 안 건드림. 다섯 페이지 전 경로를
+  새 백엔드로 완주하는 실브라우저 검증까지 마쳐야 완료.

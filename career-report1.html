@@ -41,6 +41,7 @@
             <div class="msg" id="runMsg">1차 분석을 요청하는 중…</div>
             <div class="sub">직무 역산축과 산업 역산축을 함께 분석하므로 시간이 걸릴 수 있습니다.</div>
             <div class="elapsed" id="elapsed">0.0s</div>
+            <pre class="stream-preview" id="streamPreview"></pre>
         </div>
     </div>
 
@@ -163,10 +164,16 @@
     var wrap = document.getElementById('resultWrap');
     var timer = null, t0 = 0;
 
+    var streamPreview = document.getElementById('streamPreview');
+    var streaming = false; /* 실시간 델타를 한 번이라도 받았으면 true — 가짜 회전 문구를 멈춘다 */
+
     function showRunning(on) {
         runCard.style.display = on ? '' : 'none';
         if (on) {
             t0 = Date.now();
+            streaming = false;
+            streamPreview.textContent = '';
+            streamPreview.classList.remove('show');
             errCard.style.display = 'none';
             wrap.style.display = 'none';
             var msgs = ['1차 분석을 요청하는 중…', '직무 역산축을 정리하는 중…',
@@ -176,7 +183,8 @@
             timer = setInterval(function () {
                 document.getElementById('elapsed').textContent =
                     ((Date.now() - t0) / 1000).toFixed(1) + 's';
-                if ((Date.now() - t0) > (i + 1) * 6000 && i < msgs.length - 1) {
+                /* 실시간 응답이 오기 시작하면 가짜 회전 문구는 멈춘다 — 진짜 상태가 더 낫다 */
+                if (!streaming && (Date.now() - t0) > (i + 1) * 6000 && i < msgs.length - 1) {
                     i++;
                     document.getElementById('runMsg').textContent = msgs[i];
                 }
@@ -185,6 +193,24 @@
             clearInterval(timer);
             timer = null;
         }
+    }
+
+    /* 스트리밍 백엔드(/api/stream)일 때만 실제로 호출된다 — GAS 경로는 완료 시 한 번에 온다 */
+    function appendStreamDelta(delta) {
+        if (!streaming) {
+            streaming = true;
+            document.getElementById('runMsg').textContent = '실시간으로 응답을 받는 중…';
+            streamPreview.classList.add('show');
+        }
+        streamPreview.textContent += delta;
+        streamPreview.scrollTop = streamPreview.scrollHeight;
+    }
+
+    function onStreamPhase(phase) {
+        var label = phase === 'searching' ? '공식 자료를 다시 확인하는 중…'
+                  : phase === 'continuing' ? '분량이 길어 이어서 쓰는 중…'
+                  : '';
+        if (label) document.getElementById('runMsg').textContent = label;
     }
 
     function showError(msg) {
@@ -249,6 +275,8 @@
             system: CareerPrompts.first,
             user: Career.buildUserMessage1(kase.student || {}),
             maxTokens: cfg.maxTokens1,
+            onDelta: appendStreamDelta,
+            onPhase: onStreamPhase,
             student: kase.student || {}
         }).then(function (res) {
             var rep = {

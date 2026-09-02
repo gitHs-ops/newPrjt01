@@ -1,6 +1,6 @@
 # Session Handoff
 
-> 최종 갱신: 2026-09-02 (Session 009 — confirm() 전수 조사 · 자체 모달로 전면 교체)
+> 최종 갱신: 2026-09-02 (Session 010 — 스트리밍 백엔드 Phase A·B 구축·실브라우저 검증)
 > 상세 이력은 `claude-progress.md`, 기능 상태는 `feature_list.json` 참고.
 
 ## Verified Now
@@ -97,14 +97,42 @@ Apps Script 6분 한도 안에는 들어오지만 여유가 많지는 않다.
   (대학 입학처가 막혀 STEP 7-3 이 통째로 죽는다)
 - `assets/prompts/*.txt` 를 코드에서 직접 고치지 말 것 — `tools/build-prompts.py` 경유
 
+## 스트리밍 백엔드 마이그레이션 (별도 저장소, Phase A·B 완료)
+
+- 계획서: `C:\Users\user\.claude\plans\goofy-rolling-whistle.md` (사용자 승인됨)
+- 새 저장소: **`C:\myPrjt01\newPrjt01-backend`** (이 저장소 밖 — `init.ps1` 의 재귀
+  텍스트 스캔·`node_modules` 오염을 피하려고 의도적으로 분리했다).
+  배포: `https://new-prjt01-backend.vercel.app` (Vercel Edge Functions,
+  Vercel 계정 khsq2011-6744s-projects) — `/api`(논스트리밍) · `/api/stream`(SSE).
+  시크릿은 Vercel 프로젝트 환경변수(`ANTHROPIC_API_KEY`, production)에 있다.
+- ⚠ **플랫폼을 Cloudflare Workers → Vercel Edge Functions 로 바꿨다.** Cloudflare Workers 로
+  먼저 배포했으나 Worker→api.anthropic.com 구간이 간헐적으로 막혔다(응답에 Anthropic
+  `requestID` 가 없고 Cloudflare 보안 헤더만 붙음 — Anthropic Console 로그에도 해당 요청이
+  아예 안 찍힘). Vercel Edge 로 옮긴 뒤 연속 호출 성공률 100% 확인.
+- **Phase A(무스트리밍 패리티 포트 + 모델 고정 + 프롬프트 캐싱)** — 완료·검증됨.
+  모델 고정(`claude-haiku-4-5`, `req.model` 자체를 안 읽음), 프롬프트 캐싱
+  (`cache_creation_input_tokens` → 다음 호출 `cache_read_input_tokens`) curl 실측.
+- **Phase B(SSE 스트리밍)** — 완료·**실브라우저 검증됨(2026-09-02)**.
+  `newPrjt01` 쪽에 실제 코드 변경이 들어갔다: `assets/career.js`(`callAI()` URL 분기 +
+  `callAIStreaming()` 신설), `assets/career.css`(`.stream-preview`),
+  `career-report1.html`/`career-report2.html`(`showRunning()`/`appendStreamDelta`/
+  `onStreamPhase`, `run()`에 `onDelta`/`onPhase` 콜백 전달). **`[연결 설정]` 기본값은
+  그대로 비어 있어 opt-in** — endpoint 에 `.../api/stream` 을 직접 넣어야 이 경로가 켜진다.
+  `career-011`(passing)로 `feature_list.json` 에 기록됨.
+  ⚠ 부수 발견: `career.js` 의 `isStaleProxy()` 가 GAS 전용 `x.y.z` 버전 문자열만 상정해
+  새 백엔드의 버전 문자열에 "프록시가 낡았습니다" 오탐을 냈다 — 형식 가드 추가로 수정됨.
+- **다음 단계**: **Phase C**(GAS 로그 전용 경로 — 지금은 새 백엔드로 분석해도 구글
+  시트에 토큰 사용량이 안 남는다, 알려진 제약) · **Phase D**(`[연결 설정]` 기본값 전환,
+  구경로 retired 표시, 다섯 페이지 전 경로 새 백엔드로 완주 검증).
+
 ## Next Best Step
 
 진로상담은 실사용 가능한 상태다. 다음 후보 —
 
-1. **실제 학생 사례로 운영**하며 프롬프트·모델 조정 (가장 값싼 다음 걸음)
-2. 보류된 **`auth-006`(서버 인증)** 재개 — 사례가 브라우저별로 격리되는 한계 해소
-3. 사용량이 커지면 프록시를 **Apps Script 밖**(실행 한도 없는 런타임)으로 이전.
-   POST/JSON 계약은 그대로 재사용된다
+1. **위 스트리밍 백엔드 마이그레이션 Phase C**(시트 로깅 연결) 진행 — 지금 새 백엔드로
+   쓰면 사용량이 시트에 안 남는 것부터 막아야 Phase D 전환이 안전하다
+2. **실제 학생 사례로 운영**하며 프롬프트·모델 조정 (가장 값싼 다음 걸음)
+3. 보류된 **`auth-006`(서버 인증)** 재개 — 사례가 브라우저별로 격리되는 한계 해소
 
 ## Commands
 

@@ -433,6 +433,30 @@
       ],
       "evidence": [],
       "notes": "Google Cloud 클라이언트 ID 발급과 서버측 토큰 검증이 필요하다. auth-006(서버 인증) 이후에 진행하는 것이 순서상 맞다."
+    },
+    {
+      "id": "career-011",
+      "priority": 22,
+      "area": "career",
+      "title": "스트리밍 백엔드(Phase A/B) — 별도 저장소, newPrjt01 은 아직 무수정",
+      "user_visible_behavior": "[연결 설정] 엔드포인트를 새 백엔드(/api/stream)로 바꾸면 1차·2차 분석 결과가 완료 후 한 번에 뜨는 대신 실시간으로 텍스트가 찍힌다. 모델은 서버에서 Haiku 4.5 로 고정돼 회당 비용이 통제된다. 기본 상태(GAS 프록시)는 그대로다 — 이 기능은 아직 opt-in.",
+      "status": "passing",
+      "verification": [
+        "새 저장소 C:\\myPrjt01\\newPrjt01-backend (Vercel Edge Functions) 배포 후 curl 로 /api, /api/stream 실호출",
+        "모델 스푸핑(payload.model=claude-opus-5)이 무시되고 claude-haiku-4-5 로만 응답하는지 확인",
+        "동일 system 반복 호출 시 cache_read_input_tokens > 0 (프롬프트 캐싱 확인)",
+        "career.html 에서 [연결 설정] endpoint 를 https://new-prjt01-backend.vercel.app/api/stream 으로 설정 → 실브라우저로 1차·2차 분석 전 경로 실행, 스트리밍 텍스트가 실시간으로 찍히는지, 최종 렌더(render())가 무수정인 채로 정상 동작하는지 확인",
+        ".\\init.ps1 baseline 통과 유지 확인"
+      ],
+      "evidence": [
+        "2026-09-02 Cloudflare Workers 로 먼저 배포 → Worker→api.anthropic.com 구간이 간헐적으로 막힘(403, requestID 없음, Cloudflare 보안 헤더만 붙음 — Anthropic Console 로그에도 해당 요청이 아예 안 찍힘). Vercel Edge Functions 로 전환 후 연속 호출 성공률 100%(5/5)",
+        "2026-09-02 curl 실측: 모델 고정 확인(model:\"claude-haiku-4-5\" 고정, payload.model 스푸핑 무시), 캐싱 확인(1차 cache_creation_input_tokens:15007 → 2차 cache_read_input_tokens:15007)",
+        "2026-09-02 SSE 실측(curl -N): event: text(델타별) → event: done(논스트리밍과 동일 모양) 순서로 정상 도착",
+        "2026-09-02 실브라우저(케이스 \"Phase B 스트리밍 테스트\"): career-report1.html 에서 실시간 텍스트 스트리밍 확인(회전 가짜 문구 → \"실시간으로 응답을 받는 중…\" → \"분량이 길어 이어서 쓰는 중…\"(프리필 이어쓰기 meta 이벤트) → 최종 render() 정상, 토큰 입력 12,685+출력 19,320, 출처 39건). career-report2.html 도 동일 확인(토큰 입력 50,703+출력 13,000, 1-2차 합본 저장 버튼 정상). 콘솔 에러 0건",
+        "2026-09-02 부수 발견·수정: 새 백엔드의 proxy_version 문자열(\"newPrjt01-backend/0.2.0 (phase-B, vercel-edge)\")이 GAS 전용 x.y.z 버전비교 로직(isStaleProxy)과 안 맞아 \"프록시가 낡았습니다\" 오탐 발생 → career.js:isStaleProxy 에 형식 가드 추가로 수정, 재확인 완료",
+        ".\\init.ps1 baseline 68개 항목 전부 [OK] 유지(수정 전후 모두 통과)"
+      ],
+      "notes": "계획서: C:\\Users\\user\\.claude\\plans\\goofy-rolling-whistle.md. Phase A(무스트리밍 패리티+모델고정+캐싱)·B(SSE 스트리밍) 완료. Phase C(GAS 로그 전용 경로)·D([연결 설정] 기본값 전환, 구경로 retired 표시)는 미착수 — 지금은 사용자가 [연결 설정]에서 새 백엔드 URL을 수동으로 넣어야만 켜진다. newPrjt01-backend 는 init.ps1 재귀 스캔·node_modules 오염을 피하려 이 저장소 밖에 둔 별도 프로젝트라 여기 커밋에는 안 잡힌다."
     }
   ]
 }
