@@ -1,13 +1,15 @@
 import {createServer} from 'node:http';
 import {readFile} from 'node:fs/promises';
-import {createHash,timingSafeEqual} from 'node:crypto';
+import {createHash,timingSafeEqual,randomBytes} from 'node:crypto';
 import {Conflict} from './store.mjs';
 import {DomainError} from '../domain.mjs';
 const equal=(a,b)=>timingSafeEqual(createHash('sha256').update(a).digest(),createHash('sha256').update(b).digest());
-const assets={'/':'index.html','/index.html':'index.html','/app.js':'app.js','/styles.css':'styles.css','/domain.mjs':'domain.mjs','/demo-store.mjs':'demo-store.mjs','/requirements.json':'requirements.json'};
+const assets={'/login':'login.html','/login.js':'login.js','/':'index.html','/index.html':'index.html','/app.js':'app.js','/styles.css':'styles.css','/domain.mjs':'domain.mjs','/demo-store.mjs':'demo-store.mjs','/requirements.json':'requirements.json'};
 const mime={html:'text/html; charset=utf-8',js:'text/javascript; charset=utf-8',mjs:'text/javascript; charset=utf-8',css:'text/css; charset=utf-8',json:'application/json; charset=utf-8'};
-export function serverFor({store,user,password,assetRoot}){
+export function serverFor({store,user,password,assetRoot,secureCookies=process.env.NODE_ENV==='production'}){
   if(!user||!password||password.length<16||user.includes(':'))throw Error('Set DEMO_USER and DEMO_PASSWORD (at least 16 characters)');
+  const sessions=new Map(), failures=new Map(), ttl=8*60*60*1000;
+  const cookie=(token,age)=>`aplink_session=${token}; Path=/; HttpOnly; SameSite=Strict; Max-Age=${age}${secureCookies?'; Secure':''}`;
   return createServer(async(req,res)=>{
     const reply=(status,data)=>{res.writeHead(status,{'Content-Type':'application/json; charset=utf-8'});res.end(JSON.stringify(data));};
     res.setHeader('Cache-Control','no-store');res.setHeader('X-Content-Type-Options','nosniff');res.setHeader('Referrer-Policy','same-origin');
@@ -17,9 +19,17 @@ export function serverFor({store,user,password,assetRoot}){
       if(url.pathname==='/health'&&req.method==='GET'){
         try{await store.read();reply(200,{ok:true});}catch{reply(503,{ok:false});}return;
       }
+      const token=(req.headers.cookie||'').split(';').map(s=>s.trim()).find(s=>s.startsWith('aplink_session='))?.slice(15);
+      const now=Date.now();
+      for(const [key,expiry] of sessions)if(expiry<=now)sessions.delete(key);
+      for(const [key,value] of failures)if(value.until<=now)failures.delete(key);
       const credential=req.headers.authorization||'';
-      if(!credential.startsWith('Basic ')||!equal(Buffer.from(credential.slice(6),'base64').toString(),user+':'+password)){
-        res.setHeader('WWW-Authenticate','Basic realm="APLink MySQL Preview", charset="UTF-8"');reply(401,{error:'認証が必要です'});return;
+      const authenticated=sessions.has(token)||(credential.startsWith('Basic ')&&equal(Buffer.from(credential.slice(6),'base64').toString(),user+':'+password));
+      const publicAsset=['/login','/login.js','/styles.css'].includes(url.pathname);
+      if(!authenticated&&!publicAsset&&url.pathname!=='/api/login'){
+        if(req.method==='GET'&&['/','/index.html'].includes(url.pathname)){res.writeHead(302,{Location:'/login'});res.end();}
+        else reply(401,{error:'ログインしてください'});
+        return;
       }
       // Only same-origin JSON requests with a custom header can mutate shared data.
       if(req.method==='POST'){
@@ -28,6 +38,23 @@ export function serverFor({store,user,password,assetRoot}){
         for await(const chunk of req){size+=chunk.length;if(size>1024*1024){reply(413,{error:'データが大きすぎます'});return;}parts.push(chunk);}
         let body;try{body=JSON.parse(Buffer.concat(parts).toString());}catch{reply(400,{error:'JSON形式が不正です'});return;}
         if(!body||typeof body!=='object'||Array.isArray(body)){reply(400,{error:'リクエストが不正です'});return;}
+        if(url.pathname==='/api/login'){
+          const key=req.socket.remoteAddress||'unknown';
+          const failure=failures.get(key);
+          if(failure?.count>=10){res.setHeader('Retry-After',String(Math.ceil((failure.until-now)/1000)));reply(429,{error:'ログイン試行が多すぎます。しばらくしてから再試行してください。'});return;}
+          if(typeof body.user!=='string'||typeof body.password!=='string'||!equal(body.user,user)||!equal(body.password,password)){
+            if(failures.size>=10000)failures.delete(failures.keys().next().value);
+            failures.set(key,{count:(failure?.count||0)+1,until:failure?.until||now+60000});
+            reply(401,{error:'ユーザー名またはパスワードが違います'});return;
+          }
+          failures.delete(key);if(token)sessions.delete(token);
+          if(sessions.size>=1000)sessions.delete(sessions.keys().next().value);
+          const fresh=randomBytes(32).toString('hex');sessions.set(fresh,now+ttl);
+          res.setHeader('Set-Cookie',cookie(fresh,ttl/1000));reply(200,{ok:true});return;
+        }
+        if(url.pathname==='/api/logout'){
+          sessions.delete(token);res.setHeader('Set-Cookie',cookie('',0));reply(200,{ok:true});return;
+        }
         if(url.pathname==='/api/workspace'||url.pathname==='/api/reset'){
           if(url.pathname==='/api/workspace'&&(typeof body.action!=='string'||!body.payload||typeof body.payload!=='object')){reply(400,{error:'操作内容が不正です'});return;}
           reply(200,await store.mutate(body,user,url.pathname==='/api/reset'));return;

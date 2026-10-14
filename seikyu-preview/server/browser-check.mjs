@@ -18,19 +18,20 @@ await new Promise(r=>server.listen(0,'127.0.0.1',r));
 const browser=await chromium.launch({channel:'msedge',headless:true});
 try{
   const errors=[];
-  const context=await browser.newContext({httpCredentials:{username:'tester',password}});
+  const context=await browser.newContext();
   const page=await context.newPage();page.on('pageerror',e=>errors.push(e.message));
   const url='http://127.0.0.1:'+server.address().port;
-  await page.goto(url);await page.getByRole('heading',{name:'ダッシュボード',exact:true}).waitFor();
+  const login=async(p)=>{await p.locator('[name=user]').fill('tester');await p.locator('[name=password]').fill(password);await p.locator('button[type=submit]').click();};
+  await page.goto(url);await login(page);await page.getByRole('heading',{name:'ダッシュボード',exact:true}).waitFor();
   assert.match(await page.locator('#save-status').textContent(),/MySQL/);
   await page.locator('a.nav-link[href="#masters"]').click();await page.locator('[data-action=master]').first().click();
   await page.locator('[name=code]').fill('SHARED1');await page.locator('[name=name]').fill('Shared browser test');
   await page.locator('button[type=submit]').click();await page.locator('#dialog').waitFor({state:'hidden'});
-  const second=await browser.newContext({httpCredentials:{username:'tester',password}});const other=await second.newPage();
-  await other.goto(url+'/#masters');await other.getByText('Shared browser test',{exact:true}).waitFor();
+  const second=await browser.newContext();const other=await second.newPage();
+  await other.goto(url+'/#masters');await login(other);await other.getByText('Shared browser test',{exact:true}).waitFor();
   await page.reload();await page.getByText('Shared browser test',{exact:true}).waitFor();
   assert.equal(await page.evaluate(()=>localStorage.getItem('aplink-web-preview-v1')),null);
   assert.equal(await page.locator('#logout').isVisible(),false);
   await page.locator('a.nav-link[href="#migration"]').click();assert.ok(!(await page.locator('main').textContent()).includes('ブラウザーだけに保存'));
-  assert.deepEqual(errors,[]);console.log('Server-mode UI passed: HTTP auth, save, independent browser read, reload, no localStorage, reset hidden. Store is a test double.');
+  assert.deepEqual(errors,[]);console.log('Server-mode UI passed: form login, save, independent browser read, reload, no localStorage, reset hidden. Store is a test double.');
 }finally{await browser.close();await new Promise(r=>server.close(r));}

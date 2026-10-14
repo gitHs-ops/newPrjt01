@@ -9,9 +9,9 @@ const fs=require('node:fs');
  const browser=await chromium.launch({channel:'msedge',headless:true});
  try{
   const credentials={username:process.env.DEMO_USER,password:process.env.DEMO_PASSWORD};
-  const ctx=await browser.newContext({httpCredentials:credentials,viewport:{width:1440,height:1000}});
+  const ctx=await browser.newContext({viewport:{width:1440,height:1000}});
   const page=await ctx.newPage(),errors=[];page.on('pageerror',e=>errors.push(e.message));
-  await page.goto(url+'/#masters');await page.getByRole('heading',{name:'マスタ管理',exact:true}).waitFor();
+  await page.goto(url+'/#masters');await page.locator('[name=user]').fill(credentials.username);await page.locator('[name=password]').fill(credentials.password);await page.locator('button[type=submit]').click();await page.getByRole('heading',{name:'マスタ管理',exact:true}).waitFor();
   const get=()=>page.evaluate(async()=>{const r=await fetch('/api/workspace');if(!r.ok)throw Error('Workspace request failed');return r.json();});
   const suffix=Date.now().toString(36).slice(-4).toUpperCase(),created=[];
   const open=async kind=>page.locator('[data-action=master-tab][data-id='+kind+']').click();

@@ -13,6 +13,7 @@ async function runtime(){
 }
 async function api(url,options={}){
   const response=await fetch(url,{...options,cache:'no-store',headers:{...options.headers,'X-Demo-Request':'1'}});
+  if(response.status===401){location.replace('/login'+location.hash);throw Error('ログインしてください');}
   const data=await response.json();
   if(!response.ok)throw Error(data.error||'サーバー処理に失敗しました');
   return data;

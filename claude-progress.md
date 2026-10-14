@@ -958,3 +958,6 @@ seikyu-004: 7개 마스터 화면을 실제 MySQL 테이블에 연결. 기존 ID
 
 배포 검증 완료: 앱476b34b / Railway deployment16cc6cc1-2e93-42e5-8406-6f1f1a617928. 기존 마스터14건의 ID/코드/명칭/유효상태 및 거래 데이터 보존 대조 통과. 실제 HTTPS Edge에서 마스터7종 생성·수정·무효화·다른브라우저·새로고침·모바일 검증 통과. 실제 SQL의 각 행과 대조 완료. 가상 QA7건은 무효 상태로 보존. 보조테이블 추가로 총47개. 앱 URL https://newprjt01-production.up.railway.app . seikyu-preview/master-validation.json 기록.
 다음: 출하·청구 테이블 연결(상세 주문 가지번호 관계 확정 필요). 현재 거래는 기존 JSON 집약 저장 유지.
+
+## 2026-10-14 Browser login compatibility
+Replaced browser Basic challenge with a form and revocable eight-hour HttpOnly session cookie. Production cookies are Secure and SameSite=Strict. Login throttling, JSON/CSRF checks and API protection remain. Explicit Basic credentials remain available for CLI checks, without WWW-Authenticate. Local domain/HTTP tests: 10 passed; Edge server-mode save/read/reload check passed with form login. Deployment verification follows push.

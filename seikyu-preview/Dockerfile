@@ -3,7 +3,7 @@ WORKDIR /app
 COPY package*.json ./
 RUN npm ci --omit=dev
 COPY server ./server
-COPY index.html app.js styles.css requirements.json domain.mjs demo-store.mjs runtime.json ./
+COPY login.html login.js index.html app.js styles.css requirements.json domain.mjs demo-store.mjs runtime.json ./
 USER node
 ENV NODE_ENV=production
 EXPOSE 8080
