@@ -1012,3 +1012,4 @@ Deployment a617173a-0217-4671-b54a-0adc2a5c869d succeeded (5e1c817). Live Edge f
 - 비과세 측 분개에 처세율 9 설정(재고·買掛金 대변·지급), 분개 패턴 분석과 일치.
 - 검증: 결합 8/8, openpyxl 파싱, Edge 로컬·배포 44/44. 커밋 af98bc0, seikyu-web 배포 SUCCESS, newPrjt01 root /seikyu-preview 유지 확인.
 다음: ③ 지급 장표(NO37 전은 포맷, 45~48).
+- 2026-10-15 04:43: 사용자 지적 "로그 날짜가 이상" — 操作履歴·ダッシュボード 최근 조작·請求 발행이력·월차 확정 일시·請求 보고서 발행일이 UTC 그대로 표시되던 문제. DB는 UTC 유지, 표시만 JST 변환(app.js/domain.mjs `jst`). 56a6653 배포 8070761a SUCCESS, 배포본 app.js 반영 확인. 단위 테스트 통과, 결합 시험은 로컬 mysql2 미설치로 실행되지 않음(수정 전과 동일).
