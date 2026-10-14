@@ -36,7 +36,7 @@ export function serverFor({store,user,password,assetRoot}){
       }
       if(req.method!=='GET'){reply(405,{error:'Method not allowed'});return;}
       if(url.pathname==='/runtime.json'){reply(200,{storage:'mysql'});return;}
-      if(url.pathname==='/api/session'){reply(200,{user,canWrite:true,header:'X-Demo-Request',csrf:'1',storage:'mysql'});return;}
+      if(url.pathname==='/api/session'){reply(200,{user,canWrite:true,header:'X-Demo-Request',csrf:'1',storage:'mysql',masterStorage:'tables-v1'});return;}
       if(url.pathname==='/api/workspace'){reply(200,await store.read());return;}
       if(url.pathname==='/api/audit'){reply(200,await store.audit());return;}
       if(url.pathname==='/favicon.ico'){res.writeHead(204);res.end();return;}

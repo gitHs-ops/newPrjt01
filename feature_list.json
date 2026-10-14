@@ -516,6 +516,26 @@
         "기존 정적 데모 전체 브라우저 회귀 검증 통과."
       ],
       "notes": "Railway CLI Unauthorized. 프로젝트/서비스 및 로그인 대기. 실제 DB/배포는 미검증이며 기존 Pages 주소는 local 모드 유지. 임시 MySQL JSON집약 2테이블이며 44테이블 설계 적용 아님."
+    },
+    {
+      "id": "seikyu-004",
+      "priority": 1,
+      "area": "seikyu-preview",
+      "title": "마스터 개별 MySQL 테이블 연결",
+      "status": "in_progress",
+      "user_visible_behavior": "고객·상품·현장·은행 내역·업체 계좌·계정·내역계정을 개별 MySQL 테이블에서 저장·조회한다.",
+      "verification": [
+        "node --test domain.test.mjs server/http.test.mjs",
+        "masters.integration.test.mjs (isolated real MySQL)",
+        "server/browser-check.mjs",
+        "browser-qa.cjs",
+        "Railway deployment and DB comparison"
+      ],
+      "evidence": [
+        "2026-10-14: 별도 seikyu_master_test_20261014 MySQL에서 이관·실제 테이블 CRUD·참조·CSV롤백·동시수정·재시작 통과.",
+        "기존 도메인/HTTP 9건 및 Edge 로컬/서버모드 검증 통과. init.ps1 통과."
+      ],
+      "notes": "운영 배포 검증 진행 중. preview_master_link 보조 테이블이 ID 및 opening/taxRate를 보존. 거래 저장 전환은 이후 단계."
     }
   ]
 }

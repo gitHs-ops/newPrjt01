@@ -39,7 +39,7 @@ export function seed() {
   const items = [['再生砕石 RC-40',3200],['粒度調整砕石 M-30',4800],['山砂',2600]].map(([n,p],i)=>master('items','P00'+(i+1),n,{unit:'t',price:p,taxRate:10}));
   master('banks','041','サンプル銀行（架空）');
   master('accounts','8230','材料仕入');master('accounts','8330','支払手数料');master('accounts','8310','消耗品費');
-  master('subaccounts','101','振込手数料');
+  master('subaccounts','101','振込手数料',{accountCode:'8330'});
   for(let m=-5;m<=0;m++) {
     // On the first nine days, the current month's closing has not occurred yet.
     if(m===0 && Number(current.slice(8))<10) continue;

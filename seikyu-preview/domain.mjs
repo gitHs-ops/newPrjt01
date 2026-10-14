@@ -7,7 +7,7 @@ export function amount(q,p){return integer((decimal(q)*decimal(p)/100000000n).to
 export function tax(net,rate=10){check([0,8,10].includes(Number(rate)),'税率が不正です');return Number(BigInt(net)*BigInt(rate)/100n)}
 export function date(v){check(/^\d{4}-\d{2}-\d{2}$/.test(v)&&!isNaN(Date.parse(v))&&new Date(v).toISOString().slice(0,10)===v,'日付が不正です');return v}
 export function period(month,closing=20){check(/^\d{4}-\d{2}$/.test(month),'請求年月が不正です');const [y,m]=month.split('-').map(Number);check(y>=2000&&y<=2100&&m>=1&&m<=12,'請求年月が範囲外です');const day=integer(closing,'締日');check(day>=1&&(day<=28||day===31),'締日は1〜28または31(月末)です');const endOf=(yy,mm)=>new Date(Date.UTC(yy,mm,0)).getUTCDate();const end=`${month}-${String(Math.min(day,endOf(y,m))).padStart(2,'0')}`;const prev=new Date(Date.UTC(y,m-2,Math.min(day,endOf(y,m-1))+1));return {start:prev.toISOString().slice(0,10),end}}
-export function fresh(){return {schemaVersion:1,seq:0,customers:[],vendors:[],items:[],banks:[],accounts:[],subaccounts:[],shipments:[],invoices:[],receipts:[],purchases:[],inventory:[],payables:[],cash:[],payments:[],journals:[],audit:[],settings:{company:'サンプル建材株式会社（架空）',department:'063'},closed:[]}}
+export function fresh(){return {schemaVersion:1,seq:0,customers:[],sites:[],vendors:[],items:[],banks:[],accounts:[],subaccounts:[],shipments:[],invoices:[],receipts:[],purchases:[],inventory:[],payables:[],cash:[],payments:[],journals:[],audit:[],settings:{company:'サンプル建材株式会社（架空）',department:'063'},closed:[]}}
 const id=(s,prefix)=>prefix+String(++s.seq).padStart(6,'0');
 const required=(v,label)=>{check(typeof v==='string'&&v.trim().length>0&&v.length<500,label+'を入力してください');return v.trim()};
 const find=(rows,key,label)=>{const r=rows.find(x=>x.id===key);check(r,label+'が見つかりません');return r};
@@ -18,10 +18,12 @@ export const balance=i=>i.total-i.paid;
 export function dispatch(previous,command,actor='operator',now=new Date().toISOString()){
  const s=structuredClone(previous),p=command.payload||{},action=command.action;let result={};
  if(action==='master.save'){
-  check(['customers','vendors','items','banks','accounts','subaccounts'].includes(p.kind),'マスタ種別が不正です');const rows=s[p.kind];const code=required(p.code,'コード'),name=required(p.name,'名称');check(!rows.some(x=>x.code===code&&x.id!==p.id),'コードが重複しています');
+  check(['customers','vendors','items','banks','accounts','subaccounts','sites'].includes(p.kind),'マスタ種別が不正です');const rows=s[p.kind]??(s[p.kind]=[]);const code=required(p.code,'コード'),name=required(p.name,'名称');check(!rows.some(x=>x.code===code&&x.id!==p.id&&(p.kind!=='subaccounts'||x.accountCode===p.accountCode)&&(p.kind!=='sites'||(x.customerId===p.customerId&&x.suffix===(p.suffix||'000')))),'コードが重複しています');
   const record={id:p.id||id(s,'M'),code,name,active:p.active!==false&&p.active!=='false'};
   if(p.kind==='customers'){record.closing=integer(p.closing||20);check(record.closing>=1&&(record.closing<=28||record.closing===31),'締日が不正です');record.opening=integer(p.opening||0,'開始残高');}
-  if(p.kind==='vendors'){record.bank=String(p.bank||'');record.branch=String(p.branch||'');record.account=String(p.account||'');record.kana=String(p.kana||'');}
+  if(p.kind==='vendors'){record.bank=String(p.bank||'');record.branch=String(p.branch||'');record.account=String(p.account||'');record.kana=String(p.kana||'');record.accountType=String(p.accountType||'1');}
+  if(p.kind==='sites'){record.customerId=required(p.customerId,'得意先');check(s.customers.some(c=>c.id===record.customerId&&c.active),'有効な得意先を選択してください');record.suffix=String(p.suffix||'000');record.name2=String(p.name2||'');}
+  if(p.kind==='subaccounts'){record.accountCode=required(p.accountCode,'上位勘定科目');check(s.accounts.some(a=>a.code===record.accountCode&&a.active),'有効な上位勘定科目を選択してください');}
   if(p.kind==='items'){record.unit=String(p.unit||'t');record.price=integer(p.price||0,'単価');record.taxRate=integer(p.taxRate??10);check([0,8,10].includes(record.taxRate),'税率が不正です')}
   const ix=rows.findIndex(x=>x.id===record.id);if(p.id)check(ix>=0,'対象がありません');if(ix>=0){if(p.kind==='customers')check(record.opening===rows[ix].opening||!s.invoices.some(x=>x.customerId===p.id),'請求作成後は開始残高を変更できません');rows[ix]=record}else rows.push(record);result={id:record.id};
  }else if(action==='shipment.save'){

@@ -30,7 +30,7 @@ try{
   await other.goto(url+'/#masters');await other.getByText('Shared browser test',{exact:true}).waitFor();
   await page.reload();await page.getByText('Shared browser test',{exact:true}).waitFor();
   assert.equal(await page.evaluate(()=>localStorage.getItem('aplink-web-preview-v1')),null);
-  await page.locator('#logout').click();assert.match(await page.locator('#modal-content').textContent(),/他の利用者/);await page.locator('#modal-x').click();
+  assert.equal(await page.locator('#logout').isVisible(),false);
   await page.locator('a.nav-link[href="#migration"]').click();assert.ok(!(await page.locator('main').textContent()).includes('ブラウザーだけに保存'));
-  assert.deepEqual(errors,[]);console.log('Server-mode UI passed: HTTP auth, save, independent browser read, reload, no localStorage, shared reset warning. Store is a test double.');
+  assert.deepEqual(errors,[]);console.log('Server-mode UI passed: HTTP auth, save, independent browser read, reload, no localStorage, reset hidden. Store is a test double.');
 }finally{await browser.close();await new Promise(r=>server.close(r));}

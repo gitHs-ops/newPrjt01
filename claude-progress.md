@@ -945,3 +945,12 @@ init.ps1 -Live의 기존 진로상담 프록시 버전 차이(배포1.8.1/소스
 다음: Railway 인증 확인 → 서비스 선택 → 앱 Root /seikyu-preview 및 MySQL 참조변수/검토용 인증 설정 → 실제 DB 통합 시험과 배포 → HTTPS 주소에서 검증. 이 절차 전에는 MySQL 전환 완료로 보고하지 말 것. GitHub Pages는 local 모드 유지.
 
 로컬 npm 의존성의 문자표 테스트 파일이 init.ps1 전체 텍스트 검사에 걸려, 테스트 후 node_modules를 C:/myPrjt01/seikyuPrjt01/.tooling/preview-api-deps-20261014로 이동해 보관했다. 검사 규칙은 변경하지 않았고 최종 init.ps1 통과. Docker 빌드는 npm ci로 의존성을 설치한다.
+
+
+## 2026-10-14 — 마스터 개별 테이블 연결
+
+seikyu-004: 7개 마스터 화면을 실제 MySQL 테이블에 연결. 기존 ID/잔액/세율 보존용 preview_master_link 추가. 거래 JSON은 유지하고 마스터 배열은 이관 후 제거. 현장 탭·내역 상위계정·계좌종류 UI 추가. 은행 내역은 code_m BANK, 업체 계좌는 bank_account에 저장. 세부 매핑은 seikyu-preview/MASTER_STORAGE.md.
+
+별도 MySQL 테스트 DB seikyu_master_test_20261014 생성, 실제 이관·CRUD·원장ID보존·참조·CSV롤백·경합·재시작 검증 통과. 테스트 자료는 해당 DB에 보관. 운영 데이터와 분리. 도메인/HTTP 9건 및 로컬/서버모드 Edge 검증 통과, init.ps1 통과. Live 기존 진로상담 프록시 버전 차이는 그대로다.
+
+운영 이관 전 백업은 비공개 로컬 C:/myPrjt01/seikyuPrjt01/analysis/pre-master-migration-backup.json에 저장. 앱 도메인 https://newprjt01-production.up.railway.app 생성. 실제 배포 검증은 진행 중.

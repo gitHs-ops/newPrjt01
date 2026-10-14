@@ -1,7 +1,8 @@
 // Dedicated empty test DB only. Does not connect unless MYSQL_TEST_URL is provided.
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import mysql from 'mysql2/promise';
+import {createRequire} from 'node:module';
+const mysql=createRequire(import.meta.url)('mysql2/promise');
 import {MysqlStore,Conflict} from './store.mjs';
 test('real MySQL: restart persistence, competing writes, invalid-command rollback, audit', {skip:!process.env.MYSQL_TEST_URL},async()=>{
   const pool=mysql.createPool(process.env.MYSQL_TEST_URL);
