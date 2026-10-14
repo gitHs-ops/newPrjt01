@@ -187,3 +187,7 @@ dialog.modal[open] { animation: rise .35s var(--ease) both; display: flex; flex-
   .top-actions .uname { display: none; }
 }
 @media (prefers-reduced-motion: reduce) { *, body::before, body::after { animation: none !important; transition-duration: .01ms !important; } }
+
+.report-doc h2 { font-size: 15pt; margin-bottom: 6px; }
+.report-doc .badge { border: 1px solid #999; color: #000; background: none; }
+.report-doc input { display: none; }

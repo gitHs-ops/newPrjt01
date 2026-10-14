@@ -49,6 +49,15 @@ const base = process.env.BASE_URL, out = process.env.OUT_DIR || '.';
       await page.waitForSelector('[data-act=detail]', { timeout: 30000 }); await page.click('[data-act=detail]'); await page.waitForSelector('dialog[open]');
       await page.screenshot({ path: `${out}/web-invoice-detail.png` });
       await page.click('#modal-cancel');
+      // NO12 report viewer, NO17 receipt form, NO11 correction form (open, screenshot, cancel; no data written)
+      await page.click('[data-act=report][data-kind=list]'); await page.waitForSelector('dialog[open] #rep-body', { timeout: 60000 });
+      await page.screenshot({ path: `${out}/web-billing-list.png` }); results.push({ view: 'report.list', ok: !!(await page.$('#rep-body table, #rep-body .empty')) }); await page.click('#modal-x');
+      await page.click('[data-act=report][data-kind=confirm]'); await page.waitForSelector('dialog[open] #rep-body', { timeout: 60000 }); await page.screenshot({ path: `${out}/web-billing-confirm.png` }); await page.click('#modal-cancel');
+      await page.evaluate(() => (location.hash = 'receipts')); await page.waitForFunction(() => document.querySelector('#content').dataset.view === 'receipts' && !document.querySelector('#content.busy'), null, { timeout: 60000 });
+      await page.click('[data-act=new]'); await page.waitForSelector('dialog[open]'); await page.selectOption('dialog select[name=customer]', { index: 2 });
+      await page.waitForSelector('#rc-open table, #rc-open .empty', { timeout: 60000 }); await page.screenshot({ path: `${out}/web-receipt-form.png` }); results.push({ view: 'receipt.form', ok: true }); await page.click('#modal-cancel');
+      await page.evaluate(() => (location.hash = 'shipments')); await page.waitForFunction(() => document.querySelector('#content').dataset.view === 'shipments' && !document.querySelector('#content.busy'), null, { timeout: 60000 });
+      const corr = await page.$('[data-act=correct]'); if (corr) { await corr.click(); await page.waitForSelector('dialog[open] input[name=quantity]'); await page.screenshot({ path: `${out}/web-correction.png` }); results.push({ view: 'correction.form', ok: true }); await page.click('#modal-x'); }
     }
     await page.click('#logout').catch(() => {}); await page.waitForURL(u => u.pathname.startsWith('/login'), { timeout: 15000 }).catch(() => errors.push('logout did not return to /login'));
     await ctx.close();

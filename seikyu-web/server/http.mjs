@@ -8,6 +8,7 @@ import * as S from './sales.mjs';
 import * as P from './payables.mjs';
 import * as L from './ledger.mjs';
 import * as U from './users.mjs';
+import * as X from './reports.mjs';
 
 const COOKIE = 'aplink_sid';
 const MIME = { html: 'text/html; charset=utf-8', js: 'text/javascript; charset=utf-8', css: 'text/css; charset=utf-8', json: 'application/json; charset=utf-8', svg: 'image/svg+xml' };
@@ -21,7 +22,7 @@ export async function createApp({ pool, publicDir, secureCookies = process.env.N
   const failures = new Map();
 
   // ----- read -----
-  route('GET', '/api/meta', 'read', () => ({ masters: M.meta(), rates: RATES, methods: METHODS, taxCodes: P.TAX_CODES, patterns: L.PATTERNS, roles: U.ROLES, today: today(), version }));
+  route('GET', '/api/meta', 'read', () => ({ receiptParts: S.RECEIPT_PARTS, masters: M.meta(), rates: RATES, methods: METHODS, taxCodes: P.TAX_CODES, patterns: L.PATTERNS, roles: U.ROLES, today: today(), version }));
   route('GET', '/api/masters', 'read', () => db(c => M.allMasters(c)));
   route('GET', '/api/masters/:kind', 'read', x => db(c => M.list(c, x.params.kind)));
   route('GET', '/api/price', 'read', x => db(c => S.priceFor(c, x.q)));
@@ -31,6 +32,9 @@ export async function createApp({ pool, publicDir, secureCookies = process.env.N
   route('GET', '/api/invoices/:id', 'read', x => db(c => S.invoiceDetail(c, x.params.id)));
   route('GET', '/api/invoices/:id/document', 'read', x => db(c => S.issuedDocument(c, x.params.id)));
   route('GET', '/api/open-invoices', 'read', x => db(c => S.openInvoices(c, x.q.customer)));
+  route('GET', '/api/receipt-context', 'read', x => db(c => S.receiptContext(c, x.q.customer)));
+  route('GET', '/api/reports/billing-list', 'read', x => x.q.format === 'xlsx' ? db(c => X.billingListBook(c, x.q)).then(b => ({ file: b })) : db(c => S.billingList(c, x.q)));
+  route('GET', '/api/reports/billing-confirm', 'read', x => x.q.format === 'xlsx' ? db(c => X.billingConfirmBook(c, x.q)).then(b => ({ file: b })) : db(c => S.billingConfirm(c, x.q)));
   route('GET', '/api/receipts', 'read', x => db(c => S.listReceipts(c, x.q)));
   route('GET', '/api/purchases', 'read', x => db(c => P.listPurchases(c, x.q)));
   route('GET', '/api/inventory', 'read', x => db(c => P.listInventory(c, x.q)));
@@ -53,6 +57,7 @@ export async function createApp({ pool, publicDir, secureCookies = process.env.N
   w('/api/masters/:kind/import', (c, x, b) => M.importCsv(c, x, x.params.kind, b.csv));
   w('/api/shipments', (c, x, b) => S.saveShipment(c, x, b));
   w('/api/shipments/delete', (c, x, b) => S.deleteShipment(c, x, b));
+  w('/api/shipments/correct', (c, x, b) => S.correctShipment(c, x, b));
   w('/api/billing/run', (c, x, b) => S.runBilling(c, x, b));
   w('/api/invoices/issue', (c, x, b) => S.issueInvoices(c, x, b));
   w('/api/invoices/cancel', (c, x, b) => S.cancelInvoice(c, x, b));
@@ -113,6 +118,7 @@ export async function createApp({ pool, publicDir, secureCookies = process.env.N
           if (r.perm === 'write' && ![1, 2].includes(user.role)) throw new Forbidden('参照者は登録・変更できません');
           if (r.perm === 'admin' && user.role !== 1) throw new Forbidden('管理者のみ実行できます');
           const result = await r.fn({ params: Object.fromEntries(Object.entries(m.groups || {}).map(([k, v]) => [k, decodeURIComponent(v)])), q: Object.fromEntries(url.searchParams), body, user, requestId });
+          if (result?.file) return send(200, result.file.body, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', { 'Content-Disposition': `attachment; filename="report.xlsx"; filename*=UTF-8''${encodeURIComponent(result.file.name)}` });
           if (result && typeof result.csv === 'string') return send(200, result.csv, 'text/csv; charset=utf-8', { 'Content-Disposition': `attachment; filename="${result.name.replace(/[^\w.\-]/g, '_')}"` });
           return send(200, result ?? { ok: true });
         }

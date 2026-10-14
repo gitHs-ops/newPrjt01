@@ -32,6 +32,9 @@ export async function prepare(pool, env = process.env) {
   for (const [key, prefix, label] of Object.values(NUMBERING)) await pool.query('INSERT IGNORE INTO numbering_m (numbering_key,numbering_pattern,present_value) VALUES (?,?,?)', [key, `${prefix}99999999 ${label}`.slice(0, 16), '0']);
   for (const [code, name] of SYSTEM_ACCOUNTS) await pool.query('INSERT IGNORE INTO account_subject (account_code,account_name,active) VALUES (?,?,TRUE)', [code, name]);
   await pool.query("INSERT IGNORE INTO account_subsubject (account_code,sub_code,sub_name,active) VALUES ('8330','101','振込手数料',TRUE)");
+  await pool.query("INSERT IGNORE INTO account_subsubject (account_code,sub_code,sub_name,active) VALUES ('8330','107','その他雑品（協力会費等）',TRUE)");
+  // NO6: billing is per customer. Older per-site heads that are the only head of their customer/closing become customer-level.
+  await pool.query("UPDATE billing_head h JOIN (SELECT customers_cd, closing_yymm, closing_date FROM billing_head GROUP BY customers_cd, closing_yymm, closing_date HAVING COUNT(*)=1) o ON o.customers_cd=h.customers_cd AND o.closing_yymm=h.closing_yymm AND o.closing_date=h.closing_date SET h.field_cd='', h.field_suffix='' WHERE h.field_cd<>''");
   await pool.query("INSERT IGNORE INTO account_subsubject (account_code,sub_code,sub_name,active) SELECT '1112', code_dtl, LEFT(code_dtl_nam,100), category1<>'0' FROM code_m WHERE code_key='BANK'");
   await pool.query(`INSERT IGNORE INTO company_info_m (company_info_id,company_name1,company_name2,company_kana1,company_kana2,company_abr,plant_name,plant_kana,plant_mgr,postcode,pref,addr1,addr2,tel_no,fax_no,saisyuturyoku_word,closing_m,closing_d,tax_round,package_nam,package_ver,trading_day,claim_typ,proceed_round,n_pr_kind)
     VALUES (1,'サンプル建材株式会社','（架空・デモ用）','サンプルケンザイ','','サンプル建材','サンプル工場','','','0000000','東京都','架空区デモ町1-2-3','','00-0000-0000','00-0000-0001','再発行',3,31,'1','APLink請求入金',1.00,NULL,'1','1','1')`);

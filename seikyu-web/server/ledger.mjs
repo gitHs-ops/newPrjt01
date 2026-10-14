@@ -134,12 +134,12 @@ const yn = b => (b ? '1' : '0');
 export async function exportCsv(c, kind, q = {}) {
   const month = q.month ? isoMonth(q.month) : undefined;
   switch (kind) {
-    case 'shipments': { const l = await listShipments(c, { month: month || today().slice(0, 7) }); return [['売上No', '出荷日', '得意先CD', '得意先', '現場', '商品CD', '商品', '数量', '単位', '単価', '金額', '税率', '消費税', '決済', '請求済', '車番', '備考'],
-      ...l.map(r => [r.orderNo, r.date, r.customer, r.customerName, r.siteName, r.item, r.itemName, r.quantity, r.unit, r.price, r.net, r.taxRate, r.tax, r.methodName, yn(r.billed), r.vehicle, r.remarks])]; }
+    case 'shipments': { const l = await listShipments(c, { month: month || today().slice(0, 7) }); return [['売上No', '区分', '訂正元', '出荷日', '得意先CD', '得意先', '現場', '商品CD', '商品', '数量', '単位', '単価', '金額', '税率', '消費税', '決済', '請求済', '車番', '備考'],
+      ...l.map(r => [r.orderNo, r.shipKb === 2 ? '訂正' : '売上', r.originalNo, r.date, r.customer, r.customerName, r.siteName, r.item, r.itemName, r.quantity, r.unit, r.price, r.net, r.taxRate, r.tax, r.methodName, yn(r.billed), r.vehicle, r.remarks])]; }
     case 'invoices': { const l = await listInvoices(c, { month }); return [['請求ID', '請求年月', '締日', '支払期日', '得意先CD', '得意先', '現場', '税抜金額', '消費税', '請求額', '入金済', '残高', '発行回数', '状態'],
       ...l.map(r => [r.id, r.month, r.closing, r.due, r.customer, r.customerName, r.siteName, r.net, r.tax, r.total, r.paid, r.balance, r.issues, r.status])]; }
-    case 'receipts': { const l = await listReceipts(c, { month }); return [['入金No', '入金日', '得意先CD', '得意先', '振込', '銀行内訳', '現金', '手形', '手数料', '値引', '受領額', '消込額', '状態', '消込請求ID'],
-      ...l.map(r => [r.no, r.date, r.customer, r.customerName, r.bank, r.bankCode, r.cash, r.notes, r.fee, r.discount, r.received, r.settlement, r.status, r.allocations.map(a => a.invoiceId).join(' ')])]; }
+    case 'receipts': { const l = await listReceipts(c, { month }); return [['入金No', '入金日', '得意先CD', '得意先', '振込', '銀行内訳', '現金', '手形', '手数料', '協力会費等', '預り金充当', '値引', '受領額', '消込額', '状態', '消込請求ID'],
+      ...l.map(r => [r.no, r.date, r.customer, r.customerName, r.bank, r.bankCode, r.cash, r.notes, r.fee, r.coop, r.deposit, r.discount, r.received, r.settlement, r.status, r.allocations.map(a => a.invoiceId).join(' ')])]; }
     case 'journals': { const l = await listJournals(c, { month }); return [['仕訳ID', '仕訳日', 'パターン', '元伝票種別', '元伝票ID', '版', '取消元仕訳', '状態', '行', '貸借', '科目', '科目名', '内訳', '部門', '税区分', '金額', '取引先'],
       ...l.flatMap(j => j.lines.map(x => [j.id, j.date, j.pattern, j.source, j.sourceId, j.revision, j.reversalOf || '', j.status, x.no, x.side === 'D' ? '借方' : '貸方', x.account, x.accountName, x.sub, x.dept, x.tax, x.amount, x.partner]))]; }
     case 'payments': { const l = await listPayments(c, { month }); return [['支払No', '支払日', '業者CD', '業者', '支払額', '支払元銀行内訳', '振込先銀行', '支店', '種別', '口座番号', '受取人', '状態'],

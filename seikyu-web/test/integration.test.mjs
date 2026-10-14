@@ -37,6 +37,7 @@ test('workflow against MySQL business tables', { skip: !url && 'MYSQL_TEST_URL n
       const ok = r => assert.equal(r.status, 200, JSON.stringify(r.data));
       ok(await a.call('/api/masters/customers', { mode: 'create', record: { code: C, name: '結合試験(架空)', closing: 31, active: true } }));
       ok(await a.call('/api/masters/sites', { mode: 'create', record: { customer: C, code: 'S' + tag, suffix: '000', name: '試験現場', active: true } }));
+      ok(await a.call('/api/masters/sites', { mode: 'create', record: { customer: C, code: 'T' + tag, suffix: '000', name: '試験現場2', active: true } }));
       ok(await a.call('/api/masters/items', { mode: 'create', record: { code: 'I' + tag, name: '試験商品', unit: 't', price: 1000, active: true } }));
       ok(await a.call('/api/masters/vendors', { mode: 'create', record: { code: 'V' + tag, name: '試験業者', bank: '0001', branch: '001', accountType: '1', account: '1234567', holder: 'ｼｹﾝ', active: true } }));
       ok(await a.call('/api/masters/banks', { mode: 'create', record: { code: 'B' + tag, name: '試験銀行', active: true } }));
@@ -53,17 +54,27 @@ test('workflow against MySQL business tables', { skip: !url && 'MYSQL_TEST_URL n
     await t.test('shipment → billing → issue → receipt with journals', async () => {
       const s1 = await a.call('/api/shipments', { date: sd, customer: C, site: `S${tag}|000`, item: 'I' + tag, quantity: '10.5', price: 1000, taxRate: 10, method: 1 });
       assert.equal(s1.status, 200, JSON.stringify(s1.data));
-      await a.call('/api/shipments', { date: sd, customer: C, site: `S${tag}|000`, item: 'I' + tag, quantity: '3', price: 999, taxRate: 8, method: 1 });
+      await a.call('/api/shipments', { date: sd, customer: C, site: `T${tag}|000`, item: 'I' + tag, quantity: '3', price: 999, taxRate: 8, method: 1 });
+      // NO11: negative correction slip; may not drive the cumulative quantity below zero
+      assert.equal((await a.call('/api/shipments/correct', { orderNo: s1.data.orderNo, date: sd, quantity: '-11' })).status, 400);
+      const corr = await a.call('/api/shipments/correct', { orderNo: s1.data.orderNo, date: sd, quantity: '-0.5' });
+      assert.equal(corr.status, 200, JSON.stringify(corr.data)); assert.equal(corr.data.net, -500);
       const cash = await a.call('/api/shipments', { date: sd, customer: C, site: `S${tag}|000`, item: 'I' + tag, quantity: '1', price: 500, taxRate: 10, method: 2 });
       const run = await a.call('/api/billing/run', { month, closing: 31, customers: [C] });
       assert.equal(run.status, 200, JSON.stringify(run.data)); assert.equal(run.data.created, 1); invoiceId = run.data.ids[0];
       const inv = (await a.call('/api/invoices/' + invoiceId)).data;
-      assert.equal(inv.net, 10500 + 2997); assert.equal(inv.tax, 1050 + 239); assert.equal(inv.lines.length, 2);
+      // NO6: one head per customer covering both sites and the correction
+      assert.equal(inv.net, 10500 - 500 + 2997); assert.equal(inv.tax, 1000 + 239); assert.equal(inv.lines.length, 3); assert.equal(new Set(inv.lines.map(l => l.site)).size, 2);
+      const list = await a.call(`/api/reports/billing-list?month=${month}&closing=31`); assert.equal(list.status, 200);
+      const row = list.data.rows.find(r => r.customer === C); assert.equal(row.current, inv.total); assert.equal(row.total, row.carried + inv.total); assert.equal(row.state, 'draft');
+      const book = await fetch(base + `/api/reports/billing-list?month=${month}&closing=31&format=xlsx`, { headers: { cookie: a.cookie } });
+      assert.equal(book.status, 200); assert.equal(Buffer.from(await book.arrayBuffer()).subarray(0, 2).toString(), 'PK', 'xlsx is a zip');
       assert.equal((await a.call('/api/billing/run', { month, closing: 31, customers: [C] })).status, 400, 'no double billing');
       assert.equal((await a.call('/api/shipments/delete', { orderNo: s1.data.orderNo })).status, 400, 'billed shipment locked');
       assert.equal((await a.call('/api/shipments/delete', { orderNo: cash.data.orderNo })).status, 200);
       assert.equal((await a.call('/api/receipts', { idempotencyKey: 'x' + tag, date: d, customer: C, bank: 100, bankCode: 'B' + tag, allocations: [{ invoiceId, amount: 100 }] })).status, 400, 'must be issued first');
       const issued = await a.call('/api/invoices/issue', { ids: [invoiceId] }); assert.equal(issued.status, 200);
+      const conf = await a.call(`/api/reports/billing-confirm?month=${month}&closing=31`); assert.equal(conf.data.rows.find(r => r.customer === C).lines.length, 3);
       assert.equal(issued.data.documents[0].total, inv.total);
       // Two concurrent receipts that together exceed the balance: exactly one succeeds.
       const half = inv.total - 1000;
@@ -71,7 +82,12 @@ test('workflow against MySQL business tables', { skip: !url && 'MYSQL_TEST_URL n
       assert.deepEqual([r1.status, r2.status].sort(), [200, 400]);
       const again = await a.call('/api/receipts', { idempotencyKey: r1.status === 200 ? `c1-${tag}` : `c2-${tag}`, date: d, customer: C, bank: half, bankCode: 'B' + tag, allocations: [{ invoiceId, amount: half }] });
       assert.equal(again.data.duplicate, true);
-      const fin = await a.call('/api/receipts', { idempotencyKey: 'f' + tag, date: d, customer: C, bank: 940, fee: 60, bankCode: 'B' + tag, allocations: [{ invoiceId, amount: 1000 }] });
+      // NO17: deposit applied up to its balance, cooperation fee deducted
+      const cu = (await a.call('/api/masters/customers')).data.find(x => x.code === C);
+      assert.equal((await a.call('/api/masters/customers', { mode: 'update', record: { ...cu, deposit: 300 } })).status, 200);
+      assert.equal((await a.call('/api/receipts', { idempotencyKey: 'd' + tag, date: d, customer: C, deposit: 400, bank: 600, bankCode: 'B' + tag, allocations: [{ invoiceId, amount: 1000 }] })).status, 400, 'deposit over balance');
+      const fin = await a.call('/api/receipts', { idempotencyKey: 'f' + tag, date: d, customer: C, bank: 540, fee: 60, coop: 100, deposit: 300, bankCode: 'B' + tag, allocations: [{ invoiceId, amount: 1000 }] });
+      assert.equal((await a.call('/api/receipt-context?customer=' + C)).data.deposit, 0);
       assert.equal(fin.status, 200, JSON.stringify(fin.data));
       assert.equal((await a.call('/api/invoices/' + invoiceId)).data.status, 'paid');
       const rev = await a.call('/api/receipts/reverse', { id: fin.data.id }); assert.equal(rev.status, 200);

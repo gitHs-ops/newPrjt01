@@ -5,7 +5,7 @@ import { rows, one, audit, mapSqlError } from './db.mjs';
 // Accounts referenced by automatic journal patterns. They cannot be deactivated.
 export const SYSTEM_ACCOUNTS = [
   ['1111', '現金'], ['1112', '当座預金'], ['1120', '受取手形'], ['1131', '売掛金'], ['1360', '材料及び貯蔵品'],
-  ['4121', '買掛金'], ['4415', '仮受消費税'], ['8130', '合材売上'], ['8231', '仕入'], ['8330', '雑費'], ['8850', '雑損失'], ['82316', '期末棚卸高'],
+  ['4121', '買掛金'], ['4170', '預り金'], ['4415', '仮受消費税'], ['8130', '合材売上'], ['8231', '仕入'], ['8330', '雑費'], ['8850', '雑損失'], ['82316', '期末棚卸高'],
 ];
 const CODE = /^[0-9A-Za-z\-]+$/;
 const del = active => (active ? '0' : '1');
@@ -19,12 +19,12 @@ export const MASTERS = {
     label: '得意先', table: 'client_m',
     fields: [F('code', '得意先コード', { max: 5, key: true }), F('name', '得意先名', { max: 42 }), F('kana', 'カナ', { max: 25, optional: true }),
       F('closing', '締日', { type: 'int', hint: '1〜28、月末は31' }), F('tel', '電話番号', { max: 14, optional: true }), F('address', '住所', { max: 42, optional: true }),
-      F('opening', '開始売掛残高', { type: 'int', optional: true, hint: '請求作成後は変更不可' }), F('active', '有効', { type: 'bool' })],
-    select: "SELECT c.*, o.amount opening FROM client_m c LEFT JOIN opening_balance o ON o.source_reference=CONCAT('OPEN-AR-',c.customers_cd)",
+      F('opening', '開始売掛残高', { type: 'int', optional: true, hint: '請求作成後は変更不可' }), F('deposit', '預り金残高（開始）', { type: 'int', optional: true, hint: '入金消込で充当できる額（B-06）' }), F('active', '有効', { type: 'bool' })],
+    select: "SELECT c.*, o.amount opening, d.amount deposit FROM client_m c LEFT JOIN opening_balance o ON o.source_reference=CONCAT('OPEN-AR-',c.customers_cd) LEFT JOIN opening_balance d ON d.source_reference=CONCAT('OPEN-ADV-',c.customers_cd)",
     where: 'c.customers_cd=?', keyOf: r => [r.code],
-    decode: r => ({ code: r.customers_cd, name: r.customers_name, kana: r.customers_kana, closing: Number(r.deadline) || 31, tel: r.tel_no, address: r.addr1, opening: Number(r.opening || 0), active: live(r) }),
+    decode: r => ({ code: r.customers_cd, name: r.customers_name, kana: r.customers_kana, closing: Number(r.deadline) || 31, tel: r.tel_no, address: r.addr1, opening: Number(r.opening || 0), deposit: Number(r.deposit || 0), active: live(r) }),
     validate: r => ({ code: text(r.code, '得意先コード', 5, { pattern: CODE }), name: text(r.name, '得意先名', 42), kana: text(r.kana, 'カナ', 25, { required: false }), closing: closingDay(r.closing ?? 31),
-      tel: text(r.tel, '電話番号', 14, { required: false, pattern: /^[0-9\-]+$/ }), address: text(r.address, '住所', 42, { required: false }), opening: yen(r.opening || 0, '開始売掛残高', { negative: true }), active: bool(r.active ?? true) }),
+      tel: text(r.tel, '電話番号', 14, { required: false, pattern: /^[0-9\-]+$/ }), address: text(r.address, '住所', 42, { required: false }), opening: yen(r.opening || 0, '開始売掛残高', { negative: true }), deposit: yen(r.deposit || 0, '預り金残高'), active: bool(r.active ?? true) }),
     async write(c, r, old) {
       if (!old) await c.query("INSERT INTO client_m (customers_cd,customers_name,customers_kana,customers_abr,customers_sec,postcode,tel_no,fax_no,pref,addr1,addr2,customers_pic,pic,deadline,remarks,delete_f,card_member_id) VALUES (?,?,?,'','','',?,'','',?,'','','',?,'',?,'')",
         [r.code, r.name, r.kana, r.tel, r.address, String(r.closing), del(r.active)]);
@@ -34,6 +34,12 @@ export const MASTERS = {
         check(!Number(billed.n), '請求作成後は開始売掛残高を変更できません');
         await c.query("DELETE FROM opening_balance WHERE source_reference=CONCAT('OPEN-AR-',?)", [r.code]);
         if (r.opening) await c.query("INSERT INTO opening_balance (cutover_on,balance_kind,customers_cd,amount,source_reference) VALUES (?,'AR',?,?,CONCAT('OPEN-AR-',?))", [today(), r.code, r.opening, r.code]);
+      }
+      if ((old?.deposit || 0) !== r.deposit) {
+        const used = await one(c, "SELECT COALESCE(SUM(k.amount),0) v FROM receipt_component k JOIN receipt x ON x.receipt_id=k.receipt_id AND x.status='POSTED' WHERE x.customers_cd=? AND k.component_kind='DEPOSIT'", [r.code]);
+        check(r.deposit >= Number(used.v), '充当済みの額より小さい預り金残高にはできません');
+        await c.query("DELETE FROM opening_balance WHERE source_reference=CONCAT('OPEN-ADV-',?)", [r.code]);
+        if (r.deposit) await c.query("INSERT INTO opening_balance (cutover_on,balance_kind,customers_cd,amount,source_reference) VALUES (?,'ADVANCE',?,?,CONCAT('OPEN-ADV-',?))", [today(), r.code, r.deposit, r.code]);
       }
     },
   },

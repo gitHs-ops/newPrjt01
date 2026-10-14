@@ -15,14 +15,14 @@ export function yen(v, label = '金額', { negative = false, max = 1e12 } = {}) 
   return n;
 }
 // Returns {text, scaled} where scaled is BigInt quantity * 100.
-export function qty(v, label = '数量', { max = 99999.99, positive = true } = {}) {
+export function qty(v, label = '数量', { max = 99999.99, positive = true, allowNegative = false } = {}) {
   const s = String(v ?? '').trim();
   check(/^-?\d+(\.\d{1,2})?$/.test(s), `${label}は小数2桁以内の数値で入力してください`);
   const neg = s.startsWith('-'), [a, b = ''] = s.replace('-', '').split('.');
   const scaled = BigInt(a + b.padEnd(2, '0')) * (neg ? -1n : 1n);
   check(Math.abs(Number(s)) <= max, `${label}が範囲外です`);
   if (positive) check(scaled > 0n, `${label}は0より大きい値を入力してください`);
-  else check(scaled >= 0n, `${label}は0以上で入力してください`);
+  else if (!allowNegative) check(scaled >= 0n, `${label}は0以上で入力してください`);
   const abs = (neg ? -scaled : scaled).toString().padStart(3, '0');
   return { text: (neg ? '-' : '') + abs.slice(0, -2) + '.' + abs.slice(-2), scaled };
 }
