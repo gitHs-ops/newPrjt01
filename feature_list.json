@@ -691,6 +691,23 @@
         "배포 a389149: seikyu-web SUCCESS, Edge 63/63 오류 0건, newPrjt01 root /seikyu-preview 유지(/health 200)."
       ],
       "notes": "자료 미수령으로 추정 사양. 추정 내용은 화면 移行・確認事項와 README 5-4에 기재. 의존성 iconv-lite 추가(弥生 Shift_JIS)."
+    },
+    {
+      "id": "seikyu-013",
+      "priority": 1,
+      "area": "seikyu-web",
+      "title": "기능목록 재조사(다른 세션 ○29/△18) 대응 — 불량 수정·현행 장표 형식 정합",
+      "status": "passing",
+      "user_visible_behavior": "청구서 일괄 다운로드·지급 안내서 인쇄 복구, 뒤늦은 입력·정정의 차회 청구 반영과 마이너스 청구서, 미발행 청구서 추가 반영, 고객 회수 사이트별 지불기일, 현행 HAR431/HAR430/청구서 레이아웃(登録番号·振込先), 자사정보·금융기관·부문 마스터, 지급 수수료·상계·안전협력비 공제, 과입금 예수금 처리, 소액현금 정액·보충.",
+      "verification": [
+        "결합 시험 14/14 (재조사 subtest 포함)",
+        "scripts/browser-check.cjs 로컬·배포 (bulk-download, notices.print 회귀 포함)"
+      ],
+      "evidence": [
+        "2026-10-15: 결합 14/14 통과, Edge 로컬 65/65, init.ps1 OK.",
+        "배포 37faa6c: seikyu-web c030e208 SUCCESS, Edge 65/65 오류 0건, newPrjt01 root /seikyu-preview 유지(/health 200). 데모 DB에 가상 登録番号 T0000000000000·振込先 041·金融機関 0000(000/001/002) 등록."
+      ],
+      "notes": "원인: 패치 스크립트의 String.replace로 $$가 $로 바뀌어 NO10·NO48 선택자 파손. 이후 split/join만 사용. 기능목록 48건: ○31 / ○(추정)16 / 대상외1."
     }
   ]
 }
