@@ -1,0 +1,36 @@
+{
+  "date": "2026-10-14",
+  "java": "21.0.10",
+  "spring_boot": "3.5.16",
+  "tests": 15,
+  "failures": 0,
+  "browser": {
+    "passed": true,
+    "flow": [
+      "login",
+      "customer",
+      "item",
+      "shipment",
+      "billing",
+      "issue",
+      "receipt",
+      "reload persistence",
+      "xlsx download",
+      "all navigation",
+      "mobile"
+    ],
+    "pageErrors": [],
+    "mobileOverflow": false
+  },
+  "scope": "migration verification build; production migration incomplete",
+  "not_verified": [
+    "PostgreSQL runtime",
+    "Docker runtime",
+    "production deployment",
+    "accounting import",
+    "bank transfer import",
+    "legacy financial parity",
+    "load testing"
+  ],
+  "data_handling": "No source documents, actual transactions, OCR, account data or credentials included."
+}

@@ -1,0 +1,2 @@
+if(new URLSearchParams(location.search).has('error'))document.querySelector('#login-error').textContent='ユーザー名またはパスワードが違います。';
+fetch('/login',{headers:{Accept:'application/json'}}).then(r=>{if(!r.ok)throw Error();return r.json()}).then(t=>{document.querySelector('#csrf').value=t.token;document.querySelector('#login-submit').disabled=false}).catch(()=>document.querySelector('#login-error').textContent='接続できません。ページを再読込してください。');

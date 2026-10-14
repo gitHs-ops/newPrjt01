@@ -1,6 +1,6 @@
 {
   "project": "newPrjt01",
-  "last_updated": "2026-09-02",
+  "last_updated": "2026-10-14",
   "description": "빌드 단계가 없는 정적 HTML 앱. ① 로그인 데모(계정은 localStorage, 비밀번호는 PBKDF2-SHA256 해시) ② 진로상담 분석(1차 리서치 → 2차 진로 가설, 결과는 localStorage 보존 + md 파일 저장). AI 호출은 프록시 경유이며 프록시가 서버사이드 web_search 로 공식자료를 조회한다. 프록시 배포·API 키와 옵시디언 연동은 추후 결정 사항이다.",
   "rules": {
     "single_active_feature": true,
@@ -457,6 +457,26 @@
         ".\\init.ps1 baseline 68개 항목 전부 [OK] 유지(수정 전후 모두 통과)"
       ],
       "notes": "계획서: C:\\Users\\user\\.claude\\plans\\goofy-rolling-whistle.md. Phase A(무스트리밍 패리티+모델고정+캐싱)·B(SSE 스트리밍) 완료. Phase C(GAS 로그 전용 경로)·D([연결 설정] 기본값 전환, 구경로 retired 표시)는 미착수 — 지금은 사용자가 [연결 설정]에서 새 백엔드 URL을 수동으로 넣어야만 켜진다. newPrjt01-backend 는 init.ps1 재귀 스캔·node_modules 오염을 피하려 이 저장소 밖에 둔 별도 프로젝트라 여기 커밋에는 안 잡힌다."
+    },
+    {
+      "id": "seikyu-001",
+      "priority": 1,
+      "area": "seikyu",
+      "title": "Java 청구·입금 업무 검증판과 배포 패키지 보관",
+      "user_visible_behavior": "별도 seikyu 폴더에 Java 소스, 테스트, 실행 JAR 패키지와 미완료 범위를 제공한다. 실제 서버 배포는 사용자 요청으로 보류한다.",
+      "status": "passing",
+      "verification": [
+        "Maven verify",
+        "실브라우저 청구·입금 흐름",
+        "패키지 해시·압축 검사",
+        "기존 init.ps1"
+      ],
+      "evidence": [
+        "2026-10-14: Spring Boot 통합 테스트 15건 통과(실제 로그인, CSRF, 권한, 소거 초과, 전체 롤백, 재고, 동시수정, 발행 당시 명칭 보존).",
+        "2026-10-14: Edge에서 로그인→마스터→출하→청구→발행→소거→재조회→XLSX 다운로드 및 모바일 가로 넘침 검증.",
+        "2026-10-14: seikyu/validation.json 및 distribution/SHA256SUMS.txt 기록."
+      ],
+      "notes": "AS400 전체 이행 완료를 의미하지 않음. 楽々FrameworkⅡ 미적용. 회계·은행 연계, JV·배합, 공식 이행/잔액 대조/부가 기능은 미완료. 원본 자료·실데이터 공개 업로드 제외."
     }
   ]
 }
