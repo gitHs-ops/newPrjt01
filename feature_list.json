@@ -619,6 +619,24 @@
         "배포 7444487: https://seikyu-web-production.up.railway.app Edge 37/37 오류 0건, 운영 seikyu_web DB 기존 현장 단위 헤더 18건 고객 단위 변환, 분개 대차 0."
       ],
       "notes": "NO6 고객 단위는 사용자 결정(2026-10-15). 協力会費 처세율은 141로 임시 설정(Q04), 預り金은 개시 잔액만(Q11). 정정 전표는 sales_no로 원전표 연결."
+    },
+    {
+      "id": "seikyu-009",
+      "priority": 1,
+      "area": "seikyu-web",
+      "title": "기능목록 ② 자동 분개 리스트 장표 형식 Excel (NO8·18·28·31·34·38·39)",
+      "status": "passing",
+      "user_visible_behavior": "仕訳・会計連携 → 自動仕訳リスト（帳票）에서 7종 리스트를 현행 장표와 같은 차대 병기 형식으로 화면·인쇄·Excel 출력한다.",
+      "verification": [
+        "seikyu-web 결합 시험 ② (전표 차대 일치·합계·B01 적요·은행별 지급·xlsx)",
+        "scripts/browser-check.cjs (로컬·배포 7종)",
+        "openpyxl 파싱"
+      ],
+      "evidence": [
+        "2026-10-15: 결합 시험 8/8 통과. openpyxl로 B01·C01·은행별 xlsx 파싱(경고 없음).",
+        "배포 af98bc0: seikyu-web db3c02e0 SUCCESS, Edge 44/44 오류 0건. newPrjt01 root /seikyu-preview 유지, /health 200."
+      ],
+      "notes": "형식 근거: 帳票一覧⑥⑦, 添付帳票⑨, 9/17 資料ア〜エ OCR. 1전표=1원전표(현행 売掛金計上은 마감일 일괄·분할, Q08). NO20 회계 연계 CSV는 수신 형식 미확정(Q14/Q19)."
     }
   ]
 }

@@ -1005,3 +1005,10 @@ Deployment a617173a-0217-4671-b54a-0adc2a5c869d succeeded (5e1c817). Live Edge f
 ## 2026-10-15 — 배포 폴더 고정 규칙 (사용자 지시)
 
 **newPrjt01 서비스의 Root Directory를 /seikyu-web으로 되돌리지 말 것.** newPrjt01 = `/seikyu-preview`(예전 데모) 고정, 신규 시스템은 서비스 `seikyu-web`(Root `/seikyu-web`, DB `seikyu_web`)에만 배포·검증한다. 확인 시점 상태: newPrjt01 `/seikyu-preview` SUCCESS(14b77b7), seikyu-web `/seikyu-web` SUCCESS. 루트 변경용 임시 스크립트는 삭제했다.
+
+## 2026-10-15 — 기능목록 ② 자동 분개 리스트 (seikyu-009)
+
+- 현행 장표(HAR363⑦·HAR413⑥·⑨·HAR152ア·HAR733イ·CS5785ウ)와 같은 차대 병기 형식(부·과목·내역1·처세율·금액·적요1/2, 전표 합계·일자 합계) 6종 + 銀行別随時支払一覧表エ(HAR321, 지급일별 업체 일람). 화면·A4 가로 인쇄·xlsx. 위치: 仕訳・会計連携 → 自動仕訳リスト（帳票）.
+- 비과세 측 분개에 처세율 9 설정(재고·買掛金 대변·지급), 분개 패턴 분석과 일치.
+- 검증: 결합 8/8, openpyxl 파싱, Edge 로컬·배포 44/44. 커밋 af98bc0, seikyu-web 배포 SUCCESS, newPrjt01 root /seikyu-preview 유지 확인.
+다음: ③ 지급 장표(NO37 전은 포맷, 45~48).
