@@ -131,6 +131,26 @@ test('workflow against MySQL business tables', { skip: !url && 'MYSQL_TEST_URL n
       assert.equal(Buffer.from(await x.arrayBuffer()).subarray(0, 2).toString(), 'PK');
       assert.equal((await a.call('/api/reports/journal-list?pattern=ZZ&from=2026-01-01&to=2026-01-31')).status, 400);
     });
+    await t.test('③ zengin transfer data and payment reports', async () => {
+      const bk = (await a.call('/api/masters/banks')).data.find(x => x.code === 'B' + tag);
+      assert.equal((await a.call('/api/masters/banks', { mode: 'update', record: { ...bk, zgBank: '0001', zgBranch: '100', zgType: '2', zgAccount: '7777777', zgCode: '1234567890', zgName: '山田' } })).status, 400, 'kanji requester name rejected');
+      assert.equal((await a.call('/api/masters/banks', { mode: 'update', record: { ...bk, zgBank: '0001', zgBranch: '100', zgType: '2', zgAccount: '7777777', zgCode: '1234567890', zgName: 'さんぷるけんざい' } })).status, 200);
+      const z = await a.call('/api/reports/zengin?' + new URLSearchParams({ date: d, bank: 'B' + tag }));
+      assert.equal(z.status, 200); assert.deepEqual(z.data.errors, []); assert.equal(z.data.count, 1); assert.equal(z.data.total, 50000);
+      assert.ok(z.data.records.every(r => r.length === 120)); assert.ok(z.data.records[0].includes('ｻﾝﾌﾟﾙｹﾝｻﾞｲ'));
+      const file = await fetch(base + '/api/reports/zengin?' + new URLSearchParams({ date: d, bank: 'B' + tag, format: 'file' }), { headers: { cookie: a.cookie } });
+      const bytes = Buffer.from(await file.arrayBuffer()); assert.equal(file.status, 200); assert.equal(bytes.length, 4 * 122); assert.equal(bytes[0], 0x31);
+      const vp = await a.call('/api/reports/payments/vendor-payments?' + new URLSearchParams({ from: pm + '-01', to: d }));
+      assert.ok(vp.data.vendors.some(v => v.vendor === 'V' + tag && v.total === 50000));
+      const tr = await a.call('/api/reports/payments/transfer-request?date=' + d); assert.ok(tr.data.groups.some(g => g.rows.some(r => r.vendor === 'V' + tag)));
+      assert.equal((await a.call('/api/reports/payments/carryover?date=' + d)).status, 200);
+      const nt = await a.call('/api/reports/payments/notices?date=' + d); const n = nt.data.notices.find(x => x.vendor === 'V' + tag);
+      assert.equal(n.total, 50000); assert.equal(n.docs[0].paid, 50000); assert.equal(n.carry.total, 0);
+      for (const k of ['vendor-payments', 'transfer-request', 'carryover', 'notices']) {
+        const x = await fetch(base + '/api/reports/payments/' + k + '?' + new URLSearchParams({ date: d, from: pm + '-01', to: d, format: 'xlsx' }), { headers: { cookie: a.cookie } });
+        assert.equal(Buffer.from(await x.arrayBuffer()).subarray(0, 2).toString(), 'PK', k);
+      }
+    });
     const raw = await fetch(base + '/api/export/journals?month=' + month, { headers: { cookie: a.cookie } }); const bytes = new Uint8Array(await raw.arrayBuffer());
     assert.equal(raw.status, 200); assert.deepEqual([...bytes.slice(0, 3)], [0xef, 0xbb, 0xbf], 'CSV has UTF-8 BOM for Excel');
   } finally {

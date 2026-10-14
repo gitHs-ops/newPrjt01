@@ -408,11 +408,60 @@ VIEWS.payments = async q => {
     onSubmit: async v => { const allocations = $$('.py-amt').map(x => ({ expenseId: Number(x.dataset.id), amount: Number(x.value) || 0 })).filter(a => a.amount > 0);
       const r = await post('/api/payments', { ...v, allocations, idempotencyKey: key }); toast(`支払 ${r.no} を登録しました（仕訳 F01）`); render(); } }); };
   A.rev = d => confirmBox('支払の取消', `支払 ${d.no} を取消し、逆仕訳を計上します。`, () => post('/api/payments/reverse', { id: Number(d.id) }).then(() => { toast('取消しました'); render(); }), '取消する');
+  A.prep = d => paymentReport(d.kind).catch(e => toast(e.message, true)); A.zengin = () => zenginDialog().catch(e => toast(e.message, true));
   return page('支払', '定時請求（買掛金）に対する振込支払を登録します（payment / payment_allocation）。', `${monthInput('month', month)}${csvLink('payments', { month })}${canWrite() ? '<button class="primary" data-act="new">＋ 支払登録</button>' : ''}`,
     `<section class="card glass">${table([{ label: '支払No', value: r => r.no }, { label: '支払日', value: r => r.date }, { label: '業者', value: r => r.vendorName }, { label: '支払額', num: 1, value: r => yen(r.amount) }, { label: '支払元', value: r => nameOf('banks', r.fromBank) },
       { label: '振込先', value: r => r.payee ? `${r.payee.bank}-${r.payee.branch} ${r.payee.account}` : '未登録' }, { label: '対象伝票', value: r => r.allocations.map(a => a.no).join(', ') }, { label: '状態', html: r => status(r.status) },
-      { label: '', html: r => canWrite() && r.status === 'POSTED' ? `<button class="mini danger" data-act="rev" data-id="${r.id}" data-no="${esc(r.no)}">取消</button>` : '' }], list, { rowClass: r => r.status === 'REVERSED' ? 'reversed' : '' })}</section>`);
+      { label: '', html: r => canWrite() && r.status === 'POSTED' ? `<button class="mini danger" data-act="rev" data-id="${r.id}" data-no="${esc(r.no)}">取消</button>` : '' }], list, { rowClass: r => r.status === 'REVERSED' ? 'reversed' : '' })}</section>${paymentReportsCard()}`);
 };
+
+// ③ 支払帳票（NO37 全銀データ・NO45〜48）
+function paymentReportsCard() {
+  const lastDay = new Date(Date.UTC(+thisMonth().slice(0, 4), +thisMonth().slice(5, 7), 0)).toISOString().slice(0, 10);
+  return `<section class="card glass"><div class="card-head"><h2>支払帳票・支払データ（NO37・45〜48）</h2><span class="muted small">画面表示・印刷・Excel出力。全銀データは固定長120バイト・Shift_JIS</span></div>
+    <div class="filters"><label class="field">支払日／基準日<input type="date" id="pr-date" value="${today()}"></label><label class="field">期間（開始）<input type="date" id="pr-from" value="${thisMonth()}-01"></label><label class="field">期間（終了）<input type="date" id="pr-to" value="${lastDay}"></label>
+      <label class="field">振込元口座<select id="pr-bank">${options(active('banks'), active('banks')[0]?.code)}</select></label></div>
+    <div class="filters" style="margin-top:10px"><button data-act="zengin">NO37 支払データ作成（全銀）</button><button data-act="prep" data-kind="vendor-payments">NO45 業者別支払内訳表</button>
+      <button data-act="prep" data-kind="transfer-request">NO46 振込依頼書</button><button data-act="prep" data-kind="carryover">NO47 支払繰越一覧表</button><button data-act="prep" data-kind="notices">NO48 支払案内書</button></div>
+    <p class="muted small">NO45 は期間、NO46・NO48 は支払日、NO47 は基準日時点の未払残高を計上月で区分します。全銀データの振込元（依頼人コード・口座）はマスタ管理 → 銀行で設定し、振込先は業者マスタの口座（受取人名は半角カナ）を使います。</p></section>`;
+}
+const acctText = p => (p ? `${esc(p.bank)}-${esc(p.branch)} ${esc(p.typeName)} ${esc(p.account)}` : '<span class="check-ng">振込先未登録</span>');
+async function paymentReport(kind) {
+  const date = $('#pr-date').value, from = $('#pr-from').value, to = $('#pr-to').value;
+  const params = kind === 'vendor-payments' ? { from, to } : { date };
+  const url = `/api/reports/payments/${kind}?${qs(params)}`, d = await api(url);
+  let body = '';
+  if (kind === 'vendor-payments') body = d.vendors.length ? d.vendors.map(v => `<h3 style="margin:10px 0 4px">${esc(v.vendor)} ${esc(v.name)}</h3>` + table([{ label: '支払日', value: r => r.date }, { label: '支払No', value: r => r.no }, { label: '支払方法', value: r => r.method },
+    { label: '振込額', num: 1, value: r => yen(r.bank) }, { label: '手数料', num: 1, value: r => yen(r.fee) }, { label: '相殺（前払金・立替金）', num: 1, value: r => yen(r.offset) }, { label: '支払額', num: 1, value: r => yen(r.paid) }, { label: '振込先', html: r => acctText(r.payee) }, { label: '対象伝票', value: r => r.docs }],
+    v.rows, { foot: ['業者計', '', '', '', '', '', yen(v.total), '', ''] })).join('') + `<p class="right"><b>総合計 ${yen(d.total)} 円</b></p>` : '<div class="empty">期間内の支払はありません</div>';
+  if (kind === 'transfer-request') body = d.groups.length ? `<p>依頼人: ${esc(d.company)} ／ 振込指定日: <b>${esc(d.date)}</b></p>` + d.groups.map(g => `<h3 style="margin:10px 0 4px">振込元口座 ${esc(g.fromBank)} ${esc(g.fromBankName)}</h3>` + table([{ label: '業者CD', value: r => r.vendor }, { label: '業者名', value: r => r.name },
+    { label: '振込銀行', html: r => r.payee ? esc(r.payee.bank) : '<span class="check-ng">未登録</span>' }, { label: '支店', value: r => r.payee?.branch || '' }, { label: '種目', value: r => r.payee?.typeName || '' }, { label: '口座番号', value: r => r.payee?.account || '' }, { label: '受取人', value: r => r.payee?.holder || '' }, { label: '金額', num: 1, value: r => yen(r.amount) }],
+    g.rows, { foot: ['件数 ' + g.rows.length, '', '', '', '', '', '合計', yen(g.total)] })).join('') : '<div class="empty">この振込指定日の支払はありません</div>';
+  if (kind === 'carryover') { const m = d.months, t = d.totals; body = `<p>基準日 <b>${esc(d.date)}</b> 時点の未払残高（定時請求の計上月で区分）</p>` + table([{ label: '業者', value: r => `${r.vendor} ${r.name}` }, { label: m.m3, num: 1, value: r => yen(r.m3) }, { label: m.m2, num: 1, value: r => yen(r.m2) }, { label: m.m1, num: 1, value: r => yen(r.m1) }, { label: m.m0, num: 1, value: r => yen(r.m0) },
+    { label: '支払繰越合計', num: 1, value: r => yen(r.total) }, { label: '相殺繰越額', num: 1, value: r => yen(r.offset) }, { label: '差引繰越額', num: 1, value: r => yen(r.net) }], d.vendors, { empty: '未払残高はありません', foot: ['合計', yen(t.m3), yen(t.m2), yen(t.m1), yen(t.m0), yen(t.total), yen(t.offset), yen(t.net)] }); }
+  if (kind === 'notices') { const m = d.months; body = d.notices.length ? d.notices.map(n => `<div class="notice-doc"><h3>支払案内書</h3><p><b>${esc(n.name)} 御中</b>（${esc(n.vendor)}）</p><p class="right">${esc(d.company.name)}<br>${esc(d.company.address)}　TEL ${esc(d.company.tel)}</p>
+      <p>下記のとおりお支払いいたしましたのでご案内申し上げます。</p>
+      <table><tr><th>支払日</th><th>支払合計額</th><th>振込額</th><th>振込手数料</th><th>振込先</th></tr><tr><td>${esc(d.date)}</td><td class="num">${yen(n.total)}</td><td class="num">${yen(n.bank)}</td><td class="num">${yen(n.fee)}</td><td>${acctText(n.payee)}</td></tr></table>
+      ${table([{ label: '伝票No', value: x => x.no }, { label: '計上日', value: x => x.date }, { label: '摘要', value: x => x.memo }, { label: '請求額', num: 1, value: x => yen(x.gross) }, { label: '今回支払額', num: 1, value: x => yen(x.paid) }], n.docs)}
+      <p class="small"><b>支払繰越（支払後の未払残高）</b></p><table><tr><th>${esc(m.m3)}</th><th>${esc(m.m2)}</th><th>${esc(m.m1)}</th><th>${esc(m.m0)}</th><th>合計</th></tr><tr><td class="num">${yen(n.carry.m3)}</td><td class="num">${yen(n.carry.m2)}</td><td class="num">${yen(n.carry.m1)}</td><td class="num">${yen(n.carry.m0)}</td><td class="num">${yen(n.carry.total)}</td></tr></table></div>`).join('')
+    : '<div class="empty">この支払日の支払はありません</div>'; }
+  const perPage = kind === 'notices';
+  modal({ title: `${d.title}（${d.ref}）`, wide: true, body: `<div class="filters" style="margin-bottom:10px"><a class="button" href="${url}&format=xlsx" download>⇩ Excel</a><button type="button" id="pr-print">🖨 印刷</button></div><div id="pr-body">${body}</div>`,
+    onOpen: () => $('#pr-print').addEventListener('click', () => {
+      $('#print-area').innerHTML = perPage ? [...$('#pr-body .notice-doc')].map(x => `<section class="invoice-doc report-doc">${x.innerHTML}</section>`).join('')
+        : `<section class="invoice-doc report-doc journal-doc"><h2>${esc(d.title)}</h2><p>${esc(d.ref)} ／ 出力日 ${today()}</p>${$('#pr-body').innerHTML}</section>`;
+      setTimeout(() => window.print(), 200);
+    }) });
+}
+async function zenginDialog() {
+  const date = $('#pr-date').value, bank = $('#pr-bank').value, url = '/api/reports/zengin?' + qs({ date, bank }), d = await api(url);
+  modal({ title: `NO37 支払データ作成（全銀・総合振込）${date}`, wide: true, body: `
+    <div class="grid3"><div class="sum-line"><span>振込元口座</span><b>${esc(d.bank)} ${esc(d.bankName)}</b></div><div class="sum-line"><span>件数</span><b>${d.count}</b></div><div class="sum-line"><span>合計金額</span><b>${yen(d.total)}</b></div></div>
+    ${d.errors.length ? `<div class="note warn" style="margin:10px 0"><b>作成できません</b><ul class="list">${d.errors.map(e => `<li>${esc(e)}</li>`).join('')}</ul></div>` : '<div class="note" style="margin:10px 0">全銀フォーマット（固定長120バイト×レコード、Shift_JIS、CRLF）で作成できます。ダウンロード後、銀行のEB/インターネットバンキングに取り込んでください。</div>'}
+    ${table([{ label: '業者', value: r => r.label }, { label: '振込先', value: r => `${r.bank || '-'}-${r.branch || '-'} ${r.typeName} ${r.account || ''}` }, { label: '受取人名', value: r => r.holder }, { label: '金額', num: 1, value: r => yen(r.amount) }, { label: '支払No', value: r => r.nos.join(' ') }], d.transfers, { empty: '対象の支払がありません' })}
+    <h3 style="margin-top:12px">レコードプレビュー</h3><pre class="zengin-pre">${d.records.map(r => esc(r)).join('\n')}</pre>
+    <div class="filters" style="margin-top:10px">${!d.errors.length && canWrite() ? `<a class="button primary" href="${url}&format=file" download>⇩ 全銀データをダウンロード</a>` : ''}</div>` });
+}
 
 // ----- 仕訳・会計連携 -----
 VIEWS.journals = async q => {

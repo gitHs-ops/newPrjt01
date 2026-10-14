@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { check, Conflict, text, bool, yen, closingDay, isoDate, today, parseCsv } from './domain.mjs';
 import { rows, one, audit, mapSqlError } from './db.mjs';
+import { toZenginKana, zenginInvalid } from './zengin.mjs';
 
 // Accounts referenced by automatic journal patterns. They cannot be deactivated.
 export const SYSTEM_ACCOUNTS = [
@@ -94,13 +95,30 @@ export const MASTERS = {
   },
   banks: {
     label: '銀行（当座預金内訳）', table: 'code_m',
-    fields: [F('code', '銀行内訳コード', { max: 12, key: true }), F('name', '銀行名', { max: 40 }), F('active', '有効', { type: 'bool' })],
-    select: "SELECT * FROM code_m WHERE code_key='BANK'", where: 'code_dtl=?', keyOf: r => [r.code],
-    decode: r => ({ code: r.code_dtl, name: r.code_dtl_nam, active: r.category1 !== '0' }),
-    validate: r => ({ code: text(r.code, '銀行内訳コード', 12, { pattern: CODE }), name: text(r.name, '銀行名', 40), active: bool(r.active ?? true) }),
+    fields: [F('code', '銀行内訳コード', { max: 12, key: true }), F('name', '銀行名', { max: 40 }),
+      F('zgBank', '振込元 銀行番号(4桁)', { max: 4, optional: true, hint: '全銀データ作成用（NO37）' }), F('zgBranch', '振込元 支店番号(3桁)', { max: 3, optional: true }),
+      F('zgType', '振込元 預金種目', { type: 'select', options: [['1', '普通'], ['2', '当座'], ['4', '貯蓄']], optional: true }), F('zgAccount', '振込元 口座番号(7桁以内)', { max: 7, optional: true }),
+      F('zgCode', '振込依頼人コード(10桁)', { max: 10, optional: true, hint: '銀行から付与されるコード' }), F('zgName', '振込依頼人名（カナ）', { max: 40, optional: true, hint: '半角カナに自動変換' }),
+      F('active', '有効', { type: 'bool' })],
+    select: "SELECT b.*, z.code_dtl_nam zg_name, z.code_dtl_abr zg_code, z.category1 zg_bank, z.category2 zg_branch_type, z.category3 zg_account FROM code_m b LEFT JOIN code_m z ON z.code_key='ZGN' AND z.code_dtl=b.code_dtl WHERE b.code_key='BANK'",
+    where: 'b.code_dtl=?', keyOf: r => [r.code],
+    decode: r => ({ code: r.code_dtl, name: r.code_dtl_nam, zgBank: r.zg_bank || '', zgBranch: (r.zg_branch_type || '').slice(0, 3), zgType: (r.zg_branch_type || '').slice(3, 4) || '1', zgAccount: r.zg_account || '', zgCode: r.zg_code || '', zgName: r.zg_name || '', active: r.category1 !== '0' }),
+    validate: r => {
+      const v = { code: text(r.code, '銀行内訳コード', 12, { pattern: CODE }), name: text(r.name, '銀行名', 40), zgBank: String(r.zgBank || '').trim(), zgBranch: String(r.zgBranch || '').trim(), zgType: String(r.zgType || '1'),
+        zgAccount: String(r.zgAccount || '').trim(), zgCode: String(r.zgCode || '').trim(), zgName: toZenginKana(String(r.zgName || '').trim()), active: bool(r.active ?? true) };
+      if (v.zgBank || v.zgBranch || v.zgAccount || v.zgCode || v.zgName.trim()) {
+        check(/^\d{4}$/.test(v.zgBank) && /^\d{3}$/.test(v.zgBranch) && /^\d{1,7}$/.test(v.zgAccount) && ['1', '2', '4'].includes(v.zgType), '振込元は銀行4桁・支店3桁・預金種目・口座番号（7桁以内）をすべて入力してください');
+        check(/^\d{10}$/.test(v.zgCode), '振込依頼人コードは10桁の数字です');
+        check(v.zgName.trim() && v.zgName.length <= 40 && !zenginInvalid(v.zgName).length, '振込依頼人名は全銀で使える文字（カナ・英大文字・数字）で40文字以内にしてください');
+      }
+      return v;
+    },
     async write(c, r, old) {
       if (!old) await c.query("INSERT INTO code_m (code_key,code_key_nam,code_dtl,code_dtl_nam,code_dtl_abr,category1,category2,category3) VALUES ('BANK','銀行内訳',?,?,'',?,'','')", [r.code, r.name, r.active ? '1' : '0']);
       else await c.query("UPDATE code_m SET code_dtl_nam=?,category1=? WHERE code_key='BANK' AND code_dtl=?", [r.name, r.active ? '1' : '0', r.code]);
+      // 全銀 payer settings live in code_m key ZGN (same code_dtl): name / requester code / bank / branch+type / account.
+      await c.query("DELETE FROM code_m WHERE code_key='ZGN' AND code_dtl=?", [r.code]);
+      if (r.zgBank) await c.query("INSERT INTO code_m (code_key,code_key_nam,code_dtl,code_dtl_nam,code_dtl_abr,category1,category2,category3) VALUES ('ZGN','全銀振込元',?,?,?,?,?,?)", [r.code, r.zgName, r.zgCode, r.zgBank, r.zgBranch + r.zgType, r.zgAccount]);
       // Bank codes are the sub-accounts of 1112 used in journal lines.
       await c.query("INSERT INTO account_subsubject (account_code,sub_code,sub_name,active) VALUES ('1112',?,?,?) ON DUPLICATE KEY UPDATE sub_name=VALUES(sub_name),active=VALUES(active)", [r.code, r.name.slice(0, 100), r.active]);
     },
@@ -115,7 +133,7 @@ export const MASTERS = {
     decode: r => ({ id: r.vendor_id, code: r.vendor_code, name: r.vendor_name, bank: r.bank_code || '', branch: r.branch_code || '', accountType: r.account_type_code || '1', account: r.account_number || '', holder: r.holder_name || '', active: !!r.active }),
     validate: r => {
       const v = { code: text(r.code, '業者コード', 20, { pattern: CODE }), name: text(r.name, '業者名', 200), bank: String(r.bank || '').trim(), branch: String(r.branch || '').trim(),
-        accountType: String(r.accountType || '1'), account: String(r.account || '').trim(), holder: String(r.holder || '').trim(), active: bool(r.active ?? true) };
+        accountType: String(r.accountType || '1'), account: String(r.account || '').trim(), holder: toZenginKana(String(r.holder || '').trim()), active: bool(r.active ?? true) };
       if (v.bank || v.branch || v.account || v.holder) check(/^\d{4}$/.test(v.bank) && /^\d{3}$/.test(v.branch) && /^\d{1,16}$/.test(v.account) && v.holder && v.holder.length <= 200 && ['1', '2', '4'].includes(v.accountType), '振込先は銀行4桁・支店3桁・口座番号・受取人・預金種別をすべて入力してください');
       return v;
     },

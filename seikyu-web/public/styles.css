@@ -198,3 +198,7 @@ tr.subtotal td { background: rgba(238,242,255,.6); font-size: 12px; }
 .journal-doc { page: wide; }
 @page wide { size: A4 landscape; margin: 0; }
 @media print { .journal-doc { padding: 8mm; } }
+
+.zengin-pre { font: 11px/1.4 Consolas, "MS Gothic", monospace; background: rgba(15,23,42,.04); padding: 8px; border-radius: 8px; overflow-x: auto; white-space: pre; }
+.notice-doc { border-top: 1px dashed var(--field-border); padding-top: 10px; margin-top: 10px; }
+.notice-doc table td, .notice-doc table th { border: 1px solid rgba(148,163,184,.3); }

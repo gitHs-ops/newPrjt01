@@ -65,6 +65,13 @@ const base = process.env.BASE_URL, out = process.env.OUT_DIR || '.';
         const ok = await page.$eval('#content', el => !el.innerText.includes('読み込みエラー') && !!el.querySelector('#jl-body table, #jl-body .empty'));
         results.push({ view: 'list.' + list, ok }); if (list === 'B01' || list === 'BANK') await page.screenshot({ path: `${out}/web-list-${list}.png`, fullPage: true });
       }
+      // ③ 支払帳票・全銀データ（表示のみ）
+      await page.evaluate(() => (location.hash = 'payments')); await page.waitForFunction(() => document.querySelector('#content').dataset.view === 'payments' && !document.querySelector('#content.busy'), null, { timeout: 60000 });
+      for (const kind of ['vendor-payments', 'transfer-request', 'carryover', 'notices']) {
+        await page.click(`[data-act=prep][data-kind=${kind}]`); await page.waitForSelector('dialog[open] #pr-body', { timeout: 60000 });
+        results.push({ view: 'pay.' + kind, ok: !!(await page.$('#pr-body table, #pr-body .empty, #pr-body .notice-doc')) }); if (kind === 'notices') await page.screenshot({ path: `${out}/web-pay-${kind}.png` }); await page.click('#modal-x');
+      }
+      await page.click('[data-act=zengin]'); await page.waitForSelector('dialog[open] .zengin-pre', { timeout: 60000 }); await page.screenshot({ path: `${out}/web-zengin.png` }); results.push({ view: 'pay.zengin', ok: true }); await page.click('#modal-x');
       await page.evaluate(() => (location.hash = 'shipments')); await page.waitForFunction(() => document.querySelector('#content').dataset.view === 'shipments' && !document.querySelector('#content.busy'), null, { timeout: 60000 });
       const corr = await page.$('[data-act=correct]'); if (corr) { await corr.click(); await page.waitForSelector('dialog[open] input[name=quantity]'); await page.screenshot({ path: `${out}/web-correction.png` }); results.push({ view: 'correction.form', ok: true }); await page.click('#modal-x'); }
     }

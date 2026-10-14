@@ -10,6 +10,7 @@ import * as L from './ledger.mjs';
 import * as U from './users.mjs';
 import * as X from './reports.mjs';
 import * as J from './journal-lists.mjs';
+import * as PR from './payment-reports.mjs';
 
 const COOKIE = 'aplink_sid';
 const MIME = { html: 'text/html; charset=utf-8', js: 'text/javascript; charset=utf-8', css: 'text/css; charset=utf-8', json: 'application/json; charset=utf-8', svg: 'image/svg+xml' };
@@ -35,6 +36,12 @@ export async function createApp({ pool, publicDir, secureCookies = process.env.N
   route('GET', '/api/open-invoices', 'read', x => db(c => S.openInvoices(c, x.q.customer)));
   route('GET', '/api/reports/journal-list', 'read', x => x.q.format === 'xlsx' ? db(c => J.journalListBook(c, x.q)).then(b => ({ file: b })) : db(c => J.journalList(c, x.q)));
   route('GET', '/api/reports/bank-payments', 'read', x => x.q.format === 'xlsx' ? db(c => J.bankPaymentBook(c, x.q)).then(b => ({ file: b })) : db(c => J.bankPaymentList(c, x.q)));
+  route('GET', '/api/reports/zengin', 'read', x => { if (x.q.format === 'file' && ![1, 2].includes(x.user.role)) throw new Forbidden('参照者は支払データを作成できません'); return db(c => PR.zenginData(c, x.q, x)); });
+  route('GET', '/api/reports/payments/:kind', 'read', x => {
+    const fn = { 'vendor-payments': PR.vendorPayments, 'transfer-request': PR.transferRequest, carryover: PR.payableCarryover, notices: PR.paymentNotices }[x.params.kind];
+    if (!fn) throw new DomainError('帳票の種類が不正です');
+    return x.q.format === 'xlsx' ? db(c => PR.paymentBook(c, x.params.kind, x.q)).then(b => ({ file: b })) : db(c => fn(c, x.q));
+  });
   route('GET', '/api/receipt-context', 'read', x => db(c => S.receiptContext(c, x.q.customer)));
   route('GET', '/api/reports/billing-list', 'read', x => x.q.format === 'xlsx' ? db(c => X.billingListBook(c, x.q)).then(b => ({ file: b })) : db(c => S.billingList(c, x.q)));
   route('GET', '/api/reports/billing-confirm', 'read', x => x.q.format === 'xlsx' ? db(c => X.billingConfirmBook(c, x.q)).then(b => ({ file: b })) : db(c => S.billingConfirm(c, x.q)));
@@ -121,7 +128,7 @@ export async function createApp({ pool, publicDir, secureCookies = process.env.N
           if (r.perm === 'write' && ![1, 2].includes(user.role)) throw new Forbidden('参照者は登録・変更できません');
           if (r.perm === 'admin' && user.role !== 1) throw new Forbidden('管理者のみ実行できます');
           const result = await r.fn({ params: Object.fromEntries(Object.entries(m.groups || {}).map(([k, v]) => [k, decodeURIComponent(v)])), q: Object.fromEntries(url.searchParams), body, user, requestId });
-          if (result?.file) return send(200, result.file.body, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', { 'Content-Disposition': `attachment; filename="report.xlsx"; filename*=UTF-8''${encodeURIComponent(result.file.name)}` });
+          if (result?.file) return send(200, result.file.body, result.file.type || 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', { 'Content-Disposition': `attachment; filename="${result.file.name.endsWith('.txt') ? 'zengin.txt' : 'report.xlsx'}"; filename*=UTF-8''${encodeURIComponent(result.file.name)}` });
           if (result && typeof result.csv === 'string') return send(200, result.csv, 'text/csv; charset=utf-8', { 'Content-Disposition': `attachment; filename="${result.name.replace(/[^\w.\-]/g, '_')}"` });
           return send(200, result ?? { ok: true });
         }
