@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="light">
+<meta name="theme-color" content="#eef2ff">
+<title>APLink 請求・入金管理</title>
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.css">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;800&family=Noto+Sans+JP:wght@400;500;700&display=swap">
+<link rel="stylesheet" href="/styles.css">
+<script type="module" src="/app.js"></script>
+</head>
+<body>
+<aside class="sidebar glass" aria-label="サイドバー">
+  <a href="#dashboard" class="brand"><span class="brand-mark">A</span><span><b>APLink</b><small>請求・入金管理システム</small></span></a>
+  <nav id="navigation" aria-label="メインメニュー"></nav>
+  <div class="sidebar-foot"><span class="status-dot"></span>MySQL 業務テーブル接続<br><span id="app-version"></span></div>
+</aside>
+<div class="shell">
+  <header class="topbar glass">
+    <div style="display:flex;align-items:center;gap:10px"><button class="menu-toggle mini" id="menu-toggle" aria-label="メニュー">☰</button><div class="breadcrumb">APLink <span>/</span> <b id="crumb">ダッシュボード</b></div></div>
+    <div class="top-actions">
+      <button class="quiet mini" id="refresh" title="再読込">↻ 再読込</button>
+      <span class="avatar" id="avatar">A</span><span class="uname" id="user-name"></span><span class="role-tag" id="user-role"></span>
+      <button class="quiet mini" id="change-password">パスワード変更</button>
+      <button class="mini" id="logout">ログアウト</button>
+    </div>
+  </header>
+  <div class="demo-banner"><strong>DEMO</strong><span>架空データによる検証環境です。入力内容は Railway MySQL の業務テーブル（44表設計）に保存され、ログインした全員で共有されます。</span><a href="#migration">前提・確認事項 →</a></div>
+  <main id="content" tabindex="-1"><div class="loading glass">読み込んでいます…</div></main>
+  <footer>APLink Business Platform · 請求・入金管理 Web版（検証用）</footer>
+</div>
+<div id="toast" role="status" aria-live="polite"></div>
+<dialog id="dialog" class="modal glass" aria-labelledby="modal-title">
+  <button type="button" class="modal-x" id="modal-x" aria-label="閉じる">×</button>
+  <div class="modal-head"><h2 id="modal-title"></h2></div>
+  <form id="modal-form" novalidate style="display:contents">
+    <div class="modal-body" id="modal-body"></div>
+    <div class="modal-foot" id="modal-foot"></div>
+  </form>
+</dialog>
+<div id="print-area"></div>
+</body>
+</html>

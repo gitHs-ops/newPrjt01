@@ -24,3 +24,8 @@ seikyu-preview/node_modules/
 seikyu-preview/.env
 seikyu-preview/.env.*
 !seikyu-preview/.env.example
+
+# seikyu-web dependencies and local credentials
+seikyu-web/node_modules/
+seikyu-web/.env
+seikyu-web/.env.*

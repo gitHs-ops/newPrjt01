@@ -558,6 +558,21 @@
         "Railway a617173a-0217-4671-b54a-0adc2a5c869d SUCCESS (5e1c817). 실제 HTTPS 폼 로그인·Secure/HttpOnly 쿠키·마스터 조회·새로고침·로그아웃·익명401 검증 통과."
       ],
       "notes": "세션은 8시간 또는 서버 재시작까지 유지. 검증 중 업무 데이터 변경 없음."
+    },
+    {
+      "id": "seikyu-006",
+      "priority": 1,
+      "area": "seikyu-web",
+      "title": "청구·입금 웹 시스템 신규 재구축 (44표 직접 저장)",
+      "status": "in_progress",
+      "user_visible_behavior": "Railway 주소에서 개인 계정으로 로그인해 출하→청구 마감→청구서 발행·인쇄→입금 소거, 매입·재고·정시청구·소액현금·지급, 자동 분개·CSV·월차 확정·마스터 8종·이용자 관리를 MySQL 업무 테이블에 직접 저장하며 사용한다.",
+      "verification": [
+        "seikyu-web npm test (단위)",
+        "seikyu-web 결합 시험 (별도 MySQL seikyu_web_test_20261014)",
+        "scripts/browser-check.cjs (Edge 데스크톱·모바일, 로컬→배포)"
+      ],
+      "evidence": [],
+      "notes": "seikyu-preview(JSON 집약 데모)를 대체. Railway 서비스 Root Directory를 /seikyu-web로 전환. preview_* 표는 보존·미참조."
     }
   ]
 }

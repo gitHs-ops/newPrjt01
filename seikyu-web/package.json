@@ -1,0 +1,12 @@
+{
+  "name": "aplink-seikyu-web",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=22" },
+  "scripts": {
+    "start": "node server/main.mjs",
+    "test": "node --test --test-concurrency=1 test/domain.test.mjs test/integration.test.mjs"
+  },
+  "dependencies": { "mysql2": "^3.15.3" }
+}

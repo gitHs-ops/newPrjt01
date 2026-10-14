@@ -963,3 +963,14 @@ seikyu-004: 7개 마스터 화면을 실제 MySQL 테이블에 연결. 기존 ID
 Replaced browser Basic challenge with a form and revocable eight-hour HttpOnly session cookie. Production cookies are Secure and SameSite=Strict. Login throttling, JSON/CSRF checks and API protection remain. Explicit Basic credentials remain available for CLI checks, without WWW-Authenticate. Local domain/HTTP tests: 10 passed; Edge server-mode save/read/reload check passed with form login. Deployment verification follows push.
 
 Deployment a617173a-0217-4671-b54a-0adc2a5c869d succeeded (5e1c817). Live Edge form login, secure HttpOnly cookie, masters page, reload, logout and anonymous API 401 passed. First probe overlapped deployment replacement and was retried after SUCCESS. Added repeatable read-only deployed-login-check.cjs.
+
+
+## 2026-10-14 — 청구·입금 웹 시스템 신규 재구축 (seikyu-006)
+
+사용자 결정: 작업현황2 보고서 기준 "완전 신규 재구축", 저장소·Railway 서비스·도메인은 기존 것 사용, Node + MySQL.
+
+`seikyu-web/` 신규 구현. seikyu-preview(JSON 집약 저장)를 대체하며 출하·청구·입금·매입·재고·정시청구·소액현금·지급·분개를 모두 44표 업무 테이블에 직접 저장한다(34표 사용). 앱 전용 표는 app_session·app_period_close 2개. preview_* 3표는 삭제하지 않고 참조하지 않는다. 개인 계정·3롤(users/roles/menus 표), DB 세션, CSRF, 감사로그(audit_event), 청구서 발행 스냅샷(invoice_issue, SHA-256), 역분개 취소, 월차 확정, CSV 출력/마스터 CSV 일괄 입력(전건 롤백) 포함. 상세 가정은 seikyu-web/README.md 및 화면 "移行・確認事項".
+
+검증: 단위 3건 + 별도 MySQL(seikyu_web_test_20261014, 44표 DDL 적용) 결합 시험 통과. 결합 시험이 동시 입금 2건이 모두 성공하는 과다 소거 결함을 검출 → READ COMMITTED + 잠금 후 잔액 재조회로 수정, 재시험 통과. Edge 데스크톱·모바일 16메뉴 34화면 오류 0건, 출하 등록·취소, 청구서 상세·인쇄 레이아웃 확인. init.ps1 통과(npm 의존성은 검사 후 C:/myPrjt01/seikyuPrjt02/.tooling/web-rebuild 로 이동).
+
+배포: Railway 서비스 newPrjt01 Root Directory /seikyu-preview → /seikyu-web 전환(railway.json: Dockerfile, /health). 첫 기동 시 거래 표가 비어 있으면 가상 데이터 생성.
