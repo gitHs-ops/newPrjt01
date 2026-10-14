@@ -584,7 +584,7 @@
       "priority": 1,
       "area": "seikyu-web",
       "title": "seikyu-web 별도 주소·별도 DB 분리 배포",
-      "status": "in_progress",
+      "status": "passing",
       "user_visible_behavior": "신규 시스템은 https://seikyu-web-production.up.railway.app 에서, 기존 데모는 원래 주소 https://newprjt01-production.up.railway.app 에서 각각 동작한다. 두 시스템의 데이터는 공유하지 않는다.",
       "verification": [
         "새 서비스 배포 SUCCESS, /health, /login, 익명 API 401",
@@ -597,9 +597,28 @@
         "2026-10-15: Railway 서비스 seikyu-web(26e6460e-6044-41ab-acc7-a3f829633ceb) 생성. Root /seikyu-web, MYSQLDATABASE=seikyu_web, DEMO_USER/DEMO_PASSWORD는 newPrjt01 서비스 참조변수. 배포 8698ccf0-289d-4969-8dcf-925aafb4db3f SUCCESS(74e574e).",
         "2026-10-15: /health 200 version 1.0.0, / → /login 302, /api/session 익명 401. 기동 로그 'Sample data created'.",
         "2026-10-15: seikyu_web SQL 대조 — 표 46(44+app 2), sales_trn 40, billing_head 18, invoice_issue 17, receipt 13, journal_entry 41, 대차 불일치 분개 0. railway DB(preview_workspace 등) 변경 없음.",
-        "2026-10-15: 다른 세션의 main 푸시(7444487)로 두 서비스 자동 배포. newPrjt01 7d79e0e9 SUCCESS root=/seikyu-preview — /health {ok:true}, /login 200, 인증 필요 응답(preview 형식) 확인. seikyu-web 509b6b46 SUCCESS root=/seikyu-web — /health version 1.0.0."
+        "2026-10-15: 다른 세션의 main 푸시(7444487)로 두 서비스 자동 배포. newPrjt01 7d79e0e9 SUCCESS root=/seikyu-preview — /health {ok:true}, /login 200, 인증 필요 응답(preview 형식) 확인. seikyu-web 509b6b46 SUCCESS root=/seikyu-web — /health version 1.0.0.",
+        "2026-10-15: 7444487 푸시로 두 서비스 재배포 SUCCESS (seikyu-web 509b6b46, newPrjt01 7d79e0e9). 새 주소 Edge 37화면·기능 확인 오류 0건. 기존 주소 seikyu-preview deployed-login-check PASS(데이터 변경 없음)."
       ],
       "notes": "기존 서비스 newPrjt01 Root Directory는 API로 /seikyu-preview로 되돌렸으나 직접 재배포는 권한 분류기에 막혔고, 이후 main 푸시(7444487)로 자동 배포되어 복귀 완료. 기존 railway DB의 업무표에는 seikyu-006 시기의 seikyu-web 데이터가 남아 있고 preview는 마스터 표만 공유해 읽는다(코드 db_ 접두 ID로 표시). 로그인 후 화면 검증은 비밀번호를 다루지 않는 원칙상 사용자 확인 필요."
+    },
+    {
+      "id": "seikyu-008",
+      "priority": 1,
+      "area": "seikyu-web",
+      "title": "기능목록 ① 청구·입금 핵심 (NO6·11·12·13·17)",
+      "status": "passing",
+      "user_visible_behavior": "청구를 고객 단위로 작성하고, 청구 후 출하는 마이너스 정정 전표로 정정하며, 請求一覧表(確認用)·請求書発行確認表를 화면·인쇄·Excel로 출력하고, 입금 소거에서 協力会費·預り金充当을 처리한다.",
+      "verification": [
+        "seikyu-web 결합 시험 (seikyu_web_test_20261014)",
+        "scripts/browser-check.cjs (로컬·배포)",
+        "openpyxl로 xlsx 파싱"
+      ],
+      "evidence": [
+        "2026-10-15: 단위 3 + 결합 시험 통과(고객 단위 1헤더·2현장·정정 전표 포함 금액, 정정 하한, NO12/13 계산 일치, xlsx, 預り金 잔액 초과 차단·協力会費). Edge 로컬 37/37.",
+        "배포 7444487: https://seikyu-web-production.up.railway.app Edge 37/37 오류 0건, 운영 seikyu_web DB 기존 현장 단위 헤더 18건 고객 단위 변환, 분개 대차 0."
+      ],
+      "notes": "NO6 고객 단위는 사용자 결정(2026-10-15). 協力会費 처세율 141 가치(Q04), 預り金은 개시 잔액만(Q11). 정정 전표는 sales_no로 원전표 연결."
     }
   ]
 }
