@@ -637,6 +637,24 @@
         "배포 af98bc0: seikyu-web db3c02e0 SUCCESS, Edge 44/44 오류 0건. newPrjt01 root /seikyu-preview 유지, /health 200."
       ],
       "notes": "형식 근거: 帳票一覧⑥⑦, 添付帳票⑨, 9/17 資料ア〜エ OCR. 1전표=1원전표(현행 売掛金計上은 마감일 일괄·분할, Q08). NO20 회계 연계 CSV는 수신 형식 미확정(Q14/Q19)."
+    },
+    {
+      "id": "seikyu-010",
+      "priority": 1,
+      "area": "seikyu-web",
+      "title": "기능목록 ③ 지급 장표 (NO37 전은 데이터·NO45~48)",
+      "status": "passing",
+      "user_visible_behavior": "支払 화면에서 이체 지정일·이체원 계좌로 전은 총합이체 파일을 다운로드하고, 業者別支払内訳表·振込依頼書·支払繰越一覧表·支払案内書를 화면·인쇄·Excel로 출력한다.",
+      "verification": [
+        "test/zengin.test.mjs (레코드 길이·위치·SJIS·카나 변환)",
+        "결합 시험 ③",
+        "scripts/browser-check.cjs (로컬·배포)"
+      ],
+      "evidence": [
+        "2026-10-15: 단위·결합 11/11 통과(전은 4레코드×122바이트, 한자 의뢰인명 거부, 지급 장표 4종 xlsx).",
+        "배포 e760d7c: seikyu-web 3e8fdc1a SUCCESS, Edge 49/49 오류 0건, newPrjt01 root /seikyu-preview 유지. 데모용 가상 이체원(041)·V001/V002 계좌 등록, 2026-09-28 전은 1건 250,000 오류 없음."
+      ],
+      "notes": "이체원 설정은 code_m(code_key=ZGN). 은행·지점명 카나는 마스터 없음(공백). 상계·선급금 0(Q03). 지급 전 등록된 지급도 업체 현재 계좌로 대체 표시."
     }
   ]
 }
