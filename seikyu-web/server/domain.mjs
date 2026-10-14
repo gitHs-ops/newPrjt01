@@ -50,6 +50,8 @@ export function period(month, closing) {
 // Default payment due date: end of the month following the closing date (assumption, see README).
 export function dueDate(end) { const [y, m] = end.split('-').map(Number); return new Date(Date.UTC(y, m + 1, 0)).toISOString().slice(0, 10); }
 export const today = () => new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Tokyo' }).format(new Date());
+// DB timestamps are UTC ("YYYY-MM-DD HH:MM:SS[.ffffff]"); printed documents use Japan time.
+export const jst = (v, len = 19) => { if (!v) return ''; const d = new Date(String(v).replace(' ', 'T').replace(/\.\d+$/, '') + 'Z'); return isNaN(d) ? String(v) : new Date(d.getTime() + 9 * 3600e3).toISOString().replace('T', ' ').slice(0, len); };
 export function addMonths(month, n) { const [y, m] = month.split('-').map(Number); return new Date(Date.UTC(y, m - 1 + n, 1)).toISOString().slice(0, 7); }
 export function text(v, label, max, { required = true, pattern } = {}) {
   const s = String(v ?? '').trim();

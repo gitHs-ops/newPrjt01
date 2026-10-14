@@ -4,6 +4,8 @@ const esc = v => String(v ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': 
 const yen = v => new Intl.NumberFormat('ja-JP').format(Number(v) || 0);
 const today = () => new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Tokyo' }).format(new Date());
 const thisMonth = () => today().slice(0, 7);
+// DB timestamps are stored in UTC ("YYYY-MM-DD HH:MM:SS[.ffffff]"); screens show Japan time.
+const jst = (v, len = 19) => { if (!v) return ''; const d = new Date(String(v).replace(' ', 'T').replace(/\.\d+$/, '') + 'Z'); return isNaN(d) ? String(v) : new Date(d.getTime() + 9 * 3600e3).toISOString().replace('T', ' ').slice(0, len); };
 const addMonths = (m, n) => { const [y, mo] = m.split('-').map(Number); return new Date(Date.UTC(y, mo - 1 + n, 1)).toISOString().slice(0, 7); };
 const uuid = () => (crypto.randomUUID ? crypto.randomUUID() : Date.now() + '-' + Math.random().toString(16).slice(2));
 let session, meta, masters = {}, actions = {}, route = { name: 'dashboard', q: {} }, renderSeq = 0;
@@ -117,7 +119,7 @@ VIEWS.dashboard = async () => {
       <section class="card glass"><div class="card-head"><h2>14日以内の支払予定</h2><a href="#payments">支払へ →</a></div>
         ${table([{ label: '業者', value: r => r.vendorName }, { label: '伝票', value: r => r.no }, { label: '支払予定日', value: r => r.due }, { label: '未払残高', num: 1, value: r => yen(r.balance) }], d.dueSoon, { empty: '予定はありません' })}</section>
       <section class="card glass"><div class="card-head"><h2>最近の操作</h2><a href="#audit">履歴 →</a></div>
-        ${table([{ label: '日時(UTC)', value: r => String(r.occurred_at).slice(0, 16) }, { label: '利用者', value: r => r.actor_id }, { label: '操作', value: r => ACTIONS[r.action] || r.action }, { label: '対象', value: r => `${r.entity_type} ${r.entity_id}` }], d.recent)}</section>
+        ${table([{ label: '日時', value: r => jst(r.occurred_at, 16) }, { label: '利用者', value: r => r.actor_id }, { label: '操作', value: r => ACTIONS[r.action] || r.action }, { label: '対象', value: r => `${r.entity_type} ${r.entity_id}` }], d.recent)}</section>
     </div>`);
 };
 const ACTIONS = { 'shipment.create': '出荷登録', 'shipment.update': '出荷修正', 'shipment.delete': '出荷取消', 'shipment.correct': '出荷伝票訂正', 'billing.create': '請求作成', 'billing.cancel': '請求取消', 'invoice.issue': '請求書発行', 'invoice.reissue': '請求書再発行',
@@ -234,7 +236,7 @@ async function billingReport(kind, month, closing) {
     body = table([{ label: '得意先', value: r => `${r.customer} ${r.name}` }, ...amounts.map(([l, k]) => ({ label: l, num: 1, value: r => yen(r[k]) })), { label: '明細', num: 1, value: r => r.lineCount + '件' }, { label: '状態', html: r => badge(r.stateName, r.state === 'issued' ? 'green' : r.state === 'draft' ? '' : 'gray') }],
       d.rows, { empty: '対象の得意先がありません', foot: ['合計', ...amounts.map(([, k]) => yen(s(k))), '', ''] });
   } else {
-    body = d.rows.length ? d.rows.map(r => `<div style="margin-bottom:16px"><div class="filters"><b>${esc(r.customer)} ${esc(r.name)}</b><span class="muted small">${r.lastIssue ? `${r.lastIssue.no}回目発行 ${String(r.lastIssue.at).slice(0, 16)} ${esc(r.lastIssue.by)}` : ''}</span></div>
+    body = d.rows.length ? d.rows.map(r => `<div style="margin-bottom:16px"><div class="filters"><b>${esc(r.customer)} ${esc(r.name)}</b><span class="muted small">${r.lastIssue ? `${r.lastIssue.no}回目発行 ${jst(r.lastIssue.at, 16)} ${esc(r.lastIssue.by)}` : ''}</span></div>
       <div class="grid3">${amounts.map(([l, k]) => `<div class="sum-line"><span>${l}</span><b>${yen(r[k])}</b></div>`).join('')}</div>
       ${table([{ label: '日付', value: l => l.date }, { label: '伝票No', value: l => l.orderNo }, { label: '区分', html: l => l.shipKb === 2 ? badge('訂正', 'amber') : '売上' }, { label: '現場', value: l => l.siteName }, { label: '商品', value: l => l.itemName }, { label: '数量', num: 1, value: l => l.quantity }, { label: '単価', num: 1, value: l => yen(l.price) }, { label: '金額', num: 1, value: l => yen(l.net) }, { label: '税率', num: 1, value: l => l.taxRate + '%' }], r.lines)}</div>`).join('')
       : '<div class="empty">この締日の発行済み請求書はありません</div>';
@@ -248,7 +250,7 @@ async function invoiceDetail(id) {
     <div class="grid3"><div><div class="muted small">請求単位</div><b>${esc(inv.siteName)}</b></div><div><div class="muted small">締日 / 支払期日</div><b>${esc(inv.closing)} / ${esc(inv.due)}</b></div><div><div class="muted small">状態</div>${status(inv.status)}</div></div>
     <div class="grid3" style="margin:12px 0"><div class="sum-line"><span>税抜金額</span><b>${yen(inv.net)}</b></div><div class="sum-line"><span>消費税</span><b>${yen(inv.tax)}</b></div><div class="sum-line"><span>請求額 / 残高</span><b>${yen(inv.total)} / ${yen(inv.balance)}</b></div></div>
     <h3>明細（billing_detail）</h3>${table([{ label: '日付', value: r => r.date }, { label: '売上No', value: r => r.orderNo }, { label: '区分', html: r => r.shipKb === 2 ? badge('訂正', 'amber') : '売上' }, { label: '現場', value: r => r.siteName }, { label: '商品', value: r => r.itemName }, { label: '数量', num: 1, value: r => r.quantity }, { label: '単価', num: 1, value: r => yen(r.price) }, { label: '金額', num: 1, value: r => yen(r.net) }, { label: '税率', num: 1, value: r => r.taxRate + '%' }], inv.lines)}
-    <div class="grid2" style="margin-top:12px"><div><h3>発行履歴（invoice_issue）</h3>${table([{ label: '回', value: r => r.no }, { label: '発行日時(UTC)', value: r => String(r.at).slice(0, 19) }, { label: '発行者', value: r => r.by }, { label: 'SHA-256', value: r => r.sha256.slice(0, 12) + '…' }], inv.issueLog, { empty: '未発行' })}</div>
+    <div class="grid2" style="margin-top:12px"><div><h3>発行履歴（invoice_issue）</h3>${table([{ label: '回', value: r => r.no }, { label: '発行日時', value: r => jst(r.at) }, { label: '発行者', value: r => r.by }, { label: 'SHA-256', value: r => r.sha256.slice(0, 12) + '…' }], inv.issueLog, { empty: '未発行' })}</div>
     <div><h3>入金消込</h3>${table([{ label: '入金No', value: r => r.receiptNo }, { label: '入金日', value: r => r.date }, { label: '状態', html: r => status(r.status) }, { label: '消込額', num: 1, value: r => yen(r.amount) }], inv.allocations, { empty: '消込なし' })}</div></div>
     <div class="filters" style="margin-top:14px">${inv.issues ? '<button type="button" id="inv-copy">最新発行分を印刷（控え）</button>' : ''}${canWrite() ? `<button type="button" class="primary" id="inv-issue">${inv.issues ? '再発行して印刷' : '発行して印刷'}</button>` : ''}${canWrite() && !inv.issues && !inv.allocations.length ? '<button type="button" class="danger" id="inv-cancel">請求取消</button>' : ''}</div>`,
     onOpen: () => {
@@ -488,7 +490,7 @@ VIEWS.periods = async () => {
   A.close = d => confirmBox('月次確定', `${d.month} を確定します。確定後はこの月の日付で登録・変更・取消ができません。`, () => post('/api/periods/close', { month: d.month }).then(() => { toast('確定しました'); render(); }), '確定する');
   A.reopen = d => confirmBox('確定解除', `${d.month} の確定を解除します。`, () => post('/api/periods/reopen', { month: d.month }).then(() => { toast('解除しました'); render(); }), '解除する');
   return page('月次確定', '確定した月の伝票は登録・変更・取消ができなくなります。確定・解除は管理者のみ実行できます。', '', `<section class="card glass">${table([{ label: '月', value: r => r.month }, { label: '状態', html: r => r.closed ? badge('確定済', 'green') : badge('未確定', 'gray') },
-    { label: '確定日時(UTC) / 実行者', value: r => r.closed ? `${String(r.closedAt).slice(0, 16)} / ${r.closedBy}` : '' }, { label: 'チェック', html: r => `<div id="chk-${r.month}">${r.closed ? '' : `<button class="mini" data-act="check" data-month="${r.month}">確定前チェック</button>`}</div>` },
+    { label: '確定日時 / 実行者', value: r => r.closed ? `${jst(r.closedAt, 16)} / ${r.closedBy}` : '' }, { label: 'チェック', html: r => `<div id="chk-${r.month}">${r.closed ? '' : `<button class="mini" data-act="check" data-month="${r.month}">確定前チェック</button>`}</div>` },
     { label: '', html: r => isAdmin() ? (r.closed ? `<button class="mini danger" data-act="reopen" data-month="${r.month}">解除</button>` : `<button class="mini primary" data-act="close" data-month="${r.month}">確定</button>`) : '' }], p.months)}</section>
     <div class="note">確定は古い月から順に行います（前月が未確定の場合は確定できません）。業務別の締め（請求・支払・在庫）を分けた設計は今後の検討事項です。</div>`);
 };
@@ -555,7 +557,7 @@ VIEWS.audit = async q => {
   const list = await api('/api/audit?' + qs({ entity: q.entity }));
   const entities = [...new Set(list.map(r => r.entity))].map(code => ({ code, name: code }));
   return page('操作履歴', '登録・変更・取消・ログインの記録（audit_event）。口座番号やパスワードは記録しません。', filterSelect('entity', entities, q.entity, 'すべての対象'),
-    `<section class="card glass">${table([{ label: '日時(UTC)', value: r => String(r.at).slice(0, 19) }, { label: '利用者', value: r => r.actor }, { label: '操作', value: r => ACTIONS[r.action] || r.action }, { label: '対象', value: r => `${r.entity} ${r.entityId}` },
+    `<section class="card glass">${table([{ label: '日時', value: r => jst(r.at) }, { label: '利用者', value: r => r.actor }, { label: '操作', value: r => ACTIONS[r.action] || r.action }, { label: '対象', value: r => `${r.entity} ${r.entityId}` },
       { label: '内容', cls: 'small muted', value: r => JSON.stringify(r.summary).slice(0, 160) }], list)}</section>`);
 };
 
