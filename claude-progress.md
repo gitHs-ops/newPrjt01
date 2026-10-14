@@ -974,3 +974,6 @@ Deployment a617173a-0217-4671-b54a-0adc2a5c869d succeeded (5e1c817). Live Edge f
 검증: 단위 3건 + 별도 MySQL(seikyu_web_test_20261014, 44표 DDL 적용) 결합 시험 통과. 결합 시험이 동시 입금 2건이 모두 성공하는 과다 소거 결함을 검출 → READ COMMITTED + 잠금 후 잔액 재조회로 수정, 재시험 통과. Edge 데스크톱·모바일 16메뉴 34화면 오류 0건, 출하 등록·취소, 청구서 상세·인쇄 레이아웃 확인. init.ps1 통과(npm 의존성은 검사 후 C:/myPrjt01/seikyuPrjt02/.tooling/web-rebuild 로 이동).
 
 배포: Railway 서비스 newPrjt01 Root Directory /seikyu-preview → /seikyu-web 전환(railway.json: Dockerfile, /health). 첫 기동 시 거래 표가 비어 있으면 가상 데이터 생성.
+
+배포 완료: Railway Root Directory를 GraphQL API로 /seikyu-web 전환(CLI environment edit는 "No changes"로 반영되지 않음). 배포 2c4329c4-b9f3-45b5-97fc-802698d7fe21 SUCCESS(25b3bbc). 배포 HTTPS Edge 34화면·출하 등록/취소 통과, 익명 API 401, 운영 분개 대차 일치, preview_* 보존. 검증용 출하 1건은 등록 후 취소(감사로그에 기록). 결합 시험용 DB seikyu_web_test_20261014는 재시험용으로 보존.
+다음: 사용자 화면 검토 → 확인 대기 25건 답변 반영(특히 billing_detail↔sales_trn 가지번호, 현금·카드·값인 처리, 회계 연계 형식) → Java/Spring Boot 본 개발.

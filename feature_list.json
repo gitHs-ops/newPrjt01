@@ -564,14 +564,19 @@
       "priority": 1,
       "area": "seikyu-web",
       "title": "청구·입금 웹 시스템 신규 재구축 (44표 직접 저장)",
-      "status": "in_progress",
+      "status": "passing",
       "user_visible_behavior": "Railway 주소에서 개인 계정으로 로그인해 출하→청구 마감→청구서 발행·인쇄→입금 소거, 매입·재고·정시청구·소액현금·지급, 자동 분개·CSV·월차 확정·마스터 8종·이용자 관리를 MySQL 업무 테이블에 직접 저장하며 사용한다.",
       "verification": [
         "seikyu-web npm test (단위)",
         "seikyu-web 결합 시험 (별도 MySQL seikyu_web_test_20261014)",
         "scripts/browser-check.cjs (Edge 데스크톱·모바일, 로컬→배포)"
       ],
-      "evidence": [],
+      "evidence": [
+        "2026-10-14: 단위 3건 + 별도 MySQL seikyu_web_test_20261014 결합 시험(마스터 낙관 잠금·CSV 전건 롤백·출하→청구→발행→입금·동시 입금 과다소거 차단·멱등키·역분개·지급·롤 권한·비활성 세션 폐기·CSRF) 통과.",
+        "로컬 Edge 데스크톱·모바일 16메뉴 34화면 오류 0건, 출하 등록·취소, 청구서 인쇄 레이아웃 확인. init.ps1 통과.",
+        "Railway Root Directory /seikyu-web 전환, 배포 2c4329c4-b9f3-45b5-97fc-802698d7fe21 SUCCESS (25b3bbc). /health 200, 익명 API 401, 첫 기동 가상 데이터 생성.",
+        "배포 HTTPS Edge 34화면 오류 0건, 출하 등록·취소 통과. 운영 MySQL 거래표 적재 및 분개 차변−대변 합계 0, preview_* 표 보존 확인."
+      ],
       "notes": "seikyu-preview(JSON 집약 데모)를 대체. Railway 서비스 Root Directory를 /seikyu-web로 전환. preview_* 표는 보존·미참조."
     }
   ]
