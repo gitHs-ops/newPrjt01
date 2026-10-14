@@ -977,3 +977,15 @@ Deployment a617173a-0217-4671-b54a-0adc2a5c869d succeeded (5e1c817). Live Edge f
 
 배포 완료: Railway Root Directory를 GraphQL API로 /seikyu-web 전환(CLI environment edit는 "No changes"로 반영되지 않음). 배포 2c4329c4-b9f3-45b5-97fc-802698d7fe21 SUCCESS(25b3bbc). 배포 HTTPS Edge 34화면·출하 등록/취소 통과, 익명 API 401, 운영 분개 대차 일치, preview_* 보존. 검증용 출하 1건은 등록 후 취소(감사로그에 기록). 결합 시험용 DB seikyu_web_test_20261014는 재시험용으로 보존.
 다음: 사용자 화면 검토 → 확인 대기 25건 답변 반영(특히 billing_detail↔sales_trn 가지번호, 현금·카드·값인 처리, 회계 연계 형식) → Java/Spring Boot 본 개발.
+
+## 2026-10-15 — seikyu-web 별도 주소·별도 DB 분리 (seikyu-007)
+
+사용자 결정: 신규 시스템은 새 주소로 따로 띄우고, 기존 주소는 seikyu-preview로 되돌린다.
+
+- MySQL에 별도 DB `seikyu_web` 생성, 44표 DDL 적용(표 44·FK 27). 기존 `railway` DB는 수정하지 않음.
+- Railway 서비스 `seikyu-web` 신규 생성(API). Root `/seikyu-web`, healthcheck `/health`, MYSQLDATABASE=seikyu_web, DEMO_USER/DEMO_PASSWORD는 `${{newPrjt01.*}}` 참조(비밀값을 복사하지 않음). CLI `railway add --repo`는 Unauthorized로 실패해 GraphQL serviceCreate/serviceConnect/serviceDomainCreate 사용.
+- 배포 8698ccf0 SUCCESS(74e574e). https://seikyu-web-production.up.railway.app — /health 200, /login 200, 익명 API 401, 가상 데이터 생성. SQL 대조: 거래표 적재, 대차 불일치 분개 0.
+- 기존 서비스 `newPrjt01` Root Directory를 `/seikyu-preview`로 되돌림(API). **재배포는 권한 분류기가 차단해 수행하지 않음** — 현재 기존 주소는 아직 seikyu-web 코드가 돌고 있고, 다음 main 푸시 때 seikyu-preview로 바뀐다.
+- 미검증: 새 주소 로그인 후 전 메뉴 화면(비밀번호를 다루지 않음), 기존 주소 seikyu-preview 복귀 후 동작.
+- 같은 시각 다른 세션이 seikyu-web 작업 트리를 수정 중(커밋되지 않은 9파일 + reports.mjs, xlsx.mjs). 이 세션은 그 파일들을 커밋하지 않았다.
+다음: 기존 서비스 재배포 승인 → 기존 주소 preview 동작 확인 → 새 주소 실기동 전 메뉴 검증.

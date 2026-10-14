@@ -2,8 +2,10 @@
 
 AS400 請求・入金業務の Web 移行検証用システム。`seikyu-preview`（JSON 集約保存のデモ）を置き換える新規実装で、**すべての業務データを Railway MySQL の業務テーブル（44 表設計）に直接保存**する。表示データは架空。Java/Spring Boot 本開発の前に、業務フローと表設計を実画面で確認するためのもの。
 
-- 配置: GitHub `gitHs-ops/newPrjt01` → Railway サービス `newPrjt01`（Root Directory `/seikyu-web`、Dockerfile）
-- URL: https://newprjt01-production.up.railway.app/
+- 配置: GitHub `gitHs-ops/newPrjt01` → Railway サービス `seikyu-web`（Root Directory `/seikyu-web`、Dockerfile）
+- URL: https://seikyu-web-production.up.railway.app/
+- DB: Railway MySQL の専用データベース `seikyu_web`（旧デモの `railway` データベースとは共有しない）。`DEMO_USER`/`DEMO_PASSWORD` は `newPrjt01` サービスの変数を参照する
+- 旧デモ（seikyu-preview）は従来の URL https://newprjt01-production.up.railway.app/ に残す
 - 構成: Node.js 22 標準 `http` + `mysql2`（依存 1 個）、画面はビルド不要の単一ページ（`public/`）
 
 ## 機能（16 メニュー）
