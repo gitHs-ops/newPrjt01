@@ -8,6 +8,8 @@ const H = v => ({ v, s: 'bold' }), S = v => ({ v, s: 'sum' }), T = v => ({ v, s:
 const range = q => { const from = isoDate(q.from, '開始日'), to = isoDate(q.to, '終了日'); check(from <= to, '期間が不正です'); return { from, to }; };
 const monthEnd = m => new Date(Date.UTC(+m.slice(0, 4), +m.slice(5, 7), 0)).toISOString().slice(0, 10);
 const r2 = v => Math.round(v * 100) / 100;
+// 締日（既定20日：現行の材料受払表は20日締め）による月度の期間
+const closingRange = (month, closing) => { const d = Number(closing || 20); if (d >= 31) return { from: month + '-01', to: monthEnd(month), label: '暦月' }; const prev = addMonths(month, -1); return { from: `${prev}-${String(Math.min(d, 28) + 1).padStart(2, '0')}`, to: `${month}-${String(d).padStart(2, '0')}`, label: `${d}日締め` }; };
 
 // ---------- NO41 商品・製品別出荷集計表 ----------
 export async function shipmentSummary(c, q) {
@@ -57,7 +59,8 @@ export async function materialLedger(c, q) {
   const fyStartM = (num(co?.closing_m) % 12) + 1; // month after the fiscal closing month
   let fs = month; while (Number(fs.slice(5, 7)) !== fyStartM) fs = addMonths(fs, -1);
   const [prev, end, open] = [await inv(c, addMonths(month, -1)), await inv(c, month), await inv(c, addMonths(fs, -1))];
-  const pur = Object.fromEntries((await rows(c, 'SELECT item_cd, SUM(quantity) q, SUM(net_amount) v FROM purchase WHERE purchase_date BETWEEN ? AND ? GROUP BY item_cd', [month + '-01', monthEnd(month)])).map(r => [r.item_cd, { qty: num(r.q), value: num(r.v) }]));
+  const cr = closingRange(month, q.closing);
+  const pur = Object.fromEntries((await rows(c, 'SELECT item_cd, SUM(quantity) q, SUM(net_amount) v FROM purchase WHERE purchase_date BETWEEN ? AND ? GROUP BY item_cd', [cr.from, cr.to])).map(r => [r.item_cd, { qty: num(r.q), value: num(r.v) }]));
   const codes = new Set([...Object.keys(prev), ...Object.keys(end), ...Object.keys(open), ...Object.keys(pur)]);
   const kinds = await rows(c, "SELECT item_cd, item_nam, unit, item_product_kb FROM item_m WHERE item_product_kb='2'");
   kinds.forEach(k => codes.add(k.item_cd));
@@ -69,8 +72,8 @@ export async function materialLedger(c, q) {
     return { item: code, name: names[code]?.item_nam || code, unit: names[code]?.unit || '', opening: { qty: o.qty, value: o.value }, prev: { qty: p.qty, value: p.value }, purchase: b, used, end: e ? { qty: e.qty, value: e.value } : null, price: e?.price ?? null };
   });
   const t = (k, f) => items.reduce((n, x) => n + (x[k]?.[f] || 0), 0);
-  return { title: '材料受払表', ref: 'NO26 / 添付帳票⑧', month, fiscalStart: fs, items, totals: { opening: t('opening', 'value'), prev: t('prev', 'value'), purchase: t('purchase', 'value'), used: t('used', 'value'), end: t('end', 'value') },
-    note: '期間は暦月（現行は20日締め）。当月使用高＝前月末在庫＋当月仕入−当月末在庫（実在庫未登録の月は空欄）。評価方法は確認待ち（Q07）。' };
+  return { title: '材料受払表', ref: 'NO26 / 添付帳票⑧', month, period: cr, fiscalStart: fs, items, totals: { opening: t('opening', 'value'), prev: t('prev', 'value'), purchase: t('purchase', 'value'), used: t('used', 'value'), end: t('end', 'value') },
+    note: '仕入の集計期間は締日単位（既定20日締め、現行と同じ）。実在庫は月度ごとの登録値。当月使用高＝前月末在庫＋当月仕入−当月末在庫（実在庫未登録の月は空欄）。評価方法は確認待ち（Q07）。' };
 }
 
 // ---------- NO25 配合計算（暫定：配合マスタ×材料単価＋経費単価 → genka_m） ----------
@@ -78,7 +81,8 @@ export async function mixCalc(c, q) {
   const month = isoMonth(q.month, '対象月');
   const recipes = await rows(c, "SELECT category1 product, category2 material, category3 r FROM code_m WHERE code_key='MIX' AND code_dtl_abr<>'0' ORDER BY category1, category2");
   const [prev, end] = [await inv(c, addMonths(month, -1)), await inv(c, month)];
-  const pur = Object.fromEntries((await rows(c, 'SELECT item_cd, SUM(quantity) q, SUM(net_amount) v FROM purchase WHERE purchase_date BETWEEN ? AND ? GROUP BY item_cd', [month + '-01', monthEnd(month)])).map(r => [r.item_cd, { qty: num(r.q), value: num(r.v) }]));
+  const cr = closingRange(month, q.closing);
+  const pur = Object.fromEntries((await rows(c, 'SELECT item_cd, SUM(quantity) q, SUM(net_amount) v FROM purchase WHERE purchase_date BETWEEN ? AND ? GROUP BY item_cd', [cr.from, cr.to])).map(r => [r.item_cd, { qty: num(r.q), value: num(r.v) }]));
   const names = Object.fromEntries((await rows(c, 'SELECT item_cd, item_nam, unit FROM item_m')).map(r => [r.item_cd, r]));
   // Material unit price: moving average of 前月末在庫＋当月仕入, else 当月末評価単価.
   const price = code => {
@@ -97,7 +101,7 @@ export async function mixCalc(c, q) {
   const saved = Object.fromEntries((await rows(c, "SELECT * FROM genka_m WHERE nengetsu=? AND delete_f<>'1'", [Number(month.replace('-', ''))])).map(r => [r.item_cd, { haigo: num(r.haigo_tanka), denki: num(r.denki), touyu: num(r.touyu), seizou: num(r.seizou), ippann: num(r.ippann), total: num(r.total) }]));
   products.forEach(p => (p.saved = saved[p.item] || null));
   // 推定：経費単価＝当月計上の経費（定時請求＋小口）÷ 当月の製品出荷数量。科目の振り分けは現行仕訳パターンから推定。
-  const from = month + '-01', to = monthEnd(month), prodCodes = products.map(p => p.item);
+  const from = cr.from, to = cr.to, prodCodes = products.map(p => p.item);
   const prodQty = Object.fromEntries((prodCodes.length ? await rows(c, `SELECT item_cd, SUM(quantity) q FROM sales_trn WHERE sales_date BETWEEN ? AND ? AND item_cd IN (${prodCodes.map(() => '?').join(',')}) GROUP BY item_cd`, [toNum(from), toNum(to), ...prodCodes]) : []).map(r => [r.item_cd, num(r.q)]));
   const tons = r2(Object.values(prodQty).reduce((n, v) => n + v, 0));
   const exp = Object.fromEntries((await rows(c, "SELECT l.account_code a, SUM(l.gross_amount) v FROM expense_line l JOIN expense_document d ON d.expense_id=l.expense_id AND d.status='POSTED' WHERE d.booked_on BETWEEN ? AND ? GROUP BY l.account_code", [from, to])).map(r => [r.a, num(r.v)]));
@@ -117,7 +121,7 @@ export async function mixCalc(c, q) {
   return { title: '配合計算', ref: 'NO25（推定）', month, products, suggest, usage, production: prodQty, note: '配合表・経費配賦基準の資料が未提供のため推定。配合率は「マスタ管理 → 配合」。経費単価は当月の経費÷製品出荷数量で自動算出（推定値・手修正可）。結果は原価マスタ genka_m に保存。' };
 }
 export async function saveMix(c, ctx, p) {
-  const d = await mixCalc(c, { month: p.month });
+  const d = await mixCalc(c, { month: p.month, closing: p.closing });
   check(d.products.length, '配合マスタが登録されていません');
   const ov = {}; for (const k of ['denki', 'touyu', 'seizou', 'ippann']) { const t = String(p[k] ?? '0').trim(); check(/^\d{1,9}(\.\d{1,2})?$/.test(t), '経費単価は0以上の数値（小数2桁まで）で入力してください'); ov[k] = Number(t); }
   const bad = d.products.filter(x => x.missing); check(!bad.length, '材料単価が無い製品があります: ' + bad.map(x => x.name).join('、'));

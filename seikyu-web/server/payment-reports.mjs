@@ -9,15 +9,18 @@ const H = v => ({ v, s: 'bold' }), S = v => ({ v, s: 'sum' }), T = v => ({ v, s:
 const num = v => Number(v || 0);
 const FROM_BANK = "(SELECT jl.sub_code FROM journal_entry je JOIN journal_line jl ON jl.journal_id=je.journal_id WHERE je.source_type='payment' AND je.source_id=CAST(p.payment_id AS CHAR) AND je.reversal_of IS NULL AND jl.account_code='1112' LIMIT 1)";
 async function payments(c, where, args) {
-  const ps = await rows(c, `SELECT p.*, v.vendor_code, v.vendor_name, b.bank_code, b.branch_code, b.account_type_code, b.account_number, b.holder_name, ${FROM_BANK} from_bank
+  await loadDir(c);
+  const ps = await rows(c, `SELECT p.*, v.vendor_code, v.vendor_name, b.bank_code, b.branch_code, b.account_type_code, b.account_number, b.holder_name, ${FROM_BANK} from_bank, (SELECT COALESCE(SUM(jl.amount),0) FROM journal_entry je JOIN journal_line jl ON jl.journal_id=je.journal_id AND jl.account_code='4171' AND jl.side='C' WHERE je.source_type='payment' AND je.source_id=CAST(p.payment_id AS CHAR) AND je.reversal_of IS NULL) safety
     FROM payment p JOIN vendor v ON v.vendor_id=p.vendor_id LEFT JOIN bank_account b ON b.bank_account_id=COALESCE(p.bank_account_id, v.bank_account_id)
     WHERE p.status='POSTED' AND ${where} ORDER BY p.paid_on, v.vendor_code, p.payment_id`, args);
   const ids = ps.map(p => p.payment_id);
   const al = ids.length ? await rows(c, `SELECT a.payment_id, a.amount, d.expense_id, d.document_no, d.booked_on, d.memo, d.gross_amount FROM payment_allocation a JOIN expense_document d ON d.expense_id=a.expense_id WHERE a.payment_id IN (${ids.map(() => '?').join(',')}) ORDER BY d.booked_on, d.document_no`, ids) : [];
-  return ps.map(p => ({ ...p, bank: num(p.bank_amount), fee: num(p.fee_amount), offset: num(p.offset_amount), docs: al.filter(a => a.payment_id === p.payment_id) }));
+  return ps.map(p => ({ ...p, bank: num(p.bank_amount), fee: num(p.fee_amount), offset: num(p.offset_amount), safety: num(p.safety), docs: al.filter(a => a.payment_id === p.payment_id) }));
 }
 const banksMap = async c => Object.fromEntries((await rows(c, "SELECT code_dtl, code_dtl_nam FROM code_m WHERE code_key='BANK'")).map(r => [r.code_dtl, r.code_dtl_nam]));
-const payee = p => (p.bank_code ? { bank: p.bank_code, branch: p.branch_code, type: p.account_type_code, typeName: TYPES[p.account_type_code] || '', account: p.account_number, holder: p.holder_name } : null);
+let DIR = {};
+const loadDir = async c => { DIR = Object.fromEntries((await rows(c, "SELECT code_dtl, code_dtl_nam, code_dtl_abr FROM code_m WHERE code_key='BKDIR'")).map(r => [r.code_dtl, { name: r.code_dtl_nam, kana: r.code_dtl_abr }])); return DIR; };
+const payee = p => (p.bank_code ? { bank: p.bank_code, branch: p.branch_code, bankName: DIR[p.bank_code]?.name || '', branchName: DIR[p.bank_code + '-' + p.branch_code]?.name || '', type: p.account_type_code, typeName: TYPES[p.account_type_code] || '', account: p.account_number, holder: p.holder_name } : null);
 
 // ---------- NO37 支払データ作成（全銀・総合振込） ----------
 export async function zenginData(c, q, ctx) {
@@ -29,11 +32,11 @@ export async function zenginData(c, q, ctx) {
   const map = new Map();
   for (const p of ps) {
     const k = p.vendor_code;
-    if (!map.has(k)) map.set(k, { label: `${p.vendor_code} ${p.vendor_name}`, vendor: p.vendor_code, bank: p.bank_code, branch: p.branch_code, type: p.account_type_code, account: p.account_number, holder: p.holder_name || '', amount: 0, nos: [], customer1: p.vendor_code });
+    if (!map.has(k)) map.set(k, { label: `${p.vendor_code} ${p.vendor_name}`, vendor: p.vendor_code, bank: p.bank_code, branch: p.branch_code, bankName: DIR[p.bank_code]?.kana || '', branchName: DIR[p.bank_code + '-' + p.branch_code]?.kana || '', type: p.account_type_code, account: p.account_number, holder: p.holder_name || '', amount: 0, nos: [], customer1: p.vendor_code });
     const t = map.get(k); t.amount += p.bank; t.nos.push(p.payment_no);
   }
   const transfers = [...map.values()];
-  const payer = { requesterCode: z.zg_code, requesterName: z.zg_name, bank: z.zg_bank, branch: (z.zg_bt || '').slice(0, 3), type: (z.zg_bt || '').slice(3, 4) || '1', account: z.zg_account, bankName: '', branchName: '' };
+  const payer = { requesterCode: z.zg_code, requesterName: z.zg_name, bank: z.zg_bank, branch: (z.zg_bt || '').slice(0, 3), type: (z.zg_bt || '').slice(3, 4) || '1', account: z.zg_account, bankName: DIR[z.zg_bank]?.kana || '', branchName: DIR[z.zg_bank + '-' + (z.zg_bt || '').slice(0, 3)]?.kana || '' };
   const f = zenginFile({ date, payer, transfers });
   if (!transfers.length) f.errors.push('この振込指定日・振込元口座の支払がありません');
   if (q.format === 'file') {
@@ -51,8 +54,8 @@ export async function vendorPayments(c, q) {
   const vendors = [];
   for (const p of ps) {
     let v = vendors.find(x => x.vendor === p.vendor_code); if (!v) vendors.push(v = { vendor: p.vendor_code, name: p.vendor_name, rows: [], total: 0 });
-    v.rows.push({ date: p.paid_on, no: p.payment_no, method: '銀行振込', bank: p.bank, fee: p.fee, offset: p.offset, advance: 0, paid: p.bank + p.fee + p.offset, fromBank: p.from_bank ? `${p.from_bank} ${banks[p.from_bank] || ''}` : '', docs: p.docs.map(d => d.document_no).join(' '), payee: payee(p) });
-    v.total += p.bank + p.fee + p.offset;
+    v.rows.push({ date: p.paid_on, no: p.payment_no, method: '銀行振込', bank: p.bank, fee: p.fee, offset: p.offset, safety: p.safety, advance: 0, paid: p.bank + p.fee + p.offset + p.safety, fromBank: p.from_bank ? `${p.from_bank} ${banks[p.from_bank] || ''}` : '', docs: p.docs.map(d => d.document_no).join(' '), payee: payee(p) });
+    v.total += p.bank + p.fee + p.offset + p.safety;
   }
   return { title: '業者別支払内訳表', ref: 'NO45 / 添付帳票㉒', from, to, vendors, total: vendors.reduce((n, v) => n + v.total, 0) };
 }
@@ -76,11 +79,12 @@ async function carryRows(c, date, vendorCode) {
       (SELECT COALESCE(SUM(a.amount),0) FROM payment_allocation a JOIN payment p ON p.payment_id=a.payment_id AND p.status='POSTED' AND p.paid_on<=? WHERE a.expense_id=d.expense_id) paid
     FROM expense_document d JOIN vendor v ON v.vendor_id=d.vendor_id WHERE d.expense_kind='PAYABLE' AND d.status='POSTED' AND d.booked_on<=?${w} ORDER BY v.vendor_code, d.booked_on`, args);
   const base = date.slice(0, 7), out = [];
+  const adv = Object.fromEntries((await rows(c, "SELECT v.vendor_code, COALESCE((SELECT SUM(amount) FROM opening_balance o WHERE o.vendor_id=v.vendor_id AND o.balance_kind='ADVANCE'),0) - COALESCE((SELECT SUM(offset_amount) FROM payment p WHERE p.vendor_id=v.vendor_id AND p.status='POSTED' AND p.paid_on<=?),0) bal FROM vendor v", [date])).map(r => [r.vendor_code, num(r.bal)]));
   for (const d of docs) {
     const bal = num(d.gross_amount) - num(d.paid); if (bal <= 0) continue;
     let v = out.find(x => x.vendor === d.vendor_code); if (!v) out.push(v = { vendor: d.vendor_code, name: d.vendor_name, m3: 0, m2: 0, m1: 0, m0: 0, total: 0, offset: 0, net: 0, docs: [] });
     const m = d.booked_on.slice(0, 7), age = m === base ? 'm0' : m === addMonths(base, -1) ? 'm1' : m === addMonths(base, -2) ? 'm2' : 'm3';
-    v[age] += bal; v.total += bal; v.net += bal; v.docs.push({ no: d.document_no, date: d.booked_on, memo: d.memo, gross: num(d.gross_amount), balance: bal });
+    v[age] += bal; v.total += bal; v.offset = adv[d.vendor_code] || 0; v.net = v.total - v.offset; v.docs.push({ no: d.document_no, date: d.booked_on, memo: d.memo, gross: num(d.gross_amount), balance: bal });
   }
   return out;
 }
@@ -88,7 +92,7 @@ export async function payableCarryover(c, q) {
   const date = isoDate(q.date || today(), '基準日'), list = await carryRows(c, date);
   const sum = k => list.reduce((n, v) => n + v[k], 0);
   return { title: '支払繰越一覧表', ref: 'NO47 / 添付帳票㉔', date, months: { m3: `${addMonths(date.slice(0, 7), -3)}以前`, m2: addMonths(date.slice(0, 7), -2), m1: addMonths(date.slice(0, 7), -1), m0: date.slice(0, 7) },
-    vendors: list, totals: { m3: sum('m3'), m2: sum('m2'), m1: sum('m1'), m0: sum('m0'), total: sum('total'), offset: 0, net: sum('net') } };
+    vendors: list, totals: { m3: sum('m3'), m2: sum('m2'), m1: sum('m1'), m0: sum('m0'), total: sum('total'), offset: sum('offset'), net: sum('net') }, note: '相殺繰越額＝業者立替金残高（業者マスタの開始残高−相殺済額、F-03 推定）。差引繰越額＝支払繰越合計−相殺繰越額。' };
 }
 // ---------- NO48 支払案内書（支払日・業者ごと） ----------
 export async function paymentNotices(c, q) {
@@ -99,7 +103,7 @@ export async function paymentNotices(c, q) {
   for (const p of ps) {
     let n = notices.find(x => x.vendor === p.vendor_code);
     if (!n) notices.push(n = { vendor: p.vendor_code, name: p.vendor_name, payee: payee(p), bank: 0, fee: 0, offset: 0, total: 0, docs: [], fromBank: p.from_bank ? banks[p.from_bank] || p.from_bank : '' });
-    n.bank += p.bank; n.fee += p.fee; n.offset += p.offset; n.total += p.bank + p.fee + p.offset;
+    n.bank += p.bank; n.fee += p.fee; n.offset += p.offset; n.safety = (n.safety || 0) + p.safety; n.total += p.bank + p.fee + p.offset + p.safety;
     n.docs.push(...p.docs.map(d => ({ no: d.document_no, date: d.booked_on, memo: d.memo, gross: num(d.gross_amount), paid: num(d.amount) })));
   }
   for (const n of notices) {
@@ -112,20 +116,20 @@ export async function paymentNotices(c, q) {
 
 // ---------- Excel ----------
 const head = (d, sub) => [[T(d.title)], [`${d.ref}　${sub}　出力日 ${today()}`], []];
-const acct = p => (p ? `${p.bank}-${p.branch} ${p.typeName} ${p.account}` : '振込先未登録');
+const acct = p => (p ? `${p.bank} ${p.bankName} ${p.branch} ${p.branchName} ${p.typeName} ${p.account}`.replace(/ +/g, ' ') : '振込先未登録');
 export async function paymentBook(c, kind, q) {
   if (kind === 'vendor-payments') {
     const d = await vendorPayments(c, q), out = head(d, `期間 ${d.from} 〜 ${d.to}`);
-    out.push(['業者CD', '業者名', '支払日', '支払No', '支払方法', '振込額', '手数料', '相殺額（前払金・立替金）', '支払額', '支払元口座', '振込先', '対象伝票'].map(H));
-    for (const v of d.vendors) { for (const r of v.rows) out.push([v.vendor, v.name, r.date, r.no, r.method, r.bank, r.fee, r.offset, r.paid, r.fromBank, acct(r.payee), r.docs]); out.push(['', S(`${v.name} 計`), '', '', '', '', '', '', S(v.total)]); }
-    out.push(['', S('総合計'), '', '', '', '', '', '', S(d.total)]);
+    out.push(['業者CD', '業者名', '支払日', '支払No', '支払方法', '振込額', '手数料', '相殺額（前払金・立替金）', '安全協力費', '支払額', '支払元口座', '振込先', '対象伝票'].map(H));
+    for (const v of d.vendors) { for (const r of v.rows) out.push([v.vendor, v.name, r.date, r.no, r.method, r.bank, r.fee, r.offset, r.safety, r.paid, r.fromBank, acct(r.payee), r.docs]); out.push(['', S(`${v.name} 計`), '', '', '', '', '', '', '', S(v.total)]); }
+    out.push(['', S('総合計'), '', '', '', '', '', '', '', S(d.total)]);
     return { name: `業者別支払内訳表_${d.from}_${d.to}.xlsx`, body: xlsx([{ name: '業者別支払内訳表', rows: out, widths: [10, 24, 11, 12, 10, 12, 9, 14, 12, 20, 26, 24] }]) };
   }
   if (kind === 'transfer-request') {
     const d = await transferRequest(c, q), out = head(d, `振込指定日 ${d.date}　依頼人 ${d.company}`);
     for (const g of d.groups) {
       out.push([H(`振込元口座 ${g.fromBank} ${g.fromBankName}`)], ['業者CD', '受取人（業者）', '振込先銀行', '支店', '種目', '口座番号', '受取人名（カナ）', '金額', '支払No'].map(H));
-      for (const r of g.rows) out.push([r.vendor, r.name, r.payee?.bank || '未登録', r.payee?.branch || '', r.payee?.typeName || '', r.payee?.account || '', r.payee?.holder || '', r.amount, r.no]);
+      for (const r of g.rows) out.push([r.vendor, r.name, r.payee ?`${r.payee.bank} ${r.payee.bankName}` : '未登録', r.payee ? `${r.payee.branch} ${r.payee.branchName}` : '', r.payee?.typeName || '', r.payee?.account || '', r.payee?.holder || '', r.amount, r.no]);
       out.push(['', S('件数 ' + g.rows.length), '', '', '', '', S('合計'), S(g.total)], []);
     }
     return { name: `振込依頼書_${d.date}.xlsx`, body: xlsx([{ name: '振込依頼書', rows: out, widths: [10, 24, 10, 8, 8, 12, 24, 13, 12] }]) };

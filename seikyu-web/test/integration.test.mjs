@@ -211,12 +211,77 @@ test('workflow against MySQL business tables', { skip: !url && 'MYSQL_TEST_URL n
       // NO30 / NO33 / NO40 / NO44
       const pi = (await a.call('/api/reports/misc/payable-input?month=' + d.slice(0, 7))).data;
       assert.ok(pi.depts.some(dp => dp.vendors.some(v => v.vendor === 'V' + tag)));
-      const pc = (await a.call('/api/reports/misc/petty-book?' + span + '&fund=50000')).data; assert.equal(pc.closing, 50000 - pc.spent);
+      const pc = (await a.call('/api/reports/misc/petty-book?' + span)).data; assert.equal(pc.closing, pc.opening + pc.received - pc.spent);
       const sr = (await a.call('/api/reports/misc/sales-register?' + span)).data.customers.find(x => x.customer === C); assert.equal(sr.rows.length, 3); assert.equal(sr.net, 12997);
       const rs = (await a.call('/api/reports/misc/receipt-schedule')).data.customers.find(x => x.customer === C);
       assert.equal(rs.due, 1000); assert.equal(rs.rows.length, 2, 'split by site (工事)');
       for (const k of ['payable-input', 'petty-book', 'sales-register', 'receipt-schedule'])
         assert.equal((await raw2('/api/reports/misc/' + k + '?' + new URLSearchParams({ from: pm + '-01', to: d, month: d.slice(0, 7), format: 'xlsx' }))).bytes.subarray(0, 2).toString(), 'PK', k);
+    });
+    await t.test('re-audit fixes: late entries, credit invoices, append, site due date, fee/offset, overpay, petty refill, bank directory', async () => {
+      const ok = r => { assert.equal(r.status, 200, JSON.stringify(r.data)); return r.data; };
+      const cl = Math.max(1, Math.min(28, Number(d.slice(8)))), K = 'K' + tag, curMonth = d.slice(0, 7);
+      ok(await a.call('/api/masters/customers', { mode: 'create', record: { code: K, name: '締日試験', closing: cl, siteMonths: '2', siteDay: '10', payMethod: '2', payBank: 'B' + tag, active: true } }));
+      ok(await a.call('/api/masters/sites', { mode: 'create', record: { customer: K, code: 'K' + tag, suffix: '000', name: 'K現場', active: true } }));
+      const s1 = ok(await a.call('/api/shipments', { date: pm + '-01', customer: K, site: 'K' + tag + '|000', item: 'I' + tag, quantity: '2', price: 1000, taxRate: 10, method: 1 }));
+      const h1 = ok(await a.call('/api/billing/run', { month: pm, closing: cl, customers: [K] })); assert.equal(h1.created, 1);
+      const inv1 = ok(await a.call('/api/invoices/' + h1.ids[0]));
+      const [yy, mm] = pm.split('-').map(Number); const exp = new Date(Date.UTC(yy, mm - 1 + 2, Math.min(10, new Date(Date.UTC(yy, mm + 2, 0)).getUTCDate()))).toISOString().slice(0, 10);
+      assert.equal(inv1.due, exp, 'due date from customer site (2 months later, day 10)');
+      ok(await a.call('/api/invoices/issue', { ids: [h1.ids[0]] }));
+      // late correction dated in the already-billed period
+      ok(await a.call('/api/shipments/correct', { orderNo: s1.orderNo, date: pm + '-01', quantity: '-2' }));
+      const again = await a.call('/api/billing/run', { month: pm, closing: cl, customers: [K] });
+      assert.equal(again.status, 400); assert.match(again.data.error, /次回締め/);
+      // next closing picks it up as a credit invoice
+      const h2 = ok(await a.call('/api/billing/run', { month: curMonth, closing: cl, customers: [K] }));
+      const inv2 = ok(await a.call('/api/invoices/' + h2.ids[0])); assert.equal(inv2.total, -2200); assert.equal(inv2.status, 'credit');
+      // unissued invoice: additional sale is appended to the same invoice
+      ok(await a.call('/api/shipments', { date: pm + '-02', customer: K, site: 'K' + tag + '|000', item: 'I' + tag, quantity: '5', price: 1000, taxRate: 10, method: 1 }));
+      const h3 = ok(await a.call('/api/billing/run', { month: curMonth, closing: cl, customers: [K] })); assert.equal(h3.appended, 1);
+      const inv3 = ok(await a.call('/api/invoices/' + h2.ids[0])); assert.equal(inv3.total, 3300); assert.equal(inv3.lines.length, 2);
+      const jl = ok(await a.call('/api/journals?month=' + curMonth)).filter(j => j.source === 'billing_head' && j.sourceId === String(h2.ids[0]));
+      assert.equal(jl.filter(j => j.status === 'POSTED' && !j.reversalOf).length, 1, 'one live journal after append');
+      // payment with 先方負担手数料 and 相殺
+      const ven = ok(await a.call('/api/masters/vendors')).find(x => x.code === 'V' + tag);
+      ok(await a.call('/api/masters/vendors', { mode: 'update', record: { ...ven, advance: 3000 } }));
+      const doc = ok(await a.call('/api/expenses', { kind: 'PAYABLE', date: d, vendor: 'V' + tag, account: '8231', taxCode: '10%', amount: 10000, memo: '手数料相殺試験' }));
+      assert.equal((await a.call('/api/payments', { idempotencyKey: 'po' + tag, date: d, vendor: 'V' + tag, bankCode: 'B' + tag, fee: 0, offset: 5000, allocations: [{ expenseId: doc.id, amount: 10000 }] })).status, 400, 'offset above advance');
+      const pay = ok(await a.call('/api/payments', { idempotencyKey: 'pf' + tag, date: d, vendor: 'V' + tag, bankCode: 'B' + tag, fee: 770, offset: 2000, safety: 500, allocations: [{ expenseId: doc.id, amount: 10000 }] }));
+      const pj = ok(await a.call('/api/journals?month=' + curMonth)).find(j => j.source === 'payment' && j.sourceId === String(pay.id));
+      const amt = (side, acc) => pj.lines.filter(l => l.side === side && l.account === acc).reduce((n, l) => n + l.amount, 0);
+      assert.equal(amt('D', '4121'), 10000); assert.equal(amt('C', '1112'), 6730); assert.equal(amt('C', '4171'), 500); assert.equal(amt('C', '8790'), 700); assert.equal(amt('C', '4415'), 70); assert.equal(amt('C', '1431'), 2000);
+      const co = ok(await a.call('/api/reports/payments/carryover?date=' + d)).vendors.find(v => v.vendor === 'V' + tag);
+      if (co) assert.equal(co.offset, 1000, 'remaining 業者立替金 = 3000 - 2000');
+      const vp = ok(await a.call('/api/reports/payments/vendor-payments?' + new URLSearchParams({ from: d, to: d }))).vendors.find(v => v.vendor === 'V' + tag);
+      assert.ok(vp.rows.some(r => r.fee === 770 && r.offset === 2000 && r.safety === 500 && r.bank === 6730 && r.paid === 10000));
+      // overpayment is taken as 預り金
+      const before = ok(await a.call('/api/receipt-context?customer=' + C)).deposit;
+      assert.equal((await a.call('/api/receipts', { idempotencyKey: 'ov1' + tag, date: d, customer: C, bank: 1500, bankCode: 'B' + tag, allocations: [{ invoiceId, amount: 1000 }] })).status, 400);
+      ok(await a.call('/api/receipts', { idempotencyKey: 'ov2' + tag, date: d, customer: C, bank: 1500, bankCode: 'B' + tag, overpayToDeposit: true, allocations: [{ invoiceId, amount: 1000 }] }));
+      assert.equal(ok(await a.call('/api/receipt-context?customer=' + C)).deposit, before + 500);
+      // petty cash fund and refill
+      ok(await a.call('/api/petty/fund', { fund: '30000' }));
+      ok(await a.call('/api/petty/refill', { date: d, amount: '5000', bankCode: 'B' + tag }));
+      const pb = ok(await a.call('/api/reports/misc/petty-book?' + new URLSearchParams({ from: d, to: d })));
+      assert.ok(pb.rows.some(r => r.received === 5000)); assert.equal(pb.closing, pb.opening + pb.received - pb.spent);
+      // 金融機関 master names in transfer request / payment notice
+      await a.call('/api/masters/bankdir', { mode: 'create', record: { bank: '0001', name: '試験銀行本体', kana: 'ｼｹﾝ', active: true } });
+      await a.call('/api/masters/bankdir', { mode: 'create', record: { bank: '0001', branch: '001', name: '試験支店', kana: 'ｼﾃﾝ', active: true } });
+      const tr = ok(await a.call('/api/reports/payments/transfer-request?date=' + d)).groups.flatMap(g => g.rows).find(r => r.vendor === 'V' + tag);
+      assert.equal(tr.payee.bankName, '試験銀行本体'); assert.equal(tr.payee.branchName, '試験支店');
+      ok(await a.call('/api/masters/depts', { mode: 'create', record: { code: 'D' + tag, name: '試験部門', active: true } }));
+      // 自社情報：登録番号・振込先口座が請求書スナップショットに入る（現行請求書③の項目）
+      const comp = ok(await a.call('/api/masters/company')).find(x => x.id === '1');
+      assert.equal((await a.call('/api/masters/company', { mode: 'update', record: { ...comp, invoiceNo: 'X123' } })).status, 400, 'invalid registration number');
+      ok(await a.call('/api/masters/company', { mode: 'update', record: { ...comp, invoiceNo: 'T4180001002429', invoiceBank: 'B' + tag } }));
+      const docs = ok(await a.call('/api/invoices/issue', { ids: [h2.ids[0]] })).documents;
+      assert.equal(docs[0].company.invoiceNo, 'T4180001002429'); assert.ok(docs[0].company.bankText.includes('7777777'), docs[0].company.bankText); assert.equal(docs[0].lines[0].unit, 't');
+      const lst = ok(await a.call('/api/reports/billing-list?' + new URLSearchParams({ month: curMonth, closing: cl }))).rows.find(r => r.customer === K);
+      assert.equal(lst.sites.length, 1); assert.equal(lst.sites[0].total, 3300);
+      // NO8 grouping: A01 list slips are per closing date
+      const a01 = ok(await a.call('/api/reports/journal-list?' + new URLSearchParams({ pattern: 'A01', from: pm + '-01', to: d })));
+      for (const sl of a01.slips) { const dr = sl.pairs.reduce((n, p) => n + (p.dr?.amount || 0), 0), cr = sl.pairs.reduce((n, p) => n + (p.cr?.amount || 0), 0); assert.equal(dr, cr); }
     });
     const raw = await fetch(base + '/api/export/journals?month=' + month, { headers: { cookie: a.cookie } }); const bytes = new Uint8Array(await raw.arrayBuffer());
     assert.equal(raw.status, 200); assert.deepEqual([...bytes.slice(0, 3)], [0xef, 0xbb, 0xbf], 'CSV has UTF-8 BOM for Excel');

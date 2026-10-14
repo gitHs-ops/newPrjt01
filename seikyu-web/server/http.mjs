@@ -77,6 +77,9 @@ export async function createApp({ pool, publicDir, secureCookies = process.env.N
   w('/api/masters/:kind/import', (c, x, b) => M.importCsv(c, x, x.params.kind, b.csv));
   w('/api/shipments', (c, x, b) => S.saveShipment(c, x, b));
   w('/api/shipments/delete', (c, x, b) => S.deleteShipment(c, x, b));
+  route('GET', '/api/petty/settings', 'read', () => db(c => P.pettySettings(c)));
+  w('/api/petty/fund', (c, x, b) => P.savePettyFund(c, x, b));
+  w('/api/petty/refill', (c, x, b) => P.pettyRefill(c, x, b));
   w('/api/mix/save', (c, x, b) => MR.saveMix(c, x, b));
   w('/api/shipments/correct', (c, x, b) => S.correctShipment(c, x, b));
   w('/api/billing/run', (c, x, b) => S.runBilling(c, x, b));

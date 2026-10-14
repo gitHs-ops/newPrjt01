@@ -4,7 +4,7 @@ import { listShipments, listInvoices, listReceipts } from './sales.mjs';
 import { listPayments, listExpenses, listPurchases, listInventory } from './payables.mjs';
 import { MASTERS, list as listMaster, exportRows } from './masters.mjs';
 
-export const PATTERNS = { A01: '売掛金計上（請求）', B01: '入金消込', C01: '在庫計上', D01: '定時請求（買掛金）', E01: '小口現金', F01: '支払' };
+export const PATTERNS = { A01: '売掛金計上（請求）', B01: '入金消込', C01: '在庫計上', D01: '定時請求（買掛金）', E01: '小口現金', F01: '支払', G03: '小口現金補充' };
 const monthEnd = m => new Date(Date.UTC(+m.slice(0, 4), +m.slice(5, 7), 0)).toISOString().slice(0, 10);
 
 export async function listJournals(c, q = {}) {

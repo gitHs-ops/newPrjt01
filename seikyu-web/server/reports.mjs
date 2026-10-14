@@ -6,32 +6,23 @@ import { today, jst } from './domain.mjs';
 const H = v => ({ v, s: 'bold' }), S = v => ({ v, s: 'sum' }), T = v => ({ v, s: 'title' });
 const shipKb = k => (Number(k) === 2 ? '訂正' : '売上');
 
-// NO12 請求一覧表（確認用）
+// NO12 請求一覧表（確認用）— 現行 HAR431 の項目
 export async function billingListBook(c, q) {
-  const d = await billingList(c, q), r = d.rows;
-  const sum = k => r.reduce((n, x) => n + x[k], 0);
-  const rows = [[T('請求一覧表（確認用）')], [`請求年月 ${d.month}　締日 ${d.closing === 31 ? '月末' : d.closing + '日'}（${d.end}）　出力日 ${today()}`], [],
-    ['得意先CD', '得意先名', '前回請求額', '御入金額', '差引繰越額', '今回お買上額', '消費税額', '今回請求額', '明細件数', '状態'].map(H),
-    ...r.map(x => [x.customer, x.name, x.prevBalance, x.received, x.carried, x.net, x.tax, x.total, x.lineCount, x.stateName]),
-    [S('合計'), S(''), S(sum('prevBalance')), S(sum('received')), S(sum('carried')), S(sum('net')), S(sum('tax')), S(sum('total')), S(sum('lineCount')), S('')]];
-  return { name: `請求一覧表_${d.month}_${d.closing}日締.xlsx`, body: xlsx([{ name: '請求一覧表', rows, widths: [10, 28, 13, 13, 13, 14, 12, 14, 9, 9] }]) };
+  const d = await billingList(c, q), out = [[T('請求一覧表（確認用）')], [`締日 ${d.closing === 31 ? '月末' : d.closing + '日'}　請求日 ${d.end}　出力日 ${today()}`], [],
+    ['得意先CD', '得意先名', '現場名', '売上額', '税額', '値引額', '請求額', '状態'].map(H)];
+  for (const x of d.rows) { x.sites.forEach((s, i) => out.push([i ? '' : x.customer, i ? '' : x.name, s.siteName, s.net, s.tax, 0, s.total, i ? '' : x.stateName])); out.push(['', S('得意先計'), '', S(x.net), S(x.tax), S(0), S(x.current), '']); }
+  const sum = k => d.rows.reduce((n, x) => n + x[k], 0);
+  out.push([S('会社合計'), '', '', S(sum('net')), S(sum('tax')), S(0), S(sum('current')), '']);
+  return { name: `請求一覧表_${d.month}_${d.closing}日締.xlsx`, body: xlsx([{ name: '請求一覧表', rows: out, widths: [10, 26, 24, 13, 12, 10, 13, 9] }]) };
 }
-// NO13 請求書発行確認表（同じ計算、得意先ごとに明細まで出力）
+// NO13 請求書発行確認表 — 現行 HAR430 の項目
 export async function billingConfirmBook(c, q) {
-  const d = await billingConfirm(c, q), rows = [[T('請求書発行確認表')], [`請求年月 ${d.month}　締日 ${d.end}　出力日 ${today()}`], []];
+  const d = await billingConfirm(c, q), out = [[T('請求書発行確認表')], [`請求日付 ${d.end}　出力日 ${today()}`], []];
   for (const x of d.rows) {
-    rows.push([H('得意先'), H(`${x.customer} ${x.name}`), H(''), H('発行'), H(x.lastIssue ? `${x.lastIssue.no}回目 ${jst(x.lastIssue.at, 10)} ${x.lastIssue.by}` : ''), H(''), H(''), H(''), H('')]);
-    rows.push(['前回請求額', x.prevBalance, '御入金額', x.received, '差引繰越額', x.carried, '今回お買上額', x.net, '']);
-    rows.push(['消費税額', x.tax, '今回請求額', x.total, '支払期日', x.due, '', '', '']);
-    rows.push(['日付', '伝票No', '区分', '現場', '商品', '数量', '単価', '金額', '税率'].map(H));
-    let siteKey = null, sub = 0;
-    const flush = () => { if (siteKey !== null) rows.push(['', '', '', '', S('現場小計'), '', '', S(sub), '']); };
-    for (const l of x.lines) {
-      if (l.site !== siteKey) { flush(); siteKey = l.site; sub = 0; }
-      sub += l.net; rows.push([l.date, l.orderNo, shipKb(l.shipKb), l.siteName, l.itemName, l.quantity, l.price, l.net, `${l.taxRate}%`]);
-    }
-    flush(); rows.push([]);
+    out.push([H(`${x.customer} ${x.name}`), H(x.lastIssue ? `${x.lastIssue.no}回目発行 ${jst(x.lastIssue.at, 10)}` : '')], ['売上日', '伝票No', '区分', '商品CD', '商品名', '数量', '単位', '単価', '金額', '税率', '備考'].map(H));
+    for (const l of x.lines) out.push([l.date, l.orderNo, shipKb(l.shipKb), l.item, l.itemName, l.quantity, l.unit, l.price, l.net, `${l.taxRate}%`, l.siteName]);
+    out.push(['', '', '', '', S('売上額'), '', '', '', S(x.net)], ['', '', '', '', S('消費税額'), '', '', '', S(x.tax)], ['', '', '', '', S('値引額'), '', '', '', S(0)], ['', '', '', '', S('今回請求額'), '', '', '', S(x.current)], []);
   }
-  if (!d.rows.length) rows.push(['発行済みの請求書はありません']);
-  return { name: `請求書発行確認表_${d.month}.xlsx`, body: xlsx([{ name: '発行確認表', rows, widths: [12, 14, 8, 26, 20, 11, 11, 13, 8] }]) };
+  if (!d.rows.length) out.push(['発行済みの請求書はありません']);
+  return { name: `請求書発行確認表_${d.month}.xlsx`, body: xlsx([{ name: '発行確認表', rows: out, widths: [11, 13, 6, 8, 22, 9, 5, 10, 12, 6, 22] }]) };
 }

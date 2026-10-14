@@ -72,16 +72,17 @@ export async function listExpenses(c, q = {}) {
   monthWhere('d.booked_on', q, w, args);
   if (q.vendor) { w.push('v.vendor_code=?'); args.push(q.vendor); }
   if (q.open) w.push(`d.status='POSTED' AND d.gross_amount>${PAID}`);
-  const rs = await rows(c, `SELECT d.*, v.vendor_code, v.vendor_name, l.account_code, l.sub_code, l.department_code, l.source_tax_code, a.account_name, ${PAID} paid
+  const rs = await rows(c, `SELECT d.*, v.vendor_code, v.vendor_name, l.account_code, l.sub_code, l.department_code, l.source_tax_code, l.memo line_memo, a.account_name, ${PAID} paid
     FROM expense_document d LEFT JOIN vendor v ON v.vendor_id=d.vendor_id LEFT JOIN expense_line l ON l.expense_id=d.expense_id AND l.line_no=1 LEFT JOIN account_subject a ON a.account_code=l.account_code
     ${w.length ? 'WHERE ' + w.join(' AND ') : ''} ORDER BY d.booked_on DESC, d.expense_id DESC LIMIT 1000`, args);
-  return rs.map(r => ({ id: r.expense_id, no: r.document_no, kind: r.expense_kind, date: r.booked_on, due: r.due_on || '', vendor: r.vendor_code || '', vendorName: r.vendor_name || '', account: r.account_code, accountName: r.account_name, sub: r.sub_code || '',
+  return rs.map(r => ({ id: r.expense_id, no: r.document_no, kind: r.expense_kind, date: r.booked_on, due: r.due_on || '', vendor: r.vendor_code || '', vendorName: r.vendor_name || '', payee: r.vendor_name || (r.line_memo && r.line_memo !== r.memo ? r.line_memo : ''), account: r.account_code, accountName: r.account_name, sub: r.sub_code || '',
     dept: r.department_code, taxCode: r.source_tax_code, amount: Number(r.gross_amount), paid: Number(r.paid), balance: r.status === 'POSTED' ? Number(r.gross_amount) - Number(r.paid) : 0, memo: r.memo, status: r.status }));
 }
 export async function createExpense(c, ctx, p) {
   const kind = String(p.kind); check(['PAYABLE', 'PETTY_CASH'].includes(kind), '区分が不正です');
   const date = isoDate(p.date, '計上日'); await assertOpen(c, date);
-  const v = kind === 'PAYABLE' ? await vendorOf(c, p.vendor) : null;
+  const v = kind === 'PAYABLE' || p.vendor ? await vendorOf(c, p.vendor) : null;
+  const payee = kind === 'PETTY_CASH' ? text(p.payee, '支払先', 100, { required: false }) : '';
   const due = kind === 'PAYABLE' ? (p.due ? isoDate(p.due, '支払予定日') : dueDate(date)) : null;
   const acc = await one(c, 'SELECT * FROM account_subject WHERE account_code=?', [String(p.account || '')]); check(acc?.active, '有効な勘定科目を選択してください');
   const sub = String(p.sub || '') || null;
@@ -90,7 +91,7 @@ export async function createExpense(c, ctx, p) {
   const tax = String(p.taxCode || '10%'); check(TAX_CODES.includes(tax), '税区分が不正です');
   const dept = text(p.dept || '063', '部門', 20), memo = text(p.memo, '摘要', 500), no = await nextNo(c, 'expense');
   const [r] = await c.query("INSERT INTO expense_document (document_no,expense_kind,vendor_id,booked_on,due_on,gross_amount,memo,status) VALUES (?,?,?,?,?,?,?,'POSTED')", [no, kind, v?.vendor_id || null, date, due, amount, memo]);
-  await c.query('INSERT INTO expense_line (expense_id,line_no,account_code,sub_code,department_code,source_tax_code,net_amount,tax_amount,gross_amount,memo) VALUES (?,1,?,?,?,?,NULL,NULL,?,?)', [r.insertId, acc.account_code, sub, dept, tax, amount, memo]);
+  await c.query('INSERT INTO expense_line (expense_id,line_no,account_code,sub_code,department_code,source_tax_code,net_amount,tax_amount,gross_amount,memo) VALUES (?,1,?,?,?,?,NULL,NULL,?,?)', [r.insertId, acc.account_code, sub, dept, tax, amount, payee || memo]);
   await postJournal(c, { date, pattern: kind === 'PAYABLE' ? 'D01' : 'E01', sourceType: 'expense_document', sourceId: r.insertId, lines: [
     line('D', acc.account_code, amount, { sub, dept, tax }), kind === 'PAYABLE' ? line('C', '4121', amount, { vendor: v.vendor_id, tax: '9' }) : line('C', '1111', amount, { tax: '9' })] });
   await audit(c, ctx, 'expense_document', r.insertId, kind === 'PAYABLE' ? 'payable.create' : 'pettycash.create', { no, vendor: v?.vendor_code, account: acc.account_code, amount });
@@ -123,7 +124,13 @@ export async function createPayment(c, ctx, p) {
   if (dup) return { id: dup.payment_id, no: dup.payment_no, duplicate: true };
   const date = isoDate(p.date, '支払日'); await assertOpen(c, date);
   const v = await vendorOf(c, p.vendor);
-  check(!Number(p.fee || 0) && !Number(p.offset || 0), '振込手数料・相殺の処理ルールは確認待ちです (Q03)');
+  // 仕訳パターン分析 F-02（先方負担手数料差引：雑収入8790-001＋仮受消費税）・F-03（相殺：業者立替金1431）に準拠（推定、Q03）
+  const fee = yen(p.fee || 0, '振込手数料（先方負担）'), offset = yen(p.offset || 0, '相殺額'), safety = yen(p.safety || 0, '安全協力費');
+  if (offset) {
+    const adv = await one(c, "SELECT COALESCE(SUM(amount),0) n FROM opening_balance WHERE vendor_id=? AND balance_kind='ADVANCE'", [v.vendor_id]);
+    const used = await one(c, "SELECT COALESCE(SUM(offset_amount),0) n FROM payment WHERE vendor_id=? AND status='POSTED'", [v.vendor_id]);
+    check(offset <= Number(adv.n) - Number(used.n), `相殺額が業者立替金の残高（${(Number(adv.n) - Number(used.n)).toLocaleString('ja-JP')}円）を超えています`);
+  }
   const bankCode = String(p.bankCode || ''); const b = await one(c, "SELECT category1 FROM code_m WHERE code_key='BANK' AND code_dtl=?", [bankCode]); check(b && b.category1 !== '0', '支払元口座（銀行）を選択してください');
   check(Array.isArray(p.allocations) && p.allocations.length, '支払対象の伝票を選択してください');
   const allocs = p.allocations.map(a => ({ id: Number(a.expenseId), amount: yen(a.amount, '支払額') })).filter(a => a.amount > 0).sort((a, b) => a.id - b.id);
@@ -135,11 +142,14 @@ export async function createPayment(c, ctx, p) {
     check(d.vendor_id === v.vendor_id, '異なる業者の伝票は同時に支払えません'); check(date >= d.booked_on, '支払日が計上日より前です');
     check(a.amount <= Number(d.gross_amount) - Number(d.paid), `伝票${d.document_no}の未払残高を超えています`);
   }
-  const total = allocs.reduce((n, a) => n + a.amount, 0), no = await nextNo(c, 'payment');
-  const [r] = await c.query("INSERT INTO payment (payment_no,vendor_id,paid_on,bank_account_id,bank_amount,fee_amount,offset_amount,status,idempotency_key) VALUES (?,?,?,?,?,0,0,'POSTED',?)", [no, v.vendor_id, date, v.bank_account_id, total, idem]);
+  const total = allocs.reduce((n, a) => n + a.amount, 0), bank = total - fee - offset - safety;
+  check(bank >= 0, '手数料・相殺額が支払額を超えています');
+  const no = await nextNo(c, 'payment');
+  const [r] = await c.query("INSERT INTO payment (payment_no,vendor_id,paid_on,bank_account_id,bank_amount,fee_amount,offset_amount,status,idempotency_key) VALUES (?,?,?,?,?,?,?,'POSTED',?)", [no, v.vendor_id, date, v.bank_account_id, bank, fee, offset, idem]);
   for (const a of allocs) await c.query('INSERT INTO payment_allocation (payment_id,expense_id,amount) VALUES (?,?,?)', [r.insertId, a.id, a.amount]);
-  await postJournal(c, { date, pattern: 'F01', sourceType: 'payment', sourceId: r.insertId, lines: [line('D', '4121', total, { vendor: v.vendor_id, tax: '9' }), line('C', '1112', total, { sub: bankCode, tax: '9' })] });
-  await audit(c, ctx, 'payment', r.insertId, 'payment.create', { no, vendor: v.vendor_code, amount: total, documents: allocs.map(a => a.id) });
+  await postJournal(c, { date, pattern: 'F01', sourceType: 'payment', sourceId: r.insertId, lines: [line('D', '4121', total, { vendor: v.vendor_id, tax: '9' }), line('C', '1112', bank, { sub: bankCode, tax: '9' }),
+    line('C', '8790', fee - Math.floor(fee * 10 / 110), { sub: '001', dept: '063', tax: '11' }), line('C', '4415', Math.floor(fee * 10 / 110), { tax: '9' }), line('C', '1431', offset, { vendor: v.vendor_id, tax: '9' }), line('C', '4171', safety, { vendor: v.vendor_id, tax: '9' })] });
+  await audit(c, ctx, 'payment', r.insertId, 'payment.create', { no, vendor: v.vendor_code, amount: total, bank, fee, offset, safety, documents: allocs.map(a => a.id) });
   return { id: r.insertId, no };
 }
 export async function reversePayment(c, ctx, { id }) {
@@ -149,4 +159,27 @@ export async function reversePayment(c, ctx, { id }) {
   await reverseJournal(c, { sourceType: 'payment', sourceId: p.payment_id, date: p.paid_on });
   await audit(c, ctx, 'payment', p.payment_id, 'payment.reverse', { no: p.payment_no });
   return { id: p.payment_id };
+}
+
+// ---------- 小口現金の定額資金設定と現金補充（仕訳パターン G-03 相当：現金／当座預金） ----------
+export async function pettySettings(c) {
+  const r = await one(c, "SELECT code_dtl_abr v FROM code_m WHERE code_key='SET' AND code_dtl='PETTYFUND'");
+  const refills = await rows(c, "SELECT e.journal_id id, e.journal_date date, e.status, l.amount, (SELECT sub_code FROM journal_line x WHERE x.journal_id=e.journal_id AND x.account_code='1112' LIMIT 1) bank FROM journal_entry e JOIN journal_line l ON l.journal_id=e.journal_id AND l.account_code='1111' AND l.side='D' WHERE e.source_type='petty_refill' AND e.reversal_of IS NULL ORDER BY e.journal_date DESC LIMIT 50");
+  return { fund: Number(r?.v || 100000), fundSet: !!r, refills: refills.map(x => ({ ...x, amount: Number(x.amount) })) };
+}
+export async function savePettyFund(c, ctx, p) {
+  const fund = yen(p.fund, '定額資金', { max: 99999999 });
+  await c.query("DELETE FROM code_m WHERE code_key='SET' AND code_dtl='PETTYFUND'");
+  await c.query("INSERT INTO code_m (code_key,code_key_nam,code_dtl,code_dtl_nam,code_dtl_abr,category1,category2,category3) VALUES ('SET','設定','PETTYFUND','小口現金 定額資金',?,'','','')", [String(fund)]);
+  await audit(c, ctx, 'code_m', 'PETTYFUND', 'petty.fund', { fund });
+  return { fund };
+}
+export async function pettyRefill(c, ctx, p) {
+  const date = isoDate(p.date, '補充日'); await assertOpen(c, date);
+  const amount = yen(p.amount, '補充額'); check(amount > 0, '補充額を入力してください');
+  const bankCode = String(p.bankCode || ''); const b = await one(c, "SELECT category1 FROM code_m WHERE code_key='BANK' AND code_dtl=?", [bankCode]); check(b && b.category1 !== '0', '引出口座（銀行）を選択してください');
+  const id = 'PR' + date.replaceAll('-', '') + '-' + Date.now().toString(36);
+  const jid = await postJournal(c, { date, pattern: 'G03', sourceType: 'petty_refill', sourceId: id, lines: [line('D', '1111', amount, { tax: '9' }), line('C', '1112', amount, { sub: bankCode, tax: '9' })] });
+  await audit(c, ctx, 'journal_entry', jid, 'petty.refill', { date, amount, bank: bankCode });
+  return { id: jid };
 }

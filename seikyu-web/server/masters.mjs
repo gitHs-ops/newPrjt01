@@ -6,7 +6,7 @@ import { toZenginKana, zenginInvalid } from './zengin.mjs';
 // Accounts referenced by automatic journal patterns. They cannot be deactivated.
 export const SYSTEM_ACCOUNTS = [
   ['1111', '現金'], ['1112', '当座預金'], ['1120', '受取手形'], ['1131', '売掛金'], ['1360', '材料及び貯蔵品'],
-  ['4121', '買掛金'], ['4170', '預り金'], ['4415', '仮受消費税'], ['8130', '合材売上'], ['8231', '仕入'], ['8330', '雑費'], ['8850', '雑損失'], ['82316', '期末棚卸高'],
+  ['1431', '業者立替金'], ['4121', '買掛金'], ['4170', '預り金'], ['4171', '預り金（安全協力費等）'], ['8790', '雑収入'], ['4415', '仮受消費税'], ['8130', '合材売上'], ['8231', '仕入'], ['8330', '雑費'], ['8850', '雑損失'], ['82316', '期末棚卸高'],
 ];
 const CODE = /^[0-9A-Za-z\-]+$/;
 const del = active => (active ? '0' : '1');
@@ -22,23 +22,31 @@ export const MASTERS = {
       F('section', '部署', { list: false, max: 26, optional: true }), F('closing', '締日', { type: 'int', hint: '1〜28、月末は31' }), F('postcode', '郵便番号', { list: false, max: 7, optional: true, hint: '数字7桁' }), F('pref', '都道府県', { list: false, max: 8, optional: true }),
       F('address', '住所1', { max: 42, optional: true }), F('address2', '住所2', { list: false, max: 42, optional: true }), F('tel', '電話番号', { max: 14, optional: true }), F('fax', 'FAX番号', { list: false, max: 14, optional: true }),
       F('customerPic', '先方担当者', { list: false, max: 26, optional: true }), F('pic', '自社担当者', { list: false, max: 26, optional: true }), F('creditStart', '取引開始日', { list: false, type: 'date', optional: true }),
-      F('cardMemberId', 'カード会員ID', { list: false, max: 15, optional: true, hint: 'カード決済（Q16確認待ち）' }), F('remarks', '備考', { list: false, max: 100, optional: true }),
+      F('cardMemberId', 'カード会員ID', { list: false, max: 15, optional: true, hint: 'カード決済（Q16確認待ち）' }), F('cardStatus', 'カード状態', { list: false, max: 2, optional: true }),
+      F('siteMonths', '回収サイト（締め後○か月）', { list: false, type: 'int', optional: true, hint: '0〜12。未設定は翌月（推定）' }), F('siteDay', '回収日', { list: false, type: 'int', optional: true, hint: '1〜31（31=月末）' }),
+      F('payMethod', '入金方法', { list: false, type: 'select', optional: true, options: [['', '（未設定）'], ['1', '振込'], ['2', '手形'], ['3', 'でんさい'], ['4', '現金']] }), F('payBank', '入金先口座', { list: false, type: 'ref', ref: 'banks', optional: true }), F('remarks', '備考', { list: false, max: 100, optional: true }),
       F('opening', '開始売掛残高', { type: 'int', optional: true, hint: '請求作成後は変更不可' }), F('deposit', '預り金残高（開始）', { list: false, type: 'int', optional: true, hint: '入金消込で充当できる額（B-06）' }), F('active', '有効', { type: 'bool' })],
-    select: "SELECT c.*, o.amount opening, d.amount deposit FROM client_m c LEFT JOIN opening_balance o ON o.source_reference=CONCAT('OPEN-AR-',c.customers_cd) LEFT JOIN opening_balance d ON d.source_reference=CONCAT('OPEN-ADV-',c.customers_cd)",
+    select: "SELECT c.*, o.amount opening, d.amount deposit, st.category1 site_m, st.category2 site_d, st.category3 pay_method, st.code_dtl_abr pay_bank FROM client_m c LEFT JOIN opening_balance o ON o.source_reference=CONCAT('OPEN-AR-',c.customers_cd) LEFT JOIN opening_balance d ON d.source_reference=CONCAT('OPEN-ADV-',c.customers_cd) LEFT JOIN code_m st ON st.code_key='CSITE' AND st.code_dtl=c.customers_cd",
     where: 'c.customers_cd=?', keyOf: r => [r.code],
     decode: r => ({ code: r.customers_cd, name: r.customers_name, kana: r.customers_kana, abbr: r.customers_abr, section: r.customers_sec, closing: Number(r.deadline) || 31, postcode: r.postcode, pref: r.pref, address: r.addr1, address2: r.addr2,
-      tel: r.tel_no, fax: r.fax_no, customerPic: r.customers_pic, pic: r.pic, creditStart: r.credit_str || '', cardMemberId: r.card_member_id, remarks: r.remarks, opening: Number(r.opening || 0), deposit: Number(r.deposit || 0), active: live(r) }),
+      tel: r.tel_no, fax: r.fax_no, customerPic: r.customers_pic, pic: r.pic, creditStart: r.credit_str || '', cardMemberId: r.card_member_id, cardStatus: r.card_status || '', siteMonths: r.site_m ?? '', siteDay: r.site_d ?? '', payMethod: r.pay_method || '', payBank: r.pay_bank || '', remarks: r.remarks, opening: Number(r.opening || 0), deposit: Number(r.deposit || 0), active: live(r) }),
     validate: r => ({ code: text(r.code, '得意先コード', 5, { pattern: CODE }), name: text(r.name, '得意先名', 42), kana: text(r.kana, 'カナ', 25, { required: false }), abbr: text(r.abbr, '略称', 26, { required: false }),
       section: text(r.section, '部署', 26, { required: false }), closing: closingDay(r.closing ?? 31), postcode: text(String(r.postcode || '').replace('-', ''), '郵便番号', 7, { required: false, pattern: /^\d{7}$/ }),
       pref: text(r.pref, '都道府県', 8, { required: false }), address: text(r.address, '住所1', 42, { required: false }), address2: text(r.address2, '住所2', 42, { required: false }),
       tel: text(r.tel, '電話番号', 14, { required: false, pattern: /^[0-9\-]+$/ }), fax: text(r.fax, 'FAX番号', 14, { required: false, pattern: /^[0-9\-]+$/ }),
       customerPic: text(r.customerPic, '先方担当者', 26, { required: false }), pic: text(r.pic, '自社担当者', 26, { required: false }), creditStart: r.creditStart ? isoDate(r.creditStart, '取引開始日') : '',
-      cardMemberId: text(r.cardMemberId, 'カード会員ID', 15, { required: false }), remarks: text(r.remarks, '備考', 100, { required: false }),
+      cardMemberId: text(r.cardMemberId, 'カード会員ID', 15, { required: false }), cardStatus: text(r.cardStatus, 'カード状態', 2, { required: false }),
+      siteMonths: r.siteMonths === '' || r.siteMonths == null ? '' : (() => { const v = yen(r.siteMonths, '回収サイト'); check(v <= 12, '回収サイトは0〜12か月です'); return v; })(),
+      siteDay: r.siteDay === '' || r.siteDay == null ? '' : (() => { const v = yen(r.siteDay, '回収日'); check(v >= 1 && v <= 31, '回収日は1〜31です'); return v; })(),
+      payMethod: ['1', '2', '3', '4'].includes(String(r.payMethod || '')) ? String(r.payMethod) : '', payBank: text(r.payBank, '入金先口座', 12, { required: false }), remarks: text(r.remarks, '備考', 100, { required: false }),
       opening: yen(r.opening || 0, '開始売掛残高', { negative: true }), deposit: yen(r.deposit || 0, '預り金残高'), active: bool(r.active ?? true) }),
     async write(c, r, old) {
-      const v = [r.name, r.kana, r.abbr, r.section, r.postcode, r.tel, r.fax, r.pref, r.address, r.address2, r.customerPic, r.pic, String(r.closing), r.creditStart || null, r.remarks, del(r.active), r.cardMemberId];
-      if (!old) await c.query('INSERT INTO client_m (customers_name,customers_kana,customers_abr,customers_sec,postcode,tel_no,fax_no,pref,addr1,addr2,customers_pic,pic,deadline,credit_str,remarks,delete_f,card_member_id,customers_cd) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)', [...v, r.code]);
-      else await c.query('UPDATE client_m SET customers_name=?,customers_kana=?,customers_abr=?,customers_sec=?,postcode=?,tel_no=?,fax_no=?,pref=?,addr1=?,addr2=?,customers_pic=?,pic=?,deadline=?,credit_str=?,remarks=?,delete_f=?,card_member_id=? WHERE customers_cd=?', [...v, r.code]);
+      const v = [r.name, r.kana, r.abbr, r.section, r.postcode, r.tel, r.fax, r.pref, r.address, r.address2, r.customerPic, r.pic, String(r.closing), r.creditStart || null, r.remarks, del(r.active), r.cardMemberId, r.cardStatus || null];
+      if (!old) await c.query('INSERT INTO client_m (customers_name,customers_kana,customers_abr,customers_sec,postcode,tel_no,fax_no,pref,addr1,addr2,customers_pic,pic,deadline,credit_str,remarks,delete_f,card_member_id,card_status,customers_cd) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)', [...v, r.code]);
+      else await c.query('UPDATE client_m SET customers_name=?,customers_kana=?,customers_abr=?,customers_sec=?,postcode=?,tel_no=?,fax_no=?,pref=?,addr1=?,addr2=?,customers_pic=?,pic=?,deadline=?,credit_str=?,remarks=?,delete_f=?,card_member_id=?,card_status=? WHERE customers_cd=?', [...v, r.code]);
+      await c.query("DELETE FROM code_m WHERE code_key='CSITE' AND code_dtl=?", [r.code]);
+      if (r.siteMonths !== '' || r.siteDay !== '' || r.payMethod || r.payBank) await c.query("INSERT INTO code_m (code_key,code_key_nam,code_dtl,code_dtl_nam,code_dtl_abr,category1,category2,category3) VALUES ('CSITE','回収条件',?,'',?,?,?,?)",
+        [r.code, r.payBank || '', String(r.siteMonths === '' ? 1 : r.siteMonths), String(r.siteDay === '' ? 31 : r.siteDay), r.payMethod || '']);
       if ((old?.opening || 0) !== r.opening) {
         const billed = await one(c, 'SELECT COUNT(*) n FROM billing_head WHERE customers_cd=?', [r.code]);
         check(!Number(billed.n), '請求作成後は開始売掛残高を変更できません');
@@ -104,14 +112,14 @@ export const MASTERS = {
   },
   banks: {
     label: '銀行（当座預金内訳）', table: 'code_m',
-    fields: [F('code', '銀行内訳コード', { max: 12, key: true }), F('name', '銀行名', { max: 40 }),
+    fields: [F('code', '共通コード（内訳）', { max: 12, key: true }), F('name', '銀行名', { max: 40 }), F('branchLabel', '銀行CD-支店CD 名称', { readonly: true, optional: true, hint: '振込元の銀行・支店番号と金融機関マスタの名称' }),
       F('zgBank', '振込元 銀行番号(4桁)', { max: 4, optional: true, hint: '全銀データ作成用（NO37）' }), F('zgBranch', '振込元 支店番号(3桁)', { list: false, max: 3, optional: true }),
       F('zgType', '振込元 預金種目', { list: false, type: 'select', options: [['1', '普通'], ['2', '当座'], ['4', '貯蓄']], optional: true }), F('zgAccount', '振込元 口座番号(7桁以内)', { list: false, max: 7, optional: true }),
       F('zgCode', '振込依頼人コード(10桁)', { max: 10, optional: true, hint: '銀行から付与されるコード' }), F('zgName', '振込依頼人名（カナ）', { list: false, max: 40, optional: true, hint: '半角カナに自動変換' }),
       F('active', '有効', { type: 'bool' })],
-    select: "SELECT b.*, z.code_dtl_nam zg_name, z.code_dtl_abr zg_code, z.category1 zg_bank, z.category2 zg_branch_type, z.category3 zg_account FROM code_m b LEFT JOIN code_m z ON z.code_key='ZGN' AND z.code_dtl=b.code_dtl WHERE b.code_key='BANK'",
+    select: "SELECT b.*, z.code_dtl_nam zg_name, z.code_dtl_abr zg_code, z.category1 zg_bank, z.category2 zg_branch_type, z.category3 zg_account, kb.code_dtl_nam zg_bank_name, kbb.code_dtl_nam zg_branch_name FROM code_m b LEFT JOIN code_m z ON z.code_key='ZGN' AND z.code_dtl=b.code_dtl LEFT JOIN code_m kb ON kb.code_key='BKDIR' AND kb.code_dtl=z.category1 LEFT JOIN code_m kbb ON kbb.code_key='BKDIR' AND kbb.code_dtl=CONCAT(z.category1,'-',LEFT(z.category2,3)) WHERE b.code_key='BANK'",
     where: 'b.code_dtl=?', keyOf: r => [r.code],
-    decode: r => ({ code: r.code_dtl, name: r.code_dtl_nam, zgBank: r.zg_bank || '', zgBranch: (r.zg_branch_type || '').slice(0, 3), zgType: (r.zg_branch_type || '').slice(3, 4) || '1', zgAccount: r.zg_account || '', zgCode: r.zg_code || '', zgName: r.zg_name || '', active: r.category1 !== '0' }),
+    decode: r => ({ code: r.code_dtl, name: r.code_dtl_nam, branchLabel: r.zg_bank ? `${r.zg_bank}-${(r.zg_branch_type || '').slice(0, 3)} ${r.zg_bank_name || ''} ${r.zg_branch_name || ''}`.trim() : '', zgBank: r.zg_bank || '', zgBranch: (r.zg_branch_type || '').slice(0, 3), zgType: (r.zg_branch_type || '').slice(3, 4) || '1', zgAccount: r.zg_account || '', zgCode: r.zg_code || '', zgName: r.zg_name || '', active: r.category1 !== '0' }),
     validate: r => {
       const v = { code: text(r.code, '銀行内訳コード', 12, { pattern: CODE }), name: text(r.name, '銀行名', 40), zgBank: String(r.zgBank || '').trim(), zgBranch: String(r.zgBranch || '').trim(), zgType: String(r.zgType || '1'),
         zgAccount: String(r.zgAccount || '').trim(), zgCode: String(r.zgCode || '').trim(), zgName: toZenginKana(String(r.zgName || '').trim()), active: bool(r.active ?? true) };
@@ -136,13 +144,13 @@ export const MASTERS = {
     label: '業者', table: 'vendor',
     fields: [F('code', '業者コード', { max: 20, key: true }), F('name', '業者名', { max: 200 }), F('bank', '振込先銀行(4桁)', { max: 4, optional: true }), F('branch', '支店(3桁)', { max: 3, optional: true }),
       F('accountType', '預金種別', { type: 'select', options: [['1', '普通'], ['2', '当座'], ['4', '貯蓄']], optional: true }), F('account', '口座番号', { max: 16, optional: true }),
-      F('holder', '受取人名(カナ)', { list: false, max: 200, optional: true }), F('active', '有効', { type: 'bool' })],
-    select: 'SELECT v.*, b.bank_code, b.branch_code, b.account_number, b.holder_name, b.account_type_code FROM vendor v LEFT JOIN bank_account b ON b.bank_account_id=v.bank_account_id',
+      F('advance', '業者立替金残高（開始）', { list: false, type: 'int', optional: true, hint: '支払時に相殺できる額（F-03）' }), F('holder', '受取人名(カナ)', { list: false, max: 200, optional: true }), F('active', '有効', { type: 'bool' })],
+    select: "SELECT v.*, b.bank_code, b.branch_code, b.account_number, b.holder_name, b.account_type_code, ob.amount advance FROM vendor v LEFT JOIN bank_account b ON b.bank_account_id=v.bank_account_id LEFT JOIN opening_balance ob ON ob.source_reference=CONCAT('OPEN-VADV-',v.vendor_code)",
     where: 'v.vendor_code=?', keyOf: r => [r.code],
-    decode: r => ({ id: r.vendor_id, code: r.vendor_code, name: r.vendor_name, bank: r.bank_code || '', branch: r.branch_code || '', accountType: r.account_type_code || '1', account: r.account_number || '', holder: r.holder_name || '', active: !!r.active }),
+    decode: r => ({ id: r.vendor_id, code: r.vendor_code, name: r.vendor_name, bank: r.bank_code || '', branch: r.branch_code || '', accountType: r.account_type_code || '1', account: r.account_number || '', holder: r.holder_name || '', advance: Number(r.advance || 0), active: !!r.active }),
     validate: r => {
       const v = { code: text(r.code, '業者コード', 20, { pattern: CODE }), name: text(r.name, '業者名', 200), bank: String(r.bank || '').trim(), branch: String(r.branch || '').trim(),
-        accountType: String(r.accountType || '1'), account: String(r.account || '').trim(), holder: toZenginKana(String(r.holder || '').trim()), active: bool(r.active ?? true) };
+        accountType: String(r.accountType || '1'), account: String(r.account || '').trim(), holder: toZenginKana(String(r.holder || '').trim()), advance: yen(r.advance || 0, '業者立替金残高'), active: bool(r.active ?? true) };
       if (v.bank || v.branch || v.account || v.holder) check(/^\d{4}$/.test(v.bank) && /^\d{3}$/.test(v.branch) && /^\d{1,16}$/.test(v.account) && v.holder && v.holder.length <= 200 && ['1', '2', '4'].includes(v.accountType), '振込先は銀行4桁・支店3桁・口座番号・受取人・預金種別をすべて入力してください');
       return v;
     },
@@ -155,6 +163,59 @@ export const MASTERS = {
       }
       if (!old) await c.query('INSERT INTO vendor (vendor_code,vendor_name,bank_account_id,active) VALUES (?,?,?,?)', [r.code, r.name, accountId, r.active]);
       else await c.query('UPDATE vendor SET vendor_name=?,bank_account_id=?,active=? WHERE vendor_code=?', [r.name, accountId, r.active, r.code]);
+      if ((old?.advance || 0) !== r.advance) {
+        const v = await one(c, 'SELECT vendor_id FROM vendor WHERE vendor_code=?', [r.code]);
+        const used = await one(c, "SELECT COALESCE(SUM(offset_amount),0) n FROM payment WHERE vendor_id=? AND status='POSTED'", [v.vendor_id]);
+        check(r.advance >= Number(used.n), '相殺済みの額より小さい立替金残高にはできません');
+        await c.query("DELETE FROM opening_balance WHERE source_reference=CONCAT('OPEN-VADV-',?)", [r.code]);
+        if (r.advance) await c.query("INSERT INTO opening_balance (cutover_on,balance_kind,vendor_id,amount,source_reference) VALUES (?,'ADVANCE',?,?,CONCAT('OPEN-VADV-',?))", [today(), v.vendor_id, r.advance, r.code]);
+      }
+    },
+  },
+  company: {
+    label: '自社情報・請求書設定', table: 'company_info_m',
+    fields: [F('id', 'ID', { max: 1, key: true, hint: '1固定' }), F('name1', '会社名1', { max: 21 }), F('name2', '会社名2', { max: 30, optional: true }), F('postcode', '郵便番号', { max: 7, optional: true }),
+      F('pref', '都道府県', { max: 8, optional: true }), F('addr1', '住所1', { max: 42, optional: true }), F('addr2', '住所2', { max: 42, optional: true }), F('tel', '電話番号', { max: 14, optional: true }), F('fax', 'FAX', { list: false, max: 14, optional: true }),
+      F('plant', '工場名', { list: false, max: 26, optional: true }), F('invoiceNo', '適格請求書発行事業者登録番号', { max: 14, optional: true, hint: 'T＋13桁（例 T4180001002429）' }), F('invoiceBank', '請求書の振込先口座', { type: 'ref', ref: 'banks', optional: true, hint: '銀行マスタの振込元口座情報を表示' })],
+    select: "SELECT c.*, n.code_dtl_abr inv_no, b.code_dtl_abr inv_bank FROM company_info_m c LEFT JOIN code_m n ON n.code_key='SET' AND n.code_dtl='INVNO' LEFT JOIN code_m b ON b.code_key='SET' AND b.code_dtl='INVBANK'",
+    where: 'c.company_info_id=?', keyOf: r => [String(r.id || '1')],
+    decode: r => ({ id: String(r.company_info_id), name1: r.company_name1, name2: r.company_name2, postcode: r.postcode, pref: r.pref, addr1: r.addr1, addr2: r.addr2, tel: r.tel_no, fax: r.fax_no, plant: r.plant_name, invoiceNo: r.inv_no || '', invoiceBank: r.inv_bank || '' }),
+    validate: r => ({ id: '1', name1: text(r.name1, '会社名1', 21), name2: text(r.name2, '会社名2', 30, { required: false }), postcode: text(String(r.postcode || '').replace('-', ''), '郵便番号', 7, { required: false, pattern: /^\d{7}$/ }),
+      pref: text(r.pref, '都道府県', 8, { required: false }), addr1: text(r.addr1, '住所1', 42, { required: false }), addr2: text(r.addr2, '住所2', 42, { required: false }), tel: text(r.tel, '電話番号', 14, { required: false }), fax: text(r.fax, 'FAX', 14, { required: false }),
+      plant: text(r.plant, '工場名', 26, { required: false }), invoiceNo: text(String(r.invoiceNo || '').replace(/[\s-]/g, '').toUpperCase(), '登録番号', 14, { required: false, pattern: /^T\d{13}$/ }), invoiceBank: text(r.invoiceBank, '振込先口座', 12, { required: false }) }),
+    async write(c, r, old) {
+      check(old, '自社情報は1件のみです（新規登録はできません）');
+      await c.query('UPDATE company_info_m SET company_name1=?,company_name2=?,postcode=?,pref=?,addr1=?,addr2=?,tel_no=?,fax_no=?,plant_name=? WHERE company_info_id=1', [r.name1, r.name2, r.postcode, r.pref, r.addr1, r.addr2, r.tel, r.fax, r.plant]);
+      for (const [k, v, n] of [['INVNO', r.invoiceNo, '登録番号'], ['INVBANK', r.invoiceBank, '請求書振込先']]) {
+        await c.query("DELETE FROM code_m WHERE code_key='SET' AND code_dtl=?", [k]);
+        if (v) await c.query("INSERT INTO code_m (code_key,code_key_nam,code_dtl,code_dtl_nam,code_dtl_abr,category1,category2,category3) VALUES ('SET','設定',?,?,?,'','','')", [k, n, v]);
+      }
+    },
+  },
+  bankdir: {
+    label: '金融機関（銀行・支店）', table: 'code_m',
+    fields: [F('bank', '銀行番号(4桁)', { max: 4, key: true }), F('branch', '支店番号(3桁)', { max: 3, key: true, optional: true, hint: '空欄＝銀行そのもの' }), F('name', '名称', { max: 40 }), F('kana', 'カナ（全銀用）', { max: 15, optional: true, hint: '半角カナに自動変換' }), F('active', '有効', { type: 'bool' })],
+    select: "SELECT * FROM code_m WHERE code_key='BKDIR'", where: 'code_dtl=?', keyOf: r => [r.branch ? r.bank + '-' + r.branch : r.bank],
+    decode: r => ({ bank: r.category1, branch: r.category2 || '', name: r.code_dtl_nam, kana: r.code_dtl_abr, active: r.category3 !== '0' }),
+    validate: r => {
+      const v = { bank: text(r.bank, '銀行番号', 4, { pattern: /^\d{4}$/ }), branch: text(r.branch, '支店番号', 3, { required: false, pattern: /^\d{3}$/ }), name: text(r.name, '名称', 40), kana: toZenginKana(String(r.kana || '').trim()), active: bool(r.active ?? true) };
+      check(v.kana.length <= 15 && !zenginInvalid(v.kana).length, 'カナは全銀で使える文字15文字以内にしてください'); return v;
+    },
+    async write(c, r, old) {
+      const key = r.branch ? r.bank + '-' + r.branch : r.bank;
+      if (!old) await c.query("INSERT INTO code_m (code_key,code_key_nam,code_dtl,code_dtl_nam,code_dtl_abr,category1,category2,category3) VALUES ('BKDIR','金融機関',?,?,?,?,?,?)", [key, r.name, r.kana, r.bank, r.branch, r.active ? '1' : '0']);
+      else await c.query("UPDATE code_m SET code_dtl_nam=?,code_dtl_abr=?,category3=? WHERE code_key='BKDIR' AND code_dtl=?", [r.name, r.kana, r.active ? '1' : '0', key]);
+    },
+  },
+  depts: {
+    label: '部門', table: 'code_m',
+    fields: [F('code', '部門コード', { max: 12, key: true }), F('name', '部門名', { max: 40 }), F('active', '有効', { type: 'bool' })],
+    select: "SELECT * FROM code_m WHERE code_key='DEPT'", where: 'code_dtl=?', keyOf: r => [r.code],
+    decode: r => ({ code: r.code_dtl, name: r.code_dtl_nam, active: r.category1 !== '0' }),
+    validate: r => ({ code: text(r.code, '部門コード', 12, { pattern: CODE }), name: text(r.name, '部門名', 40), active: bool(r.active ?? true) }),
+    async write(c, r, old) {
+      if (!old) await c.query("INSERT INTO code_m (code_key,code_key_nam,code_dtl,code_dtl_nam,code_dtl_abr,category1,category2,category3) VALUES ('DEPT','部門',?,?,'',?,'','')", [r.code, r.name, r.active ? '1' : '0']);
+      else await c.query("UPDATE code_m SET code_dtl_nam=?,category1=? WHERE code_key='DEPT' AND code_dtl=?", [r.name, r.active ? '1' : '0', r.code]);
     },
   },
   jv: {

@@ -11,35 +11,46 @@ const monthEnd = m => new Date(Date.UTC(+m.slice(0, 4), +m.slice(5, 7), 0)).toIS
 
 // ---------- NO30 定時請求入力明細表（組織別）：現行 HAR136 の並び（部門→業者→請求明細） ----------
 export async function payableInputList(c, q) {
-  const month = isoMonth(q.month, '月度');
-  const co = await one(c, 'SELECT plant_name FROM company_info_m ORDER BY company_info_id LIMIT 1');
+  const month = isoMonth(q.month, '月度'), d = Number(q.closing || 20), prev = new Date(Date.UTC(+month.slice(0, 4), +month.slice(5, 7) - 2, 1)).toISOString().slice(0, 7);
+  const from = d >= 31 ? month + '-01' : `${prev}-${String(d + 1).padStart(2, '0')}`, to = d >= 31 ? monthEnd(month) : `${month}-${String(d).padStart(2, '0')}`;
+  const deptNames = Object.fromEntries((await rows(c, "SELECT code_dtl, code_dtl_nam FROM code_m WHERE code_key='DEPT'")).map(r => [r.code_dtl, r.code_dtl_nam]));
   const ls = await rows(c, `SELECT d.document_no, d.booked_on, d.due_on, d.memo, d.gross_amount, l.department_code, l.account_code, l.sub_code, l.source_tax_code, a.account_name, s.sub_name, v.vendor_code, v.vendor_name,
       (SELECT COALESCE(SUM(pa.amount),0) FROM payment_allocation pa JOIN payment p ON p.payment_id=pa.payment_id AND p.status='POSTED' WHERE pa.expense_id=d.expense_id) paid
     FROM expense_document d JOIN expense_line l ON l.expense_id=d.expense_id LEFT JOIN account_subject a ON a.account_code=l.account_code LEFT JOIN account_subsubject s ON s.account_code=l.account_code AND s.sub_code=l.sub_code
-    LEFT JOIN vendor v ON v.vendor_id=d.vendor_id WHERE d.expense_kind='PAYABLE' AND d.status='POSTED' AND d.booked_on BETWEEN ? AND ? ORDER BY l.department_code, v.vendor_code, d.document_no, l.line_no`, [month + '-01', monthEnd(month)]);
+    LEFT JOIN vendor v ON v.vendor_id=d.vendor_id WHERE d.expense_kind='PAYABLE' AND d.status='POSTED' AND d.booked_on BETWEEN ? AND ? ORDER BY l.department_code, v.vendor_code, d.document_no, l.line_no`, [from, to]);
   const depts = [];
   for (const r of ls) {
-    let dp = depts.find(x => x.dept === r.department_code); if (!dp) depts.push(dp = { dept: r.department_code, name: r.department_code === '063' ? co?.plant_name || '' : '', vendors: [], total: 0 });
+    let dp = depts.find(x => x.dept === r.department_code); if (!dp) depts.push(dp = { dept: r.department_code, name: deptNames[r.department_code] || '', vendors: [], total: 0 });
     let v = dp.vendors.find(x => x.vendor === r.vendor_code); if (!v) dp.vendors.push(v = { vendor: r.vendor_code, name: r.vendor_name, rows: [], total: 0 });
     const amount = num(r.gross_amount);
     v.rows.push({ no: r.document_no, date: r.booked_on, due: r.due_on || '', account: r.account_code, sub: r.sub_code || '', accountName: r.account_name, subName: r.sub_name || '', orderRemain: 0, amount, offset: 0, memo: r.memo, ratio: '100.0%', tax: r.source_tax_code, paid: num(r.paid) });
     v.total += amount; dp.total += amount;
   }
-  return { title: '定時請求データ入力明細表（組織別）', ref: 'NO30 / 添付帳票⑩（HAR136）', month, depts, total: depts.reduce((n, x) => n + x.total, 0),
-    note: '発注残金額・相殺金額は発注管理・相殺ルール未確定（Q03）のため0。現比（按分比率）は100%。部門名は自社情報の工場名（部門063）を表示。' };
+  return { title: '定時請求データ入力明細表（組織別）', ref: 'NO30 / 添付帳票⑩（HAR136）', month, from, to, depts, total: depts.reduce((n, x) => n + x.total, 0),
+    note: '月度は20日締め（現行と同じ）。組織＝部門マスタ。発注残金額は発注管理が対象外のため0、相殺金額は定時請求時点では0（支払時に相殺）、現比（按分比率）は100%（推定）。' };
 }
 // ---------- NO33 小口現金出納簿（定額資金前渡制を仮定） ----------
 export async function pettyCashBook(c, q) {
-  const { from, to } = range(q), fund = num(q.fund ?? 100000);
-  check(Number.isSafeInteger(fund) && fund >= 0, '定額資金が不正です');
-  const ls = await rows(c, `SELECT d.document_no, d.booked_on, d.memo, d.gross_amount, l.account_code, l.sub_code, l.source_tax_code, a.account_name, v.vendor_name FROM expense_document d JOIN expense_line l ON l.expense_id=d.expense_id AND l.line_no=1
+  const { from, to } = range(q);
+  const set = await one(c, "SELECT code_dtl_abr v FROM code_m WHERE code_key='SET' AND code_dtl='PETTYFUND'"), fund = num(set?.v || 100000);
+  const sumBefore = async (sql) => num(Object.values(await one(c, sql, [from]))[0]);
+  const refBefore = await sumBefore("SELECT COALESCE(SUM(l.amount),0) FROM journal_entry e JOIN journal_line l ON l.journal_id=e.journal_id AND l.account_code='1111' AND l.side='D' WHERE e.source_type='petty_refill' AND e.reversal_of IS NULL AND e.status='POSTED' AND e.journal_date<?");
+  const payBefore = await sumBefore("SELECT COALESCE(SUM(gross_amount),0) FROM expense_document WHERE expense_kind='PETTY_CASH' AND status='POSTED' AND booked_on<?");
+  const opening = fund + refBefore - payBefore;
+  const refills = (await rows(c, "SELECT e.journal_date d, l.amount v FROM journal_entry e JOIN journal_line l ON l.journal_id=e.journal_id AND l.account_code='1111' AND l.side='D' WHERE e.source_type='petty_refill' AND e.reversal_of IS NULL AND e.status='POSTED' AND e.journal_date BETWEEN ? AND ?", [from, to])).map(r => ({ date: r.d, amount: num(r.v) }));
+  const ls = await rows(c, `SELECT d.document_no, d.booked_on, d.memo, d.gross_amount, l.account_code, l.sub_code, l.source_tax_code, l.memo line_memo, a.account_name, v.vendor_name FROM expense_document d JOIN expense_line l ON l.expense_id=d.expense_id AND l.line_no=1
     LEFT JOIN account_subject a ON a.account_code=l.account_code LEFT JOIN vendor v ON v.vendor_id=d.vendor_id WHERE d.expense_kind='PETTY_CASH' AND d.status='POSTED' AND d.booked_on BETWEEN ? AND ? ORDER BY d.booked_on, d.document_no`, [from, to]);
   let ms = null; try { ms = (await rows(c, "SELECT code_dtl code, code_dtl_nam name, category1 r, category2 seq FROM code_m WHERE code_key='JV' AND code_dtl_abr<>'0'")).map(m => ({ code: m.code, name: m.name, ratio: num(m.r) / 100, seq: num(m.seq) })).sort((a, b) => a.seq - b.seq); if (Math.round(ms.reduce((n, m) => n + m.ratio * 100, 0)) !== 10000) ms = null; } catch { ms = null; }
-  let balance = fund; const out = [];
-  for (const r of ls) { const amount = num(r.gross_amount); balance -= amount; out.push({ date: r.booked_on, no: r.document_no, payee: r.vendor_name || '', memo: r.memo, account: r.account_code, sub: r.sub_code || '', accountName: r.account_name, tax: r.source_tax_code, amount, balance, parts: ms ? allocate(amount, ms) : null }); }
-  const spent = out.reduce((n, r) => n + r.amount, 0);
-  return { title: '小口現金出納簿', ref: 'NO33 / 添付帳票⑪（HAR051）', from, to, fund, members: ms, rows: out, spent, closing: fund - spent, replenish: spent,
-    note: '定額資金前渡制を仮定（期首に定額資金を受入、期中の支払後残高、次期補充額＝支払合計）。現金補充の仕訳は手入力扱い（Q11）。JV構成員が登録されていれば出資比率で配分。' };
+  const events = [...refills.map(r => ({ ...r, kind: 'in' })), ...ls.map(r => ({ kind: 'out', date: r.booked_on, r }))].sort((a, b) => a.date.localeCompare(b.date) || (a.kind === 'in' ? -1 : 1));
+  let balance = opening; const out = [];
+  for (const e of events) {
+    if (e.kind === 'in') { balance += e.amount; out.push({ date: e.date, no: '', payee: '', memo: '現金補充（受入）', account: '1111', sub: '', accountName: '現金', tax: '', received: e.amount, amount: 0, balance, parts: null }); continue; }
+    const r = e.r, amount = num(r.gross_amount); balance -= amount;
+    out.push({ date: r.booked_on, no: r.document_no, payee: r.vendor_name || (r.line_memo && r.line_memo !== r.memo ? r.line_memo : ''), memo: r.memo, account: r.account_code, sub: r.sub_code || '', accountName: r.account_name, tax: r.source_tax_code, received: 0, amount, balance, parts: ms ? allocate(amount, ms) : null });
+  }
+  const spent = out.reduce((n, r) => n + r.amount, 0), received = out.reduce((n, r) => n + r.received, 0);
+  return { title: '小口現金出納簿', ref: 'NO33 / 添付帳票⑪（HAR051）', from, to, fund, opening, members: ms, rows: out, received, spent, closing: opening + received - spent, replenish: Math.max(0, fund - (opening + received - spent)),
+    note: '前期繰越＝定額資金（設定値）＋補充累計−支払累計。現金補充は「小口現金」画面で登録（仕訳 G-03 相当：現金／当座預金）。次期補充額＝定額資金−期末残高（定額資金前渡制・推定）。JV構成員が登録されていれば出資比率で配分。' };
 }
 // ---------- NO40 商品売上登録リスト（得意先別・売上日・区分・伝票No） ----------
 export async function salesRegister(c, q) {
@@ -67,9 +78,12 @@ export async function receiptSchedule(c, q) {
     let cu = customers.find(x => x.customer === h.customers_cd);
     if (!cu) {
       // 入金方法・入金先は過去の入金実績から推定（手形の実績があれば手形、現金のみなら現金、それ以外は振込）
+      const site = await one(c, "SELECT category3 method, code_dtl_abr bank FROM code_m WHERE code_key='CSITE' AND code_dtl=?", [h.customers_cd]);
       const kinds = (await rows(c, "SELECT DISTINCT k.component_kind k FROM receipt r JOIN receipt_component k ON k.receipt_id=r.receipt_id WHERE r.customers_cd=? AND r.status='POSTED'", [h.customers_cd])).map(r => r.k);
       const bank = (await one(c, "SELECT jl.sub_code b FROM receipt r JOIN journal_entry je ON je.source_type='receipt' AND je.source_id=CAST(r.receipt_id AS CHAR) AND je.reversal_of IS NULL JOIN journal_line jl ON jl.journal_id=je.journal_id AND jl.account_code='1112' WHERE r.customers_cd=? ORDER BY r.receipt_date DESC LIMIT 1", [h.customers_cd]))?.b || firstBank;
-      customers.push(cu = { customer: h.customers_cd, name: h.customers_name, method: kinds.includes('NOTE') ? '手形' : kinds.length && kinds.every(k => k === 'CASH') ? '現金' : '振込', bank: bank ? `${bank} ${banks[bank] || ''}` : '', rows: [], billed: 0, due: 0 });
+      const methodName = { 1: '振込', 2: '手形', 3: 'でんさい', 4: '現金' }[site?.method] || (kinds.includes('NOTE') ? '手形' : kinds.length && kinds.every(k => k === 'CASH') ? '現金' : '振込');
+      const bk = site?.bank || bank;
+      customers.push(cu = { customer: h.customers_cd, name: h.customers_name, method: methodName, methodSource: site?.method ? '得意先マスタ' : '入金実績から推定', bank: bk ? `${bk} ${banks[bk] || ''}` : '', rows: [], billed: 0, due: 0 });
     }
     const w = `customers_cd=? AND closing_yymm=? AND claim_processing_period=?${h.field_cd ? ' AND field_cd=? AND field_suffix=?' : ''}`;
     const sites = await rows(c, `SELECT field_cd, field_suffix, MAX(field_name) name, SUM(money) net FROM billing_detail WHERE ${w} GROUP BY field_cd, field_suffix ORDER BY field_cd, field_suffix`, [h.customers_cd, h.closing_yymm, h.closing_date, ...(h.field_cd ? [h.field_cd, h.field_suffix] : [])]);
@@ -81,7 +95,7 @@ export async function receiptSchedule(c, q) {
     });
   }
   return { title: '入金予定チェックリスト', ref: 'NO44 / 添付帳票⑳', to, customers, total: customers.reduce((n, x) => n + x.due, 0),
-    note: '入金予定日は請求の支払期日（締日の翌月末・仮）、入金予定額は請求残高を現場別売上比で按分。入金方法・入金先は過去の入金実績からの推定。' };
+    note: '入金予定日は請求の支払期日（得意先マスタの回収条件、未設定は締日の翌月末）。入金予定額は請求残高を現場別売上比で按分。入金方法・入金先は得意先マスタ、未設定なら過去の入金実績から推定。' };
 }
 
 // ---------- Excel ----------
@@ -103,9 +117,9 @@ export async function extraBook(c, kind, q) {
   }
   if (kind === 'petty-book') {
     const d = await pettyCashBook(c, q), out = head(d, `期間 ${d.from} 〜 ${d.to}`), mh = d.members ? d.members.map(m => `${m.name}（${m.ratio}%）`) : [];
-    out.push(['支払日', '伝票No', '支払先', '摘要', '科目コード', '科目名', '税率', '受入', '支払額', '残高', ...mh].map(H), [d.from, '', '', '前期繰越（定額資金）', '', '', '', d.fund, '', d.fund]);
-    for (const r of d.rows) out.push([r.date, r.no, r.payee, r.memo, `${r.account}${r.sub ? '-' + r.sub : ''}`, r.accountName, r.tax, '', r.amount, r.balance, ...(r.parts || [])]);
-    out.push(['', '', '', S('合計'), '', '', '', S(d.fund), S(d.spent), S(d.closing)], ['', '', '', '次期補充額', '', '', '', '', d.replenish], [d.note]);
+    out.push(['支払日', '伝票No', '支払先', '摘要', '科目コード', '科目名', '税率', '受入', '支払額', '残高', ...mh].map(H), [d.from, '', '', '前期繰越', '', '', '', '', '', d.opening]);
+    for (const r of d.rows) out.push([r.date, r.no, r.payee, r.memo, `${r.account}${r.sub ? '-' + r.sub : ''}`, r.accountName, r.tax, r.received || '', r.amount || '', r.balance, ...(r.parts || [])]);
+    out.push(['', '', '', S('合計'), '', '', '', S(d.received), S(d.spent), S(d.closing)], ['', '', '', '次期補充額', '', '', '', '', d.replenish], [d.note]);
     return { name: `小口現金出納簿_${d.from}_${d.to}.xlsx`, body: xlsx([{ name: '小口現金出納簿', rows: out, widths: [11, 12, 16, 24, 10, 14, 7, 11, 11, 11, 14, 14, 14] }]) };
   }
   if (kind === 'sales-register') {

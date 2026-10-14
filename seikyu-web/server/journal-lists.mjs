@@ -11,6 +11,7 @@ export const LISTS = {
   D01: { title: '定時請求自動仕訳リスト', ref: 'NO31 / 資料ア（HAR152）', prefix: 'S', source: 'expense_document' },
   E01: { title: '小口現金出納分自動仕訳リスト', ref: 'NO34 / 資料イ（HAR733）', prefix: 'K', source: 'expense_document' },
   F01: { title: '支払内訳自動仕訳リスト', ref: 'NO38 / 資料ウ（CS5785）', prefix: 'U', source: 'payment' },
+  G03: { title: '小口現金補充仕訳リスト', ref: 'G-03（現行は手入力）', prefix: '', source: 'petty_refill' },
 };
 export const BANK_LIST = { title: '銀行別随時支払一覧表', ref: 'NO39 / 資料エ（HAR321）' };
 const ph = a => a.map(() => '?').join(',');
@@ -68,25 +69,41 @@ export async function journalList(c, q) {
     const total = dr.reduce((n, l) => n + Number(l.amount), 0);
     return { id: e.journal_id, date: e.journal_date, slipNo: slipNo(e.pattern_code, e.journal_id), sourceNo: s.no, status: e.reversal_of ? `逆仕訳（#${e.reversal_of}）` : e.status === 'REVERSED' ? '取消済' : '', pairs, total };
   });
+  // NO8: 現行の売掛金計上は締日単位で一括、1伝票に最大45得意先程度で分割（Q08・推定）。
+  if (q.pattern === 'A01' && q.group !== 'none') {
+    const merged = [];
+    for (const date of [...new Set(slips.map(s => s.date))]) {
+      const day = slips.filter(s => s.date === date && !s.status), other = slips.filter(s => s.date === date && s.status);
+      for (let i = 0; i < day.length; i += 45) {
+        const chunk = day.slice(i, i + 45);
+        merged.push({ id: chunk[0].id, date, slipNo: chunk[0].slipNo, sourceNo: chunk.length > 1 ? `${chunk[0].sourceNo}〜${chunk[chunk.length - 1].sourceNo}（${chunk.length}件）` : chunk[0].sourceNo, status: '', pairs: chunk.flatMap(s => s.pairs), total: chunk.reduce((n, s) => n + s.total, 0) });
+      }
+      merged.push(...other);
+    }
+    slips.splice(0, slips.length, ...merged);
+  }
   const dates = [...new Set(slips.map(s => s.date))].map(date => ({ date, total: slips.filter(s => s.date === date).reduce((n, s) => n + s.total, 0) }));
   return { pattern: q.pattern, ...def, from, to, slips, dates, total: slips.reduce((n, s) => n + s.total, 0) };
 }
 
 export async function bankPaymentList(c, q) {
   const { from, to } = range(q);
-  const ps = await rows(c, `SELECT p.*, v.vendor_code, v.vendor_name, b.bank_code, b.branch_code, b.account_type_code, b.account_number,
+  const ps = await rows(c, `SELECT p.*, v.vendor_code, v.vendor_name, b.bank_code, b.branch_code, b.account_type_code, b.account_number, (SELECT COALESCE(SUM(jl.amount),0) FROM journal_entry je JOIN journal_line jl ON jl.journal_id=je.journal_id AND jl.account_code='4171' AND jl.side='C' WHERE je.source_type='payment' AND je.source_id=CAST(p.payment_id AS CHAR) AND je.reversal_of IS NULL) safety,
       (SELECT jl.sub_code FROM journal_entry je JOIN journal_line jl ON jl.journal_id=je.journal_id WHERE je.source_type='payment' AND je.source_id=CAST(p.payment_id AS CHAR) AND je.reversal_of IS NULL AND jl.account_code='1112' LIMIT 1) from_bank
     FROM payment p JOIN vendor v ON v.vendor_id=p.vendor_id LEFT JOIN bank_account b ON b.bank_account_id=COALESCE(p.bank_account_id, v.bank_account_id)
     WHERE p.status='POSTED' AND p.paid_on BETWEEN ? AND ? ORDER BY p.paid_on, from_bank, v.vendor_code, p.payment_id`, [from, to]);
   const banks = Object.fromEntries((await rows(c, "SELECT code_dtl, code_dtl_nam FROM code_m WHERE code_key='BANK'")).map(r => [r.code_dtl, r.code_dtl_nam]));
+  const dir = Object.fromEntries((await rows(c, "SELECT code_dtl, code_dtl_nam FROM code_m WHERE code_key='BKDIR'")).map(r => [r.code_dtl, r.code_dtl_nam]));
   const days = [];
   for (const p of ps) {
     let d = days.find(x => x.date === p.paid_on); if (!d) days.push(d = { date: p.paid_on, rows: [], total: 0 });
-    const bank = Number(p.bank_amount), fee = Number(p.fee_amount), offset = Number(p.offset_amount);
-    d.rows.push({ vendor: p.vendor_code, vendorName: p.vendor_name, no: p.payment_no, date: p.paid_on, billed: bank + fee + offset, offset, safety: 0, fee, vendorTotal: bank,
-      method: '銀行振込', fromBank: p.from_bank ? `${p.from_bank} ${banks[p.from_bank] || ''}` : '', payeeBank: p.bank_code || '未登録', payeeBranch: p.branch_code || '' });
+    const bank = Number(p.bank_amount), fee = Number(p.fee_amount), offset = Number(p.offset_amount), safety = Number(p.safety);
+    d.rows.push({ vendor: p.vendor_code, vendorName: p.vendor_name, no: p.payment_no, date: p.paid_on, billed: bank + fee + offset + safety, offset, safety, fee, vendorTotal: bank,
+      method: '銀行振込', fromBankCode: p.from_bank || '', fromBank: p.from_bank ? `${p.from_bank} ${banks[p.from_bank] || ''}` : '', payeeBank: p.bank_code ? `${p.bank_code} ${dir[p.bank_code] || ''}`.trim() : '未登録', payeeBranch: p.branch_code ? `${p.branch_code} ${dir[p.bank_code + '-' + p.branch_code] || ''}`.trim() : '' });
     d.total += bank;
   }
+  // 銀行別（支払元口座別）小計
+  for (const d of days) { d.banks = [...new Set(d.rows.map(r => r.fromBank))].map(b => ({ bank: b, rows: d.rows.filter(r => r.fromBank === b), total: d.rows.filter(r => r.fromBank === b).reduce((n, r) => n + r.vendorTotal, 0) })); }
   return { ...BANK_LIST, from, to, days, total: days.reduce((n, d) => n + d.total, 0) };
 }
 
@@ -117,7 +134,7 @@ export async function bankPaymentBook(c, q) {
   for (const day of d.days) {
     const [y, m, dd] = day.date.split('-');
     out.push([H(`${y.slice(2)}年${Number(m)}月${Number(dd)}日支払`)], head);
-    for (const r of day.rows) out.push([r.vendor, r.vendorName, r.no, r.date, r.billed, r.offset, r.safety, r.fee, r.vendorTotal, r.method, r.fromBank, r.payeeBank, r.payeeBranch]);
+    for (const g of day.banks) { for (const r of g.rows) out.push([r.vendor, r.vendorName, r.no, r.date, r.billed, r.offset, r.safety, r.fee, r.vendorTotal, r.method, r.fromBank, r.payeeBank, r.payeeBranch]); out.push(['', S(`銀行計 ${g.bank}`), '', '', '', '', '', '', S(g.total)]); }
     out.push(['', S('支払日計'), '', '', S(day.rows.reduce((n, r) => n + r.billed, 0)), S(day.rows.reduce((n, r) => n + r.offset, 0)), S(0), S(day.rows.reduce((n, r) => n + r.fee, 0)), S(day.total)], []);
   }
   out.push(['', S('総合計'), '', '', '', '', '', '', S(d.total)]);

@@ -87,6 +87,20 @@ const base = process.env.BASE_URL, out = process.env.OUT_DIR || '.';
       await openMisc('[data-act=misc][data-kind=material-ledger]', 'material-ledger'); await openMisc('[data-act=mix]', 'mix');
       await goView('reports');
       for (const k of ['jv-expenses', 'jv-receipts']) await openMisc(`[data-act=misc][data-kind=${k}]`, k);
+      // 再調査で見つかった不具合の回帰確認: NO10 一括ダウンロード、NO48 印刷
+      await page.evaluate(() => { window.print = () => { window.__printed = (window.__printed || 0) + 1; }; });
+      await page.evaluate(() => (location.hash = 'invoices?status=issued')); await page.waitForFunction(() => document.querySelector('#content').dataset.view === 'invoices' && !document.querySelector('#content.busy'), null, { timeout: 60000 });
+      const pick = await page.$('.inv-pick');
+      if (pick) {
+        await pick.check();
+        const [dl] = await Promise.all([page.waitForEvent('download', { timeout: 60000 }).catch(() => null), page.click('[data-act=bulk]')]);
+        results.push({ view: 'invoices.bulk-download', ok: !!dl && (await dl.suggestedFilename()).endsWith('.xlsx'), detail: dl ? await dl.suggestedFilename() : 'no download' });
+      }
+      await goView('payments');
+      await page.fill('#pr-date', (await page.$eval('#pr-date', x => x.value)));
+      await page.click('[data-act=prep][data-kind=notices]'); await page.waitForSelector('dialog[open] #pr-body', { timeout: 60000 });
+      await page.click('#pr-print'); await page.waitForTimeout(800);
+      results.push({ view: 'notices.print', ok: (await page.evaluate(() => window.__printed || 0)) > 0 }); await page.click('#modal-x');
       // 推定完成分（NO3/9/30/33/40/44）
       await goView('shipments'); await openMisc('[data-act=misc][data-kind=sales-register]', 'sales-register');
       await goView('receipts'); await openMisc('[data-act=misc][data-kind=receipt-schedule]', 'receipt-schedule');
