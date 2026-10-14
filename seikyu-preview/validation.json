@@ -24,5 +24,11 @@
     ]
   },
   "baseline": "init.ps1 passed",
-  "deployment": "pending GitHub Pages verification"
+  "deployment": {
+    "status": "verified",
+    "url": "https://giths-ops.github.io/newPrjt01/seikyu-preview/",
+    "applicationCommit": "7b832125e30a0d296427c65f893eeba561edfc88",
+    "pagesRun": "38544987251",
+    "browserEndToEnd": "passed on deployed URL, including save/reload/CSV/reset/mobile"
+  }
 }

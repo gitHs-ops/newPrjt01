@@ -929,5 +929,6 @@ newPrjt02(프롬프트 복사 방식)로 실사용 전환을 검토하는 것이
 
 검증: 도메인 5건 통과, Edge 실제 업무 흐름·저장·CSV·초기화·모바일 통과, init.ps1 통과. 상세 `seikyu-preview/validation.json`. 기존 진로상담 프록시의 Live 버전 차이는 앞선 기록과 같으며 이번 정적 앱과 별개다.
 
-배포 예정 경로: https://giths-ops.github.io/newPrjt01/seikyu-preview/
+배포 완료: https://giths-ops.github.io/newPrjt01/seikyu-preview/
+GitHub Pages run 38544987251 성공. 앱 커밋 7b83212의 실제 HTTPS 배포 주소에서 동일한 Edge 전체 업무 흐름·저장·CSV·초기화·모바일 검증을 재실행하여 통과했다.
 다음 단계: 사용자 화면 검토 및 추가 업무 자료 확보 후 Java 구현 범위 구체화.
