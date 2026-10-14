@@ -6,6 +6,7 @@ AS400 請求・入金業務の Web 移行検証用システム。`seikyu-preview
 - URL: https://seikyu-web-production.up.railway.app/
 - DB: Railway MySQL の専用データベース `seikyu_web`（旧デモの `railway` データベースとは共有しない）。`DEMO_USER`/`DEMO_PASSWORD` は `newPrjt01` サービスの変数を参照する
 - 旧デモ（seikyu-preview）は従来の URL https://newprjt01-production.up.railway.app/ に残す
+- **禁止: サービス `newPrjt01` の Root Directory を `/seikyu-web` に戻さない（`/seikyu-preview` 固定、2026-10-15 ユーザー指示）。** seikyu-web の変更はサービス `seikyu-web` だけに配備・検証する
 - 構成: Node.js 22 標準 `http` + `mysql2`（依存 1 個）、画面はビルド不要の単一ページ（`public/`）
 
 ## 機能（16 メニュー）

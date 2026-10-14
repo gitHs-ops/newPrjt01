@@ -1001,3 +1001,7 @@ Deployment a617173a-0217-4671-b54a-0adc2a5c869d succeeded (5e1c817). Live Edge f
 - NO17: 協力会費等(8330-107, B-03)·預り金充当(4170, B-06, 개시 잔액 한도) 추가, 고객×청구연월 소거 화면, 고객 부분일치 검색.
 - 검증: 결합 시험 7/7, Edge 로컬·배포 37/37, xlsx openpyxl 파싱. 커밋 7444487(다른 세션의 edcacd1 서비스 분리 커밋과 함께 푸시) → seikyu-web·newPrjt01 두 서비스 재배포 SUCCESS. 기존 주소 preview 로그인 점검 PASS(seikyu-007 미검증 항목 해소).
 다음: ② 자동 분개 리스트 Excel 출력.
+
+## 2026-10-15 — 배포 폴더 고정 규칙 (사용자 지시)
+
+**newPrjt01 서비스의 Root Directory를 /seikyu-web으로 되돌리지 말 것.** newPrjt01 = `/seikyu-preview`(예전 데모) 고정, 신규 시스템은 서비스 `seikyu-web`(Root `/seikyu-web`, DB `seikyu_web`)에만 배포·검증한다. 확인 시점 상태: newPrjt01 `/seikyu-preview` SUCCESS(14b77b7), seikyu-web `/seikyu-web` SUCCESS. 루트 변경용 임시 스크립트는 삭제했다.
