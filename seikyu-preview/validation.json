@@ -1,0 +1,28 @@
+{
+  "date": "2026-10-14",
+  "domainTests": {
+    "passed": 5,
+    "failed": 0
+  },
+  "browser": {
+    "engine": "Microsoft Edge / Playwright",
+    "passed": true,
+    "checks": [
+      "6-month synthetic data",
+      "customer registration",
+      "shipment",
+      "invoice 2750 JPY",
+      "issue",
+      "receipt 2650 + fee 100",
+      "reload persistence",
+      "master deactivation",
+      "CSV download",
+      "14 menus",
+      "reset cancel and confirm",
+      "mobile 390px no overflow",
+      "no JavaScript errors"
+    ]
+  },
+  "baseline": "init.ps1 passed",
+  "deployment": "pending GitHub Pages verification"
+}

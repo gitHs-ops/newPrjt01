@@ -1,0 +1,37 @@
+// Run with PLAYWRIGHT_MODULE pointing to the installed Playwright module.
+const {chromium}=require(process.env.PLAYWRIGHT_MODULE||'playwright');
+const assert=require('node:assert/strict');
+const fs=require('node:fs');
+const path=require('node:path');
+const os=require('node:os');
+(async()=>{
+ const browser=await chromium.launch({headless:true,channel:'msedge'});
+ const page=await browser.newPage({viewport:{width:1440,height:1050},reducedMotion:'reduce'});
+ const errors=[];page.on('pageerror',e=>errors.push(e.message));
+ await page.goto(process.env.PREVIEW_URL||'http://127.0.0.1:8190/seikyu-preview/');
+ await page.getByRole('heading',{name:'ダッシュボード',exact:true}).waitFor();
+ const data=()=>page.evaluate(()=>JSON.parse(localStorage.getItem('aplink-web-preview-v1')));
+ assert.ok((await data()).state.invoices.length>=15);
+ const nav=async key=>{await page.locator('a.nav-link[href="#'+key+'"]').click();await page.locator('main h1').waitFor();};
+ const submit=async()=>{await page.locator('#entry-form button[type=submit]').click();await page.locator('#dialog').waitFor({state:'hidden'});};
+ const fill=async(name,value)=>page.locator('[name='+name+']').fill(value);
+ await nav('masters');await page.locator('[data-action=master]').first().click();await fill('code','QA01');await fill('name','操作検証（架空）');await submit();
+ let state=(await data()).state;const customer=state.customers.find(c=>c.code==='QA01'),item=state.items[0];
+ await nav('shipments');await page.locator('[data-action=shipment]').first().click();await fill('date','2026-10-01');await page.locator('[name=customerId]').selectOption(customer.id);await page.locator('[name=itemId]').selectOption(item.id);await fill('quantity','2.5');await fill('price','1000');await submit();
+ await nav('invoices');await page.locator('[data-action=billing]').click();await fill('month','2026-10');for(const c of await page.locator('[name=selected]').all())await c.uncheck();await page.locator('[name=selected][value="'+customer.id+'"]').check();await submit();
+ const tr=page.locator('tbody tr').filter({hasText:'操作検証（架空）'});await tr.getByText('2,750',{exact:true}).first().waitFor();await tr.locator('[data-action=invoice-view]').click();await page.locator('[data-action=issue]').click();await page.locator('.print-area').getByText('発行済み',{exact:false}).waitFor();await page.locator('#modal-x').click();
+ await nav('receipts');await page.locator('[data-action=receipt]').click();await fill('date','2026-10-21');await page.locator('[name=customerId]').selectOption(customer.id);await fill('bank','2650');await fill('fee','100');await page.locator('[data-invoice]').fill('2750');await submit();
+ await page.reload();await page.locator('tbody tr').filter({hasText:'操作検証（架空）'}).waitFor();
+ assert.equal((await data()).state.invoices.find(i=>i.customerId===customer.id).paid,2750);
+ await nav('masters');await page.locator('tbody tr').filter({hasText:'操作検証（架空）'}).locator('[data-action=master]').click();await page.locator('[name=active]').selectOption('false');await submit();assert.equal((await data()).state.customers.find(c=>c.id===customer.id).active,false);
+ await nav('journals');const downloading=page.waitForEvent('download');await page.locator('[data-export=journals]').click();const dl=await downloading;assert.match(dl.suggestedFilename(),/\.csv$/);const contents=fs.readFileSync(await dl.path(),'utf8');assert.ok(contents.includes('1131'));
+ for(const key of ['purchases','inventory','payables','cash','payments','reports','migration','audit'])await nav(key);
+ await page.locator('#logout').click();await page.locator('#modal-x').click();assert.ok((await data()).state.customers.some(c=>c.code==='QA01'));
+ await page.locator('#logout').click();await submit();assert.ok(!(await data()).state.customers.some(c=>c.code==='QA01'));
+ await nav('dashboard');await page.screenshot({path:process.env.QA_SCREENSHOT||path.join(os.tmpdir(),'static-demo-desktop.png')});
+ await page.setViewportSize({width:390,height:844});await page.screenshot({path:path.join(os.tmpdir(),'static-demo-mobile.png')});
+ assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);
+ assert.deepEqual(errors,[]);
+ console.log(JSON.stringify({passed:true,url:page.url(),checks:['sample data','customer registration','shipment','billing 2750 JPY','issue','receipt with fee','reload persistence','master deactivation','CSV download','14 menus','reset cancel/confirm','mobile overflow','no page errors']}));
+ await browser.close();
+})().catch(e=>{console.error(e);process.exit(1)});

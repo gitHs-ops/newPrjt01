@@ -477,6 +477,25 @@
         "2026-10-14: seikyu/validation.json 및 distribution/SHA256SUMS.txt 기록."
       ],
       "notes": "AS400 전체 이행 완료를 의미하지 않음. 楽々FrameworkⅡ 미적용. 회계·은행 연계, JV·배합, 공식 이행/잔액 대조/부가 기능은 미완료. 원본 자료·실데이터 공개 업로드 제외."
+    },
+    {
+      "id": "seikyu-002",
+      "priority": 1,
+      "area": "seikyu-preview",
+      "title": "가상 데이터 기반 정적 업무 웹 데모",
+      "user_visible_behavior": "Java 서버 없이 청구·입금·재고·지급 화면을 조작하고 브라우저에 저장한다. GitHub Pages에서 직접 사용한다.",
+      "status": "passing",
+      "verification": [
+        "node --test seikyu-preview/domain.test.mjs",
+        "Edge browser-qa.cjs",
+        "init.ps1"
+      ],
+      "evidence": [
+        "2026-10-14: 도메인 테스트 5건 통과. 가상 분개 대차 일치, 과다입금 롤백, 발행 명칭 보존, 재고·지급, CSV 검증.",
+        "2026-10-14: Edge에서 출하→청구2750엔→발행→입금2650+수수료100, 새로고침, 비활성화, CSV, 14개 메뉴, 초기화 취소/확정, 모바일 가로 넘침 없음 검증.",
+        "seikyu-preview/validation.json에 검증 기록."
+      ],
+      "notes": "실데이터·원본 자료 없음. 현재 브라우저만 저장, 실제 서버/권한/계정/AS400 동일성 검증은 범위 밖. Java 추가 개발은 자료 확보 후 진행."
     }
   ]
 }
