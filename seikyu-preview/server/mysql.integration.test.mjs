@@ -1,6 +1,7 @@
 // Dedicated empty test DB only. Does not connect unless MYSQL_TEST_URL is provided.
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
+import {randomBytes} from 'node:crypto';
 import {createRequire} from 'node:module';
 const mysql=createRequire(import.meta.url)('mysql2/promise');
 import {MysqlStore,Conflict} from './store.mjs';
@@ -8,7 +9,7 @@ test('real MySQL: restart persistence, competing writes, invalid-command rollbac
   const pool=mysql.createPool(process.env.MYSQL_TEST_URL);
   try{
     const store=new MysqlStore(pool);await store.initialize();const start=await store.read();
-    const key='QA'+Date.now();
+    const key='Q'+randomBytes(2).toString('hex');
     const command={revision:start.revision,action:'master.save',payload:{kind:'customers',code:key,name:'Integration test'}};
     const outcomes=await Promise.allSettled([store.mutate(command,'test'),store.mutate(command,'test')]);
     assert.equal(outcomes.filter(r=>r.status==='fulfilled').length,1);

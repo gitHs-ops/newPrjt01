@@ -503,7 +503,7 @@
       "area": "seikyu-preview",
       "title": "Railway MySQL 서버 저장 전환",
       "user_visible_behavior": "Railway 앱에서 인증 후 API를 통해 공유 MySQL에 데모 데이터를 저장한다.",
-      "status": "in_progress",
+      "status": "passing",
       "verification": [
         "npm test",
         "server/browser-check.mjs",
@@ -513,16 +513,17 @@
       "evidence": [
         "2026-10-14: 도메인/HTTP 테스트 9건 통과, 실제 MySQL 통합 테스트 1건 접속정보 없어 skip.",
         "Edge 서버모드: 인증, 저장, 독립 브라우저 조회, 새로고침, localStorage 미사용, 공유 초기화 안내 통과. HTTP 저장소는 테스트 대역.",
-        "기존 정적 데모 전체 브라우저 회귀 검증 통과."
+        "기존 정적 데모 전체 브라우저 회귀 검증 통과.",
+        "2026-10-14: Railway HTTPS에서 인증·서버 저장·독립 브라우저 조회 확인. 실제 MySQL 지속성·경합·롤백은 후속 마스터 통합 시험으로 검증."
       ],
-      "notes": "Railway CLI Unauthorized. 프로젝트/서비스 및 로그인 대기. 실제 DB/배포는 미검증이며 기존 Pages 주소는 local 모드 유지. 임시 MySQL JSON집약 2테이블이며 44테이블 설계 적용 아님."
+      "notes": "Railway 배포 완료. 후속 seikyu-004에서 마스터 개별 테이블 전환. 거래는 JSON 집약 유지."
     },
     {
       "id": "seikyu-004",
       "priority": 1,
       "area": "seikyu-preview",
       "title": "마스터 개별 MySQL 테이블 연결",
-      "status": "in_progress",
+      "status": "passing",
       "user_visible_behavior": "고객·상품·현장·은행 내역·업체 계좌·계정·내역계정을 개별 MySQL 테이블에서 저장·조회한다.",
       "verification": [
         "node --test domain.test.mjs server/http.test.mjs",
@@ -533,9 +534,12 @@
       ],
       "evidence": [
         "2026-10-14: 별도 seikyu_master_test_20261014 MySQL에서 이관·실제 테이블 CRUD·참조·CSV롤백·동시수정·재시작 통과.",
-        "기존 도메인/HTTP 9건 및 Edge 로컬/서버모드 검증 통과. init.ps1 통과."
+        "기존 도메인/HTTP 9건 및 Edge 로컬/서버모드 검증 통과. init.ps1 통과.",
+        "2026-10-14: Railway 배포 16cc6cc1-2e93-42e5-8406-6f1f1a617928 성공(앱476b34b). 기존14마스터 ID/코드/명칭/활성 및 거래데이터 보존 대조 통과.",
+        "배포 HTTPS Edge에서 7종 등록·수정·비활성화·독립브라우저·새로고침·모바일·오류0건 확인. 실제 MySQL 각 테이블 행과 대조 통과.",
+        "검증용 QA 마스터7건은 삭제하지 않고 비활성화했다."
       ],
-      "notes": "운영 배포 검증 진행 중. preview_master_link 보조 테이블이 ID 및 opening/taxRate를 보존. 거래 저장 전환은 이후 단계."
+      "notes": "마스터7종 개별 저장 완료. preview_master_link 추가로 총47테이블. opening/taxRate는 보조정보로 보존. 거래 저장 전환은 이후 단계."
     }
   ]
 }

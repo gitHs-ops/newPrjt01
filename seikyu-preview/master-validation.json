@@ -1,0 +1,23 @@
+{
+  "date": "2026-10-14",
+  "applicationCommit": "476b34b",
+  "railwayDeployment": "16cc6cc1-2e93-42e5-8406-6f1f1a617928",
+  "url": "https://newprjt01-production.up.railway.app",
+  "mysqlIntegration": "passed in isolated test schema",
+  "domainAndHttpTests": 9,
+  "productionPreservation": {
+    "originalMasterRecords": 14,
+    "transactionData": "unchanged before UI tests",
+    "legacyIds": "preserved"
+  },
+  "productionBrowser": [
+    "7 kinds create/edit/deactivate",
+    "independent browser",
+    "reload",
+    "mobile",
+    "no page errors"
+  ],
+  "productionDatabase": "all 7 kinds matched real SQL rows; master arrays absent in workspace JSON",
+  "qaRecords": "7 fictional records retained inactive",
+  "tableCount": 47
+}

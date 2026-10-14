@@ -26,4 +26,6 @@
 
 ## Railway MySQL 모드
 
-서버 저장 API와 Dockerfile을 추가했다. 배포 절차는 [RAILWAY_DEPLOY.md](RAILWAY_DEPLOY.md) 참조. 현재 Railway 인증이 없어 실제 연결·배포는 대기 중이다. GitHub Pages는 기존 local 모드이며 Railway 앱에서 실행하면 공유 MySQL 모드로 동작한다. 기존 브라우저 자료는 자동 이관하지 않는다.
+서버 저장 API와 Dockerfile을 추가했다. 배포 절차는 [RAILWAY_DEPLOY.md](RAILWAY_DEPLOY.md) 참조. Railway 배포와 마스터 개별 테이블 연결 검증을 완료했다. [Railway 앱](https://newprjt01-production.up.railway.app)은 개별 마스터 테이블을 사용한다. GitHub Pages는 기존 local 모드다. 기존 브라우저 자료는 자동 이관하지 않는다.
+
+마스터별 저장 위치와 전환 제한: [MASTER_STORAGE.md](MASTER_STORAGE.md). Railway 서버 모드의 전체 초기화는 비활성화했다.

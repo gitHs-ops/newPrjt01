@@ -954,3 +954,7 @@ seikyu-004: 7개 마스터 화면을 실제 MySQL 테이블에 연결. 기존 ID
 별도 MySQL 테스트 DB seikyu_master_test_20261014 생성, 실제 이관·CRUD·원장ID보존·참조·CSV롤백·경합·재시작 검증 통과. 테스트 자료는 해당 DB에 보관. 운영 데이터와 분리. 도메인/HTTP 9건 및 로컬/서버모드 Edge 검증 통과, init.ps1 통과. Live 기존 진로상담 프록시 버전 차이는 그대로다.
 
 운영 이관 전 백업은 비공개 로컬 C:/myPrjt01/seikyuPrjt01/analysis/pre-master-migration-backup.json에 저장. 앱 도메인 https://newprjt01-production.up.railway.app 생성. 실제 배포 검증은 진행 중.
+
+
+배포 검증 완료: 앱476b34b / Railway deployment16cc6cc1-2e93-42e5-8406-6f1f1a617928. 기존 마스터14건의 ID/코드/명칭/유효상태 및 거래 데이터 보존 대조 통과. 실제 HTTPS Edge에서 마스터7종 생성·수정·무효화·다른브라우저·새로고침·모바일 검증 통과. 실제 SQL의 각 행과 대조 완료. 가상 QA7건은 무효 상태로 보존. 보조테이블 추가로 총47개. 앱 URL https://newprjt01-production.up.railway.app . seikyu-preview/master-validation.json 기록.
+다음: 출하·청구 테이블 연결(상세 주문 가지번호 관계 확정 필요). 현재 거래는 기존 JSON 집약 저장 유지.
