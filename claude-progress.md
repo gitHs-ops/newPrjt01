@@ -961,3 +961,5 @@ seikyu-004: 7개 마스터 화면을 실제 MySQL 테이블에 연결. 기존 ID
 
 ## 2026-10-14 Browser login compatibility
 Replaced browser Basic challenge with a form and revocable eight-hour HttpOnly session cookie. Production cookies are Secure and SameSite=Strict. Login throttling, JSON/CSRF checks and API protection remain. Explicit Basic credentials remain available for CLI checks, without WWW-Authenticate. Local domain/HTTP tests: 10 passed; Edge server-mode save/read/reload check passed with form login. Deployment verification follows push.
+
+Deployment a617173a-0217-4671-b54a-0adc2a5c869d succeeded (5e1c817). Live Edge form login, secure HttpOnly cookie, masters page, reload, logout and anonymous API 401 passed. First probe overlapped deployment replacement and was retried after SUCCESS. Added repeatable read-only deployed-login-check.cjs.

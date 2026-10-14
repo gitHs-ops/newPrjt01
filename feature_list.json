@@ -540,6 +540,24 @@
         "검증용 QA 마스터7건은 삭제하지 않고 비활성화했다."
       ],
       "notes": "마스터7종 개별 저장 완료. preview_master_link 추가로 총47테이블. opening/taxRate는 보조정보로 보존. 거래 저장 전환은 이후 단계."
+    },
+    {
+      "id": "seikyu-005",
+      "priority": 1,
+      "area": "seikyu-preview",
+      "title": "내장 브라우저 호환 로그인",
+      "status": "passing",
+      "user_visible_behavior": "기본 인증 팝업 없이 로그인 화면에서 인증하고 로그아웃한다.",
+      "verification": [
+        "domain/http tests",
+        "server/browser-check.mjs",
+        "server/deployed-login-check.cjs"
+      ],
+      "evidence": [
+        "2026-10-14: 도메인/HTTP 10건 및 Edge 폼 로그인·저장·독립 조회 통과.",
+        "Railway a617173a-0217-4671-b54a-0adc2a5c869d SUCCESS (5e1c817). 실제 HTTPS 폼 로그인·Secure/HttpOnly 쿠키·마스터 조회·새로고침·로그아웃·익명401 검증 통과."
+      ],
+      "notes": "세션은 8시간 또는 서버 재시작까지 유지. 검증 중 업무 데이터 변경 없음."
     }
   ]
 }
