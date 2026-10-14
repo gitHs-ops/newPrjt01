@@ -185,6 +185,39 @@ test('workflow against MySQL business tables', { skip: !url && 'MYSQL_TEST_URL n
       }
       for (const m of (await a.call('/api/masters/jv')).data.filter(x => x.active && x.code.endsWith(tag))) await a.call('/api/masters/jv', { mode: 'update', record: { ...m, active: false } });
     });
+    await t.test('△ items completed by estimation (NO3/9/10/20/25/30/33/40/44)', async () => {
+      const ok = r => assert.equal(r.status, 200, JSON.stringify(r.data));
+      const raw2 = async p => { const r = await fetch(base + p, { headers: { cookie: a.cookie } }); return { status: r.status, bytes: Buffer.from(await r.arrayBuffer()) }; };
+      // NO3 full customer fields
+      const cu = (await a.call('/api/masters/customers')).data.find(x => x.code === C);
+      ok(await a.call('/api/masters/customers', { mode: 'update', record: { ...cu, abbr: '結合', section: '工務部', postcode: '460-0001', pref: '愛知県', address2: '2F', fax: '052-000-0000', customerPic: '先方', pic: '自社', creditStart: '2026-04-01', remarks: 'テスト' } }));
+      const cu2 = (await a.call('/api/masters/customers')).data.find(x => x.code === C);
+      assert.equal(cu2.postcode, '4600001'); assert.equal(cu2.creditStart, '2026-04-01'); assert.equal(cu2.section, '工務部');
+      // NO9 statement view data is the billing list (already covered); NO10 bulk workbook
+      assert.equal((await raw2('/api/invoices/book?ids=' + invoiceId)).bytes.subarray(0, 2).toString(), 'PK');
+      const draft = (await a.call('/api/invoices?status=draft')).data[0];
+      if (draft) assert.equal((await raw2('/api/invoices/book?ids=' + draft.id)).status, 400, 'unissued invoices are rejected');
+      // NO20 accounting export
+      const span = new URLSearchParams({ from: pm + '-01', to: d });
+      const g = await raw2('/api/accounting/export?' + span + '&format=generic'); assert.equal(g.status, 200); assert.deepEqual([...g.bytes.subarray(0, 3)], [0xef, 0xbb, 0xbf]);
+      const y = await raw2('/api/accounting/export?' + span + '&format=yayoi'); assert.equal(y.status, 200);
+      const { default: iconv } = await import('iconv-lite');
+      const ylines = iconv.decode(y.bytes, 'Shift_JIS').trim().split('\r\n');
+      assert.ok(ylines.length > 3); for (const l of ylines) assert.ok(/^(2000|2110|2100|2101),/.test(l), l);
+      assert.ok(ylines.some(l => l.includes('売掛金')), 'account names in yayoi format');
+      // NO25 estimate fields
+      const mx = (await a.call('/api/reports/misc/mix?month=' + d.slice(0, 7))).data;
+      assert.ok(mx.suggest && typeof mx.suggest.tons === 'number' && Array.isArray(mx.usage));
+      // NO30 / NO33 / NO40 / NO44
+      const pi = (await a.call('/api/reports/misc/payable-input?month=' + d.slice(0, 7))).data;
+      assert.ok(pi.depts.some(dp => dp.vendors.some(v => v.vendor === 'V' + tag)));
+      const pc = (await a.call('/api/reports/misc/petty-book?' + span + '&fund=50000')).data; assert.equal(pc.closing, 50000 - pc.spent);
+      const sr = (await a.call('/api/reports/misc/sales-register?' + span)).data.customers.find(x => x.customer === C); assert.equal(sr.rows.length, 3); assert.equal(sr.net, 12997);
+      const rs = (await a.call('/api/reports/misc/receipt-schedule')).data.customers.find(x => x.customer === C);
+      assert.equal(rs.due, 1000); assert.equal(rs.rows.length, 2, 'split by site (工事)');
+      for (const k of ['payable-input', 'petty-book', 'sales-register', 'receipt-schedule'])
+        assert.equal((await raw2('/api/reports/misc/' + k + '?' + new URLSearchParams({ from: pm + '-01', to: d, month: d.slice(0, 7), format: 'xlsx' }))).bytes.subarray(0, 2).toString(), 'PK', k);
+    });
     const raw = await fetch(base + '/api/export/journals?month=' + month, { headers: { cookie: a.cookie } }); const bytes = new Uint8Array(await raw.arrayBuffer());
     assert.equal(raw.status, 200); assert.deepEqual([...bytes.slice(0, 3)], [0xef, 0xbb, 0xbf], 'CSV has UTF-8 BOM for Excel');
   } finally {

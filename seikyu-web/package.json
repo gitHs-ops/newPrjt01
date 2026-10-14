@@ -3,10 +3,15 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "engines": { "node": ">=22" },
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
     "start": "node server/main.mjs",
     "test": "node --test --test-concurrency=1 test/domain.test.mjs test/zengin.test.mjs test/integration.test.mjs"
   },
-  "dependencies": { "mysql2": "^3.15.3" }
+  "dependencies": {
+    "iconv-lite": "^0.7.3",
+    "mysql2": "^3.15.3"
+  }
 }

@@ -96,7 +96,25 @@ export async function mixCalc(c, q) {
   }
   const saved = Object.fromEntries((await rows(c, "SELECT * FROM genka_m WHERE nengetsu=? AND delete_f<>'1'", [Number(month.replace('-', ''))])).map(r => [r.item_cd, { haigo: num(r.haigo_tanka), denki: num(r.denki), touyu: num(r.touyu), seizou: num(r.seizou), ippann: num(r.ippann), total: num(r.total) }]));
   products.forEach(p => (p.saved = saved[p.item] || null));
-  return { title: '配合計算', ref: 'NO25（暫定）', month, products, note: '配合表・経費配賦基準の資料が未提供のため暫定実装。配合率は「マスタ管理 → 配合」、経費単価（電気・灯油・製造・一般）は手入力。結果は原価マスタ genka_m に保存。' };
+  // 推定：経費単価＝当月計上の経費（定時請求＋小口）÷ 当月の製品出荷数量。科目の振り分けは現行仕訳パターンから推定。
+  const from = month + '-01', to = monthEnd(month), prodCodes = products.map(p => p.item);
+  const prodQty = Object.fromEntries((prodCodes.length ? await rows(c, `SELECT item_cd, SUM(quantity) q FROM sales_trn WHERE sales_date BETWEEN ? AND ? AND item_cd IN (${prodCodes.map(() => '?').join(',')}) GROUP BY item_cd`, [toNum(from), toNum(to), ...prodCodes]) : []).map(r => [r.item_cd, num(r.q)]));
+  const tons = r2(Object.values(prodQty).reduce((n, v) => n + v, 0));
+  const exp = Object.fromEntries((await rows(c, "SELECT l.account_code a, SUM(l.gross_amount) v FROM expense_line l JOIN expense_document d ON d.expense_id=l.expense_id AND d.status='POSTED' WHERE d.booked_on BETWEEN ? AND ? GROUP BY l.account_code", [from, to])).map(r => [r.a, num(r.v)]));
+  const sumOf = codes => codes.reduce((n, k) => n + (exp[k] || 0), 0);
+  const kerosene = Object.keys(names).filter(k => /灯油/.test(names[k]?.item_nam || ''));
+  const keroseneUsed = kerosene.reduce((n, k) => { const p = prev[k], b = pur[k], e = end[k]; return n + (e ? (p?.value || 0) + (b?.value || 0) - e.value : 0); }, 0);
+  const basis = { denki: ['8242'], seizou: ['8244', '8243'], ippann: ['8255', '8256', '8260', '8312', '8317', '8318', '8319', '8323', '8330', '83181'] };
+  const amounts = { denki: sumOf(basis.denki), touyu: keroseneUsed, seizou: sumOf(basis.seizou), ippann: sumOf(basis.ippann) };
+  const suggest = { tons, amounts, basis: '電気=8242動力用水光熱費／灯油=材料「灯油」の当月使用高／製造=8244機械等経費＋8243運賃／一般=一般管理費系科目（8255・8256・8260・8312・8317〜8319・8323・8330・83181）。いずれも当月計上額÷当月製品出荷数量（推定）',
+    ...Object.fromEntries(Object.entries(amounts).map(([k, v]) => [k, tons > 0 ? r2(v / tons) : 0])) };
+  // 理論使用量（製品出荷数量×配合率）と実使用量（材料受払：前月末＋仕入−当月末）の比較
+  const usage = [...new Set(recipes.map(r => r.material))].map(m => {
+    const theoretical = r2(recipes.filter(r => r.material === m).reduce((n, r) => n + (prodQty[r.product] || 0) * num(r.r) / 10000, 0));
+    const e = end[m], actual = e ? r2((prev[m]?.qty || 0) + (pur[m]?.qty || 0) - e.qty) : null;
+    return { material: m, name: names[m]?.item_nam || m, theoretical, actual, diff: actual === null ? null : r2(actual - theoretical) };
+  });
+  return { title: '配合計算', ref: 'NO25（推定）', month, products, suggest, usage, production: prodQty, note: '配合表・経費配賦基準の資料が未提供のため推定。配合率は「マスタ管理 → 配合」。経費単価は当月の経費÷製品出荷数量で自動算出（推定値・手修正可）。結果は原価マスタ genka_m に保存。' };
 }
 export async function saveMix(c, ctx, p) {
   const d = await mixCalc(c, { month: p.month });
@@ -188,7 +206,8 @@ export async function miscBook(c, kind, q) {
       out.push(['', S(`${p.name} 配合単価`), '', '', S(p.ratio), '', '', S(p.haigo)]);
       if (p.saved) out.push(['', '保存済原価', '電気', p.saved.denki, '灯油', p.saved.touyu, '製造', p.saved.seizou, '一般', p.saved.ippann, '合計', p.saved.total]);
     }
-    out.push([d.note]);
+    out.push([], [H('経費単価（推定）'), '製品出荷数量', d.suggest.tons, '電気', d.suggest.denki, '灯油', d.suggest.touyu, '製造', d.suggest.seizou, '一般', d.suggest.ippann], [d.suggest.basis], [],
+      [H('材料使用量の比較'), '', '理論使用量', '実使用量', '差異'], ...d.usage.map(u => [u.material, u.name, u.theoretical, u.actual ?? '', u.diff ?? '']), [], [d.note]);
     return { name: `配合計算_${d.month}.xlsx`, body: xlsx([{ name: '配合計算', rows: out, widths: [9, 22, 9, 22, 10, 11, 26, 12, 8, 10, 8, 10] }]) };
   }
   if (kind === 'jv-expenses' || kind === 'jv-receipts') {
