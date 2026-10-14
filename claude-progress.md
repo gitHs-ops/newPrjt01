@@ -989,3 +989,4 @@ Deployment a617173a-0217-4671-b54a-0adc2a5c869d succeeded (5e1c817). Live Edge f
 - 미검증: 새 주소 로그인 후 전 메뉴 화면(비밀번호를 다루지 않음), 기존 주소 seikyu-preview 복귀 후 동작.
 - 같은 시각 다른 세션이 seikyu-web 작업 트리를 수정 중(커밋되지 않은 9파일 + reports.mjs, xlsx.mjs). 이 세션은 그 파일들을 커밋하지 않았다.
 다음: 기존 서비스 재배포 승인 → 기존 주소 preview 동작 확인 → 새 주소 실기동 전 메뉴 검증.
+- 추가(같은 날): 다른 세션이 7444487을 푸시하면서 두 서비스가 자동 배포됨. 기존 주소 = seikyu-preview(7d79e0e9 SUCCESS, root /seikyu-preview), 새 주소 = seikyu-web(509b6b46 SUCCESS). 남은 미검증: 두 주소의 로그인 후 화면(사용자 확인).
