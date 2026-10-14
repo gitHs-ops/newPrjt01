@@ -674,6 +674,23 @@
         "배포 14e5bd0: seikyu-web 80eb0e72 SUCCESS, Edge 56/56 오류 0건, newPrjt01 root /seikyu-preview 유지. 데모 DB에 가상 JV 3사(47.5/47.5/5)·제품 G001 배합(P001 45/P002 35/P003 20) 등록, 2026-09 배합단가 1,991.57."
       ],
       "notes": "NO25는 배합표 자료 미제공으로 잠정. 재료 수불은 역월(현행 20일 마감). JV 배분 끝수는 제1구성원(현행 일부 장표와 1엔 차이 가능)."
+    },
+    {
+      "id": "seikyu-012",
+      "priority": 1,
+      "area": "seikyu-web",
+      "title": "기능목록 △ 9건 추정 사양 완성 (NO3·9·10·20·25·30·33·40·44)",
+      "status": "passing",
+      "user_visible_behavior": "고객 마스터 전 항목·검색, 고객별 잔액 조회, 청구서 Excel 일괄 다운로드, 회계 연계 CSV(범용/弥生), 배합 경비 자동 배부, 정시 청구 입력 명세표, 소액현금 출납부, 상품 매출 등록 리스트, 입금 예정 체크리스트를 사용한다.",
+      "verification": [
+        "결합 시험 △ 9건 (고객 19항목, 일괄 xlsx·미발행 거부, 범용 CSV BOM·弥生 SJIS 플래그, 배합 추정, 4개 장표·xlsx)",
+        "scripts/browser-check.cjs (로컬·배포)"
+      ],
+      "evidence": [
+        "2026-10-15: 단위·결합 13/13 통과, Edge 로컬 63/63.",
+        "배포 a389149: seikyu-web SUCCESS, Edge 63/63 오류 0건, newPrjt01 root /seikyu-preview 유지(/health 200)."
+      ],
+      "notes": "자료 미수령으로 추정 사양. 추정 내용은 화면 移行・確認事項와 README 5-4에 기재. 의존성 iconv-lite 추가(弥生 Shift_JIS)."
     }
   ]
 }
