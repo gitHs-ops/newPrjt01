@@ -9,6 +9,7 @@ import * as P from './payables.mjs';
 import * as L from './ledger.mjs';
 import * as U from './users.mjs';
 import * as X from './reports.mjs';
+import * as J from './journal-lists.mjs';
 
 const COOKIE = 'aplink_sid';
 const MIME = { html: 'text/html; charset=utf-8', js: 'text/javascript; charset=utf-8', css: 'text/css; charset=utf-8', json: 'application/json; charset=utf-8', svg: 'image/svg+xml' };
@@ -22,7 +23,7 @@ export async function createApp({ pool, publicDir, secureCookies = process.env.N
   const failures = new Map();
 
   // ----- read -----
-  route('GET', '/api/meta', 'read', () => ({ receiptParts: S.RECEIPT_PARTS, masters: M.meta(), rates: RATES, methods: METHODS, taxCodes: P.TAX_CODES, patterns: L.PATTERNS, roles: U.ROLES, today: today(), version }));
+  route('GET', '/api/meta', 'read', () => ({ journalLists: { ...Object.fromEntries(Object.entries(J.LISTS).map(([k, v]) => [k, { title: v.title, ref: v.ref }])), BANK: { title: J.BANK_LIST.title, ref: J.BANK_LIST.ref } }, receiptParts: S.RECEIPT_PARTS, masters: M.meta(), rates: RATES, methods: METHODS, taxCodes: P.TAX_CODES, patterns: L.PATTERNS, roles: U.ROLES, today: today(), version }));
   route('GET', '/api/masters', 'read', () => db(c => M.allMasters(c)));
   route('GET', '/api/masters/:kind', 'read', x => db(c => M.list(c, x.params.kind)));
   route('GET', '/api/price', 'read', x => db(c => S.priceFor(c, x.q)));
@@ -32,6 +33,8 @@ export async function createApp({ pool, publicDir, secureCookies = process.env.N
   route('GET', '/api/invoices/:id', 'read', x => db(c => S.invoiceDetail(c, x.params.id)));
   route('GET', '/api/invoices/:id/document', 'read', x => db(c => S.issuedDocument(c, x.params.id)));
   route('GET', '/api/open-invoices', 'read', x => db(c => S.openInvoices(c, x.q.customer)));
+  route('GET', '/api/reports/journal-list', 'read', x => x.q.format === 'xlsx' ? db(c => J.journalListBook(c, x.q)).then(b => ({ file: b })) : db(c => J.journalList(c, x.q)));
+  route('GET', '/api/reports/bank-payments', 'read', x => x.q.format === 'xlsx' ? db(c => J.bankPaymentBook(c, x.q)).then(b => ({ file: b })) : db(c => J.bankPaymentList(c, x.q)));
   route('GET', '/api/receipt-context', 'read', x => db(c => S.receiptContext(c, x.q.customer)));
   route('GET', '/api/reports/billing-list', 'read', x => x.q.format === 'xlsx' ? db(c => X.billingListBook(c, x.q)).then(b => ({ file: b })) : db(c => S.billingList(c, x.q)));
   route('GET', '/api/reports/billing-confirm', 'read', x => x.q.format === 'xlsx' ? db(c => X.billingConfirmBook(c, x.q)).then(b => ({ file: b })) : db(c => S.billingConfirm(c, x.q)));

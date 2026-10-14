@@ -50,7 +50,7 @@ export async function saveInventory(c, ctx, p) {
   const previous = Number(prior?.valuation_amount || 0);
   const [r] = await c.query("INSERT INTO inventory_count (period_start,location_code,item_cd,counted_on,quantity,valuation_price,valuation_amount,status) VALUES (?,'MAIN',?,?,?,?,?,'POSTED')", [month + '-01', it.item_cd, end, q.text, price, value]);
   if (value || previous) await postJournal(c, { date: end, pattern: 'C01', sourceType: 'inventory_count', sourceId: r.insertId, lines: [
-    line('D', '82316', previous, { dept: '063' }), line('C', '1360', previous), line('D', '1360', value), line('C', '82316', value, { dept: '063' })] });
+    line('D', '82316', previous, { dept: '063', tax: '9' }), line('C', '1360', previous, { tax: '9' }), line('D', '1360', value, { tax: '9' }), line('C', '82316', value, { dept: '063', tax: '9' })] });
   await audit(c, ctx, 'inventory_count', r.insertId, 'inventory.create', { month, item: it.item_cd, value, previous });
   return { id: r.insertId, value, previous };
 }
@@ -92,7 +92,7 @@ export async function createExpense(c, ctx, p) {
   const [r] = await c.query("INSERT INTO expense_document (document_no,expense_kind,vendor_id,booked_on,due_on,gross_amount,memo,status) VALUES (?,?,?,?,?,?,?,'POSTED')", [no, kind, v?.vendor_id || null, date, due, amount, memo]);
   await c.query('INSERT INTO expense_line (expense_id,line_no,account_code,sub_code,department_code,source_tax_code,net_amount,tax_amount,gross_amount,memo) VALUES (?,1,?,?,?,?,NULL,NULL,?,?)', [r.insertId, acc.account_code, sub, dept, tax, amount, memo]);
   await postJournal(c, { date, pattern: kind === 'PAYABLE' ? 'D01' : 'E01', sourceType: 'expense_document', sourceId: r.insertId, lines: [
-    line('D', acc.account_code, amount, { sub, dept, tax }), kind === 'PAYABLE' ? line('C', '4121', amount, { vendor: v.vendor_id }) : line('C', '1111', amount)] });
+    line('D', acc.account_code, amount, { sub, dept, tax }), kind === 'PAYABLE' ? line('C', '4121', amount, { vendor: v.vendor_id, tax: '9' }) : line('C', '1111', amount, { tax: '9' })] });
   await audit(c, ctx, 'expense_document', r.insertId, kind === 'PAYABLE' ? 'payable.create' : 'pettycash.create', { no, vendor: v?.vendor_code, account: acc.account_code, amount });
   return { id: r.insertId, no };
 }
@@ -138,7 +138,7 @@ export async function createPayment(c, ctx, p) {
   const total = allocs.reduce((n, a) => n + a.amount, 0), no = await nextNo(c, 'payment');
   const [r] = await c.query("INSERT INTO payment (payment_no,vendor_id,paid_on,bank_account_id,bank_amount,fee_amount,offset_amount,status,idempotency_key) VALUES (?,?,?,?,?,0,0,'POSTED',?)", [no, v.vendor_id, date, v.bank_account_id, total, idem]);
   for (const a of allocs) await c.query('INSERT INTO payment_allocation (payment_id,expense_id,amount) VALUES (?,?,?)', [r.insertId, a.id, a.amount]);
-  await postJournal(c, { date, pattern: 'F01', sourceType: 'payment', sourceId: r.insertId, lines: [line('D', '4121', total, { vendor: v.vendor_id }), line('C', '1112', total, { sub: bankCode })] });
+  await postJournal(c, { date, pattern: 'F01', sourceType: 'payment', sourceId: r.insertId, lines: [line('D', '4121', total, { vendor: v.vendor_id, tax: '9' }), line('C', '1112', total, { sub: bankCode, tax: '9' })] });
   await audit(c, ctx, 'payment', r.insertId, 'payment.create', { no, vendor: v.vendor_code, amount: total, documents: allocs.map(a => a.id) });
   return { id: r.insertId, no };
 }

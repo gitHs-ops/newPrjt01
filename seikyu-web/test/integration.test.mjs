@@ -111,6 +111,26 @@ test('workflow against MySQL business tables', { skip: !url && 'MYSQL_TEST_URL n
       await a.call('/api/users', { id: u.data.id, name: '参照者', role: 3, enabled: false });
       assert.equal((await v.call('/api/dashboard')).status, 401, 'disabled user session revoked');
     });
+    await t.test('② journal lists and bank payment list', async () => {
+      const span = { from: pm + '-01', to: d };
+      for (const pattern of ['A01', 'B01', 'C01', 'D01', 'E01', 'F01']) {
+        const r = await a.call('/api/reports/journal-list?' + new URLSearchParams({ pattern, ...span }));
+        assert.equal(r.status, 200, pattern + JSON.stringify(r.data));
+        for (const sl of r.data.slips) {
+          const dr = sl.pairs.reduce((n, p) => n + (p.dr?.amount || 0), 0), cr = sl.pairs.reduce((n, p) => n + (p.cr?.amount || 0), 0);
+          assert.equal(dr, cr, pattern + ' slip balanced'); assert.equal(dr, sl.total);
+        }
+        assert.equal(r.data.total, r.data.dates.reduce((n, x) => n + x.total, 0));
+      }
+      const b = (await a.call('/api/reports/journal-list?' + new URLSearchParams({ pattern: 'B01', ...span }))).data;
+      const memos = b.slips.flatMap(sl => sl.pairs.flatMap(p => [p.dr?.memo2, p.cr?.memo2]));
+      assert.ok(memos.includes('手数料') && memos.includes('協力費') && memos.includes('預り金充当'), 'B01 deduction memos');
+      const bank = await a.call('/api/reports/bank-payments?' + new URLSearchParams(span));
+      assert.ok(bank.data.days.some(x => x.rows.some(r => r.vendor === 'V' + tag && r.vendorTotal === 50000)));
+      const x = await fetch(base + '/api/reports/journal-list?' + new URLSearchParams({ pattern: 'A01', ...span, format: 'xlsx' }), { headers: { cookie: a.cookie } });
+      assert.equal(Buffer.from(await x.arrayBuffer()).subarray(0, 2).toString(), 'PK');
+      assert.equal((await a.call('/api/reports/journal-list?pattern=ZZ&from=2026-01-01&to=2026-01-31')).status, 400);
+    });
     const raw = await fetch(base + '/api/export/journals?month=' + month, { headers: { cookie: a.cookie } }); const bytes = new Uint8Array(await raw.arrayBuffer());
     assert.equal(raw.status, 200); assert.deepEqual([...bytes.slice(0, 3)], [0xef, 0xbb, 0xbf], 'CSV has UTF-8 BOM for Excel');
   } finally {

@@ -57,6 +57,15 @@ const base = process.env.BASE_URL, out = process.env.OUT_DIR || '.';
       await page.click('[data-act=new]'); await page.waitForSelector('dialog[open]'); await page.selectOption('dialog select[name=customer]', { index: 2 });
       await page.waitForSelector('#rc-open table, #rc-open .empty', { timeout: 60000 }); await page.screenshot({ path: `${out}/web-receipt-form.png` }); results.push({ view: 'receipt.form', ok: true }); await page.click('#modal-cancel');
       await page.evaluate(() => (location.hash = 'shipments')); await page.waitForFunction(() => document.querySelector('#content').dataset.view === 'shipments' && !document.querySelector('#content.busy'), null, { timeout: 60000 });
+      // ② 自動仕訳リスト 7種
+      for (const list of ['A01', 'B01', 'C01', 'D01', 'E01', 'F01', 'BANK']) {
+        const from = new Date(Date.now() - 100 * 864e5).toISOString().slice(0, 10), to = new Date().toISOString().slice(0, 10);
+        await page.evaluate(h => (location.hash = h), `journals?tab=lists&list=${list}&from=${from}&to=${to}`);
+        await page.waitForFunction(() => document.querySelector('#content').dataset.view === 'journals' && !document.querySelector('#content.busy') && document.querySelector('#jl-body'), null, { timeout: 60000 });
+        const ok = await page.$eval('#content', el => !el.innerText.includes('読み込みエラー') && !!el.querySelector('#jl-body table, #jl-body .empty'));
+        results.push({ view: 'list.' + list, ok }); if (list === 'B01' || list === 'BANK') await page.screenshot({ path: `${out}/web-list-${list}.png`, fullPage: true });
+      }
+      await page.evaluate(() => (location.hash = 'shipments')); await page.waitForFunction(() => document.querySelector('#content').dataset.view === 'shipments' && !document.querySelector('#content.busy'), null, { timeout: 60000 });
       const corr = await page.$('[data-act=correct]'); if (corr) { await corr.click(); await page.waitForSelector('dialog[open] input[name=quantity]'); await page.screenshot({ path: `${out}/web-correction.png` }); results.push({ view: 'correction.form', ok: true }); await page.click('#modal-x'); }
     }
     await page.click('#logout').catch(() => {}); await page.waitForURL(u => u.pathname.startsWith('/login'), { timeout: 15000 }).catch(() => errors.push('logout did not return to /login'));

@@ -191,3 +191,10 @@ dialog.modal[open] { animation: rise .35s var(--ease) both; display: flex; flex-
 .report-doc h2 { font-size: 15pt; margin-bottom: 6px; }
 .report-doc .badge { border: 1px solid #999; color: #000; background: none; }
 .report-doc input { display: none; }
+
+table.jl td { font-size: 12px; vertical-align: top; }
+tr.subtotal td { background: rgba(238,242,255,.6); font-size: 12px; }
+.journal-doc table.jl td, .journal-doc table.jl th { font-size: 7.5pt; padding: 2px 4px; }
+.journal-doc { page: wide; }
+@page wide { size: A4 landscape; margin: 0; }
+@media print { .journal-doc { padding: 8mm; } }
