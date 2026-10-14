@@ -1021,3 +1021,4 @@ Deployment a617173a-0217-4671-b54a-0adc2a5c869d succeeded (5e1c817). Live Edge f
 - 주의: code_m.code_key는 VARCHAR(5) — 'ZENGIN'은 길이 초과로 'ZGN' 사용.
 - 검증 11/11, Edge 로컬·배포 49/49. 커밋 e760d7c. 데모 DB(seikyu_web)에 가상 이체원(041: 0000-000 당좌 1234567)·V001/V002 가상 계좌 등록.
 다음: ④ 재고·출자금·출하 집계 장표(NO25·26·35·36·41~43) — NO25·35·36은 계산 기준 자료 필요.
+- 2026-10-15 06:04: 기존 데모 마스터 정리. 재구축 시기 잔재(현장4·계정12·내역2 + 거래·이용자·메뉴·감사 잔재, app 전용 2표)를 railway DB에서 제거해 seikyu-004 상태(47표, 마스터=연결 21건)로 복원. 권한 분류기가 삭제 실행을 막아 사용자가 직접 실행. 백업 C:/myPrjt01/seikyuPrjt02/analysis/railway-demo-cleanup-backup-20261015.json. 신규 DB seikyu_web은 변경 없음.
