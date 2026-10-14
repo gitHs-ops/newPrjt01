@@ -62,13 +62,13 @@ export const MASTERS = {
   },
   items: {
     label: '商品', table: 'item_m',
-    fields: [F('code', '商品コード', { max: 5, key: true }), F('name', '商品名', { max: 22 }), F('unit', '単位', { max: 2 }), F('price', '標準単価', { type: 'int' }), F('active', '有効', { type: 'bool' })],
+    fields: [F('code', '商品コード', { max: 5, key: true }), F('name', '商品名', { max: 22 }), F('unit', '単位', { max: 2 }), F('price', '標準単価', { type: 'int' }), F('kind', '製品・材料区分', { type: 'select', options: [['', '共通'], ['1', '製品'], ['2', '材料']], optional: true, hint: '配合計算・材料受払表で使用' }), F('active', '有効', { type: 'bool' })],
     select: 'SELECT * FROM item_m', where: 'item_cd=?', keyOf: r => [r.code],
-    decode: r => ({ code: r.item_cd, name: r.item_nam, unit: r.unit, price: Number(r.tanka), active: live(r) }),
-    validate: r => ({ code: text(r.code, '商品コード', 5, { pattern: CODE }), name: text(r.name, '商品名', 22), unit: text(r.unit || 't', '単位', 2), price: yen(r.price ?? 0, '標準単価', { max: 9999999 }), active: bool(r.active ?? true) }),
+    decode: r => ({ code: r.item_cd, name: r.item_nam, unit: r.unit, price: Number(r.tanka), kind: r.item_product_kb || '', active: live(r) }),
+    validate: r => ({ code: text(r.code, '商品コード', 5, { pattern: CODE }), name: text(r.name, '商品名', 22), unit: text(r.unit || 't', '単位', 2), price: yen(r.price ?? 0, '標準単価', { max: 9999999 }), kind: ['1', '2'].includes(String(r.kind || '')) ? String(r.kind) : '', active: bool(r.active ?? true) }),
     async write(c, r, old) {
-      if (!old) await c.query("INSERT INTO item_m (item_cd,item_nam,item_abr,item_kana,item_bunrui_cd,tanka,freight,unit,base_temp,vary_temp,credit_discount_rate,delete_f,item_product_kb) VALUES (?,?,'','','',?,0,?,0,0,0,?,'')", [r.code, r.name, r.price, r.unit, del(r.active)]);
-      else await c.query('UPDATE item_m SET item_nam=?,tanka=?,unit=?,delete_f=? WHERE item_cd=?', [r.name, r.price, r.unit, del(r.active), r.code]);
+      if (!old) await c.query("INSERT INTO item_m (item_cd,item_nam,item_abr,item_kana,item_bunrui_cd,tanka,freight,unit,base_temp,vary_temp,credit_discount_rate,delete_f,item_product_kb) VALUES (?,?,'','','',?,0,?,0,0,0,?,?)", [r.code, r.name, r.price, r.unit, del(r.active), r.kind]);
+      else await c.query('UPDATE item_m SET item_nam=?,tanka=?,unit=?,item_product_kb=?,delete_f=? WHERE item_cd=?', [r.name, r.price, r.unit, r.kind, del(r.active), r.code]);
     },
   },
   prices: {
@@ -146,6 +146,29 @@ export const MASTERS = {
       }
       if (!old) await c.query('INSERT INTO vendor (vendor_code,vendor_name,bank_account_id,active) VALUES (?,?,?,?)', [r.code, r.name, accountId, r.active]);
       else await c.query('UPDATE vendor SET vendor_name=?,bank_account_id=?,active=? WHERE vendor_code=?', [r.name, accountId, r.active, r.code]);
+    },
+  },
+  jv: {
+    label: 'JV構成員・出資比率', table: 'code_m',
+    fields: [F('code', '構成員コード', { max: 12, key: true }), F('name', '構成員名', { max: 40 }), F('ratio', '出資比率(%)', { hint: '例: 47.5（有効な構成員の合計を100%に）' }), F('seq', '表示順', { type: 'int', optional: true }), F('active', '有効', { type: 'bool' })],
+    select: "SELECT * FROM code_m WHERE code_key='JV'", where: 'code_dtl=?', keyOf: r => [r.code],
+    decode: r => ({ code: r.code_dtl, name: r.code_dtl_nam, ratio: Number(r.category1 || 0) / 100, seq: Number(r.category2 || 0), active: r.code_dtl_abr !== '0' }),
+    validate: r => ({ code: text(r.code, '構成員コード', 12, { pattern: CODE }), name: text(r.name, '構成員名', 40), ratio: (() => { const t = String(r.ratio ?? '').trim(); check(/^\d{1,3}(\.\d{1,2})?$/.test(t) && Number(t) > 0 && Number(t) <= 100, '出資比率は0より大きく100以下（小数2桁まで）で入力してください'); return Number(t); })(), seq: yen(r.seq || 0, '表示順', { max: 9999 }), active: bool(r.active ?? true) }),
+    async write(c, r, old) {
+      if (!old) await c.query("INSERT INTO code_m (code_key,code_key_nam,code_dtl,code_dtl_nam,code_dtl_abr,category1,category2,category3) VALUES ('JV','JV構成員',?,?,?,?,?,'')", [r.code, r.name, r.active ? '1' : '0', String(Math.round(r.ratio * 100)), String(r.seq)]);
+      else await c.query("UPDATE code_m SET code_dtl_nam=?,code_dtl_abr=?,category1=?,category2=? WHERE code_key='JV' AND code_dtl=?", [r.name, r.active ? '1' : '0', String(Math.round(r.ratio * 100)), String(r.seq), r.code]);
+    },
+  },
+  mixes: {
+    label: '配合（製品の材料構成）', table: 'code_m',
+    fields: [F('product', '製品', { type: 'ref', ref: 'items', key: true }), F('material', '材料', { type: 'ref', ref: 'items', key: true }), F('ratio', '配合率(%)', { hint: '製品1単位あたりの材料構成比。暫定（配合表の提供待ち）' }), F('active', '有効', { type: 'bool' })],
+    select: "SELECT * FROM code_m WHERE code_key='MIX'", where: 'code_dtl=?', keyOf: r => [`${r.product}:${r.material}`],
+    decode: r => ({ product: r.category1, material: r.category2, ratio: Number(r.category3 || 0) / 100, active: r.code_dtl_abr !== '0' }),
+    validate: r => { const v = { product: text(r.product, '製品', 5), material: text(r.material, '材料', 5), ratio: (() => { const t = String(r.ratio ?? '').trim(); check(/^\d{1,3}(\.\d{1,2})?$/.test(t) && Number(t) > 0 && Number(t) <= 100, '配合率は0より大きく100以下（小数2桁まで）で入力してください'); return Number(t); })(), active: bool(r.active ?? true) }; check(v.product !== v.material, '製品と材料は別の商品を選択してください'); return v; },
+    async write(c, r, old) {
+      const key = `${r.product}:${r.material}`;
+      if (!old) await c.query("INSERT INTO code_m (code_key,code_key_nam,code_dtl,code_dtl_nam,code_dtl_abr,category1,category2,category3) VALUES ('MIX','配合',?,'',?,?,?,?)", [key, r.active ? '1' : '0', r.product, r.material, String(Math.round(r.ratio * 100))]);
+      else await c.query("UPDATE code_m SET code_dtl_abr=?,category3=? WHERE code_key='MIX' AND code_dtl=?", [r.active ? '1' : '0', String(Math.round(r.ratio * 100)), key]);
     },
   },
   accounts: {

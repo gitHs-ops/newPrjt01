@@ -11,6 +11,7 @@ import * as U from './users.mjs';
 import * as X from './reports.mjs';
 import * as J from './journal-lists.mjs';
 import * as PR from './payment-reports.mjs';
+import * as MR from './misc-reports.mjs';
 
 const COOKIE = 'aplink_sid';
 const MIME = { html: 'text/html; charset=utf-8', js: 'text/javascript; charset=utf-8', css: 'text/css; charset=utf-8', json: 'application/json; charset=utf-8', svg: 'image/svg+xml' };
@@ -42,6 +43,10 @@ export async function createApp({ pool, publicDir, secureCookies = process.env.N
     if (!fn) throw new DomainError('帳票の種類が不正です');
     return x.q.format === 'xlsx' ? db(c => PR.paymentBook(c, x.params.kind, x.q)).then(b => ({ file: b })) : db(c => fn(c, x.q));
   });
+  route('GET', '/api/reports/misc/:kind', 'read', x => {
+    const fn = MR.MISC[x.params.kind]; if (!fn) throw new DomainError('帳票の種類が不正です');
+    return x.q.format === 'xlsx' ? db(c => MR.miscBook(c, x.params.kind, x.q)).then(b => ({ file: b })) : db(c => fn(c, x.q));
+  });
   route('GET', '/api/receipt-context', 'read', x => db(c => S.receiptContext(c, x.q.customer)));
   route('GET', '/api/reports/billing-list', 'read', x => x.q.format === 'xlsx' ? db(c => X.billingListBook(c, x.q)).then(b => ({ file: b })) : db(c => S.billingList(c, x.q)));
   route('GET', '/api/reports/billing-confirm', 'read', x => x.q.format === 'xlsx' ? db(c => X.billingConfirmBook(c, x.q)).then(b => ({ file: b })) : db(c => S.billingConfirm(c, x.q)));
@@ -67,6 +72,7 @@ export async function createApp({ pool, publicDir, secureCookies = process.env.N
   w('/api/masters/:kind/import', (c, x, b) => M.importCsv(c, x, x.params.kind, b.csv));
   w('/api/shipments', (c, x, b) => S.saveShipment(c, x, b));
   w('/api/shipments/delete', (c, x, b) => S.deleteShipment(c, x, b));
+  w('/api/mix/save', (c, x, b) => MR.saveMix(c, x, b));
   w('/api/shipments/correct', (c, x, b) => S.correctShipment(c, x, b));
   w('/api/billing/run', (c, x, b) => S.runBilling(c, x, b));
   w('/api/invoices/issue', (c, x, b) => S.issueInvoices(c, x, b));

@@ -72,6 +72,21 @@ const base = process.env.BASE_URL, out = process.env.OUT_DIR || '.';
         results.push({ view: 'pay.' + kind, ok: !!(await page.$('#pr-body table, #pr-body .empty, #pr-body .notice-doc')) }); if (kind === 'notices') await page.screenshot({ path: `${out}/web-pay-${kind}.png` }); await page.click('#modal-x');
       }
       await page.click('[data-act=zengin]'); await page.waitForSelector('dialog[open] .zengin-pre', { timeout: 60000 }); await page.screenshot({ path: `${out}/web-zengin.png` }); results.push({ view: 'pay.zengin', ok: true }); await page.click('#modal-x');
+      // ④ 出荷集計・材料受払表・配合計算・JV帳票
+      const goView = async v => { await page.evaluate(h => (location.hash = h), v); await page.waitForFunction(h => document.querySelector('#content').dataset.view === h && !document.querySelector('#content.busy'), v, { timeout: 60000 }); };
+      const openMisc = async (sel, name) => {
+        await page.evaluate(() => { const t = document.querySelector('#toast'); t.textContent = ''; t.className = ''; });
+        await page.click(sel);
+        await page.waitForFunction(() => document.querySelector('#dialog').open || document.querySelector('#toast.error')?.textContent, null, { timeout: 60000 });
+        const open = await page.$eval('#dialog', x => x.open), msg = open ? '' : await page.$eval('#toast', x => x.textContent);
+        results.push({ view: 'misc.' + name, ok: open || /JV構成員/.test(msg), detail: msg }); if (open) { await page.screenshot({ path: `${out}/web-misc-${name}.png` }); await page.click('#modal-x'); }
+      };
+      await goView('shipments');
+      for (const k of ['shipment-summary', 'customer-items', 'cash-sales']) await openMisc(`[data-act=misc][data-kind=${k}]`, k);
+      await goView('inventory');
+      await openMisc('[data-act=misc][data-kind=material-ledger]', 'material-ledger'); await openMisc('[data-act=mix]', 'mix');
+      await goView('reports');
+      for (const k of ['jv-expenses', 'jv-receipts']) await openMisc(`[data-act=misc][data-kind=${k}]`, k);
       await page.evaluate(() => (location.hash = 'shipments')); await page.waitForFunction(() => document.querySelector('#content').dataset.view === 'shipments' && !document.querySelector('#content.busy'), null, { timeout: 60000 });
       const corr = await page.$('[data-act=correct]'); if (corr) { await corr.click(); await page.waitForSelector('dialog[open] input[name=quantity]'); await page.screenshot({ path: `${out}/web-correction.png` }); results.push({ view: 'correction.form', ok: true }); await page.click('#modal-x'); }
     }

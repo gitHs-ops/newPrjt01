@@ -151,6 +151,40 @@ test('workflow against MySQL business tables', { skip: !url && 'MYSQL_TEST_URL n
         assert.equal(Buffer.from(await x.arrayBuffer()).subarray(0, 2).toString(), 'PK', k);
       }
     });
+    await t.test('④ shipment totals, material ledger, mix and JV allocation', async () => {
+      const ok = r => assert.equal(r.status, 200, JSON.stringify(r.data));
+      const span = new URLSearchParams({ from: pm + '-01', to: d });
+      const ss = (await a.call('/api/reports/misc/shipment-summary?' + span)).data.items.find(x => x.item === 'I' + tag);
+      assert.equal(ss.qty, 13); assert.equal(ss.net, 12997);
+      const ci = (await a.call('/api/reports/misc/customer-items?' + span)).data.customers.find(x => x.customer === C); assert.equal(ci.net, 12997);
+      ok(await a.call('/api/reports/misc/cash-sales?' + span));
+      // material: mark item as 材料, buy 10 @1000 this month, define a product recipe at 60%
+      const it = (await a.call('/api/masters/items')).data.find(x => x.code === 'I' + tag);
+      ok(await a.call('/api/masters/items', { mode: 'update', record: { ...it, kind: '2' } }));
+      ok(await a.call('/api/masters/items', { mode: 'create', record: { code: 'G' + tag, name: '試験合材', unit: 't', price: 9000, kind: '1', active: true } }));
+      ok(await a.call('/api/purchases', { date: d, vendor: 'V' + tag, item: 'I' + tag, quantity: '10', price: 1000, taxCode: '10%' }));
+      const ml = (await a.call('/api/reports/misc/material-ledger?month=' + d.slice(0, 7))).data.items.find(x => x.item === 'I' + tag);
+      assert.equal(ml.purchase.qty, 10); assert.equal(ml.purchase.value, 10000);
+      ok(await a.call('/api/masters/mixes', { mode: 'create', record: { product: 'G' + tag, material: 'I' + tag, ratio: '60', active: true } }));
+      const mx = (await a.call('/api/reports/misc/mix?month=' + d.slice(0, 7))).data.products.find(x => x.item === 'G' + tag);
+      assert.equal(mx.haigo, 600);
+      ok(await a.call('/api/mix/save', { month: d.slice(0, 7), denki: '10', touyu: '20', seizou: '5.5', ippann: '4.5' }));
+      assert.equal((await a.call('/api/reports/misc/mix?month=' + d.slice(0, 7))).data.products.find(x => x.item === 'G' + tag).saved.total, 640);
+      // JV members (deactivate leftovers first; this is a disposable test DB)
+      for (const m of (await a.call('/api/masters/jv')).data.filter(x => x.active)) ok(await a.call('/api/masters/jv', { mode: 'update', record: { ...m, active: false } }));
+      assert.equal((await a.call('/api/reports/misc/jv-expenses?' + span)).status, 400, 'no members');
+      for (const [k, r] of [['A', '47.5'], ['B', '47.5'], ['C', '5']]) ok(await a.call('/api/masters/jv', { mode: 'create', record: { code: k + tag, name: 'JV' + k, ratio: r, seq: k.charCodeAt(0), active: true } }));
+      const je = (await a.call('/api/reports/misc/jv-expenses?' + span)).data;
+      const row = je.accounts.flatMap(x => x.rows).find(r => r.gross === 50000 && r.vendor === '試験業者');
+      assert.deepEqual(row.parts, [23750, 23750, 2500]); assert.equal(row.tax, 4545);
+      const jr = (await a.call('/api/reports/misc/jv-receipts?' + span)).data;
+      for (const l of jr.lines) assert.equal(l.parts.reduce((x, y) => x + y, 0), l.amount);
+      for (const k of ['shipment-summary', 'customer-items', 'cash-sales', 'material-ledger', 'mix', 'jv-expenses', 'jv-receipts']) {
+        const x = await fetch(base + '/api/reports/misc/' + k + '?' + new URLSearchParams({ from: pm + '-01', to: d, month: d.slice(0, 7), format: 'xlsx' }), { headers: { cookie: a.cookie } });
+        assert.equal(Buffer.from(await x.arrayBuffer()).subarray(0, 2).toString(), 'PK', k);
+      }
+      for (const m of (await a.call('/api/masters/jv')).data.filter(x => x.active && x.code.endsWith(tag))) await a.call('/api/masters/jv', { mode: 'update', record: { ...m, active: false } });
+    });
     const raw = await fetch(base + '/api/export/journals?month=' + month, { headers: { cookie: a.cookie } }); const bytes = new Uint8Array(await raw.arrayBuffer());
     assert.equal(raw.status, 200); assert.deepEqual([...bytes.slice(0, 3)], [0xef, 0xbb, 0xbf], 'CSV has UTF-8 BOM for Excel');
   } finally {
