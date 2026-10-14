@@ -18,3 +18,9 @@ __pycache__/
 .DS_Store
 Thumbs.db
 *.swp
+
+# Preview API dependencies and local credentials
+seikyu-preview/node_modules/
+seikyu-preview/.env
+seikyu-preview/.env.*
+!seikyu-preview/.env.example

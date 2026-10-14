@@ -23,3 +23,7 @@
 `node --test seikyu-preview/domain.test.mjs`
 
 정적 서버에서 `browser-qa.cjs` 실행. Playwright와 Microsoft Edge 필요. `PLAYWRIGHT_MODULE`로 모듈 경로, `PREVIEW_URL`로 테스트 주소를 지정할 수 있다. 별도 브라우저 프로필의 가상 데이터만 조작한다. 결과는 `validation.json` 참조.
+
+## Railway MySQL 모드
+
+서버 저장 API와 Dockerfile을 추가했다. 배포 절차는 [RAILWAY_DEPLOY.md](RAILWAY_DEPLOY.md) 참조. 현재 Railway 인증이 없어 실제 연결·배포는 대기 중이다. GitHub Pages는 기존 local 모드이며 Railway 앱에서 실행하면 공유 MySQL 모드로 동작한다. 기존 브라우저 자료는 자동 이관하지 않는다.

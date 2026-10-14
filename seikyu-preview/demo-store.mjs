@@ -1,6 +1,22 @@
 import {fresh, dispatch, csv} from './domain.mjs';
 
 export const storageKey = 'aplink-web-preview-v1';
+let runtimePromise;
+async function runtime(){
+  if(!runtimePromise)runtimePromise=fetch('./runtime.json',{cache:'no-store'}).then(async r=>{
+    if(!r.ok)throw Error('保存先設定を読み込めません');
+    const config=await r.json();
+    if(!['mysql','local'].includes(config.storage))throw Error('保存先設定が不正です');
+    return config;
+  });
+  return runtimePromise;
+}
+async function api(url,options={}){
+  const response=await fetch(url,{...options,cache:'no-store',headers:{...options.headers,'X-Demo-Request':'1'}});
+  const data=await response.json();
+  if(!response.ok)throw Error(data.error||'サーバー処理に失敗しました');
+  return data;
+}
 const localDate = () => new Intl.DateTimeFormat('sv-SE', {timeZone:'Asia/Tokyo'}).format(new Date());
 
 export function seed() {
@@ -63,9 +79,13 @@ async function locked(fn) {
   if(navigator.locks)return navigator.locks.request(storageKey,fn);
   return fn(); // Synchronous localStorage read/write within one event-loop turn.
 }
-export async function resetDemo(){return locked(()=>{const data=seed();localStorage.setItem(storageKey,JSON.stringify(data));return data;})}
+export async function resetDemo(revision){
+  if((await runtime()).storage==='mysql')return api('/api/reset',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({revision})});
+  return locked(()=>{const data=seed();localStorage.setItem(storageKey,JSON.stringify(data));return data;});
+}
 export async function demoRequest(url,options) {
-  if(url==='/api/session')return {user:'デモ利用者',canWrite:true,header:'X-Demo',csrf:'local-only'};
+  if((await runtime()).storage==='mysql')return api(url,options);
+  if(url==='/api/session')return {user:'デモ利用者',canWrite:true,header:'X-Demo',csrf:'local-only',storage:'local'};
   if(url==='/requirements.json'){const r=await fetch('./requirements.json');if(!r.ok)throw Error('確認事項を読み込めません');return r.json();}
   if(url==='/api/audit')return read().state.audit.slice(-200).reverse().map(r=>({revision:r.id,created_at:r.at,actor:r.actor,action:r.action}));
   if(url==='/api/workspace' && options?.method==='POST')return locked(()=>{

@@ -496,6 +496,26 @@
         "seikyu-preview/validation.json에 검증 기록."
       ],
       "notes": "실데이터·원본 자료 없음. 현재 브라우저만 저장, 실제 서버/권한/계정/AS400 동일성 검증은 범위 밖. Java 추가 개발은 자료 확보 후 진행."
+    },
+    {
+      "id": "seikyu-003",
+      "priority": 1,
+      "area": "seikyu-preview",
+      "title": "Railway MySQL 서버 저장 전환",
+      "user_visible_behavior": "Railway 앱에서 인증 후 API를 통해 공유 MySQL에 데모 데이터를 저장한다.",
+      "status": "in_progress",
+      "verification": [
+        "npm test",
+        "server/browser-check.mjs",
+        "browser-qa.cjs",
+        "실제 Railway MySQL 연결/재시작 검증 필요"
+      ],
+      "evidence": [
+        "2026-10-14: 도메인/HTTP 테스트 9건 통과, 실제 MySQL 통합 테스트 1건 접속정보 없어 skip.",
+        "Edge 서버모드: 인증, 저장, 독립 브라우저 조회, 새로고침, localStorage 미사용, 공유 초기화 안내 통과. HTTP 저장소는 테스트 대역.",
+        "기존 정적 데모 전체 브라우저 회귀 검증 통과."
+      ],
+      "notes": "Railway CLI Unauthorized. 프로젝트/서비스 및 로그인 대기. 실제 DB/배포는 미검증이며 기존 Pages 주소는 local 모드 유지. 임시 MySQL JSON집약 2테이블이며 44테이블 설계 적용 아님."
     }
   ]
 }

@@ -932,3 +932,16 @@ newPrjt02(프롬프트 복사 방식)로 실사용 전환을 검토하는 것이
 배포 완료: https://giths-ops.github.io/newPrjt01/seikyu-preview/
 GitHub Pages run 38544987251 성공. 앱 커밋 7b83212의 실제 HTTPS 배포 주소에서 동일한 Edge 전체 업무 흐름·저장·CSV·초기화·모바일 검증을 재실행하여 통과했다.
 다음 단계: 사용자 화면 검토 및 추가 업무 자료 확보 후 Java 구현 범위 구체화.
+
+
+## 2026-10-14 — Railway MySQL 서버 저장 전환 준비
+
+seikyu-003 진행 중. 웹 데모를 Railway에서 실행할 Node API, MySQL 2개 임시 테이블, 인증, 트랜잭션·revision 충돌 검출, 서버모드 표시, Dockerfile 및 배포 안내를 추가했다. Java 본 개발은 보류 유지. 44개 테이블 설계와 별도의 데모 집약 저장 방식이다.
+
+검증: npm test 9건 통과 / 실제 MySQL 1건 skip. Edge API 모드 독립 브라우저 조회·새로고침·localStorage 미사용 통과(저장소 대역). 정적 데모 회귀 통과. Railway CLI whoami/list는 Unauthorized여서 실제 연결/배포/재시작 지속성은 검증하지 못했다. 사용자에게 CLI 로그인과 프로젝트명·MySQL 서비스명을 요청했다.
+
+init.ps1 -Live의 기존 진로상담 프록시 버전 차이(배포1.8.1/소스1.8.0)는 이번 변경 전부터 존재한다. 별도 시스템이라 변경하지 않았다.
+
+다음: Railway 인증 확인 → 서비스 선택 → 앱 Root /seikyu-preview 및 MySQL 참조변수/검토용 인증 설정 → 실제 DB 통합 시험과 배포 → HTTPS 주소에서 검증. 이 절차 전에는 MySQL 전환 완료로 보고하지 말 것. GitHub Pages는 local 모드 유지.
+
+로컬 npm 의존성의 문자표 테스트 파일이 init.ps1 전체 텍스트 검사에 걸려, 테스트 후 node_modules를 C:/myPrjt01/seikyuPrjt01/.tooling/preview-api-deps-20261014로 이동해 보관했다. 검사 규칙은 변경하지 않았고 최종 init.ps1 통과. Docker 빌드는 npm ci로 의존성을 설치한다.
