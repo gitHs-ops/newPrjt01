@@ -5,7 +5,7 @@ AS400 請求・入金業務の Web 移行検証用システム。`seikyu-preview
 - 配置: GitHub `gitHs-ops/newPrjt01` → Railway サービス `seikyu-web`（Root Directory `/seikyu-web`、Dockerfile）
 - URL: https://seikyu-web-production.up.railway.app/
 - DB: Railway PostgreSQL（サービス `Postgres`）のデータベース `seikyu_web`。接続は変数 `DATABASE_URL`（内部ネットワーク）。`DEMO_USER`/`DEMO_PASSWORD` は `newPrjt01` サービスの変数を参照する
-- 旧 MySQL（サービス `MySQL` の `seikyu_web`）は移行元として残す（書き込みはしない）。旧デモ `newPrjt01` は従来どおり MySQL の `railway` データベースを使う
+- 旧 MySQL の `seikyu_web`・検証用 DB 3 つは 2026-10-16 に削除（削除前の全体バックアップ：seikyuPrjt02/backup/mysql-20261016/*.sql、復元して CHECKSUM 一致を確認済み）。MySQL サービスは旧デモ `newPrjt01`（`railway` データベース）用に残す
 - 旧デモ（seikyu-preview）は従来の URL https://newprjt01-production.up.railway.app/ に残す
 - **禁止: サービス `newPrjt01` の Root Directory を `/seikyu-web` に戻さない（`/seikyu-preview` 固定、2026-10-15 ユーザー指示）。** seikyu-web の変更はサービス `seikyu-web` だけに配備・検証する
 - 構成: Node.js 22 標準 `http` + `pg`、画面はビルド不要の単一ページ（`public/`）。`server/pg.mjs` が mysql2 と同じ呼び方（`query` → `[rows]`／`insertId`）を提供し、旧 MySQL 方言（`?`・INSERT IGNORE・ON DUPLICATE KEY UPDATE・UTC_TIMESTAMP・CAST AS CHAR・外部結合の行ロック）を読み替える
