@@ -14,20 +14,22 @@ export const MENUS = [
 
 // Applies the reviewed DDL only when explicitly pointed at it (empty test databases). Production tables already exist.
 async function applyDdl(pool, dir) {
-  for (const f of ['01_legacy_based.sql', '02_proposed_extensions.sql']) {
-    const sql = (await readFile(join(dir, f), 'utf8')).split('\n').filter(l => !l.trim().startsWith('--')).join('\n');
-    for (const stmt of sql.split(/;\s*\n/).map(s => s.trim()).filter(Boolean)) await pool.query(stmt);
-  }
+  // PostgreSQL 版 DDL（MySQL 版から移行ツールで生成したもの。リポジトリには置かない）
+  const sql = (await readFile(join(dir, 'schema.sql'), 'utf8')).split('\n').filter(l => !l.trim().startsWith('--')).join('\n');
+  for (const stmt of sql.split(/;\s*\n/).map(s => s.trim()).filter(Boolean)) await pool.query(stmt);
 }
 export async function prepare(pool, env = process.env) {
-  const have = new Set((await rows(pool, 'SELECT table_name n FROM information_schema.tables WHERE table_schema=DATABASE()')).map(r => r.n || r.N || r.TABLE_NAME));
+  const have = new Set((await rows(pool, 'SELECT table_name n FROM information_schema.tables WHERE table_schema=current_schema()')).map(r => r.n));
   let missing = Object.keys(TABLES).filter(t => !have.has(t));
   if (missing.length && missing.length === Object.keys(TABLES).length && env.SCHEMA_SQL_DIR) { await applyDdl(pool, env.SCHEMA_SQL_DIR); missing = []; }
   if (missing.length) throw Error('Business tables are missing: ' + missing.join(','));
 
-  await pool.query(`CREATE TABLE IF NOT EXISTS app_session (token_hash CHAR(64) PRIMARY KEY, user_id INT NOT NULL, csrf_token CHAR(48) NOT NULL,
-    expires_at DATETIME(6) NOT NULL, created_at DATETIME(6) NOT NULL, KEY ix_session_user(user_id), KEY ix_session_expiry(expires_at)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_bin`);
-  await pool.query(`CREATE TABLE IF NOT EXISTS app_period_close (period CHAR(7) PRIMARY KEY, closed_at DATETIME(6) NOT NULL, closed_by VARCHAR(256) NOT NULL) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_bin`);
+  await pool.query(`CREATE TABLE IF NOT EXISTS app_session (token_hash varchar(64) COLLATE "C" PRIMARY KEY, user_id integer NOT NULL, csrf_token varchar(48) COLLATE "C" NOT NULL,
+    expires_at timestamp(6) NOT NULL, created_at timestamp(6) NOT NULL)`);
+  await pool.query('CREATE INDEX IF NOT EXISTS ix_session_user ON app_session (user_id)');
+  await pool.query('CREATE INDEX IF NOT EXISTS ix_session_expiry ON app_session (expires_at)');
+  await pool.query(`CREATE TABLE IF NOT EXISTS app_period_close (period varchar(7) COLLATE "C" PRIMARY KEY, closed_at timestamp(6) NOT NULL, closed_by varchar(256) COLLATE "C" NOT NULL)`);
+  pool.resetMeta?.();
 
   for (const [key, prefix, label] of Object.values(NUMBERING)) await pool.query('INSERT IGNORE INTO numbering_m (numbering_key,numbering_pattern,present_value) VALUES (?,?,?)', [key, `${prefix}99999999 ${label}`.slice(0, 16), '0']);
   for (const [code, name] of SYSTEM_ACCOUNTS) await pool.query('INSERT IGNORE INTO account_subject (account_code,account_name,active) VALUES (?,?,TRUE)', [code, name]);
@@ -36,7 +38,7 @@ export async function prepare(pool, env = process.env) {
   await pool.query("INSERT IGNORE INTO account_subsubject (account_code,sub_code,sub_name,active) VALUES ('8790','001','振込手数料',TRUE)");
   await pool.query("INSERT IGNORE INTO code_m (code_key,code_key_nam,code_dtl,code_dtl_nam,code_dtl_abr,category1,category2,category3) VALUES ('DEPT','部門','063','工場（部門063）','','1','','')");
   // NO6: billing is per customer. Older per-site heads that are the only head of their customer/closing become customer-level.
-  await pool.query("UPDATE billing_head h JOIN (SELECT customers_cd, closing_yymm, closing_date FROM billing_head GROUP BY customers_cd, closing_yymm, closing_date HAVING COUNT(*)=1) o ON o.customers_cd=h.customers_cd AND o.closing_yymm=h.closing_yymm AND o.closing_date=h.closing_date SET h.field_cd='', h.field_suffix='' WHERE h.field_cd<>''");
+  await pool.query("UPDATE billing_head h SET field_cd='', field_suffix='' FROM (SELECT customers_cd, closing_yymm, closing_date FROM billing_head GROUP BY customers_cd, closing_yymm, closing_date HAVING COUNT(*)=1) o WHERE o.customers_cd=h.customers_cd AND o.closing_yymm=h.closing_yymm AND o.closing_date=h.closing_date AND h.field_cd<>''");
   await pool.query("INSERT IGNORE INTO account_subsubject (account_code,sub_code,sub_name,active) SELECT '1112', code_dtl, LEFT(code_dtl_nam,100), category1<>'0' FROM code_m WHERE code_key='BANK'");
   await pool.query(`INSERT IGNORE INTO company_info_m (company_info_id,company_name1,company_name2,company_kana1,company_kana2,company_abr,plant_name,plant_kana,plant_mgr,postcode,pref,addr1,addr2,tel_no,fax_no,saisyuturyoku_word,closing_m,closing_d,tax_round,package_nam,package_ver,trading_day,claim_typ,proceed_round,n_pr_kind)
     VALUES (1,'サンプル建材株式会社','（架空・デモ用）','サンプルケンザイ','','サンプル建材','サンプル工場','','','0000000','東京都','架空区デモ町1-2-3','','00-0000-0000','00-0000-0001','再発行',3,31,'1','APLink請求入金',1.00,NULL,'1','1','1')`);

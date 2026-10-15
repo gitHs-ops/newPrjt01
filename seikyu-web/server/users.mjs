@@ -29,7 +29,7 @@ export async function authenticate(c, loginId, password) {
 export async function createSession(c, user) {
   const token = randomBytes(32).toString('hex'), csrf = randomBytes(24).toString('hex');
   await c.query('DELETE FROM app_session WHERE expires_at < UTC_TIMESTAMP(6)');
-  await c.query(`INSERT INTO app_session (token_hash,user_id,csrf_token,expires_at,created_at) VALUES (?,?,?,DATE_ADD(UTC_TIMESTAMP(6), INTERVAL ${SESSION_HOURS} HOUR),UTC_TIMESTAMP(6))`, [sha(token), user.user_id, csrf]);
+  await c.query(`INSERT INTO app_session (token_hash,user_id,csrf_token,expires_at,created_at) VALUES (?,?,?,LOCALTIMESTAMP + INTERVAL '${SESSION_HOURS} hours',LOCALTIMESTAMP)`, [sha(token), user.user_id, csrf]);
   return token;
 }
 export async function sessionUser(c, token) {
@@ -51,7 +51,8 @@ export async function saveUser(c, ctx, p) {
   if (!p.id) {
     const loginId = text(p.loginId, 'ログインID', 64, { pattern: /^[A-Za-z0-9._@\-]+$/ }), hash = await hashPassword(checkPassword(p.password));
     check(!(await one(c, 'SELECT 1 x FROM users WHERE login_id=?', [loginId])), 'ログインIDは使用済みです');
-    const next = Number((await one(c, 'SELECT COALESCE(MAX(user_id),0)+1 n FROM users FOR UPDATE')).n);
+    await c.query('LOCK TABLE users IN SHARE ROW EXCLUSIVE MODE');
+    const next = Number((await one(c, 'SELECT COALESCE(MAX(user_id),0)+1 n FROM users')).n);
     await c.query('INSERT INTO users (user_id,login_id,password_hash,login_name,start_menu_id,enabled) VALUES (?,?,?,?,1,?)', [next, loginId, hash, name, enabled]);
     await c.query('INSERT INTO user_role_ts (user_id,role_id) VALUES (?,?)', [next, role]);
     await audit(c, ctx, 'users', next, 'user.create', { loginId, role });

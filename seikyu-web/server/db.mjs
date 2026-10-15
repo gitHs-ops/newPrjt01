@@ -4,7 +4,7 @@ import { check, toNum, DomainError } from './domain.mjs';
 export async function tx(pool, fn) {
   const c = await pool.getConnection();
   // READ COMMITTED: after waiting on a row lock, balance sub-queries must see the other transaction's commit.
-  try { await c.query('SET TRANSACTION ISOLATION LEVEL READ COMMITTED'); await c.beginTransaction(); const r = await fn(c); await c.commit(); return r; }
+  try { await c.beginTransaction(); const r = await fn(c); await c.commit(); return r; }
   catch (e) { try { await c.rollback(); } catch {} throw e; }
   finally { c.release(); }
 }
@@ -43,7 +43,7 @@ export async function postJournal(c, { date, pattern, sourceType, sourceId, line
   for (const l of live) { check(Number.isSafeInteger(l.amount) && l.amount > 0, '仕訳金額が不正です'); check(['D', 'C'].includes(l.side), '貸借区分が不正です'); }
   const dr = live.filter(l => l.side === 'D').reduce((n, l) => n + l.amount, 0), cr = live.filter(l => l.side === 'C').reduce((n, l) => n + l.amount, 0);
   check(dr === cr && dr > 0, '仕訳の貸借が一致しません');
-  const prev = await one(c, "SELECT COALESCE(MAX(posting_revision),0) r, COALESCE(SUM(status='POSTED' AND reversal_of IS NULL),0) live FROM journal_entry WHERE source_type=? AND source_id=?", [sourceType, String(sourceId)]);
+  const prev = await one(c, "SELECT COALESCE(MAX(posting_revision),0) r, COUNT(*) FILTER (WHERE status='POSTED' AND reversal_of IS NULL) live FROM journal_entry WHERE source_type=? AND source_id=?", [sourceType, String(sourceId)]);
   check(!Number(prev.live), '仕訳は作成済みです');
   const [r] = await c.query("INSERT INTO journal_entry (journal_date,pattern_code,source_type,source_id,posting_revision,status,created_at) VALUES (?,?,?,?,?,'POSTED',UTC_TIMESTAMP(6))", [date, pattern, sourceType, String(sourceId), Number(prev.r) + 1]);
   let no = 0;

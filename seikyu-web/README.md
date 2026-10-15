@@ -1,13 +1,15 @@
 # APLink 請求・入金管理 Web（seikyu-web）
 
-AS400 請求・入金業務の Web 移行検証用システム。`seikyu-preview`（JSON 集約保存のデモ）を置き換える新規実装で、**すべての業務データを Railway MySQL の業務テーブル（44 表設計）に直接保存**する。表示データは架空。Java/Spring Boot 本開発の前に、業務フローと表設計を実画面で確認するためのもの。
+AS400 請求・入金業務の Web 移行検証用システム。`seikyu-preview`（JSON 集約保存のデモ）を置き換える新規実装で、**すべての業務データを Railway PostgreSQL の業務テーブル（44 表設計）に直接保存**する（2026-10-16 MySQL から移行）。表示データは架空。Java/Spring Boot 本開発の前に、業務フローと表設計を実画面で確認するためのもの。
 
 - 配置: GitHub `gitHs-ops/newPrjt01` → Railway サービス `seikyu-web`（Root Directory `/seikyu-web`、Dockerfile）
 - URL: https://seikyu-web-production.up.railway.app/
-- DB: Railway MySQL の専用データベース `seikyu_web`（旧デモの `railway` データベースとは共有しない）。`DEMO_USER`/`DEMO_PASSWORD` は `newPrjt01` サービスの変数を参照する
+- DB: Railway PostgreSQL（サービス `Postgres`）のデータベース `seikyu_web`。接続は変数 `DATABASE_URL`（内部ネットワーク）。`DEMO_USER`/`DEMO_PASSWORD` は `newPrjt01` サービスの変数を参照する
+- 旧 MySQL（サービス `MySQL` の `seikyu_web`）は移行元として残す（書き込みはしない）。旧デモ `newPrjt01` は従来どおり MySQL の `railway` データベースを使う
 - 旧デモ（seikyu-preview）は従来の URL https://newprjt01-production.up.railway.app/ に残す
 - **禁止: サービス `newPrjt01` の Root Directory を `/seikyu-web` に戻さない（`/seikyu-preview` 固定、2026-10-15 ユーザー指示）。** seikyu-web の変更はサービス `seikyu-web` だけに配備・検証する
-- 構成: Node.js 22 標準 `http` + `mysql2`（依存 1 個）、画面はビルド不要の単一ページ（`public/`）
+- 構成: Node.js 22 標準 `http` + `pg`、画面はビルド不要の単一ページ（`public/`）。`server/pg.mjs` が mysql2 と同じ呼び方（`query` → `[rows]`／`insertId`）を提供し、旧 MySQL 方言（`?`・INSERT IGNORE・ON DUPLICATE KEY UPDATE・UTC_TIMESTAMP・CAST AS CHAR・外部結合の行ロック）を読み替える
+- 値の形は移行前と同じ：日付・日時は文字列、numeric/bigint は数値、boolean は 1/0。文字列列は `COLLATE "C"`（旧 utf8mb4_0900_bin と同じバイト順）
 
 ## 機能（16 メニュー）
 
@@ -47,20 +49,24 @@ AS400 請求・入金業務の Web 移行検証用システム。`seikyu-preview
 ## 起動・環境変数
 
 ```
-MYSQLHOST / MYSQLPORT / MYSQLDATABASE / MYSQLUSER / MYSQLPASSWORD   … Railway の MySQL 参照変数
+DATABASE_URL                                                       … PostgreSQL 接続 URL（Railway は Postgres の参照変数で組み立て）
 DEMO_USER / DEMO_PASSWORD                                          … 初期管理者
 SEED_DEMO=0                                                        … 架空サンプルを作らない（既定は取引表が空のときだけ作成）
-MYSQL_URL_OVERRIDE                                                 … ローカル検証用の接続 URL
-SCHEMA_SQL_DIR                                                     … 空の検証 DB に 44 表 DDL を適用する場合のみ（DDL はリポジトリ外）
+SCHEMA_SQL_DIR                                                     … 空の検証 DB に 44 表 DDL（schema.sql）を適用する場合のみ（DDL はリポジトリ外：seikyuPrjt02/database-design/postgres-draft）
 ```
 
 起動時に 44 表の存在を確認し、無ければ停止する（本番 DDL は適用済み）。採番・自動仕訳科目・自社情報・ロール・メニューは不足分だけ追加する。
+
+## MySQL → PostgreSQL 移行（2026-10-16）
+
+- 移行ツール（リポジトリ外）：`seikyuPrjt02/.tooling/pg-migrate/migrate.mjs`。MySQL の information_schema から DDL を作り（型・既定値・主キー・一意・索引・CHECK・外部キー）、全行をコピーし、自動採番を最大値に合わせ、全表を主キー順に正規化して照合する。
+- 型の対応：tinyint(1)→boolean、int unsigned→bigint、auto_increment→identity、decimal→numeric、char/varchar→varchar COLLATE "C"、datetime(6)→timestamp(6)、json→jsonb。
 
 ## 検証
 
 ```
 npm test                                   # 単体（金額・期間・CSV）
-MYSQL_TEST_URL=<空の検証DB> SCHEMA_SQL_DIR=<DDLフォルダ> npm test   # 結合（本番 DB では実行しない）
+PG_TEST_URL=<検証DB> SCHEMA_SQL_DIR=<DDLフォルダ> npm test        # 結合（本番 DB seikyu_web では実行しない）
 BASE_URL=... LOGIN_ID=... LOGIN_PASSWORD=... PLAYWRIGHT_MODULE=<playwright-core> node scripts/browser-check.cjs
 ```
 

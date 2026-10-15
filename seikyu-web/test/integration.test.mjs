@@ -1,13 +1,14 @@
-// End-to-end API test against a disposable MySQL database. Never point MYSQL_TEST_URL at production.
+// End-to-end API test against a disposable PostgreSQL database. Never point PG_TEST_URL at production (seikyu_web).
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import mysql from 'mysql2/promise';
+import { createPool } from '../server/pg.mjs';
 import { prepare } from '../server/schema.mjs';
 import { createApp } from '../server/http.mjs';
 
-const url = process.env.MYSQL_TEST_URL;
-test('workflow against MySQL business tables', { skip: !url && 'MYSQL_TEST_URL not set', timeout: 900000 }, async t => {
-  const pool = mysql.createPool({ uri: url, charset: 'utf8mb4', timezone: 'Z', dateStrings: true, decimalNumbers: true, connectionLimit: 6 });
+const url = process.env.PG_TEST_URL;
+const skip = !url ? 'PG_TEST_URL not set' : /\/seikyu_web(\?|$)/.test(url) ? 'refusing to run against the production database' : false;
+test('workflow against PostgreSQL business tables', { skip, timeout: 900000 }, async t => {
+  const pool = createPool(url, { max: 6, ssl: /localhost|127\.0\.0\.1/.test(url) ? false : { rejectUnauthorized: false } });
   const env = { DEMO_USER: 'itest-admin', DEMO_PASSWORD: 'itest-password-0001', SCHEMA_SQL_DIR: process.env.SCHEMA_SQL_DIR };
   const saved = { DEMO_USER: process.env.DEMO_USER }; process.env.DEMO_USER = env.DEMO_USER;
   await prepare(pool, env);

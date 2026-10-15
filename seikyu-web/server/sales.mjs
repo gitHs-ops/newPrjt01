@@ -121,7 +121,7 @@ const totals = list => {
 };
 export async function billingPreview(c, { month, closing }) {
   const { start, end } = period(month, closing), day = closingDay(closing);
-  const custs = await rows(c, "SELECT customers_cd, customers_name FROM client_m WHERE delete_f<>'1' AND CAST(deadline AS UNSIGNED)=? ORDER BY customers_cd", [day]);
+  const custs = await rows(c, "SELECT customers_cd, customers_name FROM client_m WHERE delete_f<>'1' AND CAST(substring(deadline from '^ *([0-9]+)') AS INTEGER)=? ORDER BY customers_cd", [day]);
   const out = [];
   for (const cu of custs) {
     const sales = await rows(c, "SELECT payment_method_cd, money, tax_rate, field_cd, field_suffix, sales_date FROM sales_trn WHERE customers_cd=? AND process_status='0' AND sales_date<=?", [cu.customers_cd, toNum(end)]);
@@ -149,7 +149,7 @@ async function postBillingJournal(c, id, end, customer, net, tax) {
 export async function runBilling(c, ctx, { month, closing, customers }) {
   const { end } = period(month, closing), day = closingDay(closing); await assertOpen(c, end);
   check(end <= today(), `締日（${end}）が到来していないため請求締めはできません`);
-  let targets = await rows(c, "SELECT * FROM client_m WHERE delete_f<>'1' AND CAST(deadline AS UNSIGNED)=? ORDER BY customers_cd", [day]);
+  let targets = await rows(c, "SELECT * FROM client_m WHERE delete_f<>'1' AND CAST(substring(deadline from '^ *([0-9]+)') AS INTEGER)=? ORDER BY customers_cd", [day]);
   if (Array.isArray(customers) && customers.length) targets = targets.filter(t => customers.includes(t.customers_cd));
   check(targets.length, `締日${day}日の有効な得意先がありません`);
   const created = [], appended = [], skipped = [], st = stamp(), yymm = Number(month.replace('-', ''));
@@ -245,7 +245,7 @@ const STATE = { none: '未作成', draft: '未発行', issued: '発行済' };
 // NO12 請求一覧表（確認用）: one row per customer for the closing.
 export async function billingList(c, { month, closing }) {
   const { end } = period(month, closing), day = closingDay(closing);
-  const custs = await rows(c, "SELECT customers_cd, customers_name FROM client_m WHERE (delete_f<>'1' AND CAST(deadline AS UNSIGNED)=?) OR customers_cd IN (SELECT customers_cd FROM billing_head WHERE closing_date=?) ORDER BY customers_cd", [day, toNum(end)]);
+  const custs = await rows(c, "SELECT customers_cd, customers_name FROM client_m WHERE (delete_f<>'1' AND CAST(substring(deadline from '^ *([0-9]+)') AS INTEGER)=?) OR customers_cd IN (SELECT customers_cd FROM billing_head WHERE closing_date=?) ORDER BY customers_cd", [day, toNum(end)]);
   const out = [];
   for (const cu of custs) {
     const s = await statement(c, cu.customers_cd, month, closing);
@@ -347,7 +347,7 @@ export const openInvoices = async (c, customer) => (await receiptContext(c, cust
 const BANK_SUB = "(SELECT jl.sub_code FROM journal_entry je JOIN journal_line jl ON jl.journal_id=je.journal_id WHERE je.source_type='receipt' AND je.source_id=CAST(r.receipt_id AS CHAR) AND je.reversal_of IS NULL AND jl.account_code='1112' LIMIT 1)";
 export async function listReceipts(c, q = {}) {
   const args = [], w = [];
-  if (q.month) { isoMonth(q.month); w.push("DATE_FORMAT(r.receipt_date,'%Y-%m')=?"); args.push(q.month); }
+  if (q.month) { isoMonth(q.month); w.push("to_char(r.receipt_date,'YYYY-MM')=?"); args.push(q.month); }
   if (q.customer) { w.push('r.customers_cd=?'); args.push(q.customer); }
   const rs = await rows(c, `SELECT r.*, c.customers_name, ${BANK_SUB} bank_code FROM receipt r LEFT JOIN client_m c ON c.customers_cd=r.customers_cd ${w.length ? 'WHERE ' + w.join(' AND ') : ''} ORDER BY r.receipt_date DESC, r.receipt_id DESC LIMIT 1000`, args);
   const ids = rs.map(r => r.receipt_id), ph = ids.map(() => '?').join(',');

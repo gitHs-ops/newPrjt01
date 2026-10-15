@@ -2,7 +2,7 @@ import { check, Conflict, yen, qty, lineAmount, isoDate, isoMonth, text, dueDate
 import { rows, one, nextNo, assertOpen, audit, postJournal, reverseJournal, line } from './db.mjs';
 
 export const TAX_CODES = ['10%', '8%', '非課税', '対象外'];
-const monthWhere = (col, q, w, args) => { if (q.month) { isoMonth(q.month); w.push(`DATE_FORMAT(${col},'%Y-%m')=?`); args.push(q.month); } };
+const monthWhere = (col, q, w, args) => { if (q.month) { isoMonth(q.month); w.push(`to_char(${col},'YYYY-MM')=?`); args.push(q.month); } };
 async function vendorOf(c, code) { const v = await one(c, 'SELECT * FROM vendor WHERE vendor_code=?', [String(code || '')]); check(v && v.active, '有効な業者を選択してください'); return v; }
 
 // ---------- 商品仕入 (purchase) ----------
