@@ -708,6 +708,25 @@
         "배포 37faa6c: seikyu-web c030e208 SUCCESS, Edge 65/65 오류 0건, newPrjt01 root /seikyu-preview 유지(/health 200). 데모 DB에 가상 登録番号 T0000000000000·振込先 041·金融機関 0000(000/001/002) 등록."
       ],
       "notes": "원인: 패치 스크립트의 String.replace로 $$가 $로 바뀌어 NO10·NO48 선택자 파손. 이후 split/join만 사용. 기능목록 48건: ○31 / ○(추정)16 / 대상외1."
+    },
+    {
+      "id": "seikyu-014",
+      "priority": 1,
+      "area": "seikyu-web",
+      "title": "DB を MySQL から PostgreSQL へ移行",
+      "status": "passing",
+      "user_visible_behavior": "画面・機能は変更なし。保存先が Railway PostgreSQL（サービス Postgres、DB seikyu_web）になった。",
+      "verification": [
+        "移行ツール seikyuPrjt02/.tooling/pg-migrate/migrate.mjs（DDL 生成・全行コピー・連番合わせ・主キー順の全行照合）",
+        "結合 9/9（空 DB に DDL 適用から）",
+        "scripts/browser-check.cjs（ローカル＝移行済み検証 DB、配置版）"
+      ],
+      "evidence": [
+        "2026-10-16: 検証 DB seikyu_web_test 46 表 2,218 行 不一致 0、本番 seikyu_web 46 表 679 行 不一致 0（04:24〜04:26）。",
+        "結合 9/9、Edge ローカル 65/65、空 DB 初回起動でサンプル作成を確認。",
+        "配置 7088ffc: seikyu-web 5c84dbea SUCCESS（ログ listening (PostgreSQL)）、Edge 65/65 エラー 0、切替後 MySQL と PG の行数差なし、newPrjt01 /health 200（root /seikyu-preview のまま）。"
+      ],
+      "notes": "MySQL の seikyu_web は移行元として残す（書き込みなし）。seikyu-web の MYSQL* 変数は切り戻し用に残置（コードは参照しない）。DDL（postgres-draft/schema.sql）はリポジトリに置かない。"
     }
   ]
 }

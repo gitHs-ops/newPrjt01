@@ -1047,3 +1047,10 @@ Deployment a617173a-0217-4671-b54a-0adc2a5c869d succeeded (5e1c817). Live Edge f
 - 지급: 수수료 先方負担(F-02)·업체 立替金 상계(F-03)·安全協力費(4171, Q12 추정). 과입금→預り金. 소액현금 정액·보충(G03). 金融機関·部門 마스터.
 - 검증 결합 14/14, Edge 로컬·배포 65/65. 커밋 37faa6c. newPrjt01 root /seikyu-preview 유지.
 - 기능목록 48건: ○31 / ○(추정)16 / 대상외1.
+
+## 2026-10-16 — seikyu-web DB を PostgreSQL へ移行 (seikyu-014)
+
+- Railway carefree-enthusiasm に Postgres を追加（DB seikyu_web）。seikyu-web の DATABASE_URL を内部参照で設定。
+- 移行ツール（リポジトリ外）seikyuPrjt02/.tooling/pg-migrate/migrate.mjs：MySQL information_schema → PG DDL、全行コピー、identity 合わせ、全行照合。本番 46 表 679 行 不一致 0。
+- アプリ：server/pg.mjs（mysql2 互換の呼び方・方言の読み替え・値の形とエラーコードの互換）。手直し：DATE_FORMAT→to_char、SUM(真偽)→COUNT FILTER、UPDATE JOIN→UPDATE FROM、DATE_ADD→INTERVAL、CAST AS UNSIGNED→substring+INTEGER、MAX FOR UPDATE→LOCK TABLE。
+- 検証：結合 9/9、Edge ローカル・配置 65/65。コミット 7088ffc。MySQL 側は残置（旧デモ newPrjt01 は MySQL railway DB のまま）。
