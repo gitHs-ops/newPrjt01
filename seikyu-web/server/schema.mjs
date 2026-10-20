@@ -4,12 +4,15 @@ import { rows, one, NUMBERING } from './db.mjs';
 import { SYSTEM_ACCOUNTS } from './masters.mjs';
 import { TABLES } from './ledger.mjs';
 import { hashPassword, verifyPassword } from './users.mjs';
+import { prepareKb } from './kb.mjs';
 
 export const MENUS = [
   [1, 'ダッシュボード', '#dashboard', '▦', 'OVERVIEW'], [2, '出荷・売上', '#shipments', '▤', '販売・請求'], [3, '請求締め・発行', '#invoices', '▧', '販売・請求'], [4, '入金・消込', '#receipts', '↙', '販売・請求'],
   [5, '商品仕入', '#purchases', '◇', '購買・支払'], [6, '在庫計上', '#inventory', '▥', '購買・支払'], [7, '定時請求', '#payables', '▣', '購買・支払'], [8, '小口現金', '#cash', '◈', '購買・支払'], [9, '支払', '#payments', '↗', '購買・支払'],
   [10, '仕訳・会計連携', '#journals', '≡', '会計・管理'], [11, '帳票・データ出力', '#reports', '▱', '会計・管理'], [12, '月次確定', '#periods', '◉', '会計・管理'], [13, 'マスタ管理', '#masters', '⚙', '会計・管理'],
   [14, '移行・確認事項', '#migration', '⊞', '会計・管理'], [15, '操作履歴', '#audit', '◷', '会計・管理'], [16, '利用者管理', '#users', '☺', '会計・管理'],
+  [17, '仕訳入力', '#kb-entry', '✎', '財務会計'], [18, '仕訳帳・伝票検索', '#kb-journal', '☰', '財務会計'], [19, '元帳', '#kb-ledger', '▤', '財務会計'], [20, '残高試算表', '#kb-trial', '⊟', '財務会計'],
+  [21, '決算書・消費税', '#kb-fs', '▣', '財務会計'], [22, '仕訳受入・書出', '#kb-import', '⇅', '財務会計'], [23, '会計設定', '#kb-setup', '⚙', '財務会計'],
 ];
 
 // Applies the reviewed DDL only when explicitly pointed at it (empty test databases). Production tables already exist.
@@ -29,6 +32,7 @@ export async function prepare(pool, env = process.env) {
   await pool.query('CREATE INDEX IF NOT EXISTS ix_session_user ON app_session (user_id)');
   await pool.query('CREATE INDEX IF NOT EXISTS ix_session_expiry ON app_session (expires_at)');
   await pool.query(`CREATE TABLE IF NOT EXISTS app_period_close (period varchar(7) COLLATE "C" PRIMARY KEY, closed_at timestamp(6) NOT NULL, closed_by varchar(256) COLLATE "C" NOT NULL)`);
+  await prepareKb(pool);
   pool.resetMeta?.();
 
   for (const [key, prefix, label] of Object.values(NUMBERING)) await pool.query('INSERT IGNORE INTO numbering_m (numbering_key,numbering_pattern,present_value) VALUES (?,?,?)', [key, `${prefix}99999999 ${label}`.slice(0, 16), '0']);

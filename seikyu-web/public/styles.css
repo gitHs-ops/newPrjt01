@@ -202,3 +202,61 @@ tr.subtotal td { background: rgba(238,242,255,.6); font-size: 12px; }
 .zengin-pre { font: 11px/1.4 Consolas, "MS Gothic", monospace; background: rgba(15,23,42,.04); padding: 8px; border-radius: 8px; overflow-x: auto; white-space: pre; }
 .notice-doc { border-top: 1px dashed var(--field-border); padding-top: 10px; margin-top: 10px; }
 .notice-doc table td, .notice-doc table th { border: 1px solid rgba(148,163,184,.3); }
+
+/* 財務会計（勘定奉行相当） */
+.kb-neg { color: var(--danger); }
+.kb-inline { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; color: var(--text-secondary); white-space: nowrap; }
+.kb-inline input { width: 140px; }
+.kb-presets { display: inline-flex; gap: 2px; }
+.kb-slip-head { display: grid; grid-template-columns: 170px minmax(0, 1fr) auto; gap: 12px; align-items: end; margin-bottom: 12px; }
+.kb-slip-info { font-size: 12.5px; padding-bottom: 8px; }
+.kb-grid-head, .kb-row { display: grid; grid-template-columns: 26px minmax(0, 1fr) minmax(120px, .55fr) minmax(0, 1fr) 30px; gap: 8px; }
+.kb-grid-head { font-size: 11.5px; font-weight: 600; color: var(--text-secondary); padding: 0 0 6px; border-bottom: 1px solid var(--field-border); }
+.kb-grid-head div:nth-child(2) { color: #1d4ed8; } .kb-grid-head div:nth-child(4) { color: #b45309; }
+.kb-row { padding: 8px 0; border-bottom: 1px dashed var(--field-border); align-items: start; }
+.kb-rowno { font: 600 12px var(--font-accent); color: var(--text-secondary); padding-top: 8px; text-align: center; }
+.kb-side { display: grid; gap: 4px; padding: 6px; border-radius: 10px; }
+.kb-side[data-side=D] { background: rgba(219, 234, 254, .45); } .kb-side[data-side=C] { background: rgba(254, 243, 199, .45); }
+.kb-side-2, .kb-side-3 { display: grid; gap: 4px; grid-template-columns: 1fr 1fr; }
+.kb-side-3 { grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr) minmax(0, .7fr); }
+.kb-side select, .kb-side input { font-size: 12.5px; padding: 5px 7px; }
+.kb-taxamt { color: var(--text-secondary); }
+.kb-memo textarea { height: 100%; min-height: 86px; resize: vertical; font-size: 12.5px; }
+.kb-delrow { margin-top: 6px; }
+.kb-foot { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; margin-top: 10px; }
+.kb-totals { display: flex; gap: 18px; font-size: 13px; }
+.kb-totals b { font: 700 16px var(--font-accent); margin-left: 4px; }
+.filters.right { justify-content: flex-end; margin-top: 8px; }
+table.kb-journal td { vertical-align: top; font-size: 12.5px; }
+table.kb-journal tr.kb-slip-first td { border-top: 2px solid rgba(99, 102, 241, .22); }
+.kb-slipno { white-space: nowrap; } .kb-ops { white-space: nowrap; } .kb-ops button { margin: 0 2px 2px 0; }
+table.kb-tb td, table.kb-ledger td { font-size: 12.5px; padding: 5px 10px; }
+tr.kb-section td { background: rgba(99, 102, 241, .10); font-weight: 800; color: var(--accent-secondary); }
+tr.kb-group td { font-weight: 700; color: var(--text-secondary); font-size: 12px; background: rgba(255, 255, 255, .35); }
+tr.kb-total td { font-weight: 700; background: rgba(238, 242, 255, .55); }
+tr.kb-calc td { font-weight: 700; background: rgba(209, 250, 229, .5); color: #065f46; }
+tr.kb-grand td { font-weight: 800; background: rgba(199, 210, 254, .55); }
+tr.kb-month td { background: rgba(241, 245, 249, .8); font-size: 11.5px; color: var(--text-secondary); }
+tr.kb-carry td { color: var(--text-secondary); font-style: italic; }
+.kb-h3 { font-size: 14px; margin: 14px 0 6px; }
+.kb-checks { display: flex; flex-wrap: wrap; gap: 6px 14px; align-items: center; font-size: 12.5px; padding: 10px 16px; }
+.kb-monthly td, .kb-monthly th { font-size: 11.5px; padding: 4px 6px; }
+.kb-fs-head { text-align: center; font-weight: 700; margin-bottom: 10px; }
+.kb-fs-two { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+.kb-fs-one { max-width: 640px; margin: 0 auto; }
+table.kb-fs-table td { padding: 5px 10px; font-size: 13px; }
+td.kb-indent { padding-left: 26px !important; }
+.kb-taxsum { max-width: 560px; margin: 14px 0 0 auto; }
+.kb-sum { display: flex; gap: 16px; flex-wrap: wrap; margin: 10px 0 6px; font-size: 13px; }
+.kb-sum b { font: 700 16px var(--font-accent); }
+details summary { cursor: pointer; font-size: 12.5px; color: var(--accent-secondary); margin: 6px 0; }
+.kb-print table td, .kb-print table th { font-size: 8pt; padding: 2px 4px; }
+.kb-print a { color: #000; text-decoration: none; }
+.kb-print button, .kb-print .filters { display: none; }
+.kb-print .kb-fs-two { grid-template-columns: 1fr 1fr; }
+@media (max-width: 1100px) {
+  .kb-grid-head { display: none; }
+  .kb-row { grid-template-columns: 1fr; }
+  .kb-rowno { text-align: left; padding: 0; }
+  .kb-slip-head, .kb-fs-two { grid-template-columns: 1fr; }
+}

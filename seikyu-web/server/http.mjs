@@ -15,6 +15,7 @@ import * as MR from './misc-reports.mjs';
 import * as XR from './extra-reports.mjs';
 import { invoiceBook } from './invoice-book.mjs';
 import { accountingExport } from './accounting-export.mjs';
+import * as KB from './kb.mjs';
 
 const COOKIE = 'aplink_sid';
 const MIME = { html: 'text/html; charset=utf-8', js: 'text/javascript; charset=utf-8', css: 'text/css; charset=utf-8', json: 'application/json; charset=utf-8', svg: 'image/svg+xml' };
@@ -97,6 +98,28 @@ export async function createApp({ pool, publicDir, secureCookies = process.env.N
   w('/api/payments/reverse', (c, x, b) => P.reversePayment(c, x, b));
   w('/api/periods/close', (c, x, b) => L.closeMonth(c, x, b), 'admin');
   w('/api/periods/reopen', (c, x, b) => L.reopenMonth(c, x, b), 'admin');
+  // ----- 財務会計（勘定奉行相当） -----
+  const kbRead = (path, fn, book) => route('GET', '/api/kb/' + path, 'read', x => x.q.format === 'xlsx' && book ? db(c => KB.book(c, book, x.q)).then(b => ({ file: b })) : db(c => fn(c, x.q, x)));
+  kbRead('meta', c => KB.kbMeta(c));
+  kbRead('trial', KB.trialBalance, 'trial');
+  kbRead('fs', KB.trialBalance, 'fs');
+  kbRead('monthly', KB.monthly, 'monthly');
+  kbRead('ledger', KB.ledger, 'ledger');
+  kbRead('sub-balances', KB.subBalances);
+  kbRead('tax', KB.taxSummary, 'tax');
+  kbRead('journal', KB.journal, 'journal');
+  kbRead('journal-csv', (c, q, x) => KB.exportJournalCsv(c, x, q));
+  kbRead('slips/:id', (c, q, x) => KB.slipDetail(c, x.params.id));
+  kbRead('imports', c => KB.listImports(c));
+  kbRead('opening', c => KB.opening(c));
+  w('/api/kb/slips', (c, x, b) => KB.saveSlip(c, x, b));
+  w('/api/kb/slips/delete', (c, x, b) => KB.deleteSlip(c, x, b));
+  w('/api/kb/import/seikyu', (c, x, b) => KB.importSeikyu(c, x, b));
+  w('/api/kb/import/csv', (c, x, b) => KB.importCsv(c, x, b));
+  w('/api/kb/import/cancel', (c, x, b) => KB.cancelImport(c, x, b));
+  w('/api/kb/accounts', (c, x, b) => KB.saveAccount(c, x, b));
+  w('/api/kb/opening', (c, x, b) => KB.saveOpening(c, x, b));
+  w('/api/kb/settings', (c, x, b) => KB.saveSettings(c, x, b), 'admin');
   w('/api/users', (c, x, b) => U.saveUser(c, x, b), 'admin');
   w('/api/password', (c, x, b) => U.changeOwnPassword(c, x, b), 'read');
 

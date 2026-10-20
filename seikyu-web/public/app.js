@@ -1,5 +1,6 @@
 // APLink 請求・入金管理 — single page client. All data comes from the MySQL-backed API.
-const $ = (s, r = document) => r.querySelector(s), $$ = (s, r = document) => [...r.querySelectorAll(s)];
+import { installKb } from './kb.js';
+const $ =(s, r = document) => r.querySelector(s), $$ = (s, r = document) => [...r.querySelectorAll(s)];
 const esc = v => String(v ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const yen = v => new Intl.NumberFormat('ja-JP').format(Number(v) || 0);
 const today = () => new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Tokyo' }).format(new Date());
@@ -85,6 +86,7 @@ async function render() {
   if (token !== renderSeq) return; // a newer navigation finished first
   const content = $('#content');
   actions = own; content.innerHTML = html; content.dataset.view = route.name; content.classList.remove('busy');
+  document.dispatchEvent(new CustomEvent('view:rendered', { detail: route.name }));
 }
 document.addEventListener('click', e => {
   const b = e.target.closest('[data-act]'); if (!b || !actions[b.dataset.act]) return;
@@ -764,6 +766,10 @@ VIEWS.users = async () => {
     `<section class="card glass">${table([{ label: 'ID', value: r => r.id }, { label: 'ログインID', value: r => r.loginId }, { label: '氏名', value: r => r.name }, { label: 'ロール', html: r => badge(r.roleName) }, { label: '状態', html: r => r.enabled ? badge('有効', 'green') : badge('無効', 'gray') },
       { label: '', html: r => `<button class="mini" data-act="edit" data-id="${r.id}">編集</button>` }], list)}</section>`);
 };
+
+// 財務会計（勘定奉行相当）の画面は kb.js
+installKb({ VIEWS, api, post, page, table, esc, yen, badge, modal, confirmBox, toast, today, addMonths, qs, go, $, $$, canWrite, isAdmin, jst, loadMasters, render,
+  acts: () => actions, route: () => route, masters: () => masters });
 
 // ---------- boot ----------
 async function boot() {

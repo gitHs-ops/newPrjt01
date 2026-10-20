@@ -1054,3 +1054,13 @@ Deployment a617173a-0217-4671-b54a-0adc2a5c869d succeeded (5e1c817). Live Edge f
 - 移行ツール（リポジトリ外）seikyuPrjt02/.tooling/pg-migrate/migrate.mjs：MySQL information_schema → PG DDL、全行コピー、identity 合わせ、全行照合。本番 46 表 679 行 不一致 0。
 - アプリ：server/pg.mjs（mysql2 互換の呼び方・方言の読み替え・値の形とエラーコードの互換）。手直し：DATE_FORMAT→to_char、SUM(真偽)→COUNT FILTER、UPDATE JOIN→UPDATE FROM、DATE_ADD→INTERVAL、CAST AS UNSIGNED→substring+INTEGER、MAX FOR UPDATE→LOCK TABLE。
 - 検証：結合 9/9、Edge ローカル・配置 65/65。コミット 7088ffc。MySQL 側は残置（旧デモ newPrjt01 は MySQL railway DB のまま）。
+
+## 2026-10-21 — 財務会計（勘定奉行相当）モジュール (seikyu-015)
+
+사용자 지시: 勘定奉行 기능을 재현한 유사 시스템을 seikyu-web 안에 메뉴로 추가(일본어 화면).
+- 서버 `server/kb.mjs`, 화면 `public/kb.js`(app.js 공통 부품을 installKb로 주입), 스타일 styles.css 말미. 메뉴 17〜23(그룹 財務会計).
+- 표 kb_account(科目 区分·正残高·補助区分·既定税区分) / kb_slip·kb_line(伝票, 借貸 행 단위) / kb_opening(期首残高) / kb_import(受入履歴) / kb_setting(導入年度·入力制限日). 기동 시 CREATE IF NOT EXISTS.
+- 勘定科目 88건은 고객 勘定科目マスター一覧 OCR(analysis/ocr/06)에서 전기, account_subject에 INSERT IGNORE.
+- 기능: 振替伝票 입력(내세 자동계산·差額補完·楽観ロック), 仕訳帳 검색/수정/삭제, 総勘定元帳·補助元帳(相手科目/諸口·月計), 補助残高一覧, 合計残高試算表(段階利益·部門), 月次推移表, B/S·P/L, 消費税集計表, 請求시스템 自動仕訳 受入(1仕訳=1伝票, 外税 안분), 汎用CSV 受入/書出, 受入取消, 入力制限日. Excel·인쇄.
+- 검증: 로컬 PGlite(scratchpad)에서 API 스모크 31/31, Browser pane 7화면+기존 화면 콘솔 에러 0, npm test 단위 5/5. 본番 DB 직접 조회는 권한 분류기가 거부.
+다음: 배포본에서 7화면 확인 후 seikyu-015 passing.

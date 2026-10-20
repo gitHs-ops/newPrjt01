@@ -1,6 +1,6 @@
 {
   "project": "newPrjt01",
-  "last_updated": "2026-10-14",
+  "last_updated": "2026-10-21",
   "description": "빌드 단계가 없는 정적 HTML 앱. ① 로그인 데모(계정은 localStorage, 비밀번호는 PBKDF2-SHA256 해시) ② 진로상담 분석(1차 리서치 → 2차 진로 가설, 결과는 localStorage 보존 + md 파일 저장). AI 호출은 프록시 경유이며 프록시가 서버사이드 web_search 로 공식자료를 조회한다. 프록시 배포·API 키와 옵시디언 연동은 추후 결정 사항이다.",
   "rules": {
     "single_active_feature": true,
@@ -727,6 +727,25 @@
         "配置 7088ffc: seikyu-web 5c84dbea SUCCESS（ログ listening (PostgreSQL)）、Edge 65/65 エラー 0、切替後 MySQL と PG の行数差なし、newPrjt01 /health 200（root /seikyu-preview のまま）。"
       ],
       "notes": "MySQL の seikyu_web は移行元として残す（書き込みなし）。seikyu-web の MYSQL* 変数は切り戻し用に残置（コードは参照しない）。DDL（postgres-draft/schema.sql）はリポジトリに置かない。"
+    },
+    {
+      "id": "seikyu-015",
+      "priority": 1,
+      "area": "seikyu-web",
+      "title": "財務会計（勘定奉行相当）モジュール",
+      "status": "in_progress",
+      "user_visible_behavior": "メニュー「財務会計」7画面：仕訳入力（振替伝票）／仕訳帳・伝票検索／元帳（総勘定・補助・補助残高）／残高試算表（合計残高・月次推移）／決算書・消費税（B/S・P/L・消費税集計）／仕訳受入・書出（請求システム自動仕訳・汎用CSV）／会計設定（勘定科目区分・期首残高・入力制限・税区分）。画面・印刷・Excel。",
+      "verification": [
+        "ローカル（PGlite＋空 DB に DDL 適用・サンプル作成）で API スモーク 31 項目",
+        "Browser pane で 7 画面と既存画面（ダッシュボード・仕訳・会計連携・マスタ管理）の表示、コンソールエラー 0",
+        "npm test（単体）",
+        "配置版で同じ確認"
+      ],
+      "evidence": [
+        "2026-10-21: ローカル API スモーク 31/31 PASS（請求仕訳 41 件受入・二重受入なし、試算表 借方=貸方 21,299,950、資産=負債純資産、手入力伝票の税額自動計算・貸借不一致拒否・楽観ロック、元帳の相手科目、補助残高合計=元帳残高、売上税額=仮受消費税、期首残高込みの貸借一致、CSV 書出→受入の往復で外税保持、受入取消、Excel 6 種、入力制限日、科目追加）。",
+        "Browser pane: 仕訳入力（自動税額・貸借差額補完・登録）、仕訳帳（rowspan のセルずれを修正後に再確認）、試算表、B/S（一致表示）、P/L、元帳、受入、期首残高、勘定科目、月次推移。コンソールエラー 0。npm test 単体 5/5（結合は PG_TEST_URL 未設定でスキップ。PGlite は単一バックエンドのため同時実行の結合試験は実行しない）。"
+      ],
+      "notes": "kb_* 6 表は起動時に作成（44 表設計の外）。勘定科目 88 件の初期値は顧客の勘定科目マスター一覧（analysis/ocr/06）から転記し account_subject に INSERT IGNORE（既存名称は変更しない）。処税率→税区分の変換は推定（Q01）。本番 DB への接続は権限分類器で拒否されたため、ローカル検証は PGlite（scratchpad、リポジトリ外）。"
     }
   ]
 }

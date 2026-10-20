@@ -11,7 +11,7 @@ AS400 請求・入金業務の Web 移行検証用システム。`seikyu-preview
 - 構成: Node.js 22 標準 `http` + `pg`、画面はビルド不要の単一ページ（`public/`）。`server/pg.mjs` が mysql2 と同じ呼び方（`query` → `[rows]`／`insertId`）を提供し、旧 MySQL 方言（`?`・INSERT IGNORE・ON DUPLICATE KEY UPDATE・UTC_TIMESTAMP・CAST AS CHAR・外部結合の行ロック）を読み替える
 - 値の形は移行前と同じ：日付・日時は文字列、numeric/bigint は数値、boolean は 1/0。文字列列は `COLLATE "C"`（旧 utf8mb4_0900_bin と同じバイト順）
 
-## 機能（16 メニュー）
+## 機能（23 メニュー）
 
 | 区分 | 画面 | 主なテーブル |
 |---|---|---|
@@ -19,7 +19,20 @@ AS400 請求・入金業務の Web 移行検証用システム。`seikyu-preview
 | 購買・支払 | 商品仕入 / 在庫計上 / 定時請求 / 小口現金 / 支払 | purchase, inventory_count, expense_document, expense_line, payment, payment_allocation |
 | 会計・管理 | 仕訳・会計連携 / 帳票・データ出力 / 月次確定 / マスタ管理(8種) / 移行・確認事項 / 操作履歴 / 利用者管理 | journal_entry, journal_line, client_m, field_name_m, item_m, uriage_tanka_m, code_m, vendor, bank_account, account_subject, account_subsubject, opening_balance, users, roles, user_role_ts, menus, menu_role_ts, audit_event |
 
+| 財務会計 | 仕訳入力 / 仕訳帳・伝票検索 / 元帳 / 残高試算表 / 決算書・消費税 / 仕訳受入・書出 / 会計設定 | kb_slip, kb_line, kb_account, kb_opening, kb_import, kb_setting（＋ account_subject, account_subsubject, client_m, vendor, code_m DEPT を参照） |
+
 44 表のうち 34 表を使用（未使用: カード売上 2 表・納入先・原価・商品分類・担当者・出荷編集/予定・取込作業）。アプリ専用表は `app_session`（ログインセッション）と `app_period_close`（月次確定）の 2 つ。旧デモの `preview_*` 3 表は削除せず残している（参照しない）。
+
+## 財務会計（勘定奉行相当, 2026-10-21）
+
+会計システム（勘定奉行）の受入仕様が未確定（Q14/Q19）のため、奉行の主要機能を本システム内に再現した検証用の会計モジュール。`server/kb.mjs`・`public/kb.js`。テーブル `kb_*` 6 つは起動時に作成（44 表設計の外）。
+
+- **勘定科目**: コード・名称は `account_subject`（請求システムと共通）、区分（当座資産〜法人税等の 20 区分）・正残高・補助区分（得意先/業者/内訳科目）・既定税区分は `kb_account`。初期値は顧客の「勘定科目マスター一覧」（2026-06-26, analysis/ocr/06）から 88 科目を転記。区分のない科目（請求側で追加）はコード体系から推定し「区分推定」と表示。
+- **仕訳入力**: 振替伝票（借方・摘要・貸方を同じ行、最大 99 行）。補助・部門・税区分・消費税額（税込金額から内税計算、手入力可）。貸借一致必須、伝票No は会計年度内連番。修正・削除は楽観ロック（version）。
+- **帳簿**: 仕訳帳（検索・修正・削除、Excel、汎用 CSV）、総勘定元帳／補助元帳（相手科目・諸口、月計、残高）、補助残高一覧、合計残高試算表（前期繰越・借方・貸方・残高、段階利益、部門指定）、月次推移表（損益＝発生額、貸借＝月末残高）、貸借対照表・損益計算書（基準日、構成比）、消費税集計表。画面・印刷・Excel。
+- **繰越**: 導入年度の期首残高（`kb_opening`）から自動計算。前期までの損益は前期繰越利益（7350）へ。会計年度は「自社情報」の決算月に従う。
+- **仕訳受入**: 請求システムの自動仕訳を 1 仕訳＝1 伝票で受入（受入済みは `kb_slip.source_ref` で除外）。処税率 9/41→対象外、11→課税売上10%、141→課税仕入10%、148→課税仕入8%（推定・Q01）。仮受/仮払消費税行がある伝票は税額を課税行へ按分し「外税」として保持。汎用 CSV（借貸併記、請求システムの会計連携（汎用）と同じ見出し＋税額・外税列）も受入可、1 行でも誤りがあれば全件取消。受入単位で取消可。
+- **入力制限日**: 会計設定で指定した日以前の伝票は登録・修正・削除・受入不可（管理者のみ設定）。
 
 ## 業務ルール（仮決定 — 画面「移行・確認事項」にも表示）
 
