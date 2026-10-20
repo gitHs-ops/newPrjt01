@@ -1064,3 +1064,4 @@ Deployment a617173a-0217-4671-b54a-0adc2a5c869d succeeded (5e1c817). Live Edge f
 - 기능: 振替伝票 입력(내세 자동계산·差額補完·楽観ロック), 仕訳帳 검색/수정/삭제, 総勘定元帳·補助元帳(相手科目/諸口·月計), 補助残高一覧, 合計残高試算表(段階利益·部門), 月次推移表, B/S·P/L, 消費税集計表, 請求시스템 自動仕訳 受入(1仕訳=1伝票, 外税 안분), 汎用CSV 受入/書出, 受入取消, 入力制限日. Excel·인쇄.
 - 검증: 로컬 PGlite(scratchpad)에서 API 스모크 31/31, Browser pane 7화면+기존 화면 콘솔 에러 0, npm test 단위 5/5. 본番 DB 직접 조회는 권한 분류기가 거부.
 다음: 배포본에서 7화면 확인 후 seikyu-015 passing.
+- 배포 f1e890e → seikyu-web 0a4e37cf SUCCESS, /health 200, 배포본 kb.js 로컬과 동일. 로그인 후 화면은 사용자 확인 대기(seikyu-015 in_progress 유지).
