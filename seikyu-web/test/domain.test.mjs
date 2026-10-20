@@ -22,7 +22,11 @@ test('billing periods follow closing day including month end', () => {
   assert.deepEqual(period('2026-01', 20), { start: '2025-12-21', end: '2026-01-20' });
   assert.equal(dueDate('2026-10-10'), '2026-11-30');
   assert.equal(dueDate('2026-12-20'), '2027-01-31');
-  assert.throws(() => closingDay(29), DomainError);
+  // 現行 Java と同じく締日は 1〜31（29・30 日締めは短い月では月末）
+  assert.equal(closingDay(29), 29);
+  assert.deepEqual(period('2026-02', 30), { start: '2026-01-31', end: '2026-02-28' });
+  assert.throws(() => closingDay(32), DomainError);
+  assert.throws(() => closingDay(0), DomainError);
   assert.throws(() => isoDate('2026-02-30'), DomainError);
 });
 test('csv round trip neutralises formulas', () => {

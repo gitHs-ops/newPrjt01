@@ -14,20 +14,21 @@ export async function payableInputList(c, q) {
   const month = isoMonth(q.month, '月度'), d = Number(q.closing || 20), prev = new Date(Date.UTC(+month.slice(0, 4), +month.slice(5, 7) - 2, 1)).toISOString().slice(0, 7);
   const from = d >= 31 ? month + '-01' : `${prev}-${String(d + 1).padStart(2, '0')}`, to = d >= 31 ? monthEnd(month) : `${month}-${String(d).padStart(2, '0')}`;
   const deptNames = Object.fromEntries((await rows(c, "SELECT code_dtl, code_dtl_nam FROM code_m WHERE code_key='DEPT'")).map(r => [r.code_dtl, r.code_dtl_nam]));
-  const ls = await rows(c, `SELECT d.document_no, d.booked_on, d.due_on, d.memo, d.gross_amount, l.department_code, l.account_code, l.sub_code, l.source_tax_code, a.account_name, s.sub_name, v.vendor_code, v.vendor_name,
+  const vendor = String(q.vendor || '').trim(), all = !vendor || /^9+$/.test(vendor);
+  const ls = await rows(c, `SELECT d.document_no, d.bill_no, d.booked_on, d.due_on, d.memo, l.gross_amount, l.memo line_memo, l.memo_code, l.department_code, l.account_code, l.sub_code, l.source_tax_code, a.account_name, s.sub_name, v.vendor_code, v.vendor_name,
       (SELECT COALESCE(SUM(pa.amount),0) FROM payment_allocation pa JOIN payment p ON p.payment_id=pa.payment_id AND p.status='POSTED' WHERE pa.expense_id=d.expense_id) paid
     FROM expense_document d JOIN expense_line l ON l.expense_id=d.expense_id LEFT JOIN account_subject a ON a.account_code=l.account_code LEFT JOIN account_subsubject s ON s.account_code=l.account_code AND s.sub_code=l.sub_code
-    LEFT JOIN vendor v ON v.vendor_id=d.vendor_id WHERE d.expense_kind='PAYABLE' AND d.status='POSTED' AND d.booked_on BETWEEN ? AND ? ORDER BY l.department_code, v.vendor_code, d.document_no, l.line_no`, [from, to]);
+    LEFT JOIN vendor v ON v.vendor_id=d.vendor_id WHERE d.expense_kind='PAYABLE' AND d.status='POSTED' AND d.booked_on BETWEEN ? AND ?${all ? '' : ' AND v.vendor_code=?'} ORDER BY l.department_code, v.vendor_code, d.document_no, l.line_no`, all ? [from, to] : [from, to, vendor]);
   const depts = [];
   for (const r of ls) {
     let dp = depts.find(x => x.dept === r.department_code); if (!dp) depts.push(dp = { dept: r.department_code, name: deptNames[r.department_code] || '', vendors: [], total: 0 });
     let v = dp.vendors.find(x => x.vendor === r.vendor_code); if (!v) dp.vendors.push(v = { vendor: r.vendor_code, name: r.vendor_name, rows: [], total: 0 });
     const amount = num(r.gross_amount);
-    v.rows.push({ no: r.document_no, date: r.booked_on, due: r.due_on || '', account: r.account_code, sub: r.sub_code || '', accountName: r.account_name, subName: r.sub_name || '', orderRemain: 0, amount, offset: 0, memo: r.memo, ratio: '100.0%', tax: r.source_tax_code, paid: num(r.paid) });
+    v.rows.push({ no: r.bill_no || r.document_no, date: r.booked_on, due: r.due_on || '', account: r.account_code, sub: r.sub_code || '', accountName: r.account_name, subName: r.sub_name || '', orderRemain: 0, amount, offset: 0, memoCode: r.memo_code || '', memo: r.line_memo || r.memo, tax: r.source_tax_code, paid: num(r.paid) });
     v.total += amount; dp.total += amount;
   }
   return { title: '定時請求データ入力明細表（組織別）', ref: 'NO30 / 添付帳票⑩（HAR136）', month, from, to, depts, total: depts.reduce((n, x) => n + x.total, 0),
-    note: '月度は20日締め（現行と同じ）。組織＝部門マスタ。発注残金額は発注管理が対象外のため0、相殺金額は定時請求時点では0（支払時に相殺）、現比（按分比率）は100%（推定）。' };
+    vendor: all ? '全業者' : vendor, note: '月度は20日締め（現行と同じ）。組織＝部門マスタ。請求No は業者ごとの4桁連番。発注残金額は発注管理が対象外のため0、相殺金額は定時請求時点では0（支払時に相殺）。現比は振込のみのため削除（10/19）。業者コード 9999999 は全業者（Q30）。' };
 }
 // ---------- NO33 小口現金出納簿（定額資金前渡制を仮定） ----------
 export async function pettyCashBook(c, q) {
@@ -60,16 +61,21 @@ export async function salesRegister(c, q) {
   const customers = [];
   for (const r of rs) {
     let cu = customers.find(x => x.customer === r.customers_cd); if (!cu) customers.push(cu = { customer: r.customers_cd, name: r.customers_name, rows: [], net: 0, tax: 0 });
-    cu.rows.push({ date: fromNum(r.sales_date), kind: `${r.ship_kb === '2' ? '訂正' : '売上'}・${METHODS[r.payment_method_cd] || ''}`, no: r.order_no, site: [r.field_name1, r.field_name2].filter(Boolean).join(' '), item: `${r.item_cd} ${r.item_name || ''}`, qty: num(r.quantity), unit: r.unit || '', price: num(r.unit_price), net: num(r.money), tax: num(r.consumption_tax), billed: r.process_status === '1' ? '請求済' : r.payment_method_cd == 1 ? '未請求' : '対象外' });
+    cu.rows.push({ date: fromNum(r.sales_date), kind: `${r.ship_kb === '5' ? '訂正' : '売上'}・${METHODS[r.payment_method_cd] || ''}`, no: r.order_no, site: [r.field_name1, r.field_name2].filter(Boolean).join(' '), item: `${r.item_cd} ${r.item_name || ''}`, qty: num(r.quantity), unit: r.unit || '', price: num(r.unit_price), net: num(r.money), tax: num(r.consumption_tax), billed: r.process_status === '1' ? '請求済' : r.payment_method_cd == 1 ? '未請求' : '対象外' });
     cu.net += num(r.money); cu.tax += num(r.consumption_tax);
   }
   return { title: '商品売上登録リスト', ref: 'NO40 / 添付帳票⑮', from, to, customers, total: customers.reduce((n, x) => n + x.net, 0), tax: customers.reduce((n, x) => n + x.tax, 0) };
 }
 // ---------- NO44 入金予定チェックリスト（得意先別・工事（現場）別） ----------
 export async function receiptSchedule(c, q) {
-  const to = q.to ? isoDate(q.to, '入金予定日（まで）') : '';
+  // 10/14 打合せ：入金予定日の範囲（過去年月〜現在）を指定し、予定日を過ぎても未入金の得意先・残高を表示（overdue=1 で超過分のみ）
+  const to = q.to ? isoDate(q.to, '入金予定日（まで）') : '', from = q.from ? isoDate(q.from, '入金予定日（から）') : '', overdueOnly = q.overdue === '1';
+  const w = [], args = [];
+  if (from) { w.push('h.claim_processing_period>=?'); args.push(toNum(from)); }
+  if (to) { w.push('h.claim_processing_period<=?'); args.push(toNum(to)); }
+  if (overdueOnly) { w.push('h.claim_processing_period<?'); args.push(toNum(today())); }
   const heads = await rows(c, `SELECT h.*, c.customers_name, (SELECT COALESCE(SUM(a.amount),0) FROM receipt_allocation a JOIN receipt r ON r.receipt_id=a.receipt_id AND r.status='POSTED' WHERE a.invoice_id=h.invoice_id) paid
-    FROM billing_head h LEFT JOIN client_m c ON c.customers_cd=h.customers_cd WHERE h.invoice_flag<>'0' ${to ? 'AND h.claim_processing_period<=?' : ''} ORDER BY h.customers_cd, h.claim_processing_period`, to ? [toNum(to)] : []);
+    FROM billing_head h LEFT JOIN client_m c ON c.customers_cd=h.customers_cd WHERE h.invoice_flag<>'0' ${w.map(x => 'AND ' + x).join(' ')} ORDER BY h.customers_cd, h.claim_processing_period`, args);
   const banks = Object.fromEntries((await rows(c, "SELECT code_dtl, code_dtl_nam FROM code_m WHERE code_key='BANK'")).map(r => [r.code_dtl, r.code_dtl_nam]));
   const firstBank = (await one(c, "SELECT code_dtl FROM code_m WHERE code_key='BANK' AND category1<>'0' ORDER BY code_dtl LIMIT 1"))?.code_dtl || '';
   const customers = [];
@@ -94,7 +100,7 @@ export async function receiptSchedule(c, q) {
       cu.billed += billed; cu.due += due;
     });
   }
-  return { title: '入金予定チェックリスト', ref: 'NO44 / 添付帳票⑳', to, customers, total: customers.reduce((n, x) => n + x.due, 0),
+  return { title: overdueOnly ? '入金予定チェックリスト（予定日超過・未入金）' : '入金予定チェックリスト', ref: 'NO44 / 添付帳票⑳', from, to, sub: `入金予定日 ${from || '（最初）'} 〜 ${to || '（最後）'}${overdueOnly ? '・超過分のみ' : ''}`, overdue: customers.reduce((n, x) => n + x.rows.filter(r => r.overdue).reduce((m, r) => m + r.due, 0), 0), customers, total: customers.reduce((n, x) => n + x.due, 0),
     note: '入金予定日は請求の支払期日（得意先マスタの回収条件、未設定は締日の翌月末）。入金予定額は請求残高を現場別売上比で按分。入金方法・入金先は得意先マスタ、未設定なら過去の入金実績から推定。' };
 }
 
@@ -106,8 +112,8 @@ export async function extraBook(c, kind, q) {
     for (const dp of d.depts) {
       out.push([H(`部門 : ${dp.dept} ${dp.name}`)]);
       for (const v of dp.vendors) {
-        out.push([H('業者'), H(`${v.vendor} ${v.name}`)], ['請求No', '計上日', '科目', '内訳', '科目名', '内訳名', '発注残金額', '請求金額', '相殺金額', '摘要', '現比', '処税率', '支払済'].map(H));
-        for (const r of v.rows) out.push([r.no, r.date, r.account, r.sub, r.accountName, r.subName, r.orderRemain, r.amount, r.offset, r.memo, r.ratio, r.tax, r.paid]);
+        out.push([H('業者'), H(`${v.vendor} ${v.name}`)], ['請求No', '締切日', '科目', '内訳', '科目名', '内訳名', '発注残金額', '請求金額', '相殺金額', '摘要コード', '摘要', '処税率', '支払済'].map(H));
+        for (const r of v.rows) out.push([r.no, r.date, r.account, r.sub, r.accountName, r.subName, r.orderRemain, r.amount, r.offset, r.memoCode, r.memo, r.tax, r.paid]);
         out.push(['', '', '', '', S('業者計'), '', '', S(v.total)]);
       }
       out.push(['', '', '', '', S('部門計'), '', '', S(dp.total)], []);
@@ -130,7 +136,7 @@ export async function extraBook(c, kind, q) {
     return { name: `商品売上登録リスト_${d.from}_${d.to}.xlsx`, body: xlsx([{ name: '商品売上登録リスト', rows: out, widths: [9, 20, 11, 12, 11, 20, 20, 9, 5, 10, 12, 10, 8] }]) };
   }
   if (kind === 'receipt-schedule') {
-    const d = await receiptSchedule(c, q), out = head(d, d.to ? `入金予定日 ${d.to} まで` : '全期間');
+    const d = await receiptSchedule(c, q), out = head(d, d.sub);
     out.push(['得意先CD', '得意先名', '工事（現場）', '現場名', '請求締日', '請求No', '請求金額', '入金予定日', '入金予定額', '現金・手形', '入金先'].map(H));
     for (const cu of d.customers) { for (const r of cu.rows) out.push([cu.customer, cu.name, r.site, r.siteName, r.closing, r.invoiceId, r.billed, r.dueDate + (r.overdue ? ' 超過' : ''), r.due, cu.method, cu.bank]); out.push(['', S(`${cu.name} 計`), '', '', '', '', S(cu.billed), '', S(cu.due)]); }
     out.push(['', S('総合計'), '', '', '', '', '', '', S(d.total)], [d.note]);

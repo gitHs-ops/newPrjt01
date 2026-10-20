@@ -12,7 +12,8 @@ export const rows = async (c, sql, args = []) => (await c.query(sql, args))[0];
 export const one = async (c, sql, args = []) => (await c.query(sql, args))[0][0];
 
 // numbering_m: one row per document type; present_value holds the last issued sequence.
-export const NUMBERING = { sales: [1, 'S', '売上No'], receipt: [2, 'R', '入金No'], payment: [3, 'T', '支払No'], expense: [4, 'E', '経費伝票No'], purchase: [5, 'P', '仕入伝票No'] };
+// numbering_m のキー 1〜6 は現行 Java（出荷予定・出荷・修正再発行・カード等、値はタブ区切り YY・MM・連番）が使うため、本システムは 101 番台を使う
+export const NUMBERING = { sales: [101, 'S', '売上No'], receipt: [102, 'R', '入金No'], payment: [103, 'T', '支払No'], expense: [104, 'E', '経費伝票No'], purchase: [105, 'P', '仕入伝票No'] };
 export async function nextNo(c, kind) {
   const [key, prefix] = NUMBERING[kind];
   const r = await one(c, 'SELECT present_value FROM numbering_m WHERE numbering_key=? FOR UPDATE', [key]);

@@ -40,7 +40,7 @@ export async function closeCheck(c, month) {
   const custs = await rows(c, "SELECT customers_cd, customers_name, deadline FROM client_m WHERE delete_f<>'1'");
   for (const cu of custs) {
     const { end: cl } = period(month, Number(cu.deadline) || 31), limit = cl < end ? cl : end;
-    const r = await one(c, "SELECT COUNT(*) n FROM sales_trn WHERE customers_cd=? AND process_status='0' AND payment_method_cd=1 AND sales_date BETWEEN ? AND ?", [cu.customers_cd, toNum(month + '-01'), toNum(limit)]);
+    const r = await one(c, "SELECT COUNT(*) n FROM sales_trn WHERE customers_cd=? AND process_status='0' AND payment_method_cd=2 AND sales_date BETWEEN ? AND ?", [cu.customers_cd, toNum(month + '-01'), toNum(limit)]);
     if (Number(r.n)) issues.push(`${cu.customers_name}: ${limit}締の未請求出荷 ${r.n}件`);
   }
   const draft = await one(c, "SELECT COUNT(*) n FROM billing_head h WHERE h.closing_date BETWEEN ? AND ? AND NOT EXISTS (SELECT 1 FROM invoice_issue i WHERE i.invoice_id=h.invoice_id)", [toNum(month + '-01'), toNum(end)]);
@@ -72,7 +72,7 @@ export async function arReport(c) {
   const rs = await rows(c, `SELECT c.customers_cd, c.customers_name, c.deadline, c.delete_f,
     (SELECT COALESCE(SUM(amount),0) FROM opening_balance o WHERE o.customers_cd=c.customers_cd AND o.balance_kind='AR') opening,
     (SELECT COALESCE(SUM(money+consumption_tax),0) FROM billing_head h WHERE h.customers_cd=c.customers_cd) billed, ${AR_PAID} received,
-    (SELECT COALESCE(SUM(money),0) FROM sales_trn s WHERE s.customers_cd=c.customers_cd AND s.process_status='0' AND s.payment_method_cd=1) unbilled
+    (SELECT COALESCE(SUM(money),0) FROM sales_trn s WHERE s.customers_cd=c.customers_cd AND s.process_status='0' AND s.payment_method_cd=2) unbilled
     FROM client_m c ORDER BY c.customers_cd`);
   const inv = await listInvoices(c, { status: 'open' });
   return rs.map(r => ({ customer: r.customers_cd, name: r.customers_name, closing: Number(r.deadline), active: r.delete_f !== '1', opening: Number(r.opening), billed: Number(r.billed), received: Number(r.received), unbilled: Number(r.unbilled),
@@ -90,7 +90,7 @@ export async function dashboard(c) {
   const now = today(), month = now.slice(0, 7), months = Array.from({ length: 6 }, (_, i) => addMonths(month, i - 5));
   const sum = async (sql, args) => Number(Object.values(await one(c, sql, args))[0] || 0);
   const salesMonth = await sum('SELECT COALESCE(SUM(money),0) FROM sales_trn WHERE sales_date BETWEEN ? AND ?', [toNum(month + '-01'), toNum(month + '-31')]);
-  const unbilled = await one(c, "SELECT COUNT(*) n, COALESCE(SUM(money),0) v FROM sales_trn WHERE process_status='0' AND payment_method_cd=1");
+  const unbilled = await one(c, "SELECT COUNT(*) n, COALESCE(SUM(money),0) v FROM sales_trn WHERE process_status='0' AND payment_method_cd=2");
   const receivedMonth = await sum("SELECT COALESCE(SUM(received_amount),0) FROM receipt WHERE status='POSTED' AND receipt_date BETWEEN ? AND ?", [month + '-01', monthEnd(month)]);
   const ar = await arReport(c), ap = await apReport(c), inv = await listInvoices(c, {});
   const trend = [];
@@ -135,7 +135,7 @@ export async function exportCsv(c, kind, q = {}) {
   const month = q.month ? isoMonth(q.month) : undefined;
   switch (kind) {
     case 'shipments': { const l = await listShipments(c, { month: month || today().slice(0, 7) }); return [['売上No', '区分', '訂正元', '出荷日', '得意先CD', '得意先', '現場', '商品CD', '商品', '数量', '単位', '単価', '金額', '税率', '消費税', '決済', '請求済', '車番', '備考'],
-      ...l.map(r => [r.orderNo, r.shipKb === 2 ? '訂正' : '売上', r.originalNo, r.date, r.customer, r.customerName, r.siteName, r.item, r.itemName, r.quantity, r.unit, r.price, r.net, r.taxRate, r.tax, r.methodName, yn(r.billed), r.vehicle, r.remarks])]; }
+      ...l.map(r => [r.orderNo, r.shipKb === 5 ? '訂正' : '売上', r.originalNo, r.date, r.customer, r.customerName, r.siteName, r.item, r.itemName, r.quantity, r.unit, r.price, r.net, r.taxRate, r.tax, r.methodName, yn(r.billed), r.vehicle, r.remarks])]; }
     case 'invoices': { const l = await listInvoices(c, { month }); return [['請求ID', '請求年月', '締日', '支払期日', '得意先CD', '得意先', '現場', '税抜金額', '消費税', '請求額', '入金済', '残高', '発行回数', '状態'],
       ...l.map(r => [r.id, r.month, r.closing, r.due, r.customer, r.customerName, r.siteName, r.net, r.tax, r.total, r.paid, r.balance, r.issues, r.status])]; }
     case 'receipts': { const l = await listReceipts(c, { month }); return [['入金No', '入金日', '得意先CD', '得意先', '振込', '銀行内訳', '現金', '手形', '手数料', '協力会費等', '預り金充当', '値引', '受領額', '消込額', '状態', '消込請求ID'],

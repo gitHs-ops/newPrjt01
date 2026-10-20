@@ -16,6 +16,8 @@ import * as XR from './extra-reports.mjs';
 import { invoiceBook } from './invoice-book.mjs';
 import { accountingExport } from './accounting-export.mjs';
 import * as KB from './kb.mjs';
+import { NEW_REPORTS, genericBook } from './new-reports.mjs';
+import { bugyoSettings, saveBugyoSettings, BUGYO_ITEMS } from './bugyo.mjs';
 
 const COOKIE = 'aplink_sid';
 const MIME = { html: 'text/html; charset=utf-8', js: 'text/javascript; charset=utf-8', css: 'text/css; charset=utf-8', json: 'application/json; charset=utf-8', svg: 'image/svg+xml' };
@@ -29,7 +31,7 @@ export async function createApp({ pool, publicDir, secureCookies = process.env.N
   const failures = new Map();
 
   // ----- read -----
-  route('GET', '/api/meta', 'read', () => ({ journalLists: { ...Object.fromEntries(Object.entries(J.LISTS).map(([k, v]) => [k, { title: v.title, ref: v.ref }])), BANK: { title: J.BANK_LIST.title, ref: J.BANK_LIST.ref } }, receiptParts: S.RECEIPT_PARTS, masters: M.meta(), rates: RATES, methods: METHODS, taxCodes: P.TAX_CODES, patterns: L.PATTERNS, roles: U.ROLES, today: today(), version }));
+  route('GET', '/api/meta', 'read', () => ({ journalLists: { ...Object.fromEntries(Object.entries(J.LISTS).map(([k, v]) => [k, { title: v.title, ref: v.ref }])), BANK: { title: J.BANK_LIST.title, ref: J.BANK_LIST.ref } }, receiptParts: S.RECEIPT_PARTS, masters: M.meta(), rates: RATES, methods: METHODS, taxCodes: P.TAX_CODES, purchaseKinds: P.PURCHASE_KINDS, patterns: L.PATTERNS, roles: U.ROLES, today: today(), version }));
   route('GET', '/api/masters', 'read', () => db(c => M.allMasters(c)));
   route('GET', '/api/masters/:kind', 'read', x => db(c => M.list(c, x.params.kind)));
   route('GET', '/api/price', 'read', x => db(c => S.priceFor(c, x.q)));
@@ -43,15 +45,15 @@ export async function createApp({ pool, publicDir, secureCookies = process.env.N
   route('GET', '/api/open-invoices', 'read', x => db(c => S.openInvoices(c, x.q.customer)));
   route('GET', '/api/reports/journal-list', 'read', x => x.q.format === 'xlsx' ? db(c => J.journalListBook(c, x.q)).then(b => ({ file: b })) : db(c => J.journalList(c, x.q)));
   route('GET', '/api/reports/bank-payments', 'read', x => x.q.format === 'xlsx' ? db(c => J.bankPaymentBook(c, x.q)).then(b => ({ file: b })) : db(c => J.bankPaymentList(c, x.q)));
-  route('GET', '/api/reports/zengin', 'read', x => { if (x.q.format === 'file' && ![1, 2].includes(x.user.role)) throw new Forbidden('参照者は支払データを作成できません'); return db(c => PR.zenginData(c, x.q, x)); });
+  route('GET', '/api/reports/zengin', 'read', x => { if (x.q.format === 'file' && !U.WRITE_ROLES.includes(x.user.role)) throw new Forbidden('参照者は支払データを作成できません'); return db(c => PR.zenginData(c, x.q, x)); });
   route('GET', '/api/reports/payments/:kind', 'read', x => {
     const fn = { 'vendor-payments': PR.vendorPayments, 'transfer-request': PR.transferRequest, carryover: PR.payableCarryover, notices: PR.paymentNotices }[x.params.kind];
     if (!fn) throw new DomainError('帳票の種類が不正です');
     return x.q.format === 'xlsx' ? db(c => PR.paymentBook(c, x.params.kind, x.q)).then(b => ({ file: b })) : db(c => fn(c, x.q));
   });
   route('GET', '/api/reports/misc/:kind', 'read', x => {
-    const k = x.params.kind, fn = MR.MISC[k] || XR.EXTRA[k]; if (!fn) throw new DomainError('帳票の種類が不正です');
-    return x.q.format === 'xlsx' ? db(c => (XR.EXTRA[k] ? XR.extraBook : MR.miscBook)(c, k, x.q)).then(b => ({ file: b })) : db(c => fn(c, x.q));
+    const k = x.params.kind, fn = MR.MISC[k] || XR.EXTRA[k] || NEW_REPORTS[k]; if (!fn) throw new DomainError('帳票の種類が不正です');
+    return x.q.format === 'xlsx' ? db(c => (NEW_REPORTS[k] ? genericBook : XR.EXTRA[k] ? XR.extraBook : MR.miscBook)(c, k, x.q)).then(b => ({ file: b })) : db(c => fn(c, x.q));
   });
   route('GET', '/api/receipt-context', 'read', x => db(c => S.receiptContext(c, x.q.customer)));
   route('GET', '/api/reports/billing-list', 'read', x => x.q.format === 'xlsx' ? db(c => X.billingListBook(c, x.q)).then(b => ({ file: b })) : db(c => S.billingList(c, x.q)));
@@ -112,6 +114,7 @@ export async function createApp({ pool, publicDir, secureCookies = process.env.N
   kbRead('slips/:id', (c, q, x) => KB.slipDetail(c, x.params.id));
   kbRead('imports', c => KB.listImports(c));
   kbRead('opening', c => KB.opening(c));
+  kbRead('bugyo', async c => ({ items: BUGYO_ITEMS, ...(await bugyoSettings(c)) }));
   w('/api/kb/slips', (c, x, b) => KB.saveSlip(c, x, b));
   w('/api/kb/slips/delete', (c, x, b) => KB.deleteSlip(c, x, b));
   w('/api/kb/import/seikyu', (c, x, b) => KB.importSeikyu(c, x, b));
@@ -120,6 +123,7 @@ export async function createApp({ pool, publicDir, secureCookies = process.env.N
   w('/api/kb/accounts', (c, x, b) => KB.saveAccount(c, x, b));
   w('/api/kb/opening', (c, x, b) => KB.saveOpening(c, x, b));
   w('/api/kb/settings', (c, x, b) => KB.saveSettings(c, x, b), 'admin');
+  w('/api/kb/bugyo', (c, x, b) => saveBugyoSettings(c, x, b), 'admin');
   w('/api/users', (c, x, b) => U.saveUser(c, x, b), 'admin');
   w('/api/password', (c, x, b) => U.changeOwnPassword(c, x, b), 'read');
 
@@ -162,7 +166,7 @@ export async function createApp({ pool, publicDir, secureCookies = process.env.N
         if (path === '/api/session' && req.method === 'GET') return send(200, { user: { loginId: user.login_id, name: user.name, role: user.role, roleName: user.roleName }, csrf: user.csrf, menus: await db(c => U.menusFor(c, user.role)) });
         for (const r of routes) {
           const m = r.method === req.method && path.match(r.re); if (!m) continue;
-          if (r.perm === 'write' && ![1, 2].includes(user.role)) throw new Forbidden('参照者は登録・変更できません');
+          if (r.perm === 'write' && !U.WRITE_ROLES.includes(user.role)) throw new Forbidden('参照者は登録・変更できません');
           if (r.perm === 'admin' && user.role !== 1) throw new Forbidden('管理者のみ実行できます');
           const result = await r.fn({ params: Object.fromEntries(Object.entries(m.groups || {}).map(([k, v]) => [k, decodeURIComponent(v)])), q: Object.fromEntries(url.searchParams), body, user, requestId });
           if (result?.file) return send(200, result.file.body, result.file.type || 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', { 'Content-Disposition': `attachment; filename="${result.file.name.endsWith('.txt') ? 'zengin.txt' : result.file.name.endsWith('.csv') ? 'export.csv' : 'report.xlsx'}"; filename*=UTF-8''${encodeURIComponent(result.file.name)}` });

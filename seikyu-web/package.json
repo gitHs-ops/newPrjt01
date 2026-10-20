@@ -8,7 +8,7 @@
   },
   "scripts": {
     "start": "node server/main.mjs",
-    "test": "node --test --test-concurrency=1 test/domain.test.mjs test/zengin.test.mjs test/integration.test.mjs"
+    "test": "node --test --test-concurrency=1 test/domain.test.mjs test/zengin.test.mjs test/taxcode.test.mjs test/integration.test.mjs"
   },
   "dependencies": {
     "iconv-lite": "^0.7.3",

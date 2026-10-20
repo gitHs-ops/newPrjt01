@@ -4,7 +4,7 @@ import { billingList, billingConfirm } from './sales.mjs';
 import { today, jst } from './domain.mjs';
 
 const H = v => ({ v, s: 'bold' }), S = v => ({ v, s: 'sum' }), T = v => ({ v, s: 'title' });
-const shipKb = k => (Number(k) === 2 ? '訂正' : '売上');
+const shipKb = k => (Number(k) === 5 ? '訂正' : '売上');
 
 // NO12 請求一覧表（確認用）— 現行 HAR431 の項目
 export async function billingListBook(c, q) {

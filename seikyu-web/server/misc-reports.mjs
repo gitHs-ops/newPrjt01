@@ -1,5 +1,6 @@
 // ④ 在庫・出資金・出荷集計: NO25 配合計算, NO26 材料受払表, NO35 出資金請求明細表(定時), NO36 入金明細配分表, NO41〜43 出荷集計
 import { check, isoDate, isoMonth, toNum, fromNum, today, addMonths, METHODS } from './domain.mjs';
+import { taxOf } from './taxcode.mjs';
 import { rows, one, audit } from './db.mjs';
 import { xlsx } from './xlsx.mjs';
 
@@ -39,7 +40,7 @@ export async function customerItems(c, q) {
 // ---------- NO43 現金売上明細表 ----------
 export async function cashSales(c, q) {
   const { from, to } = range(q);
-  const rs = await rows(c, `SELECT s.*, c.customers_name FROM sales_trn s LEFT JOIN client_m c ON c.customers_cd=s.customers_cd WHERE s.payment_method_cd=2 AND s.sales_date BETWEEN ? AND ? ORDER BY s.customers_cd, s.sales_date, s.order_no`, [toNum(from), toNum(to)]);
+  const rs = await rows(c, `SELECT s.*, c.customers_name FROM sales_trn s LEFT JOIN client_m c ON c.customers_cd=s.customers_cd WHERE s.payment_method_cd=1 AND s.sales_date BETWEEN ? AND ? ORDER BY s.customers_cd, s.sales_date, s.order_no`, [toNum(from), toNum(to)]);
   const customers = [];
   for (const r of rs) {
     let cu = customers.find(x => x.customer === r.customers_cd); if (!cu) customers.push(cu = { customer: r.customers_cd, name: r.customers_name, rows: [], net: 0, tax: 0, total: 0 });
@@ -62,7 +63,7 @@ export async function materialLedger(c, q) {
   const cr = closingRange(month, q.closing);
   const pur = Object.fromEntries((await rows(c, 'SELECT item_cd, SUM(quantity) q, SUM(net_amount) v FROM purchase WHERE purchase_date BETWEEN ? AND ? GROUP BY item_cd', [cr.from, cr.to])).map(r => [r.item_cd, { qty: num(r.q), value: num(r.v) }]));
   const codes = new Set([...Object.keys(prev), ...Object.keys(end), ...Object.keys(open), ...Object.keys(pur)]);
-  const kinds = await rows(c, "SELECT item_cd, item_nam, unit, item_product_kb FROM item_m WHERE item_product_kb='2'");
+  const kinds = await rows(c, "SELECT item_cd, item_nam, unit, item_product_kb FROM item_m WHERE item_product_kb='1'"); // 1=材料（現行 Java）
   kinds.forEach(k => codes.add(k.item_cd));
   const names = Object.fromEntries((await rows(c, 'SELECT item_cd, item_nam, unit FROM item_m')).map(r => [r.item_cd, r]));
   const z = { qty: 0, value: 0 };
@@ -144,7 +145,6 @@ async function members(c) {
 }
 // Each member gets floor(amount × ratio); the remainder goes to the first member (現行帳票と同じ扱い).
 export const allocate = (amount, ms) => { const parts = ms.map(m => Math.floor(Math.abs(amount) * m.ratio * 100 / 10000) * Math.sign(amount)); parts[0] += amount - parts.reduce((a, b) => a + b, 0); return parts; };
-const RATE = { '10%': 10, '8%': 8 };
 // NO35 出資金請求明細表（定時請求分）
 export async function jvExpenses(c, q) {
   const { from, to } = range(q), ms = await members(c);
@@ -154,7 +154,7 @@ export async function jvExpenses(c, q) {
   const accounts = [];
   for (const d of ds) {
     let a = accounts.find(x => x.account === d.account_code); if (!a) accounts.push(a = { account: d.account_code, name: d.account_name, rows: [], gross: 0, net: 0, tax: 0, parts: ms.map(() => 0) });
-    const gross = num(d.gross_amount), rate = RATE[d.source_tax_code] || 0, tax = Math.floor(gross * rate / (100 + rate)), parts = allocate(gross, ms);
+    const gross = num(d.gross_amount), tax = taxOf(gross, d.source_tax_code), parts = allocate(gross, ms);
     a.rows.push({ date: d.due_on || d.booked_on, no: d.document_no, vendor: d.vendor_name, memo: d.memo, taxCode: d.source_tax_code, gross, net: gross - tax, tax, parts });
     a.gross += gross; a.net += gross - tax; a.tax += tax; parts.forEach((v, i) => (a.parts[i] += v));
   }

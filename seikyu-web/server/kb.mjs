@@ -6,6 +6,8 @@ import { rows, one, audit } from './db.mjs';
 import { xlsx } from './xlsx.mjs';
 import { PATTERNS } from './ledger.mjs';
 import { SYSTEM_ACCOUNTS } from './masters.mjs';
+import { decode, taxOf, CATALOG, TAX_KIND, TAX_RATE } from './taxcode.mjs';
+import { bugyoSettings, bugyoFile } from './bugyo.mjs';
 
 // [区分コード, 名称, 区分(BS-A 資産 / BS-L 負債 / BS-E 純資産 / PL), 正残高]
 export const GROUPS = [
@@ -18,12 +20,8 @@ export const GROUPS = [
 const GROUP = Object.fromEntries(GROUPS.map(g => [g.code, g]));
 export const SECTIONS = { 'BS-A': '資産の部', 'BS-L': '負債の部', 'BS-E': '純資産の部', PL: '損益の部' };
 
-// 税区分（kind: S 課税売上 / P 課税仕入 / SN・PN 非課税 / '' 対象外）
-export const TAXES = [['00', '対象外', 0, ''], ['10', '課税売上 10%', 10, 'S'], ['11', '課税売上 8%（軽）', 8, 'S'], ['12', '非課税売上', 0, 'SN'],
-  ['20', '課税仕入 10%', 10, 'P'], ['21', '課税仕入 8%（軽）', 8, 'P'], ['22', '非課税仕入', 0, 'PN']].map(([code, name, rate, kind]) => ({ code, name, rate, kind }));
-const TAX = Object.fromEntries(TAXES.map(t => [t.code, t]));
-// 請求システムの処税率（Q01 確認待ち）・仕入税区分 → 会計の税区分（推定）
-export const SEIKYU_TAX = { 9: '00', 41: '00', 11: '10', 141: '20', 148: '21', '10%': '20', '8%': '21', 非課税: '22', 対象外: '00' };
+// 税区分は現行の処税率（3桁, taxcode.mjs）をそのまま使う。請求システムの仕訳・CSV の処税率と同じコード体系。
+export const TAXES = CATALOG;
 export const SUB_KINDS = { '': 'なし', CUST: '得意先', VEND: '業者', SUB: '内訳科目' };
 export const SOURCES = { MANUAL: '手入力', SEIKYU: '請求システム', CSV: 'CSV受入' };
 const RETAINED = '7350'; // 前期繰越利益（前期までの損益を累積する科目）
@@ -38,17 +36,17 @@ const CHART = [
   ['4110', '支払手形', 'L1', 'VEND'], ['4121', '買掛金', 'L1', 'VEND'], ['4140', '未払金', 'L1', 'VEND'], ['4150', '未払費用', 'L1', 'VEND'], ['4170', '預り金', 'L1', 'CUST'], ['4171', '預り金（安全協力費等）', 'L1', 'SUB'],
   ['4180', '未払法人税等', 'L1'], ['4199', '構成員出資金', 'L1', 'VEND'], ['4410', '仮受金', 'L1', 'CUST'], ['4415', '仮受消費税', 'L1'],
   ['7110', '資本金', 'E1'], ['7260', '利益準備金', 'E2'], ['7320', '別途積立金', 'E3'], ['7321', '出資・分配差額', 'E3'], ['7322', '消費税差額', 'E3'], ['7350', '前期繰越利益', 'E3'],
-  ['8110', '完成工事高', 'P1', 'CUST', '10'], ['8130', '合材売上', 'P1', 'CUST', '10'],
-  ['8230', '期首棚卸高', 'P2'], ['8231', '仕入', 'P2', '', '20'], ['82316', '期末棚卸高', 'P2'], ['8232', '労務費', 'P2', '', '20'], ['8233', '外注費', 'P2', '', '20'], ['8241', '仮設費', 'P2', '', '20'],
-  ['8242', '動力用水光熱費', 'P2', 'SUB', '20'], ['8243', '運賃', 'P2', 'SUB', '20'], ['8244', '機械等経費', 'P2', 'SUB', '20'], ['8250', '保険料', 'P2'], ['8251', '従業員給与手当', 'P2'], ['8252', '法定福利費', 'P2'],
-  ['8253', '福利厚生費', 'P2', '', '20'], ['8254', '事務用品費', 'P2', '', '20'], ['8255', '旅費交通費', 'P2', '', '20'], ['8256', '車輌維持費', 'P2', '', '20'], ['8257', '通信費', 'P2', '', '20'],
-  ['8258', '交際費', 'P2', '', '20'], ['8259', '補償費', 'P2', '', '20'], ['8260', '雑費', 'P2', 'SUB', '20'],
-  ['8312', '従業員給与', 'P3'], ['8314', '法定福利費', 'P3'], ['8315', '福利厚生費', 'P3', 'SUB', '20'], ['8316', '修繕維持費', 'P3', 'SUB', '20'], ['8317', '事務用品費', 'P3', 'SUB', '20'],
-  ['8318', '旅費交通費', 'P3', 'SUB', '20'], ['83181', '車輌維持費', 'P3', 'SUB', '20'], ['8319', '通信費', 'P3', 'SUB', '20'], ['8320', '用水光熱費', 'P3', 'SUB', '20'], ['8321', '調査研究費', 'P3', '', '20'],
-  ['8322', '広告宣伝費', 'P3', '', '20'], ['8323', '交際費', 'P3', 'SUB', '20'], ['8324', '寄付金', 'P3'], ['8325', '地代家賃', 'P3', '', '20'], ['8326', '減価償却費', 'P3'], ['8327', '租税公課', 'P3'],
-  ['8328', '賦課金及会費', 'P3', '', '20'], ['8329', '保険料', 'P3', 'SUB'], ['8330', '雑費', 'P3', 'SUB', '20'], ['8331', '会議費', 'P3', '', '20'], ['8332', '購読料', 'P3', 'SUB', '20'],
-  ['8610', '受取利息', 'P4', 'SUB'], ['8630', '受取地代家賃', 'P4', 'SUB', '10'], ['8650', '材料売却収入', 'P4', '', '10'], ['8790', '雑収入', 'P4', 'SUB'],
-  ['8810', '支払利息割引料', 'P5', 'SUB'], ['8850', '雑損失', 'P5', '', '20'], ['9150', '前期損益修正益', 'P6'], ['9217', '前期損益修正損', 'P7'], ['9410', '法人税等', 'P8'],
+  ['8110', '完成工事高', 'P1', 'CUST', '111'], ['8130', '合材売上', 'P1', 'CUST', '111'],
+  ['8230', '期首棚卸高', 'P2'], ['8231', '仕入', 'P2', '', '141'], ['82316', '期末棚卸高', 'P2'], ['8232', '労務費', 'P2', '', '141'], ['8233', '外注費', 'P2', '', '141'], ['8241', '仮設費', 'P2', '', '141'],
+  ['8242', '動力用水光熱費', 'P2', 'SUB', '141'], ['8243', '運賃', 'P2', 'SUB', '141'], ['8244', '機械等経費', 'P2', 'SUB', '141'], ['8250', '保険料', 'P2'], ['8251', '従業員給与手当', 'P2'], ['8252', '法定福利費', 'P2'],
+  ['8253', '福利厚生費', 'P2', '', '141'], ['8254', '事務用品費', 'P2', '', '141'], ['8255', '旅費交通費', 'P2', '', '141'], ['8256', '車輌維持費', 'P2', '', '141'], ['8257', '通信費', 'P2', '', '141'],
+  ['8258', '交際費', 'P2', '', '141'], ['8259', '補償費', 'P2', '', '141'], ['8260', '雑費', 'P2', 'SUB', '141'],
+  ['8312', '従業員給与', 'P3'], ['8314', '法定福利費', 'P3'], ['8315', '福利厚生費', 'P3', 'SUB', '141'], ['8316', '修繕維持費', 'P3', 'SUB', '141'], ['8317', '事務用品費', 'P3', 'SUB', '141'],
+  ['8318', '旅費交通費', 'P3', 'SUB', '141'], ['83181', '車輌維持費', 'P3', 'SUB', '141'], ['8319', '通信費', 'P3', 'SUB', '141'], ['8320', '用水光熱費', 'P3', 'SUB', '141'], ['8321', '調査研究費', 'P3', '', '141'],
+  ['8322', '広告宣伝費', 'P3', '', '141'], ['8323', '交際費', 'P3', 'SUB', '141'], ['8324', '寄付金', 'P3'], ['8325', '地代家賃', 'P3', '', '141'], ['8326', '減価償却費', 'P3'], ['8327', '租税公課', 'P3'],
+  ['8328', '賦課金及会費', 'P3', '', '141'], ['8329', '保険料', 'P3', 'SUB'], ['8330', '雑費', 'P3', 'SUB', '141'], ['8331', '会議費', 'P3', '', '141'], ['8332', '購読料', 'P3', 'SUB', '141'],
+  ['8610', '受取利息', 'P4', 'SUB'], ['8630', '受取地代家賃', 'P4', 'SUB', '111'], ['8650', '材料売却収入', 'P4', '', '111'], ['8790', '雑収入', 'P4', 'SUB'],
+  ['8810', '支払利息割引料', 'P5', 'SUB'], ['8850', '雑損失', 'P5', '', '141'], ['9150', '前期損益修正益', 'P6'], ['9217', '前期損益修正損', 'P7'], ['9410', '法人税等', 'P8'],
 ];
 // 区分未設定の科目（請求システムのマスタで追加された科目など）はコード体系から推定する
 const guessGroup = code => { const s = String(code); if (s.startsWith('1')) return 'A3'; if (s.startsWith('2')) return 'A4'; if (s.startsWith('3')) return 'A7'; if (s.startsWith('4')) return 'L1';
@@ -58,7 +56,7 @@ const guessGroup = code => { const s = String(code); if (s.startsWith('1')) retu
 export async function prepareKb(pool) {
   const C = 'COLLATE "C"';
   await pool.query(`CREATE TABLE IF NOT EXISTS kb_account (account_code varchar(20) ${C} PRIMARY KEY, grp varchar(4) ${C} NOT NULL, side char(1) ${C} NOT NULL, sub_kind varchar(8) ${C} NOT NULL DEFAULT '',
-    tax_code varchar(4) ${C} NOT NULL DEFAULT '00', sort_no integer NOT NULL DEFAULT 0, guessed boolean NOT NULL DEFAULT FALSE)`);
+    tax_code varchar(4) ${C} NOT NULL DEFAULT '090', sort_no integer NOT NULL DEFAULT 0, guessed boolean NOT NULL DEFAULT FALSE)`);
   await pool.query(`CREATE TABLE IF NOT EXISTS kb_setting (k varchar(32) ${C} PRIMARY KEY, v varchar(200) ${C} NOT NULL)`);
   await pool.query(`CREATE TABLE IF NOT EXISTS kb_opening (account_code varchar(20) ${C} NOT NULL, sub_code varchar(20) ${C} NOT NULL DEFAULT '', amount bigint NOT NULL, PRIMARY KEY (account_code, sub_code))`);
   await pool.query(`CREATE TABLE IF NOT EXISTS kb_import (import_id bigint GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY, source varchar(8) ${C} NOT NULL, label varchar(200) ${C} NOT NULL,
@@ -69,12 +67,20 @@ export async function prepareKb(pool) {
   await pool.query('CREATE INDEX IF NOT EXISTS ix_kb_slip_date ON kb_slip (slip_date, slip_no)');
   await pool.query('CREATE UNIQUE INDEX IF NOT EXISTS ux_kb_slip_source ON kb_slip (source, source_ref) WHERE source_ref IS NOT NULL');
   await pool.query(`CREATE TABLE IF NOT EXISTS kb_line (slip_id bigint NOT NULL REFERENCES kb_slip (slip_id) ON DELETE CASCADE, row_no integer NOT NULL, side char(1) ${C} NOT NULL CHECK (side IN ('D','C')),
-    account_code varchar(20) ${C} NOT NULL, sub_code varchar(20) ${C} NOT NULL DEFAULT '', dept_code varchar(12) ${C} NOT NULL DEFAULT '', tax_code varchar(4) ${C} NOT NULL DEFAULT '00',
+    account_code varchar(20) ${C} NOT NULL, sub_code varchar(20) ${C} NOT NULL DEFAULT '', dept_code varchar(12) ${C} NOT NULL DEFAULT '', tax_code varchar(4) ${C} NOT NULL DEFAULT '090',
     amount bigint NOT NULL CHECK (amount > 0), tax_amount bigint NOT NULL DEFAULT 0, tax_excl boolean NOT NULL DEFAULT FALSE, memo varchar(100) ${C} NOT NULL DEFAULT '', PRIMARY KEY (slip_id, row_no, side))`);
   await pool.query('CREATE INDEX IF NOT EXISTS ix_kb_line_account ON kb_line (account_code, sub_code)');
-  for (const [i, [code, name, grp, sub = '', tax = '00']] of CHART.entries()) {
+  for (const [i, [code, name, grp, sub = '', tax = '090']] of CHART.entries()) {
     await pool.query('INSERT IGNORE INTO account_subject (account_code,account_name,active) VALUES (?,?,TRUE)', [code, name]);
     await pool.query('INSERT IGNORE INTO kb_account (account_code,grp,side,sub_kind,tax_code,sort_no) VALUES (?,?,?,?,?,?)', [code, grp, GROUP[grp].side, sub, tax, (i + 1) * 10]);
+  }
+  // 2026-10-21: 独自の税区分（00/10/11/12/20/21/22）から処税率へ切替（消費税区分.xlsx）。一度だけ実行。
+  const [[scheme]] = await pool.query("SELECT v FROM kb_setting WHERE k='tax_scheme'");
+  if (!scheme) {
+    await pool.query(`UPDATE kb_line SET tax_code=CASE tax_code WHEN '00' THEN '090' WHEN '10' THEN (CASE WHEN tax_excl THEN '011' ELSE '111' END) WHEN '11' THEN (CASE WHEN tax_excl THEN '018' ELSE '118' END)
+      WHEN '12' THEN '020' WHEN '20' THEN (CASE WHEN tax_excl THEN '241' ELSE '141' END) WHEN '21' THEN (CASE WHEN tax_excl THEN '248' ELSE '148' END) WHEN '22' THEN '070' ELSE tax_code END`);
+    await pool.query("UPDATE kb_account SET tax_code=CASE tax_code WHEN '00' THEN '090' WHEN '10' THEN '111' WHEN '11' THEN '118' WHEN '12' THEN '020' WHEN '20' THEN '141' WHEN '21' THEN '148' WHEN '22' THEN '070' ELSE tax_code END");
+    await pool.query("INSERT INTO kb_setting (k,v) VALUES ('tax_scheme','shozeiritsu')");
   }
 }
 
@@ -95,7 +101,7 @@ const fyLabel = (F, fy) => { const r = F.range(fy); return `${fy}年度（${r.fr
 // 区分未設定の科目に推定区分を付ける（請求システム側で追加された科目）
 async function ensureAttrs(c) {
   const miss = await rows(c, 'SELECT a.account_code FROM account_subject a LEFT JOIN kb_account k ON k.account_code=a.account_code WHERE k.account_code IS NULL');
-  for (const r of miss) { const g = guessGroup(r.account_code); await c.query('INSERT IGNORE INTO kb_account (account_code,grp,side,sub_kind,tax_code,sort_no,guessed) VALUES (?,?,?,?,?,?,TRUE)', [r.account_code, g, GROUP[g].side, '', '00', 99999]); }
+  for (const r of miss) { const g = guessGroup(r.account_code); await c.query('INSERT IGNORE INTO kb_account (account_code,grp,side,sub_kind,tax_code,sort_no,guessed) VALUES (?,?,?,?,?,?,TRUE)', [r.account_code, g, GROUP[g].side, '', '090', 99999]); }
 }
 async function accountMap(c) {
   await ensureAttrs(c);
@@ -125,7 +131,7 @@ function period(F, q, { sameFy = true } = {}) {
 export async function kbMeta(c) {
   const F = await fiscal(c), A = await accountMap(c);
   const fys = []; for (let y = F.startFy; y <= Math.max(F.currentFy, F.startFy) + 1; y++) fys.push({ fy: y, label: fyLabel(F, y), ...F.range(y) });
-  return { groups: GROUPS, sections: SECTIONS, taxes: TAXES, subKinds: SUB_KINDS, sources: SOURCES, seikyuTax: SEIKYU_TAX,
+  return { groups: GROUPS, sections: SECTIONS, taxes: TAXES, taxKinds: TAX_KIND, taxRates: TAX_RATE, subKinds: SUB_KINDS, sources: SOURCES,
     fiscal: { startFy: F.startFy, startDate: F.startDate, lockDate: F.lockDate, closingMonth: F.closingMonth, startMonth: F.startMonth, currentFy: F.currentFy, years: fys },
     accounts: [...A.values()] };
 }
@@ -311,13 +317,15 @@ export async function taxSummary(c, q = {}) {
   const F = await fiscal(c), p = period(F, q, { sameFy: false });
   const rs = await rows(c, `SELECT l.tax_code, l.side, l.tax_excl, SUM(l.amount) amt, SUM(l.tax_amount) tax, COUNT(*) n FROM kb_line l JOIN kb_slip s ON s.slip_id=l.slip_id
     WHERE s.slip_date BETWEEN ? AND ? GROUP BY l.tax_code, l.side, l.tax_excl`, [p.from, p.to]);
-  const by = new Map(TAXES.map(t => [t.code, { ...t, gross: 0, net: 0, tax: 0, count: 0 }]));
+  const by = new Map();
   for (const r of rs) {
-    const t = by.get(r.tax_code); if (!t) continue;
-    const dir = t.kind.startsWith('S') ? (r.side === 'C' ? 1 : -1) : (r.side === 'D' ? 1 : -1), amt = Number(r.amt), tax = Number(r.tax);
-    t.gross += dir * (r.tax_excl ? amt + tax : amt); t.net += dir * (r.tax_excl ? amt : amt - tax); t.tax += dir * tax; t.count += Number(r.n);
+    const t = decode(r.tax_code) || { code: r.tax_code, display: r.tax_code, name: '不明な処税率', rate: 0, side: '', taxable: false };
+    if (!by.has(t.code)) by.set(t.code, { code: t.code, display: t.display, name: t.name, rate: t.rate, side: t.side, taxable: t.taxable, gross: 0, net: 0, tax: 0, count: 0 });
+    const x = by.get(t.code), dir = t.side === 'S' ? (r.side === 'C' ? 1 : -1) : (r.side === 'D' ? 1 : -1), amt = Number(r.amt), tax = Number(r.tax);
+    x.gross += dir * (r.tax_excl ? amt + tax : amt); x.net += dir * (r.tax_excl ? amt : amt - tax); x.tax += dir * tax; x.count += Number(r.n);
   }
-  const list = [...by.values()], sales = list.filter(t => t.kind === 'S').reduce((n, t) => n + t.tax, 0), purchase = list.filter(t => t.kind === 'P').reduce((n, t) => n + t.tax, 0);
+  const list = [...by.values()].sort((a, b) => a.code.localeCompare(b.code));
+  const sales = list.filter(t => t.side === 'S' && t.taxable).reduce((n, t) => n + t.tax, 0), purchase = list.filter(t => t.side === 'P' && t.taxable).reduce((n, t) => n + t.tax, 0);
   const vat = async code => Number((await one(c, `SELECT COALESCE(SUM(CASE WHEN l.side='C' THEN l.amount ELSE -l.amount END),0) v FROM kb_line l JOIN kb_slip s ON s.slip_id=l.slip_id WHERE l.account_code=? AND s.slip_date BETWEEN ? AND ?`, [code, p.from, p.to])).v);
   return { from: p.from, to: p.to, rows: list, salesTax: sales, purchaseTax: purchase, payable: sales - purchase, received: await vat('4415'), paid: -(await vat('1465')) };
 }
@@ -329,7 +337,7 @@ async function slipsWithLines(c, where, args, limit = 1000) {
   const ls = ss.length ? await rows(c, `SELECT * FROM kb_line WHERE slip_id IN (${ss.map(() => '?').join(',')}) ORDER BY slip_id, row_no, side DESC`, ss.map(s => s.slip_id)) : [];
   const A = await accountMap(c), name = await subNamer(c), D = await deptNames(c);
   const side = l => l && { account: l.account_code, accountName: A.get(l.account_code)?.name || '', sub: l.sub_code, subName: name(A.get(l.account_code), l.sub_code), dept: l.dept_code, deptName: D.get(l.dept_code) || '',
-    tax: l.tax_code, taxName: TAX[l.tax_code]?.name || l.tax_code, amount: Number(l.amount), taxAmount: Number(l.tax_amount), taxExcl: !!l.tax_excl };
+    tax: l.tax_code, taxName: decode(l.tax_code)?.name || l.tax_code, amount: Number(l.amount), taxAmount: Number(l.tax_amount), taxExcl: !!l.tax_excl };
   const slips = ss.map(s => {
     const mine = ls.filter(l => l.slip_id === s.slip_id), n = Math.max(0, ...mine.map(l => l.row_no));
     const rowsOut = [];
@@ -365,11 +373,11 @@ async function checkSide(c, A, x, label) {
     check(ok, `${label}: 補助「${sub}」は科目 ${acc.code} に登録されていません`);
   }
   if (dept) check(await one(c, "SELECT 1 x FROM code_m WHERE code_key='DEPT' AND code_dtl=?", [dept]), `${label}: 部門「${dept}」が登録されていません`);
-  const tax = String(x.tax || acc.tax || '00'); check(TAX[tax], `${label}: 税区分が不正です`);
-  const rate = TAX[tax].rate, auto = Math.floor(amount * rate / (x.taxExcl ? 100 : 100 + rate));
+  const t = decode(x.tax || acc.tax || '090'); check(t, `${label}: 処税率「${x.tax}」が不正です`);
+  const tax = t.code, rate = t.taxable ? t.rate : 0, auto = taxOf(amount, tax);
   const taxAmount = x.taxAmount === undefined || x.taxAmount === '' || x.taxAmount === null ? auto : yen(x.taxAmount, `${label}の消費税額`);
-  check(taxAmount <= amount, `${label}: 消費税額が金額を超えています`); if (!rate) check(taxAmount === 0, `${label}: 対象外・非課税の消費税額は0です`);
-  return { account: acc.code, sub, dept, tax, amount, taxAmount, taxExcl: !!x.taxExcl };
+  check(taxAmount <= amount, `${label}: 消費税額が金額を超えています`); if (!rate) check(taxAmount === 0, `${label}: 対象外・非課税・不課税の消費税額は0です`);
+  return { account: acc.code, sub, dept, tax, amount, taxAmount, taxExcl: t.excl };
 }
 async function nextSlipNos(c, F) {
   await c.query('LOCK TABLE kb_slip IN SHARE ROW EXCLUSIVE MODE');
@@ -439,12 +447,12 @@ export async function deleteSlip(c, ctx, { id, version }) {
 // 課税売上（仕入）行と同じ側に仮受（仮払）消費税行がある伝票は、その税額を課税行へ按分して「外税」として持つ。それ以外は内税計算。
 function applyVat(sides) {
   for (const v of sides.filter(x => VAT_ACCOUNTS[x.account])) {
-    const kind = VAT_ACCOUNTS[v.account], targets = sides.filter(x => x.side === v.side && TAX[x.tax]?.kind === kind && !x.taxExcl);
+    const kind = VAT_ACCOUNTS[v.account], targets = sides.filter(x => { const t = decode(x.tax); return x.side === v.side && t?.side === kind && t.taxable && t.excl; });
     const base = targets.reduce((n, x) => n + x.amount, 0); if (!base) continue;
     let rest = v.amount;
-    targets.forEach((x, i) => { x.taxExcl = true; x.taxAmount = i === targets.length - 1 ? rest : Math.floor(v.amount * x.amount / base); rest -= x.taxAmount; });
+    targets.forEach((x, i) => { x.taxExcl = true; x.vatDone = true; x.taxAmount = i === targets.length - 1 ? rest : Math.floor(v.amount * x.amount / base); rest -= x.taxAmount; });
   }
-  for (const x of sides) if (!x.taxExcl) { const r = TAX[x.tax]?.rate || 0; x.taxAmount = Math.floor(x.amount * r / (100 + r)); }
+  for (const x of sides) if (!x.vatDone) { x.taxExcl = !!decode(x.tax)?.excl; x.taxAmount = taxOf(x.amount, x.tax); }
 }
 const toRows = sides => {
   const d = sides.filter(x => x.side === 'D'), cr = sides.filter(x => x.side === 'C'), out = [];
@@ -478,7 +486,9 @@ export async function importSeikyu(c, ctx, p) {
     for (const l of ls.filter(x => x.journal_id === e.journal_id)) {
       const acc = A.get(l.account_code); if (!acc) { errors.push(`仕訳#${e.journal_id}: 科目 ${l.account_code} が未登録`); continue; }
       const sub = l.sub_code || (acc.sub === 'CUST' ? l.customers_cd : acc.sub === 'VEND' ? l.vendor_code : '') || '';
-      const tax = SEIKYU_TAX[String(l.source_tax_code ?? '')] || (l.source_tax_code ? '00' : acc.tax);
+      const t = l.source_tax_code ? decode(l.source_tax_code) : decode(acc.tax);
+      if (!t) { errors.push(`仕訳#${e.journal_id}: 処税率「${l.source_tax_code}」を解釈できません`); continue; }
+      const tax = t.code;
       sides.push({ side: l.side, account: acc.code, sub, dept: l.department_code || '', tax, amount: Number(l.amount), taxAmount: 0, taxExcl: false, memo: (l.customers_name || l.vendor_name || '').slice(0, 100) });
     }
     if (!sides.length) continue;
@@ -509,8 +519,8 @@ export async function importCsv(c, ctx, p) {
     let g = groups[groups.length - 1]; if (!g || g.key !== key) { g = { key, date, no, line: i + 1, sides: [], memo2: get(r, '摘要2') }; groups.push(g); }
     for (const [side, pre] of [['D', '借方'], ['C', '貸方']]) {
       const code = get(r, pre + '科目CD'), amt = get(r, pre + '金額'); if (!code && !amt) continue;
-      const rawTax = get(r, pre + '税区分'), tax = TAX[rawTax] ? rawTax : SEIKYU_TAX[rawTax] || (rawTax ? null : A.get(code)?.tax || '00');
-      if (!tax) { errors.push(`${i + 1}行目: ${pre}税区分「${rawTax}」を変換できません`); continue; }
+      const rawTax = get(r, pre + '税区分'), tax = rawTax ? decode(rawTax)?.code : A.get(code)?.tax || '090';
+      if (!tax) { errors.push(`${i + 1}行目: ${pre}税区分「${rawTax}」は処税率として解釈できません`); continue; }
       const taxAmt = get(r, pre + '税額');
       g.sides.push({ side, row: i + 1, raw: { account: code, sub: get(r, pre + '補助CD'), dept: get(r, pre + '部門'), tax, amount: amt, taxAmount: taxAmt === '' ? undefined : taxAmt, taxExcl: get(r, pre + '外税') === '1' }, memo: get(r, '摘要1') });
     }
@@ -552,7 +562,7 @@ export async function saveAccount(c, ctx, p) {
   const code = text(p.code, '科目コード', 20, { pattern: /^[0-9A-Za-z\-]+$/ }), name = text(p.name, '科目名', 100);
   const grp = String(p.grp || ''); check(GROUP[grp], '区分を選択してください');
   const side = p.side === 'C' ? 'C' : p.side === 'D' ? 'D' : GROUP[grp].side, sub = String(p.sub || ''); check(sub in SUB_KINDS, '補助区分が不正です');
-  const tax = String(p.tax || '00'); check(TAX[tax], '税区分が不正です');
+  const tax = decode(p.tax || '090')?.code; check(tax, '処税率が不正です');
   const active = bool(p.active ?? true), sort = p.sort === '' || p.sort === undefined ? null : yen(p.sort, '表示順');
   const old = await one(c, 'SELECT * FROM account_subject WHERE account_code=? FOR UPDATE', [code]);
   if (p.mode === 'create') check(!old, `科目「${code}」は登録済みです`); else check(old, '科目が見つかりません');
@@ -600,7 +610,12 @@ export async function saveSettings(c, ctx, p) {
 
 // ---------- 出力（CSV・Excel） ----------
 export async function exportJournalCsv(c, ctx, q) {
-  const d = await journal(c, q), out = [CSV_HEAD];
+  const d = await journal(c, q);
+  if (q.format === 'bugyo') {
+    await audit(c, ctx, 'kb_slip', `${d.from}..${d.to}`, 'kb.export', { slips: d.slips.length, format: 'bugyo' });
+    return { file: bugyoFile(d.slips.map(s => ({ date: s.date, slipNo: String(s.no), memo: s.memo, pairs: s.rows })), await bugyoSettings(c), `仕訳データ_勘定奉行_${d.from}_${d.to}.csv`) };
+  }
+  const out = [CSV_HEAD];
   const cells = x => (x ? [x.dept, x.account, x.accountName, x.sub, x.subName, x.tax, x.amount, x.taxAmount, x.taxExcl ? '1' : ''] : Array(9).fill(''));
   for (const s of d.slips) s.rows.forEach((r, i) => out.push([s.date, s.no, i + 1, ...cells(r.dr), ...cells(r.cr), r.memo, s.memo]));
   await audit(c, ctx, 'kb_slip', `${d.from}..${d.to}`, 'kb.export', { slips: d.slips.length });
@@ -627,7 +642,7 @@ export async function book(c, kind, q) {
     return { name: `${d.sub !== null ? '補助元帳' : '総勘定元帳'}_${d.account}_${d.from}_${d.to}.xlsx`, body: xlsx([{ name: d.sub !== null ? '補助元帳' : '総勘定元帳', widths: [11, 7, 24, 22, 8, 30, 14, 14, 15],
       rows: [[T(`${d.sub !== null ? '補助元帳' : '総勘定元帳'}　${d.account} ${d.accountName}${d.sub !== null ? `／${d.sub} ${d.subName}` : ''}`)], [`${d.from} 〜 ${d.to}　出力日 ${today()}`], [],
         [H('日付'), H('伝票No'), H('相手科目'), H('補助'), H('税区分'), H('摘要'), H('借方'), H('貸方'), H('残高')], ['', '', '', '', '', '前期より繰越', '', '', d.opening],
-        ...d.lines.map(l => [l.date, l.no, l.counter, l.subName || l.sub, TAX[l.tax]?.name || l.tax, l.memo, l.dr || '', l.cr || '', l.balance]), ['', '', '', '', '', S('合計'), S(d.dr), S(d.cr), S(d.closing)]] }]) };
+        ...d.lines.map(l => [l.date, l.no, l.counter, l.subName || l.sub, decode(l.tax)?.name || l.tax, l.memo, l.dr || '', l.cr || '', l.balance]), ['', '', '', '', '', S('合計'), S(d.dr), S(d.cr), S(d.closing)]] }]) };
   }
   if (kind === 'journal') {
     const d = await journal(c, q), out = [[T('仕訳帳')], [`${d.from} 〜 ${d.to}　出力日 ${today()}`], [], [H('日付'), H('伝票No'), H('借方科目'), H('借方補助'), H('借方金額'), H('貸方科目'), H('貸方補助'), H('貸方金額'), H('摘要'), H('区分')]];
@@ -638,7 +653,7 @@ export async function book(c, kind, q) {
   if (kind === 'tax') {
     const d = await taxSummary(c, q);
     return { name: `消費税集計表_${d.from}_${d.to}.xlsx`, body: xlsx([{ name: '消費税集計表', widths: [8, 22, 8, 16, 16, 14, 8], rows: [[T('消費税集計表')], [`${d.from} 〜 ${d.to}　出力日 ${today()}`], [],
-      [H('税区分'), H('名称'), H('税率'), H('税込金額'), H('税抜金額'), H('消費税額'), H('件数')], ...d.rows.map(r => [r.code, r.name, r.rate ? r.rate + '%' : '', r.gross, r.net, r.tax, r.count]), [],
+      [H('処税率'), H('名称'), H('税率'), H('税込金額'), H('税抜金額'), H('消費税額'), H('件数')], ...d.rows.map(r => [r.display, r.name, r.rate ? r.rate + '%' : '', r.gross, r.net, r.tax, r.count]), [],
       ['', H('売上に係る消費税額'), '', '', '', S(d.salesTax)], ['', H('仕入に係る消費税額'), '', '', '', S(d.purchaseTax)], ['', H('差引税額（概算）'), '', '', '', S(d.payable)]] }]) };
   }
   check(false, '帳票の種類が不正です');

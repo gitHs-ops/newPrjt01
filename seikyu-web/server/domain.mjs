@@ -5,7 +5,9 @@ export class Forbidden extends Error {}
 export const check = (ok, msg) => { if (!ok) throw new DomainError(msg); };
 
 export const RATES = [0, 8, 10];
-export const METHODS = { 1: '掛売', 2: '現金', 3: 'カード' };
+// 決済方法（現行 Java code_m A0001）：1 現金 / 2 掛売 / 3 カード
+export const METHODS = { 1: '現金', 2: '掛売', 3: 'カード' };
+export const CASH = 1, CREDIT = 2, CARD = 3;
 
 export function yen(v, label = '金額', { negative = false, max = 1e12 } = {}) {
   const s = String(v ?? '').trim().replace(/,/g, '');
@@ -38,7 +40,7 @@ export function isoMonth(v, label = '年月') { check(typeof v === 'string' && /
 export const toNum = iso => Number(String(iso).replaceAll('-', ''));
 export const fromNum = n => { const s = String(n ?? ''); return /^\d{8}$/.test(s) ? `${s.slice(0, 4)}-${s.slice(4, 6)}-${s.slice(6)}` : ''; };
 const endOf = (y, m) => new Date(Date.UTC(y, m, 0)).getUTCDate();
-export function closingDay(v) { const d = yen(v, '締日'); check(d >= 1 && (d <= 28 || d === 31), '締日は1〜28または31(月末)です'); return d; }
+export function closingDay(v) { const d = yen(v, '締日'); check(d >= 1 && d <= 31, '締日は1〜31です（31=月末、月末より大きい日は月末）'); return d; }
 // Billing period for month + closing day: (previous closing + 1) .. closing.
 export function period(month, closing) {
   isoMonth(month, '請求年月'); const day = closingDay(closing);

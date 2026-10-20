@@ -6,7 +6,13 @@ export function installKb(h) {
   const kb = async (force = false) => (K && !force ? K : (K = await api('/api/kb/meta')));
   const ACC = code => K.accounts.find(a => a.code === code);
   const GRP = code => K.groups.find(g => g.code === code);
-  const TAX = code => K.taxes.find(t => t.code === code);
+  // 処税率（server/taxcode.mjs と同じ規則）。一覧にない組合せも桁から解釈する。
+  function TAX(v) {
+    const hit = K.taxes.find(t => t.code === v); if (hit) return hit;
+    const s = String(v || ''); if (!/^[012]\d\d$/.test(s) || !K.taxKinds[s[1]] || !(s[2] in K.taxRates)) return null;
+    const k = +s[1], rate = K.taxRates[s[2]], taxable = rate > 0 && [1, 4, 5, 6].includes(k) && (s[0] !== '0' || k === 1);
+    return { code: s, name: `${K.taxKinds[k]}${taxable ? ' ' + rate + '%' : ''}`, rate, taxable, excl: taxable && (s[0] === '2' || (s[0] === '0' && k === 1)) };
+  }
   const money = v => `<span class="${v < 0 ? 'kb-neg' : ''}">${yen(v)}</span>`;
   const monthEnd = m => new Date(Date.UTC(+m.slice(0, 4), +m.slice(5, 7), 0)).toISOString().slice(0, 10);
   const thisMonth = () => today().slice(0, 7);
@@ -32,7 +38,7 @@ export function installKb(h) {
   }
   const subOptions = (code, value, blank = '（補助なし）') => `<option value="">${esc(blank)}</option>` + subList(code).filter(s => s.active || s.code === value).map(s => `<option value="${esc(s.code)}" ${s.code === value ? 'selected' : ''}>${esc(s.code + ' ' + s.name)}</option>`).join('');
   const deptOptions = (value, blank = '（部門なし）') => `<option value="">${esc(blank)}</option>` + (masters().depts || []).filter(d => d.active || d.code === value).map(d => `<option value="${esc(d.code)}" ${d.code === value ? 'selected' : ''}>${esc(d.code + ' ' + d.name)}</option>`).join('');
-  const taxOptions = value => K.taxes.map(t => `<option value="${t.code}" ${t.code === value ? 'selected' : ''}>${esc(t.code + ' ' + t.name)}</option>`).join('');
+  const taxOptions = value => (value && !K.taxes.some(t => t.code === value) && TAX(value) ? [TAX(value), ...K.taxes] : K.taxes).map(t => `<option value="${t.code}" ${t.code === value ? 'selected' : ''}>${esc(t.code + ' ' + t.name)}</option>`).join('');
   const fyOptions = value => K.fiscal.years.map(y => `<option value="${y.fy}" ${Number(value) === y.fy ? 'selected' : ''}>${esc(y.label)}</option>`).join('');
   const fyOf = iso => (+iso.slice(5, 7) >= K.fiscal.startMonth ? +iso.slice(0, 4) : +iso.slice(0, 4) - 1);
   const fyRange = fy => K.fiscal.years.find(y => y.fy === fy) || { from: `${fy}-${String(K.fiscal.startMonth).padStart(2, '0')}-01`, to: monthEnd(addMonths(`${fy}-${String(K.fiscal.startMonth).padStart(2, '0')}`, 11)) };
@@ -52,7 +58,7 @@ export function installKb(h) {
 
   // ================= 仕訳入力（振替伝票） =================
   const sideHtml = (side, x = {}) => {
-    const acc = x.account || '', tax = x.tax || ACC(acc)?.tax || '00';
+    const acc = x.account || '', tax = x.tax || ACC(acc)?.tax || '090';
     return `<div class="kb-side" data-side="${side}" data-excl="${x.taxExcl ? 1 : ''}">
       <select data-kb="account" aria-label="${side === 'D' ? '借方' : '貸方'}科目">${accOptions(acc)}</select>
       <div class="kb-side-2"><select data-kb="sub" aria-label="補助">${subOptions(acc, x.sub || '')}</select><select data-kb="dept" aria-label="部門">${deptOptions(x.dept || '')}</select></div>
@@ -65,8 +71,8 @@ export function installKb(h) {
   function autoTax(sideEl) {
     const t = TAX($('[data-kb=tax]', sideEl).value), amt = num($('[data-kb=amount]', sideEl).value), ti = $('[data-kb=taxAmount]', sideEl);
     if (ti.dataset.manual) return;
-    const excl = !!sideEl.dataset.excl, r = t?.rate || 0;
-    ti.value = amt ? Math.floor(amt * r / (excl ? 100 : 100 + r)) : '';
+    const r = t?.taxable ? Math.round(t.rate * 10) : 0;
+    ti.value = amt ? Math.floor(amt * r / (t?.excl ? 1000 : 1000 + r)) : '';
   }
   function slipTotals() {
     const f = $('#kb-slip'); if (!f) return;
@@ -148,7 +154,7 @@ export function installKb(h) {
   document.addEventListener('view:rendered', () => { slipTotals(); openingTotals(); });
 
   // ================= 仕訳帳・伝票検索 =================
-  const sideCell = x => (x ? `<div>${esc(x.account)} ${esc(x.accountName)}</div><div class="small muted">${x.sub ? esc(x.sub + ' ' + x.subName) : ''}${x.dept ? ' ／' + esc(x.dept) : ''}${x.tax !== '00' ? ` ／${esc(x.taxName)}${x.taxAmount ? ' 税' + yen(x.taxAmount) + (x.taxExcl ? '(外)' : '') : ''}` : ''}</div>` : '');
+  const sideCell = x => (x ? `<div>${esc(x.account)} ${esc(x.accountName)}</div><div class="small muted">${x.sub ? esc(x.sub + ' ' + x.subName) : ''}${x.dept ? ' ／' + esc(x.dept) : ''}${x.tax !== '090' ? ` ／${esc(x.taxName)}${x.taxAmount ? ' 税' + yen(x.taxAmount) + (x.taxExcl ? '(外)' : '') : ''}` : ''}</div>` : '');
   function journalTable(d, { edit = true } = {}) {
     if (!d.slips.length) return '<div class="empty">条件に合う伝票がありません</div>';
     const lock = K.fiscal.lockDate;
@@ -202,7 +208,7 @@ export function installKb(h) {
       const monthRow = m => { const x = d.months.find(v => v.month === m); return `<tr class="kb-month"><td colspan="5" class="right">${esc(m)} 月計</td><td class="num">${yen(x.dr)}</td><td class="num">${yen(x.cr)}</td><td></td></tr>`; };
       for (const l of d.lines) {
         const m = String(l.date).slice(0, 7); if (last && m !== last) html += monthRow(last); last = m;
-        html += `<tr><td>${esc(l.date)}</td><td><a href="#kb-entry?id=${l.slipId}">${l.no}</a></td><td class="small">${esc(l.counter)}</td><td class="small">${esc(l.sub ? l.sub + ' ' + l.subName : '')}</td><td class="small">${esc(l.memo)}${l.tax !== '00' ? ` <span class="muted">${esc(TAX(l.tax)?.name || l.tax)}${l.taxAmount ? ' 税' + yen(l.taxAmount) : ''}</span>` : ''}</td>
+        html += `<tr><td>${esc(l.date)}</td><td><a href="#kb-entry?id=${l.slipId}">${l.no}</a></td><td class="small">${esc(l.counter)}</td><td class="small">${esc(l.sub ? l.sub + ' ' + l.subName : '')}</td><td class="small">${esc(l.memo)}${l.tax !== '090' ? ` <span class="muted">${esc(TAX(l.tax)?.name || l.tax)}${l.taxAmount ? ' 税' + yen(l.taxAmount) : ''}</span>` : ''}</td>
           <td class="num">${l.dr ? yen(l.dr) : ''}</td><td class="num">${l.cr ? yen(l.cr) : ''}</td><td class="num">${money(l.balance)}</td></tr>`;
       }
       if (last) html += monthRow(last);
@@ -271,8 +277,8 @@ export function installKb(h) {
     if (tab === 'tax') {
       const p = periodOf(q), d = await api('/api/kb/tax?' + qs(p));
       A.print = () => doPrint('消費税集計表', `${d.from} 〜 ${d.to}`, $('#kb-body').innerHTML);
-      const body = table([{ label: '税区分', value: r => r.code }, { label: '名称', value: r => r.name }, { label: '税率', value: r => (r.rate ? r.rate + '%' : '') }, { label: '税込金額', num: 1, html: r => money(r.gross) }, { label: '税抜金額', num: 1, html: r => money(r.net) }, { label: '消費税額', num: 1, html: r => money(r.tax) }, { label: '件数', num: 1, value: r => r.count }],
-        d.rows.filter(r => r.count || r.code !== '00'));
+      const body = table([{ label: '処税率', value: r => r.display }, { label: '名称', value: r => r.name }, { label: '税率', value: r => (r.rate ? r.rate + '%' : '') }, { label: '税込金額', num: 1, html: r => money(r.gross) }, { label: '税抜金額', num: 1, html: r => money(r.net) }, { label: '消費税額', num: 1, html: r => money(r.tax) }, { label: '件数', num: 1, value: r => r.count }],
+        d.rows, { empty: '期間内の仕訳がありません' });
       return page('決算書・消費税', '消費税集計表：税区分ごとの税込・税抜・税額。外税（仮受・仮払消費税を別行計上）の伝票は税額を課税行へ按分しています。',
         `${periodBar(q)}${xlsxLink('tax', p)}${printBtn}`,
         `${tabs(tab, [['bs', '貸借対照表'], ['pl', '損益計算書'], ['tax', '消費税集計表']])}<section class="card glass" id="kb-body">${body}
@@ -319,7 +325,7 @@ export function installKb(h) {
     return page('仕訳受入・書出', '請求システムの自動仕訳や、汎用CSV（借貸併記）を伝票として受け入れます。受入は1回ごとに記録され、まとめて取り消せます。', '',
       `<div class="grid2">
       <section class="card glass"><div class="card-head"><h2>請求システムから受入</h2></div>
-        <p class="small muted">「仕訳・会計連携」の自動仕訳（売掛金計上・入金・在庫・定時請求・小口現金・支払）を 1仕訳＝1伝票で受け入れます。受入済みの仕訳は対象外です。処税率は 9→対象外、11→課税売上10%、141→課税仕入10%、148→課税仕入8% に変換（推定・Q01）。</p>
+        <p class="small muted">「仕訳・会計連携」の自動仕訳（売掛金計上・入金・在庫・定時請求・小口現金・支払）を 1仕訳＝1伝票で受け入れます。受入済みの仕訳は対象外です。処税率は変換せずそのまま受け入れます（011 課税売上は仮受消費税行から税額を按分＝外税）。</p>
         <div class="filters"><label class="kb-inline">自<input type="date" id="ki-from" value="${esc(K.fiscal.startDate > p.from ? K.fiscal.startDate : fyRange(fyOf(p.from)).from)}"></label><label class="kb-inline">至<input type="date" id="ki-to" value="${esc(today())}"></label><button data-act="preview">内容を確認</button></div>
         <div id="ki-result"></div></section>
       <section class="card glass"><div class="card-head"><h2>CSV受入（汎用・借貸併記）</h2></div>
@@ -328,7 +334,7 @@ export function installKb(h) {
         <div id="kc-result"></div></section>
       <section class="card glass"><div class="card-head"><h2>仕訳データ書出</h2></div>
         <p class="small muted">期間内の伝票を汎用CSV（UTF-8・借貸併記）または仕訳帳 Excel で出力します。</p>
-        <div class="filters">${periodBar(q, { presets: false })}<a class="button" href="/api/kb/journal-csv?${qs(p)}" download>⇩ 仕訳CSV</a>${xlsxLink('journal', p)}</div></section>
+        <div class="filters">${periodBar(q, { presets: false })}<a class="button" href="/api/kb/journal-csv?${qs(p)}" download>⇩ 仕訳CSV</a><a class="button" href="/api/kb/journal-csv?${qs({ ...p, format: 'bugyo' })}" download>⇩ 勘定奉行CSV</a>${xlsxLink('journal', p)}</div></section>
       <section class="card glass"><div class="card-head"><h2>受入履歴</h2></div>
         ${table([{ label: 'No', value: r => r.id }, { label: '区分', value: r => r.sourceName }, { label: '内容', value: r => r.label }, { label: '伝票', num: 1, value: r => `${r.live}/${r.slips}` }, { label: '金額', num: 1, value: r => yen(r.amount) },
           { label: '実行', value: r => `${h.jst(r.at, 16)} ${r.by}` }, { label: '', html: r => r.status === 'ACTIVE' ? (canWrite() ? `<button class="mini danger" data-act="cancel" data-id="${r.id}" data-n="${r.live}">取消</button>` : '') : badge('取消済', 'gray') }], imports, { empty: '受入履歴はありません' })}</section>
@@ -337,14 +343,14 @@ export function installKb(h) {
 
   // ================= 会計設定 =================
   function accountForm(a) {
-    const isNew = !a; a = a || { code: '', name: '', grp: 'P3', side: '', sub: '', tax: '00', active: true, sort: '' };
+    const isNew = !a; a = a || { code: '', name: '', grp: 'P3', side: '', sub: '', tax: '090', active: true, sort: '' };
     modal({ title: isNew ? '勘定科目の追加' : `勘定科目の編集（${a.code}）`, submit: '保存', body: `<div class="form-grid">
       <label class="field req"><span>科目コード</span><input name="code" value="${esc(a.code)}" ${isNew ? '' : 'readonly'} maxlength="20"></label>
       <label class="field req"><span>科目名</span><input name="name" value="${esc(a.name)}" maxlength="100"></label>
       <label class="field req"><span>区分（決算書の表示位置）</span><select name="grp">${K.groups.map(g => `<option value="${g.code}" ${g.code === a.grp ? 'selected' : ''}>${esc(g.code + ' ' + g.name)}</option>`).join('')}</select></label>
       <label class="field"><span>正残高（貸借）</span><select name="side"><option value="">区分に従う</option><option value="D" ${a.side === 'D' && !isNew ? 'selected' : ''}>借方</option><option value="C" ${a.side === 'C' && !isNew ? 'selected' : ''}>貸方</option></select><small>評価勘定（期末棚卸高等）も区分の正残高のまま、反対側計上で減算されます</small></label>
       <label class="field"><span>補助区分</span><select name="sub">${Object.entries(K.subKinds).map(([k, v]) => `<option value="${k}" ${k === a.sub ? 'selected' : ''}>${esc(v)}</option>`).join('')}</select><small>内訳科目はマスタ管理「内訳科目」で登録</small></label>
-      <label class="field"><span>既定税区分</span><select name="tax">${taxOptions(a.tax)}</select></label>
+      <label class="field"><span>既定処税率</span><select name="tax">${taxOptions(a.tax)}</select></label>
       <label class="field"><span>表示順</span><input name="sort" class="num" value="${esc(a.sort ?? '')}"></label>
       <label class="field"><span>状態</span><span><input type="checkbox" name="active" ${a.active ? 'checked' : ''}> 有効</span></label></div>`,
       onSubmit: async (v, f) => { await post('/api/kb/accounts', { ...v, active: f.active.checked, mode: isNew ? 'create' : 'update' }); await kb(true); await h.loadMasters(); toast('保存しました'); render(); } });
@@ -370,14 +376,14 @@ export function installKb(h) {
   });
   VIEWS['kb-setup'] = async q => {
     const A = acts(); await kb(true);
-    const tab = ['accounts', 'opening', 'period', 'tax'].includes(q.tab) ? q.tab : 'accounts';
+    const tab = ['accounts', 'opening', 'period', 'tax', 'bugyo'].includes(q.tab) ? q.tab : 'accounts';
     A.tab = d => go('kb-setup', { tab: d.tab });
     let body = '', actions = '';
     if (tab === 'accounts') {
       A.newAcc = () => accountForm(); A.editAcc = d => accountForm(ACC(d.code));
       actions = canWrite() ? '<button class="primary" data-act="newAcc">＋ 科目追加</button>' : '';
       body = K.groups.map(g => { const list = K.accounts.filter(a => a.grp === g.code); return `<h3 class="kb-h3">${esc(g.code)} ${esc(g.name)} <span class="muted small">（${esc(K.sections[g.section])}・正残高 ${g.side === 'D' ? '借方' : '貸方'}）</span></h3>` +
-        table([{ label: 'コード', value: a => a.code }, { label: '科目名', value: a => a.name }, { label: '貸借', value: a => (a.side === 'D' ? '借方' : '貸方') }, { label: '補助', value: a => K.subKinds[a.sub] }, { label: '既定税区分', value: a => TAX(a.tax)?.name || a.tax },
+        table([{ label: 'コード', value: a => a.code }, { label: '科目名', value: a => a.name }, { label: '貸借', value: a => (a.side === 'D' ? '借方' : '貸方') }, { label: '補助', value: a => K.subKinds[a.sub] }, { label: '既定処税率', value: a => `${a.tax} ${TAX(a.tax)?.name || ''}` },
           { label: '状態', html: a => (a.active ? badge('有効', 'green') : badge('無効', 'gray')) + (a.guessed ? ' ' + badge('区分推定', 'amber') : '') }, { label: '', html: a => canWrite() ? `<button class="mini" data-act="editAcc" data-code="${esc(a.code)}">編集</button>` : '' }], list, { empty: '科目なし' }); }).join('');
       body = `<p class="small muted">科目コード・名称は請求システムの勘定科目マスタと共通です。初期値は顧客の「勘定科目マスター一覧」（2026-06-26）から転記しています。</p>${body}`;
     } else if (tab === 'opening') {
@@ -399,11 +405,30 @@ export function installKb(h) {
         <label class="field"><span>導入年度（期首残高の基準）</span><select id="ks-fy" ${isAdmin() ? '' : 'disabled'}>${years.map(y => `<option value="${y}" ${y === K.fiscal.startFy ? 'selected' : ''}>${y}年度（${y}-${String(K.fiscal.startMonth).padStart(2, '0')}-01〜）</option>`).join('')}</select><small>導入期首より前の日付の伝票は入力できません</small></label>
         <label class="field"><span>入力制限日</span><input type="date" id="ks-lock" value="${esc(K.fiscal.lockDate)}" ${isAdmin() ? '' : 'disabled'}><small>この日以前の伝票は登録・修正・削除・受入できません（月次締め）。空欄で制限なし</small></label></div>
         ${isAdmin() ? '<div class="filters"><button class="primary" data-act="saveSettings">保存</button></div>' : '<p class="muted small">変更は管理者のみです。</p>'}`;
+    } else if (tab === 'bugyo') {
+      const b = await api('/api/kb/bugyo');
+      A.saveBugyo = async (_, btn) => {
+        btn.disabled = true;
+        try {
+          const symbols = Object.fromEntries($$('[data-sym]').map(el => [el.dataset.sym, el.value])), taxMap = Object.fromEntries($$('[data-otax]').map(el => [el.dataset.otax, el.value]));
+          await post('/api/kb/bugyo', { symbols, taxMap, encoding: $('#ob-enc').value }); toast('保存しました'); render();
+        } catch (e) { toast(e.message, true); } finally { btn.disabled = false; }
+      };
+      const dis = isAdmin() ? '' : 'disabled';
+      body = `<p class="small muted">QA回答（オービック 2026-10-08）：勘定奉行（奉行クラウド, Azure）の受入は CSV／Excel。見出しに「OBC受入記号」を付ければ列順は自由、または奉行側でマッピング。受入記号と税区分コードは「データ受入形式一覧表」（OBC サポートサイト）で確定してから登録してください。未登録の項目は項目名、税区分は処税率のまま出力します。</p>
+        <div class="grid2"><div>${table([{ label: '項目', value: r => r[1] }, { label: 'OBC受入記号', html: r => `<input data-sym="${r[0]}" value="${esc(b.symbols[r[0]] || '')}" maxlength="40" ${dis} placeholder="（未登録）">` }], b.items)}</div>
+        <div>${table([{ label: '処税率', value: t => `${t.code} ${t.name}` }, { label: '奉行の税区分コード', html: t => `<input data-otax="${t.code}" value="${esc(b.taxMap[t.code] || '')}" maxlength="20" ${dis} placeholder="（処税率のまま）">` }], K.taxes)}
+        <label class="field" style="margin-top:10px"><span>文字コード</span><select id="ob-enc" ${dis}><option value="shift_jis" ${b.encoding !== 'utf-8' ? 'selected' : ''}>Shift_JIS</option><option value="utf-8" ${b.encoding === 'utf-8' ? 'selected' : ''}>UTF-8（BOM付）</option></select></label></div></div>
+        ${isAdmin() ? '<div class="filters right"><button class="primary" data-act="saveBugyo">保存</button></div>' : '<p class="muted small">変更は管理者のみです。</p>'}
+        <p class="small muted">出力：「会計・管理 → 仕訳・会計連携 → 会計連携データ」の［勘定奉行 受入CSV］（請求システムの自動仕訳）、または「仕訳受入・書出」の［勘定奉行CSV］（本会計モジュールの伝票）。</p>`;
     } else {
-      body = table([{ label: 'コード', value: t => t.code }, { label: '税区分', value: t => t.name }, { label: '税率', value: t => (t.rate ? t.rate + '%' : '') }, { label: '区分', value: t => ({ S: '課税売上', P: '課税仕入', SN: '非課税売上', PN: '非課税仕入', '': '対象外' }[t.kind]) }], K.taxes) +
-        `<h3 class="kb-h3">請求システムの処税率・税区分からの変換（推定・Q01確認待ち）</h3>` + table([{ label: '請求システム', value: r => r[0] }, { label: '会計の税区分', value: r => `${r[1]} ${TAX(r[1])?.name || ''}` }], Object.entries(K.seikyuTax));
+      const digits = (title, obj, fmt) => `<h3 class="kb-h3">${esc(title)}</h3>` + table([{ label: 'コード', value: r => r[0] }, { label: '意味', value: r => fmt(r[1]) }], Object.entries(obj));
+      body = `<p class="small muted">税区分は現行システムの処税率（3桁）をそのまま使います（顧客資料「消費税区分.xlsx」）。1桁目＝税込区分、2桁目＝税区分、3桁目＝税率区分。保存は空白を 0 にした3桁（例「 41」→ 041、「 9 」→ 090）。</p>` +
+        table([{ label: '処税率', value: t => t.code }, { label: '現行表記', value: t => t.display }, { label: '内容', value: t => t.name }, { label: '消費税', value: t => (t.taxable ? (t.excl ? '外税（金額×税率）' : '内税（税込金額から計算）') : 'なし') }], K.taxes) +
+        digits('1桁目（税込区分）', { 0: '空白＝非課税・不課税（課税売上は税額を別行計上＝外税）', 1: '税込み', 2: '定義なし（税抜＝外税と推定・Q01 確認待ち）' }, v => v) +
+        digits('2桁目（税区分）', K.taxKinds, v => v) + digits('3桁目（税率区分）', K.taxRates, v => (v ? v + '%' : '0%（空白）'));
     }
-    return page('会計設定', '勘定科目（区分・補助・既定税区分）、期首残高、会計期間・入力制限、税区分を設定します。', actions,
-      `${tabs(tab, [['accounts', '勘定科目'], ['opening', '期首残高'], ['period', '会計期間・入力制限'], ['tax', '税区分']])}<section class="card glass">${body}</section>`);
+    return page('会計設定', '勘定科目（区分・補助・既定処税率）、期首残高、会計期間・入力制限、処税率の一覧です。', actions,
+      `${tabs(tab, [['accounts', '勘定科目'], ['opening', '期首残高'], ['period', '会計期間・入力制限'], ['tax', '処税率'], ['bugyo', '勘定奉行連携']])}<section class="card glass">${body}</section>`);
   };
 }

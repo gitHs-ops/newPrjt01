@@ -747,6 +747,19 @@
         "配置 f1e890e: seikyu-web 0a4e37cf SUCCESS（ログ listening (PostgreSQL)＝本番 DB で kb_* 作成・科目投入が完了）、/health 200、配置版 kb.js がローカルと同一、app.js に installKb、/api/kb/meta 未ログイン 401。ログイン後の画面確認は未実施（本番の認証情報は入力しない）→ ユーザー確認待ち。"
       ],
       "notes": "kb_* 6 表は起動時に作成（44 表設計の外）。勘定科目 88 件の初期値は顧客の勘定科目マスター一覧（analysis/ocr/06）から転記し account_subject に INSERT IGNORE（既存名称は変更しない）。処税率→税区分の変換は推定（Q01）。本番 DB への接続は権限分類器で拒否されたため、ローカル検証は PGlite（scratchpad、リポジトリ外）。"
+    },
+    {
+      "id": "seikyu-016",
+      "priority": 1,
+      "area": "seikyu-web",
+      "title": "新規資料（議事メモ・QA回答・消費税区分・現行Javaソース）による再構成",
+      "status": "in_progress",
+      "user_visible_behavior": "現行Javaとコード統一（決済方法・伝票区分・製品区分・ロール・採番）、Java方式の単価・運賃・端数処理、赤黒訂正、処税率3桁、定時請求・小口・仕入の複数明細、業者支払条件、帳票⑭⑰・振込先一覧、勘定奉行CSV、JV構成員＝業者、確認事項の回答状態。",
+      "verification": ["ローカル PGlite（旧データからの一回変換を含む）で API スモーク", "Browser pane で主要画面", "npm test（単体）", "配置版で同じ確認"],
+      "evidence": [
+        "2026-10-21: ローカル スモーク 会計・仕入 31/31、出荷・互換 12/14（FAIL 2 は試験条件：締日後の訂正日、デモ商品の区分未設定）、単体 6/6（taxcode 追加）、結合 9/9（空の PGlite に DDL 適用から。赤黒・コード変更・業者＝JV構成員に合わせて期待値を更新、締日20日の日付依存を締日31指定で解消）。Browser pane で定時請求複数明細・赤黒訂正・勘定奉行連携・商品仕入・移行確認事項、コンソールエラー 0。"
+      ],
+      "notes": "差異報告：seikyuPrjt01/seikyu-web_재구성_차이점보고서_2026-10-21.md。一回変換は code_m SET/CMP1021 で再実行しない。未反映（sales_no の意味、出荷必須項目、業務日付、税率A0007、立替金・支払調整、取引先統合、請求書PDF）は報告書4章。"
     }
   ]
 }

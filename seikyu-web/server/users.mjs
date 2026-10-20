@@ -4,7 +4,9 @@ import { check, Conflict, text, bool } from './domain.mjs';
 import { rows, one, audit } from './db.mjs';
 
 const scryptAsync = promisify(scrypt);
-export const ROLES = { 1: '管理者', 2: '担当者', 3: '参照者' };
+// ロール番号は現行 Java（1 admin / 2 user / 3 manager / 4 staff / 5 guest）に合わせる
+export const ROLES = { 1: '管理者', 2: '担当者（受付）', 3: '担当者（事務）', 4: '担当者（出荷のみ）', 5: '参照者' };
+export const WRITE_ROLES = [1, 2, 3, 4];
 export const SESSION_HOURS = 8;
 const sha = s => createHash('sha256').update(s).digest('hex');
 

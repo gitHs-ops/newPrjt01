@@ -19,7 +19,7 @@ export async function invoiceBook(c, q) {
       ['日付', '伝票No', '現場', '品名', '数量', '単価', '金額', '税率', '備考'].map(H)];
     let site = null, sub = 0;
     const flush = () => { if (site !== null) rows.push(['', '', '', S('現場小計'), '', '', S(sub)]); };
-    for (const l of s.lines) { if ((l.site || '') !== site) { flush(); site = l.site || ''; sub = 0; } sub += l.net; rows.push([l.date, l.orderNo + (l.shipKb === 2 ? ' 訂正' : ''), l.siteName || '', l.itemName, l.quantity, l.price, l.net, `${l.taxRate}%`, l.remarks || '']); }
+    for (const l of s.lines) { if ((l.site || '') !== site) { flush(); site = l.site || ''; sub = 0; } sub += l.net; rows.push([l.date, l.orderNo + (l.shipKb === 5 ? (l.quantity < 0 ? ' 赤' : ' 黒')  : ''), l.siteName || '', l.itemName, l.quantity, l.price, l.net, `${l.taxRate}%`, l.remarks || '']); }
     flush();
     if (s.demo !== false) rows.push([], ['※ 架空データによる検証用の請求書です。']);
     sheets.push({ name: `${s.invoiceId}_${s.customer.code}`.slice(0, 31), rows, widths: [12, 14, 20, 20, 9, 10, 13, 7, 16] });

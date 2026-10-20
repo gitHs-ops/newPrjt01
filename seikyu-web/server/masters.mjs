@@ -9,7 +9,7 @@ export const SYSTEM_ACCOUNTS = [
   ['1431', '業者立替金'], ['4121', '買掛金'], ['4170', '預り金'], ['4171', '預り金（安全協力費等）'], ['8790', '雑収入'], ['4415', '仮受消費税'], ['8130', '合材売上'], ['8231', '仕入'], ['8330', '雑費'], ['8850', '雑損失'], ['82316', '期末棚卸高'],
 ];
 const CODE = /^[0-9A-Za-z\-]+$/;
-const del = active => (active ? '0' : '1');
+const del = active => (active ? '' : '1'); // 現行 Java：有効は空、無効は '1'
 const live = r => r.delete_f !== '1';
 const hash = o => createHash('sha1').update(JSON.stringify(o)).digest('hex').slice(0, 16);
 const siteKey = (code, suffix) => `${code}|${suffix}`;
@@ -79,7 +79,7 @@ export const MASTERS = {
   },
   items: {
     label: '商品', table: 'item_m',
-    fields: [F('code', '商品コード', { max: 5, key: true }), F('name', '商品名', { max: 22 }), F('unit', '単位', { max: 2 }), F('price', '標準単価', { type: 'int' }), F('kind', '製品・材料区分', { type: 'select', options: [['', '共通'], ['1', '製品'], ['2', '材料']], optional: true, hint: '配合計算・材料受払表で使用' }), F('active', '有効', { type: 'bool' })],
+    fields: [F('code', '商品コード', { max: 5, key: true }), F('name', '商品名', { max: 22 }), F('unit', '単位', { max: 2 }), F('price', '標準単価', { type: 'int' }), F('kind', '製品・材料区分', { type: 'select', options: [['', '共通'], ['2', '製品（自社製品）'], ['1', '材料・仕入品']], optional: true, hint: '現行 Java と同じ 2=製品・1=材料。配合計算・材料受払表・粗利で使用' }), F('active', '有効', { type: 'bool' })],
     select: 'SELECT * FROM item_m', where: 'item_cd=?', keyOf: r => [r.code],
     decode: r => ({ code: r.item_cd, name: r.item_nam, unit: r.unit, price: Number(r.tanka), kind: r.item_product_kb || '', active: live(r) }),
     validate: r => ({ code: text(r.code, '商品コード', 5, { pattern: CODE }), name: text(r.name, '商品名', 22), unit: text(r.unit || 't', '単位', 2), price: yen(r.price ?? 0, '標準単価', { max: 9999999 }), kind: ['1', '2'].includes(String(r.kind || '')) ? String(r.kind) : '', active: bool(r.active ?? true) }),
@@ -88,26 +88,32 @@ export const MASTERS = {
       else await c.query('UPDATE item_m SET item_nam=?,tanka=?,unit=?,item_product_kb=?,delete_f=? WHERE item_cd=?', [r.name, r.price, r.unit, r.kind, del(r.active), r.code]);
     },
   },
+  // 売上単価（現行 Java MA034/MA1000 と同じ）：通常単価・運賃と、適用期間内だけ使う適用単価・適用運賃。期間は両方入力か両方空。
   prices: {
     label: '得意先別単価', table: 'uriage_tanka_m',
     fields: [F('item', '商品', { type: 'ref', ref: 'items', key: true }), F('customer', '得意先', { type: 'ref', ref: 'customers', key: true }),
-      F('site', '現場', { type: 'site', key: true, optional: true, hint: '未指定は得意先共通' }), F('price', '単価', { type: 'int' }),
+      F('site', '現場', { type: 'site', key: true, optional: true, hint: '未指定は得意先共通' }), F('price', '単価', { type: 'int' }), F('freight', '運賃', { type: 'int', optional: true }),
+      F('applyPrice', '適用単価', { type: 'int', optional: true, list: false, hint: '適用期間内の出荷に使う単価' }), F('applyFreight', '適用運賃', { type: 'int', optional: true, list: false }),
       F('start', '適用開始日', { type: 'date', optional: true }), F('end', '適用終了日', { type: 'date', optional: true }), F('active', '有効', { type: 'bool' })],
     select: 'SELECT * FROM uriage_tanka_m', where: 'item_cd=? AND customers_cd=? AND field_cd=? AND field_suffix=?',
     keyOf: r => { const [code = '', suffix = ''] = (r.site || '').split('|'); return [r.item, r.customer, code, suffix]; },
-    decode: r => ({ item: r.item_cd, customer: r.customers_cd, site: r.field_cd ? siteKey(r.field_cd, r.field_suffix) : '', price: Number(r.apply_tanka), start: r.apply_start || '', end: r.apply_end || '', active: live(r) }),
+    decode: r => ({ item: r.item_cd, customer: r.customers_cd, site: r.field_cd ? siteKey(r.field_cd, r.field_suffix) : '', price: Number(r.tanka), freight: Number(r.freight || 0), applyPrice: Number(r.apply_tanka || 0), applyFreight: Number(r.apply_freight || 0),
+      start: r.apply_start || '', end: r.apply_end || '', active: live(r) }),
     validate: r => {
-      const v = { item: text(r.item, '商品', 5), customer: text(r.customer, '得意先', 5), site: text(r.site, '現場', 11, { required: false }), price: yen(r.price, '単価', { max: 9999999 }),
+      const v = { item: text(r.item, '商品', 5), customer: text(r.customer, '得意先', 5), site: text(r.site, '現場', 11, { required: false }), price: yen(r.price, '単価', { max: 9999999 }), freight: yen(r.freight || 0, '運賃', { max: 9999999 }),
+        applyPrice: yen(r.applyPrice || 0, '適用単価', { max: 9999999 }), applyFreight: yen(r.applyFreight || 0, '適用運賃', { max: 9999999 }),
         start: r.start ? isoDate(r.start, '適用開始日') : '', end: r.end ? isoDate(r.end, '適用終了日') : '', active: bool(r.active ?? true) };
-      check(!v.start || !v.end || v.start <= v.end, '適用期間が不正です'); return v;
+      check(!v.start === !v.end, '適用開始日と適用終了日は両方入力するか両方空にしてください'); check(!v.start || v.start <= v.end, '適用期間が不正です');
+      if (v.start) check(v.applyPrice > 0, '適用期間を入れた場合は適用単価を入力してください');
+      return v;
     },
     async write(c, r, old) {
       const [fc = '', fs = ''] = r.site ? r.site.split('|') : [];
       if (r.site) check(await one(c, 'SELECT 1 FROM field_name_m WHERE customers_cd=? AND field_cd=? AND field_suffix=?', [r.customer, fc, fs]), '現場が得意先に登録されていません');
-      if (!old) await c.query('INSERT INTO uriage_tanka_m (item_cd,customers_cd,field_cd,field_suffix,tanka,freight,apply_tanka,apply_freight,apply_start,apply_end,delete_f,update_daytime) VALUES (?,?,?,?,?,0,?,0,?,?,?,UTC_TIMESTAMP(6))',
-        [r.item, r.customer, fc, fs, r.price, r.price, r.start || null, r.end || null, del(r.active)]);
-      else await c.query('UPDATE uriage_tanka_m SET tanka=?,apply_tanka=?,apply_start=?,apply_end=?,delete_f=?,update_daytime=UTC_TIMESTAMP(6) WHERE item_cd=? AND customers_cd=? AND field_cd=? AND field_suffix=?',
-        [r.price, r.price, r.start || null, r.end || null, del(r.active), r.item, r.customer, fc, fs]);
+      if (!old) await c.query('INSERT INTO uriage_tanka_m (item_cd,customers_cd,field_cd,field_suffix,tanka,freight,apply_tanka,apply_freight,apply_start,apply_end,delete_f,update_daytime) VALUES (?,?,?,?,?,?,?,?,?,?,?,UTC_TIMESTAMP(6))',
+        [r.item, r.customer, fc, fs, r.price, r.freight, r.applyPrice, r.applyFreight, r.start || null, r.end || null, del(r.active)]);
+      else await c.query('UPDATE uriage_tanka_m SET tanka=?,freight=?,apply_tanka=?,apply_freight=?,apply_start=?,apply_end=?,delete_f=?,update_daytime=UTC_TIMESTAMP(6) WHERE item_cd=? AND customers_cd=? AND field_cd=? AND field_suffix=?',
+        [r.price, r.freight, r.applyPrice, r.applyFreight, r.start || null, r.end || null, del(r.active), r.item, r.customer, fc, fs]);
     },
   },
   banks: {
@@ -144,13 +150,22 @@ export const MASTERS = {
     label: '業者', table: 'vendor',
     fields: [F('code', '業者コード', { max: 20, key: true }), F('name', '業者名', { max: 200 }), F('bank', '振込先銀行(4桁)', { max: 4, optional: true }), F('branch', '支店(3桁)', { max: 3, optional: true }),
       F('accountType', '預金種別', { type: 'select', options: [['1', '普通'], ['2', '当座'], ['4', '貯蓄']], optional: true }), F('account', '口座番号', { max: 16, optional: true }),
-      F('advance', '業者立替金残高（開始）', { list: false, type: 'int', optional: true, hint: '支払時に相殺できる額（F-03）' }), F('holder', '受取人名(カナ)', { list: false, max: 200, optional: true }), F('active', '有効', { type: 'bool' })],
-    select: "SELECT v.*, b.bank_code, b.branch_code, b.account_number, b.holder_name, b.account_type_code, ob.amount advance FROM vendor v LEFT JOIN bank_account b ON b.bank_account_id=v.bank_account_id LEFT JOIN opening_balance ob ON ob.source_reference=CONCAT('OPEN-VADV-',v.vendor_code)",
+      F('advance', '業者立替金残高（開始）', { list: false, type: 'int', optional: true, hint: '支払時に相殺できる額（F-03）' }), F('holder', '受取人名(カナ)', { list: false, max: 200, optional: true }),
+      // 10/19 打合せ：支払繰延区分（「1 15」＝翌月15日、「3 31」＝3か月後の月末）・振込日・振込元銀行は業者マスタに持つ（code_m VPAY）
+      F('payMonths', '支払繰延（○か月後）', { list: false, type: 'int', optional: true, hint: '0〜12。未設定は翌月末払い' }), F('payDay', '支払日', { list: false, type: 'int', optional: true, hint: '1〜31（31=月末）' }),
+      F('payCycle', '振込サイクル', { list: false, type: 'select', optional: true, options: [['', '（未設定）'], ['15', '15日'], ['31', '月末']] }), F('payBank', '振込元口座', { list: false, type: 'ref', ref: 'banks', optional: true }),
+      F('active', '有効', { type: 'bool' })],
+    select: "SELECT v.*, b.bank_code, b.branch_code, b.account_number, b.holder_name, b.account_type_code, ob.amount advance, vp.category1 pay_m, vp.category2 pay_d, vp.category3 pay_cycle, vp.code_dtl_abr pay_bank FROM vendor v LEFT JOIN bank_account b ON b.bank_account_id=v.bank_account_id LEFT JOIN opening_balance ob ON ob.source_reference=CONCAT('OPEN-VADV-',v.vendor_code) LEFT JOIN code_m vp ON vp.code_key='VPAY' AND vp.code_dtl=v.vendor_code",
     where: 'v.vendor_code=?', keyOf: r => [r.code],
-    decode: r => ({ id: r.vendor_id, code: r.vendor_code, name: r.vendor_name, bank: r.bank_code || '', branch: r.branch_code || '', accountType: r.account_type_code || '1', account: r.account_number || '', holder: r.holder_name || '', advance: Number(r.advance || 0), active: !!r.active }),
+    decode: r => ({ id: r.vendor_id, code: r.vendor_code, name: r.vendor_name, bank: r.bank_code || '', branch: r.branch_code || '', accountType: r.account_type_code || '1', account: r.account_number || '', holder: r.holder_name || '', advance: Number(r.advance || 0),
+      payMonths: r.pay_m ?? '', payDay: r.pay_d ?? '', payCycle: r.pay_cycle || '', payBank: r.pay_bank || '', active: !!r.active }),
     validate: r => {
       const v = { code: text(r.code, '業者コード', 20, { pattern: CODE }), name: text(r.name, '業者名', 200), bank: String(r.bank || '').trim(), branch: String(r.branch || '').trim(),
-        accountType: String(r.accountType || '1'), account: String(r.account || '').trim(), holder: toZenginKana(String(r.holder || '').trim()), advance: yen(r.advance || 0, '業者立替金残高'), active: bool(r.active ?? true) };
+        accountType: String(r.accountType || '1'), account: String(r.account || '').trim(), holder: toZenginKana(String(r.holder || '').trim()), advance: yen(r.advance || 0, '業者立替金残高'), active: bool(r.active ?? true),
+        payMonths: String(r.payMonths ?? '').trim(), payDay: String(r.payDay ?? '').trim(), payCycle: String(r.payCycle || ''), payBank: String(r.payBank || '').trim() };
+      if (v.payMonths !== '') check(/^\d{1,2}$/.test(v.payMonths) && Number(v.payMonths) <= 12, '支払繰延は0〜12か月です');
+      if (v.payDay !== '') check(/^\d{1,2}$/.test(v.payDay) && Number(v.payDay) >= 1 && Number(v.payDay) <= 31, '支払日は1〜31です');
+      check(['', '15', '31'].includes(v.payCycle), '振込サイクルが不正です');
       if (v.bank || v.branch || v.account || v.holder) check(/^\d{4}$/.test(v.bank) && /^\d{3}$/.test(v.branch) && /^\d{1,16}$/.test(v.account) && v.holder && v.holder.length <= 200 && ['1', '2', '4'].includes(v.accountType), '振込先は銀行4桁・支店3桁・口座番号・受取人・預金種別をすべて入力してください');
       return v;
     },
@@ -163,6 +178,9 @@ export const MASTERS = {
       }
       if (!old) await c.query('INSERT INTO vendor (vendor_code,vendor_name,bank_account_id,active) VALUES (?,?,?,?)', [r.code, r.name, accountId, r.active]);
       else await c.query('UPDATE vendor SET vendor_name=?,bank_account_id=?,active=? WHERE vendor_code=?', [r.name, accountId, r.active, r.code]);
+      await c.query("DELETE FROM code_m WHERE code_key='VPAY' AND code_dtl=?", [r.code]);
+      if (r.payMonths !== '' || r.payDay !== '' || r.payCycle || r.payBank) await c.query("INSERT INTO code_m (code_key,code_key_nam,code_dtl,code_dtl_nam,code_dtl_abr,category1,category2,category3) VALUES ('VPAY','支払条件',?,'',?,?,?,?)",
+        [r.code, r.payBank, r.payMonths, r.payDay, r.payCycle]);
       if ((old?.advance || 0) !== r.advance) {
         const v = await one(c, 'SELECT vendor_id FROM vendor WHERE vendor_code=?', [r.code]);
         const used = await one(c, "SELECT COALESCE(SUM(offset_amount),0) n FROM payment WHERE vendor_id=? AND status='POSTED'", [v.vendor_id]);
@@ -220,11 +238,15 @@ export const MASTERS = {
   },
   jv: {
     label: 'JV構成員・出資比率', table: 'code_m',
-    fields: [F('code', '構成員コード', { max: 12, key: true }), F('name', '構成員名', { max: 40 }), F('ratio', '出資比率(%)', { hint: '例: 47.5（有効な構成員の合計を100%に）' }), F('seq', '表示順', { type: 'int', optional: true }), F('active', '有効', { type: 'bool' })],
+    // 現行 HMW110「構成員 登録」（出資比率の変更.xlsx 2026-10-14）：構成員コード＝業者コード、最大7社、比率は小数2桁
+    fields: [F('code', '構成員（業者）', { type: 'ref', ref: 'vendors', key: true, hint: '業者マスタのコード（例 4227 中部舗材）' }), F('name', '構成員名', { max: 40, optional: true, hint: '空欄は業者名' }), F('ratio', '出資比率(%)', { hint: '例: 47.5（有効な構成員の合計を100%に）' }), F('seq', '表示順', { type: 'int', optional: true }), F('active', '有効', { type: 'bool' })],
     select: "SELECT * FROM code_m WHERE code_key='JV'", where: 'code_dtl=?', keyOf: r => [r.code],
     decode: r => ({ code: r.code_dtl, name: r.code_dtl_nam, ratio: Number(r.category1 || 0) / 100, seq: Number(r.category2 || 0), active: r.code_dtl_abr !== '0' }),
-    validate: r => ({ code: text(r.code, '構成員コード', 12, { pattern: CODE }), name: text(r.name, '構成員名', 40), ratio: (() => { const t = String(r.ratio ?? '').trim(); check(/^\d{1,3}(\.\d{1,2})?$/.test(t) && Number(t) > 0 && Number(t) <= 100, '出資比率は0より大きく100以下（小数2桁まで）で入力してください'); return Number(t); })(), seq: yen(r.seq || 0, '表示順', { max: 9999 }), active: bool(r.active ?? true) }),
+    validate: r => ({ code: text(r.code, '構成員コード', 12, { pattern: CODE }), name: text(r.name, '構成員名', 40, { required: false }), ratio: (() => { const t = String(r.ratio ?? '').trim(); check(/^\d{1,3}(\.\d{1,2})?$/.test(t) && Number(t) > 0 && Number(t) <= 100, '出資比率は0より大きく100以下（小数2桁まで）で入力してください'); return Number(t); })(), seq: yen(r.seq || 0, '表示順', { max: 9999 }), active: bool(r.active ?? true) }),
     async write(c, r, old) {
+      if (!old) { const v = await one(c, 'SELECT vendor_name FROM vendor WHERE vendor_code=?', [r.code]); check(v, '構成員は業者マスタに登録された業者を選択してください'); r.name ||= v.vendor_name.slice(0, 40); }
+      if (r.active) check(Number((await one(c, "SELECT COUNT(*) n FROM code_m WHERE code_key='JV' AND code_dtl_abr<>'0' AND code_dtl<>?", [r.code])).n) < 7, '有効な構成員は最大7社です（現行 HMW110）');
+      check(r.name, '構成員名を入力してください');
       if (!old) await c.query("INSERT INTO code_m (code_key,code_key_nam,code_dtl,code_dtl_nam,code_dtl_abr,category1,category2,category3) VALUES ('JV','JV構成員',?,?,?,?,?,'')", [r.code, r.name, r.active ? '1' : '0', String(Math.round(r.ratio * 100)), String(r.seq)]);
       else await c.query("UPDATE code_m SET code_dtl_nam=?,code_dtl_abr=?,category1=?,category2=? WHERE code_key='JV' AND code_dtl=?", [r.name, r.active ? '1' : '0', String(Math.round(r.ratio * 100)), String(r.seq), r.code]);
     },
