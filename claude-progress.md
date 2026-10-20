@@ -1074,3 +1074,4 @@ Deployment a617173a-0217-4671-b54a-0adc2a5c869d succeeded (5e1c817). Live Edge f
 - 검증: 로컬 스모크 31/31·12/14(실패 2는 시험 조건), 단위 6/6, Browser pane 콘솔 에러 0.
 - 보고서: seikyuPrjt01/seikyu-web_재구성_차이점보고서_2026-10-21.md
 다음: 배포본 확인 후 seikyu-016 passing. 10/26 勘定奉行 연계 회의에서 受入記号·税区分 확정.
+- 배포 190cffa → seikyu-web d0854d6a SUCCESS, /health 200, 배포본 app.js·kb.js 로컬과 동일. 결합 9/9. 로그인 후 화면은 사용자 확인 대기(seikyu-016 in_progress).
