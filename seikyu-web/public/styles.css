@@ -356,3 +356,17 @@ dialog.alert-dialog::backdrop { background: rgba(15,23,42,.35); }
 .alert-dialog .alert-foot button { min-width: 96px; }
 @keyframes alertIn { from { opacity: 0; transform: scale(.96); } to { opacity: 1; transform: none; } }
 @media print { dialog.alert-dialog { display: none !important; } }
+
+/* 処理中表示（共通）と進捗ダイアログ */
+#busy-bar { inset: 14px auto auto 50%; transform: translateX(-50%); margin: 0; border: 0; padding: 9px 18px; border-radius: 999px; background: #1e293b; color: #fff; font-size: 13px; font-weight: 600; display: none; align-items: center; gap: 10px; box-shadow: 0 10px 28px rgba(15,23,42,.3); }
+#busy-bar:popover-open { display: flex; }
+.busy-spin { width: 14px; height: 14px; border-radius: 50%; border: 2px solid rgba(255,255,255,.35); border-top-color: #fff; animation: spin .8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+dialog.progress-dialog { position: fixed; width: min(460px, calc(100vw - 32px)); padding: 24px 26px 18px; border: 0; border-radius: 16px; background: #fff; color: var(--text-primary); box-shadow: 0 24px 60px rgba(15,23,42,.35); }
+dialog.progress-dialog::backdrop { background: rgba(15,23,42,.35); }
+.progress-dialog h2 { font-size: 16px; margin: 0 0 14px; }
+.progress-track { height: 12px; border-radius: 999px; background: #e2e8f0; overflow: hidden; }
+.progress-fill { height: 100%; width: 0; border-radius: 999px; background: linear-gradient(90deg, #6366f1, #22c55e); transition: width .3s ease; }
+.progress-meta { display: flex; justify-content: space-between; gap: 12px; margin-top: 10px; font-size: 13px; font-weight: 600; }
+.progress-meta #progress-label { font-weight: 400; text-align: right; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+@media print { #busy-bar, dialog.progress-dialog { display: none !important; } }

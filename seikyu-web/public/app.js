@@ -20,7 +20,22 @@ async function api(url, { method = 'GET', body } = {}) {
   if (!res.ok) throw Error(data.error || `処理に失敗しました (${res.status})`);
   return data;
 }
-const post = (url, body) => api(url, { method: 'POST', body });
+// 登録・作成など時間のかかる POST は 0.4 秒を超えたら画面上部に「処理中…」を表示（全画面共通）
+let busyCount = 0, busyTimer = null;
+const busy = on => {
+  const b = $('#busy-bar'); if (!b) return;
+  busyCount = Math.max(0, busyCount + (on ? 1 : -1));
+  if (busyCount && !busyTimer && !(b.showPopover && b.matches(':popover-open'))) busyTimer = setTimeout(() => { busyTimer = null; if (busyCount && !$('#progress-dialog')?.open) { try { b.showPopover ? b.showPopover() : (b.style.display = 'flex'); } catch {} } }, 400);
+  if (!busyCount) { clearTimeout(busyTimer); busyTimer = null; try { b.showPopover ? b.hidePopover() : (b.style.display = 'none'); } catch {} }
+};
+const post = async (url, body) => { busy(true); try { return await api(url, { method: 'POST', body }); } finally { busy(false); } };
+// 進捗ダイアログ（件数のわかる一括処理）：progress.open(題名, 件数) → progress.step(完了数, 処理中の名称) → progress.close()
+const progress = {
+  open(title, total) { const d = $('#progress-dialog'); $('#progress-title').textContent = title; this.total = total; this.step(0, ''); if (!d.open) d.showModal(); },
+  step(done, label) { const pct = this.total ? Math.round(done * 100 / this.total) : 0; $('#progress-fill').style.width = pct + '%'; $('#progress-count').textContent = `${done} / ${this.total} 件（${pct}%）`; $('#progress-label').textContent = label || ''; },
+  close() { const d = $('#progress-dialog'); if (d.open) d.close(); },
+};
+$('#progress-dialog')?.addEventListener('cancel', e => e.preventDefault()); // 処理中は Esc で閉じない
 async function loadMasters() { masters = await api('/api/masters'); }
 const qs = o => new URLSearchParams(Object.entries(o).filter(([, v]) => v !== undefined && v !== '' && v !== null)).toString();
 
@@ -430,8 +445,22 @@ VIEWS.invoices = async q => {
       { label: '状態', html: r => r.created ? badge('作成済', 'green') : r.count ? badge('作成可能') : badge('対象なし', 'gray') }], p.customers, { empty: 'この締日の得意先はありません' }) +
       (canWrite() ? `<div style="margin-top:10px;display:flex;justify-content:flex-end"><button class="primary" data-act="run" data-month="${month}" data-closing="${closing}">選択した得意先の請求を作成</button></div>` : '');
   };
-  A.run = d => { const customers = $$('.bill-pick:checked').map(x => x.value); if (!customers.length) return toast('得意先を選択してください', true);
-    act(() => post('/api/billing/run', { month: d.month, closing: d.closing, customers }), r => `請求 作成${r.created}件・追加${r.appended || 0}件（売掛金仕訳 A01）${r.skipped?.length ? ' ／ ' + r.skipped.join('、') : ''}`); };
+  // 請求データ作成：得意先ごとに順番に作成し、進捗（件数・得意先名）を表示。失敗した得意先は最後にまとめて表示し、他の得意先は続行
+  A.run = async (d, btn) => {
+    const picks = $$('.bill-pick:checked'), customers = picks.map(x => x.value); if (!customers.length) return toast('得意先を選択してください', true);
+    const nameOf = code => (masters.customers || []).find(c => c.code === code)?.name || code, sum = { created: 0, appended: 0, skipped: [], failed: [] };
+    if (btn) btn.disabled = true;
+    progress.open(`請求データ作成（${d.month} ${closingLabel(d.closing)}締）`, customers.length);
+    for (const [i, c] of customers.entries()) {
+      progress.step(i, `${c} ${nameOf(c)} を作成中…`);
+      try { const r = await post('/api/billing/run', { month: d.month, closing: d.closing, customers: [c] }); sum.created += r.created || 0; sum.appended += r.appended || 0; sum.skipped.push(...(r.skipped || [])); }
+      catch (e) { sum.failed.push(`${c} ${nameOf(c)}：${e.message}`); }
+    }
+    progress.step(customers.length, '完了'); progress.close(); if (btn) btn.disabled = false;
+    const msg = `請求 作成${sum.created}件・追加${sum.appended}件（売掛金仕訳 A01）${sum.skipped.length ? ' ／ ' + sum.skipped.join('、') : ''}`;
+    if (sum.failed.length) alertBox(`${msg}\n\n作成できなかった得意先（${sum.failed.length}件）：\n${sum.failed.join('\n')}`); else toast(msg);
+    await render();
+  };
   A.detail = d => invoiceDetail(d.id);
   A.issue = async () => { const ids = $$('.inv-pick:checked').map(x => Number(x.value)); if (!ids.length) return toast('発行する請求を選択してください', true);
     try { const r = await post('/api/invoices/issue', { ids }); printDocs(r.documents); await render(); } catch (e) { toast(e.message, true); } };
