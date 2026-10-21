@@ -370,3 +370,16 @@ dialog.progress-dialog::backdrop { background: rgba(15,23,42,.35); }
 .progress-meta { display: flex; justify-content: space-between; gap: 12px; margin-top: 10px; font-size: 13px; font-weight: 600; }
 .progress-meta #progress-label { font-weight: 400; text-align: right; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 @media print { #busy-bar, dialog.progress-dialog { display: none !important; } }
+
+/* 開閉するメニューグループ（財務会計）と最下部固定メニュー */
+.nav-fold { width: 100%; border: 0; background: none; font: inherit; text-align: left; cursor: pointer; margin-top: 10px; }
+.nav-fold.open .nav-caret { transform: rotate(90deg); }
+.nav-fold.has-active { color: var(--accent-secondary); font-weight: 700; }
+.nav-fold-body { display: flex; flex-direction: column; margin: 2px 0 4px 18px; padding-left: 8px; border-left: 2px solid var(--field-border); animation: navsub .18s ease-out; }
+.nav-fold-body .nav-link { font-size: 13px; padding: 7px 10px; }
+#nav-pin { margin-top: auto; padding-top: 10px; border-top: 1px solid var(--field-border); }
+#nav-pin:empty { display: none; }
+#nav-pin .nav-pin { color: #b45309; font-weight: 600; }
+#nav-pin .nav-pin.active { color: var(--accent-secondary); }
+.sidebar-foot { margin-top: 10px; }
+.nav-fold-body[hidden] { display: none !important; }

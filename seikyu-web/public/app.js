@@ -112,12 +112,38 @@ const subsOf = name => (name === 'masters' && meta?.masters ? Object.entries(met
 const TITLES = {};
 // 非表示にするメニュー（2026-10-22 ダッシュボードは使わない）。初期画面は表示メニューの先頭
 const HIDDEN_MENUS = new Set(['dashboard']);
-const home = () => Object.keys(TITLES)[0] || 'shipments';
+// サイドバー最下部に固定表示するメニュー（表示名）と、クリックで開閉するグループ（アイコン）
+const PINNED_MENUS = { migration: '前提・確認事項' };
+const FOLD_GROUPS = { '財務会計': '¥' };
+const foldOpen = new Set((() => { try { return JSON.parse(localStorage.getItem('navFold') || '[]'); } catch { return []; } })());
+const home = () => Object.keys(TITLES).find(k => !PINNED_MENUS[k]) || 'shipments';
 function nav() {
-  let last = '';
-  $('#navigation').innerHTML = session.menus.filter(m => !HIDDEN_MENUS.has(m.url.slice(1))).map(m => { TITLES[m.url.slice(1)] = m.title; const g = m.grp !== last ? `<div class="nav-group">${esc(m.grp)}</div>` : ''; last = m.grp; return `${g}<a class="nav-link" href="${esc(m.url)}" data-nav="${esc(m.url.slice(1))}"><i>${esc(m.icon)}</i>${esc(m.title)}${subsOf(m.url.slice(1)) ? '<b class="nav-caret">▸</b>' : ''}</a>`; }).join('');
+  const list = session.menus.filter(m => !HIDDEN_MENUS.has(m.url.slice(1))), groups = [];
+  const link = m => `<a class="nav-link" href="${esc(m.url)}" data-nav="${esc(m.url.slice(1))}"><i>${esc(m.icon)}</i>${esc(m.title)}${subsOf(m.url.slice(1)) ? '<b class="nav-caret">▸</b>' : ''}</a>`;
+  for (const m of list) {
+    const k = m.url.slice(1); TITLES[k] = m.title; if (PINNED_MENUS[k]) continue;
+    let g = groups[groups.length - 1]; if (!g || g.name !== m.grp) groups.push(g = { name: m.grp, items: [] }); g.items.push(m);
+  }
+  $('#navigation').innerHTML = groups.map(g => FOLD_GROUPS[g.name]
+    ? `<button type="button" class="nav-link nav-fold" data-fold="${esc(g.name)}"><i>${esc(FOLD_GROUPS[g.name])}</i>${esc(g.name)}<b class="nav-caret">▸</b></button><div class="nav-fold-body" data-fold-body="${esc(g.name)}" hidden>${g.items.map(link).join('')}</div>`
+    : `<div class="nav-group">${esc(g.name)}</div>${g.items.map(link).join('')}`).join('');
+  const pin = $('#nav-pin'); if (pin) pin.innerHTML = list.filter(m => PINNED_MENUS[m.url.slice(1)]).map(m => `<a class="nav-link nav-pin" href="${esc(m.url)}" data-nav="${esc(m.url.slice(1))}"><i>${esc(m.icon)}</i>${esc(PINNED_MENUS[m.url.slice(1)])}</a>`).join('');
   const brand = $('.brand'); if (brand) brand.href = '#' + home();
 }
+// 開閉グループ：開いている画面がグループ内なら開く。それ以外は利用者の開閉を記憶
+function navFolds() {
+  $$('.nav-fold').forEach(b => {
+    const name = b.dataset.fold, body = $(`.nav-fold-body[data-fold-body="${CSS.escape(name)}"]`), hasActive = !!body?.querySelector(`.nav-link[data-nav="${route.name}"]`);
+    const open = foldOpen.has(name) || hasActive; if (body) body.hidden = !open; b.classList.toggle('open', open); b.classList.toggle('has-active', hasActive);
+  });
+}
+document.addEventListener('click', e => {
+  const b = e.target.closest('.nav-fold'); if (!b) return;
+  const name = b.dataset.fold, body = $(`.nav-fold-body[data-fold-body="${CSS.escape(name)}"]`), opening = body?.hidden;
+  if (opening) foldOpen.add(name); else foldOpen.delete(name);
+  try { localStorage.setItem('navFold', JSON.stringify([...foldOpen])); } catch {}
+  if (body) body.hidden = !opening; b.classList.toggle('open', !!opening);
+});
 // 開いている画面の小メニューをその下に展開
 function navSubs() {
   $$('.nav-subs').forEach(x => x.remove());
@@ -141,7 +167,7 @@ const go = (name, q = {}) => { const path = name === route.name && route.sub ? `
 async function render() {
   route = parseHash();
   if (!TITLES[route.name] || !VIEWS[route.name]) route = { name: home(), sub: '', q: {} };
-  route = resolveSub(route); navSubs();
+  route = resolveSub(route); navSubs(); navFolds();
   const fn = VIEWS[route.name];
   $$('.nav-link').forEach(a => a.classList.toggle('active', a.dataset.nav === route.name));
   $('#crumb').textContent = (TITLES[route.name] || '') + (route.subItem ? ' › ' + route.subItem.l : ''); document.body.classList.remove('nav-open');
