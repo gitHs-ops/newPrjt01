@@ -210,9 +210,23 @@ function correctionForm(r) {
     },
     onSubmit: async v => { const res = await post('/api/shipments/correct', { ...v, orderNo: r.orderNo }); toast(`赤 ${res.red}${res.black ? '・黒 ' + res.black : ''} を登録しました（差額 ${yen(res.net)}円）`); render(); } });
 }
+// 確認用：入力欄に架空のサンプル値を入れる（登録はしない）
+const SAMPLE_SITES = ['東名高速 豊田管内舗装補修工事', '市道3号線 舗装工事', '南町 駐車場整備工事', '北区 造成工事'];
+const sampleButton = '<div class="filters right wide"><button type="button" class="mini quiet" data-sample>サンプル入力</button><span class="muted small">架空の値を入れます（登録は「登録する」で）</span></div>';
+function fillSample(f, { plan = false } = {}) {
+  const pick = list => list[Math.floor(Math.random() * list.length)], cus = active('customers'), items = active('items');
+  if (cus.length) { f.customer.value = pick(cus).code; f.customer.dispatchEvent(new Event('change')); }
+  f.site.value = ''; f.siteName1.value = pick(SAMPLE_SITES); f.siteName2.value = '';
+  if (items.length) f.item.value = pick(items).code;
+  f.quantity.value = (Math.floor(Math.random() * 1900) / 100 + 1).toFixed(2);
+  f.vehicle.value = String(1000 + Math.floor(Math.random() * 9000));
+  f.startTime.value = `${String(7 + Math.floor(Math.random() * 10)).padStart(2, '0')}:${pick(['00', '15', '30', '45'])}`;
+  if (plan) f.remarks.value = 'サンプル予定';
+  else { f.remarks.value = 'サンプル'; f.item.onchange?.(); }
+}
 function shipmentForm(r, bizDate) {
   const cust = r?.customer || active('customers')[0]?.code || '';
-  modal({ title: r?.orderNo ? `出荷の修正（${r.orderNo}）` : r?.fromPlan ? `出荷登録（出荷予定 ${r.fromPlan} から）` : r?.copyOf ? `出荷登録（類似登録：元 ${r.copyOf}）` : '出荷登録', submit: r?.orderNo ? '更新する' : '登録する', wide: true, body: `<div class="form-grid">
+  modal({ title: r?.orderNo ? `出荷の修正（${r.orderNo}）` : r?.fromPlan ? `出荷登録（出荷予定 ${r.fromPlan} から）` : r?.copyOf ? `出荷登録（類似登録：元 ${r.copyOf}）` : '出荷登録', submit: r?.orderNo ? '更新する' : '登録する', wide: true, body: `<div class="form-grid">${r?.orderNo ? '' : sampleButton}
     ${field('出荷日', `<input type="date" name="date" value="${esc(r?.date || bizDate || today())}" required>`, { req: 1, hint: '初期値は業務日付' })}${kindFields(r)}${opFields(r)}
     ${field('決済方法', `<select name="method">${options(Object.entries(meta.methods).map(([code, name]) => ({ code, name })), r?.method || CREDIT, { label: x => `${x.code} ${x.name}` })}</select>`, { hint: '掛売のみ請求対象。現金・カードは対象外（Q16/Q17）' })}
     ${field('得意先', `<select name="customer" required>${options(active('customers'), cust)}</select>`, { req: 1 })}${siteFields(cust, r)}
@@ -230,6 +244,7 @@ function shipmentForm(r, bizDate) {
       const price = async () => { if (!f.item.value || !f.customer.value) return; const p = await api('/api/price?' + qs({ item: f.item.value, customer: f.customer.value, site: f.site.value, date: f.date.value })); f.price.value = p.price; f.freight.value = pickup() ? 0 : p.freight; f.taxRate.value = p.taxRate; preview(); toast(`単価: ${p.source} ${yen(p.price)}円${p.freight ? '・運賃 ' + yen(p.freight) + '円' : ''}`); };
       f.customer.onchange = () => { f.site.innerHTML = siteOptions(f.customer.value, '', '（マスタ外・自由入力）'); price(); };
       f.item.onchange = price; f.site.onchange = price; f.date.onchange = price; f.deliveryKbn.onchange = () => { if (pickup()) f.freight.value = 0; preview(); }; for (const n of ['quantity', 'price', 'freight']) f[n].oninput = preview; preview(); if (!r || r.fromPlan) price();
+      f.querySelector('[data-sample]')?.addEventListener('click', () => { fillSample(f); preview(); });
     },
     onSubmit: async v => { const res = await post('/api/shipments', { ...v, orderNo: r?.orderNo }); toast(`${r?.orderNo ? '更新' : '登録'}しました（伝票番号 ${res.orderNo}）`); render(); },
   });
@@ -255,7 +270,7 @@ async function planView(q) {
 }
 function planForm(r, bizDate) {
   const cust = r?.customer || active('customers')[0]?.code || '';
-  modal({ title: r?.orderNo ? `出荷予定の修正（${r.orderNo}）` : r?.copyOf ? `出荷予定登録（類似登録：元 ${r.copyOf}）` : '出荷予定登録', submit: r?.orderNo ? '更新する' : '登録する', wide: true, body: `<div class="form-grid">
+  modal({ title: r?.orderNo ? `出荷予定の修正（${r.orderNo}）` : r?.copyOf ? `出荷予定登録（類似登録：元 ${r.copyOf}）` : '出荷予定登録', submit: r?.orderNo ? '更新する' : '登録する', wide: true, body: `<div class="form-grid">${r?.orderNo ? '' : sampleButton}
     ${field('出荷日', `<input type="date" name="date" value="${esc(r?.date || bizDate || today())}" required>`, { req: 1 })}${kindFields(r)}${opFields(r)}
     ${field('決済方法', `<select name="method">${options(Object.entries(meta.methods).map(([code, name]) => ({ code, name })), r?.method || CREDIT, { label: x => `${x.code} ${x.name}` })}</select>`)}
     ${field('得意先', `<select name="customer" required>${options(active('customers'), cust)}</select>`, { req: 1 })}${siteFields(cust, r)}
@@ -265,7 +280,7 @@ function planForm(r, bizDate) {
     ${field('累計数量', `<input name="cumulativeQty" class="num" inputmode="decimal" value="${esc(r?.cumulativeQty ?? '')}" placeholder="自動">`, { hint: '空欄は直前の台数の累計＋数量' })}
     ${field('出発時間', `<input type="time" name="startTime" value="${esc(r?.startTime || '')}">`)}${field('車両番号', `<input name="vehicle" maxlength="15" value="${esc(r?.vehicle || '')}">`)}
     ${field('伝票備考', `<input name="remarks" maxlength="128" value="${esc(r?.remarks || '')}">`, { wide: 1 })}</div><p class="muted small">納入場所名1は必須（現行 NS001001）。単価・運賃は単価マスタから自動。伝票登録時に数量・納入場所などを引き継ぎ、金額は伝票側で再計算します。</p>`,
-    onOpen: f => { f.customer.onchange = () => (f.site.innerHTML = siteOptions(f.customer.value, '', '（マスタ外・自由入力）')); },
+    onOpen: f => { f.customer.onchange = () => (f.site.innerHTML = siteOptions(f.customer.value, '', '（マスタ外・自由入力）')); f.querySelector('[data-sample]')?.addEventListener('click', () => fillSample(f, { plan: true })); },
     onSubmit: async v => { const res = await post('/api/plans', { ...v, orderNo: r?.orderNo }); toast(`${r?.orderNo ? '更新' : '登録'}しました（予定 ${res.orderNo}・${res.cumulativeCount}台目・累計 ${res.cumulativeQty}）`); render(); } });
 }
 
