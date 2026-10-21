@@ -110,9 +110,13 @@ const SUBMENUS = {
 };
 const subsOf = name => (name === 'masters' && meta?.masters ? Object.entries(meta.masters).map(([k, x]) => ({ k, l: x.label, q: { kind: k } })) : SUBMENUS[name] || null);
 const TITLES = {};
+// 非表示にするメニュー（2026-10-22 ダッシュボードは使わない）。初期画面は表示メニューの先頭
+const HIDDEN_MENUS = new Set(['dashboard']);
+const home = () => Object.keys(TITLES)[0] || 'shipments';
 function nav() {
   let last = '';
-  $('#navigation').innerHTML = session.menus.map(m => { TITLES[m.url.slice(1)] = m.title; const g = m.grp !== last ? `<div class="nav-group">${esc(m.grp)}</div>` : ''; last = m.grp; return `${g}<a class="nav-link" href="${esc(m.url)}" data-nav="${esc(m.url.slice(1))}"><i>${esc(m.icon)}</i>${esc(m.title)}${subsOf(m.url.slice(1)) ? '<b class="nav-caret">▸</b>' : ''}</a>`; }).join('');
+  $('#navigation').innerHTML = session.menus.filter(m => !HIDDEN_MENUS.has(m.url.slice(1))).map(m => { TITLES[m.url.slice(1)] = m.title; const g = m.grp !== last ? `<div class="nav-group">${esc(m.grp)}</div>` : ''; last = m.grp; return `${g}<a class="nav-link" href="${esc(m.url)}" data-nav="${esc(m.url.slice(1))}"><i>${esc(m.icon)}</i>${esc(m.title)}${subsOf(m.url.slice(1)) ? '<b class="nav-caret">▸</b>' : ''}</a>`; }).join('');
+  const brand = $('.brand'); if (brand) brand.href = '#' + home();
 }
 // 開いている画面の小メニューをその下に展開
 function navSubs() {
@@ -125,7 +129,7 @@ function navSubs() {
 }
 function parseHash() {
   const [path, q] = location.hash.slice(1).split('?'), [name, sub] = (path || '').split('/');
-  return { name: name || 'dashboard', sub: sub || '', q: Object.fromEntries(new URLSearchParams(q || '')) };
+  return { name: name || '', sub: sub || '', q: Object.fromEntries(new URLSearchParams(q || '')) };
 }
 // 小メニューの決定：明示 → 条件（従来タブのURL）一致 → 先頭。小メニューの q を条件に足す
 function resolveSub(r) {
@@ -136,11 +140,11 @@ function resolveSub(r) {
 const go = (name, q = {}) => { const path = name === route.name && route.sub ? `${name}/${route.sub}` : name, h = '#' + path + (Object.keys(q).length ? '?' + qs(q) : ''); if (location.hash === h) render(); else location.hash = h; };
 async function render() {
   route = parseHash();
-  if (!TITLES[route.name] || !VIEWS[route.name]) route = { name: 'dashboard', sub: '', q: {} };
+  if (!TITLES[route.name] || !VIEWS[route.name]) route = { name: home(), sub: '', q: {} };
   route = resolveSub(route); navSubs();
   const fn = VIEWS[route.name];
   $$('.nav-link').forEach(a => a.classList.toggle('active', a.dataset.nav === route.name));
-  $('#crumb').textContent = (TITLES[route.name] || 'ダッシュボード') + (route.subItem ? ' › ' + route.subItem.l : ''); document.body.classList.remove('nav-open');
+  $('#crumb').textContent = (TITLES[route.name] || '') + (route.subItem ? ' › ' + route.subItem.l : ''); document.body.classList.remove('nav-open');
   const token = ++renderSeq, own = { go: d => go(d.to) }, prev = actions;
   let html, pending;
   $('#content').classList.add('busy');
