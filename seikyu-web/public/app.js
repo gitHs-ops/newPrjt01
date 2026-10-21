@@ -131,8 +131,12 @@ const ACTIONS = { 'shipment.create': '出荷登録', 'shipment.update': '出荷�
 // ----- 出荷・売上 -----
 // 決済方法（現行 Java A0001）：1 現金 / 2 掛売 / 3 カード。伝票区分 5＝訂正（赤黒）。
 const CREDIT = 2;
+const shipTabs = tab => `<div class="tabs">${[['slips', '出荷伝票'], ['plans', '出荷予定']].map(([k, l]) => `<button class="${tab === k ? 'active' : ''}" data-act="shipTab" data-tab="${k}">${l}</button>`).join('')}</div>`;
 VIEWS.shipments = async q => {
   const A = actions;
+  A.shipTab = d => go('shipments', d.tab === 'plans' ? { tab: 'plans' } : {});
+  A.notes = () => deliveryNoteDialog();
+  if (q.tab === 'plans') return planView(q);
   const month = q.month || thisMonth(), list = await api('/api/shipments?' + qs({ month, customer: q.customer, status: q.status, method: q.method }));
   const bd = (await api('/api/business-date')).date;
   A.misc = d => miscReport(d.kind, d.src).catch(e => toast(e.message, true));
@@ -158,8 +162,8 @@ VIEWS.shipments = async q => {
   return page('出荷・売上', '出荷伝票（shipment_slip）と売上（sales_trn）を同時に登録します。請求済みの伝票は「赤黒訂正」で、元伝票のマイナス（赤）と訂正後（黒）を起票します（NO11、10/14 打合せ）。',
     `${monthInput('month', month)}${filterSelect('customer', masters.customers, q.customer, 'すべての得意先')}<select name="status" data-filter>${options([{ code: 'open', name: '未請求' }, { code: 'billed', name: '請求済' }], q.status, { blank: 'すべて', label: r => r.name })}</select>
      <select name="method" data-filter>${options(Object.entries(meta.methods).map(([code, name]) => ({ code, name })), q.method, { blank: 'すべての決済', label: r => r.name })}</select>${csvLink('shipments', { month })}
-     <span class="badge ${bd !== today() ? 'amber' : ''}" title="出荷日の初期値">業務日付 ${esc(bd)}</span>${canWrite() ? '<button class="mini" data-act="bizDate">変更</button><button class="primary" data-act="new">＋ 出荷登録</button>' : ''}`,
-    `<section class="card glass">${table([{ label: '売上No', html: r => esc(r.orderNo) + (r.shipKb === 5 ? `<br><span class="small muted">元 ${esc(r.originalNo)}</span>` : '') }, { label: '出荷日', value: r => r.date }, { label: '得意先', value: r => r.customerName }, { label: '現場', value: r => r.siteName }, { label: '商品', value: r => r.itemName },
+     <span class="badge ${bd !== today() ? 'amber' : ''}" title="出荷日の初期値">業務日付 ${esc(bd)}</span>${canWrite() ? '<button class="mini" data-act="bizDate">変更</button><button data-act="notes">納品書発行</button><button class="primary" data-act="new">＋ 出荷登録</button>' : ''}`,
+    `${shipTabs('slips')}<section class="card glass">${table([{ label: '売上No', html: r => esc(r.orderNo) + (r.shipKb === 5 ? `<br><span class="small muted">元 ${esc(r.originalNo)}</span>` : '') }, { label: '出荷日', value: r => r.date }, { label: '得意先', value: r => r.customerName }, { label: '現場', value: r => r.siteName }, { label: '商品', value: r => r.itemName },
       { label: '数量', num: 1, html: r => `${r.quantity < 0 ? `<span class="check-ng">${r.quantity}</span>` : r.quantity} ${esc(r.unit)}${r.cumulativeCount ? `<br><span class="small muted" title="同日・同現場・同商品・同納入区分の累計（現行 updateWorkKeyGroup）">累計 ${r.cumulativeQty}／${r.cumulativeCount}台</span>` : ''}` },
       { label: '担当・納入', html: r => `<span class="small">${esc(r.operatorName || r.operator)}<br>${esc(r.deliveryKbnName)}</span>` },
       { label: '単価', num: 1, value: r => yen(r.price) }, { label: '運賃', num: 1, value: r => (r.freight ? yen(r.freight) : '') }, { label: '金額', num: 1, value: r => yen(r.net) }, { label: '税', num: 1, value: r => `${r.taxRate}%` },
@@ -182,7 +186,10 @@ function slipInquiry(r) {
     ${row('数量', `${r.quantity} ${esc(r.unit)}`)}${row('累計数量', String(r.cumulativeQty))}${row('累計台数', String(r.cumulativeCount))}
     ${row('決済方法', esc(r.methodName))}${row('単価', yen(r.price))}${row('運賃', yen(r.freight))}
     ${row('金額', yen(r.net))}${row('税率', r.taxRate + '%')}${row('消費税', yen(r.tax))}
-    ${row('決済金額', yen(r.paymentMoney || r.net + r.tax))}${row('車両番号', esc(r.vehicle || '—'))}${row('状態', r.billed ? '請求済' : '未請求')}</div>${r.remarks ? `<p class="small">備考: ${esc(r.remarks)}</p>` : ''}` });
+    ${row('決済金額', yen(r.paymentMoney || r.net + r.tax))}${row('車両番号', esc(r.vehicle || '—'))}${row('状態', r.billed ? '請求済' : '未請求')}
+    ${row('出発時間', esc(r.startTime || '—'))}${row('予定数量', String(r.planQty))}${row('予定時間', esc(r.planTime || '—'))}${row('納品書', r.printed ? (r.printed >= 2 ? '再発行済' : '発行済') : '未発行')}</div>${r.remarks ? `<p class="small">備考: ${esc(r.remarks)}</p>` : ''}
+    ${canWrite() && r.shipKb !== 5 ? '<div class="filters right"><button type="button" class="primary" id="dn-one">伝票発行（納品書）</button></div>' : ''}`,
+    onOpen: () => $('#dn-one')?.addEventListener('click', () => issueDeliveryNotes({ orderNo: r.orderNo }).catch(e => toast(e.message, true))) });
 }
 const siteFields = (cust, r) => `${field('現場', `<select name="site">${siteOptions(cust, r?.site, '（マスタ外・自由入力）')}</select>`, { hint: '現場マスタから選択、または空欄で現場名を自由入力（現行と同じ）' })}
     ${field('現場名1', `<input name="siteName1" maxlength="20" value="${esc(r?.siteName1 || '')}">`)}${field('現場名2', `<input name="siteName2" maxlength="20" value="${esc(r?.siteName2 || '')}">`)}`;
@@ -205,7 +212,7 @@ function correctionForm(r) {
 }
 function shipmentForm(r, bizDate) {
   const cust = r?.customer || active('customers')[0]?.code || '';
-  modal({ title: r?.orderNo ? `出荷の修正（${r.orderNo}）` : r?.copyOf ? `出荷登録（類似登録：元 ${r.copyOf}）` : '出荷登録', submit: r?.orderNo ? '更新する' : '登録する', wide: true, body: `<div class="form-grid">
+  modal({ title: r?.orderNo ? `出荷の修正（${r.orderNo}）` : r?.fromPlan ? `出荷登録（出荷予定 ${r.fromPlan} から）` : r?.copyOf ? `出荷登録（類似登録：元 ${r.copyOf}）` : '出荷登録', submit: r?.orderNo ? '更新する' : '登録する', wide: true, body: `<div class="form-grid">
     ${field('出荷日', `<input type="date" name="date" value="${esc(r?.date || bizDate || today())}" required>`, { req: 1, hint: '初期値は業務日付' })}${kindFields(r)}${opFields(r)}
     ${field('決済方法', `<select name="method">${options(Object.entries(meta.methods).map(([code, name]) => ({ code, name })), r?.method || CREDIT, { label: x => `${x.code} ${x.name}` })}</select>`, { hint: '掛売のみ請求対象。現金・カードは対象外（Q16/Q17）' })}
     ${field('得意先', `<select name="customer" required>${options(active('customers'), cust)}</select>`, { req: 1 })}${siteFields(cust, r)}
@@ -214,7 +221,7 @@ function shipmentForm(r, bizDate) {
     ${field('数量', `<input name="quantity" class="num" inputmode="decimal" value="${esc(r?.quantity ?? '')}" required>`, { req: 1, hint: '小数2桁まで。マイナス可（返品等）' })}
     ${field('単価（円）', `<input name="price" class="num" inputmode="numeric" value="${esc(r?.price ?? '')}" required>`, { req: 1, hint: '単価マスタ（適用期間内は適用単価）から自動設定' })}
     ${field('運賃（円）', `<input name="freight" class="num" inputmode="numeric" value="${esc(r?.freight ?? 0)}">`, { hint: '金額＝数量×(単価＋運賃)' })}
-    ${field('車番', `<input name="vehicle" maxlength="15" value="${esc(r?.vehicle || '')}">`)}${field('備考', `<input name="remarks" maxlength="20" value="${esc(r?.remarks || '')}">`)}
+    ${field('車番', `<input name="vehicle" maxlength="15" value="${esc(r?.vehicle || '')}">`)}${field('出発時間', `<input type="time" name="startTime" value="${esc(r?.startTime || '')}">`, { hint: '累計台数の並び順・予定数量の照合に使用（現行と同じ）' })}${field('備考', `<input name="remarks" maxlength="20" value="${esc(r?.remarks || '')}">`)}
     <div class="wide note" id="amount-preview">金額: -</div></div>`,
     onOpen: f => {
       const preview = () => { const qn = Number(f.quantity.value), p = Number(f.price.value) + Number(f.freight.value || 0), rate = Number(f.taxRate.value); if (!qn) return ($('#amount-preview').textContent = '金額: -');
@@ -222,10 +229,73 @@ function shipmentForm(r, bizDate) {
       const pickup = () => active('deliveryKinds').find(k => k.code === f.deliveryKbn.value)?.pickup;
       const price = async () => { if (!f.item.value || !f.customer.value) return; const p = await api('/api/price?' + qs({ item: f.item.value, customer: f.customer.value, site: f.site.value, date: f.date.value })); f.price.value = p.price; f.freight.value = pickup() ? 0 : p.freight; f.taxRate.value = p.taxRate; preview(); toast(`単価: ${p.source} ${yen(p.price)}円${p.freight ? '・運賃 ' + yen(p.freight) + '円' : ''}`); };
       f.customer.onchange = () => { f.site.innerHTML = siteOptions(f.customer.value, '', '（マスタ外・自由入力）'); price(); };
-      f.item.onchange = price; f.site.onchange = price; f.date.onchange = price; f.deliveryKbn.onchange = () => { if (pickup()) f.freight.value = 0; preview(); }; for (const n of ['quantity', 'price', 'freight']) f[n].oninput = preview; preview(); if (!r) price();
+      f.item.onchange = price; f.site.onchange = price; f.date.onchange = price; f.deliveryKbn.onchange = () => { if (pickup()) f.freight.value = 0; preview(); }; for (const n of ['quantity', 'price', 'freight']) f[n].oninput = preview; preview(); if (!r || r.fromPlan) price();
     },
     onSubmit: async v => { const res = await post('/api/shipments', { ...v, orderNo: r?.orderNo }); toast(`${r?.orderNo ? '更新' : '登録'}しました（伝票番号 ${res.orderNo}）`); render(); },
   });
+}
+
+// ----- 出荷予定（現行 NS001001 登録・NS005001 検索・NS002002 照会・NS003003 修正、推定実装）-----
+async function planView(q) {
+  const A = actions, bd = (await api('/api/business-date')).date, from = q.from || bd, to = q.to || from;
+  const list = await api('/api/plans?' + qs({ from, to, customer: q.customer, site: q.site }));
+  A.newPlan = () => planForm(null, bd);
+  A.editPlan = d => planForm(list.find(r => r.orderNo === d.id));
+  A.copyPlan = d => { const r = list.find(x => x.orderNo === d.id); planForm({ ...r, orderNo: undefined, cumulativeCount: '', cumulativeQty: '', copyOf: r.orderNo }, bd); };
+  A.slipFromPlan = d => { const r = list.find(x => x.orderNo === d.id), now = new Date(Date.now() + 9 * 3600e3).toISOString().slice(11, 16);
+    shipmentForm({ customer: r.customer, site: r.site, siteName1: r.siteName1, siteName2: r.siteName2, item: r.item, quantity: r.quantity, deliveryKbn: r.deliveryKbn, vehicle: r.vehicle, shipKb: r.shipKb, otherCustomer: r.otherCustomer, method: r.method, remarks: r.remarks.slice(0, 20), startTime: now, fromPlan: r.orderNo, date: bd }, bd); };
+  A.delPlan = d => confirmBox('出荷予定の削除', `予定 ${d.id} を削除します（現行と同じく物理削除）。`, () => post('/api/plans/delete', { orderNo: d.id }).then(() => { toast('削除しました'); render(); }), '削除する');
+  const acts = r => `<div class="actions">${canWrite() ? `<button class="mini primary" data-act="slipFromPlan" data-id="${esc(r.orderNo)}">伝票登録</button><button class="mini" data-act="editPlan" data-id="${esc(r.orderNo)}">修正</button><button class="mini quiet" data-act="copyPlan" data-id="${esc(r.orderNo)}">類似登録</button><button class="mini danger" data-act="delPlan" data-id="${esc(r.orderNo)}">削除</button>` : ''}</div>`;
+  return page('出荷・売上', '出荷予定（shipment_plan）は1台＝1行の予定伝票です。出荷伝票の「予定数量・予定時間」は、同じ出荷日・得意先・納入場所名・商品・納入区分で累計台数が同じ予定の累計数量・出発時間です（現行 updateByWorkKeyGroup）。予定から伝票登録もできます。',
+    `<input type="date" name="from" value="${esc(from)}" data-filter><span>〜</span><input type="date" name="to" value="${esc(to)}" data-filter>${filterSelect('customer', masters.customers, q.customer, 'すべての得意先')}<input name="site" placeholder="納入場所名" value="${esc(q.site || '')}" data-filter>${canWrite() ? '<button data-act="notes">納品書発行</button><button class="primary" data-act="newPlan">＋ 出荷予定登録</button>' : ''}`,
+    `${shipTabs('plans')}<section class="card glass">${table([{ label: '予定No', html: r => esc(r.orderNo) + (r.shipKb !== 1 ? `<br><span class="small muted">${esc(meta.shipKinds[r.shipKb] || '')}</span>` : '') }, { label: '出荷日', value: r => r.date }, { label: '出発', value: r => r.startTime },
+      { label: '得意先', value: r => r.customerName }, { label: '納入場所', value: r => r.siteName }, { label: '商品', value: r => r.itemName }, { label: '納入区分', value: r => r.deliveryKbnName },
+      { label: '数量', num: 1, value: r => `${r.quantity} ${r.unit}` }, { label: '累計（台／数量）', num: 1, value: r => `${r.cumulativeCount}台／${r.cumulativeQty}` }, { label: '車番', value: r => r.vehicle }, { label: '担当', value: r => r.operatorName },
+      { label: '実績', html: r => (r.shippedNo ? badge('出荷 ' + r.shippedNo, 'green') : badge('未出荷', 'gray')) }, { label: '', html: acts }], list, { empty: 'この条件の出荷予定はありません', foot: ['合計', '', '', '', '', '', '', list.reduce((n, r) => n + r.quantity, 0).toFixed(2), `${list.length}台`, '', '', '', ''] })}</section>`);
+}
+function planForm(r, bizDate) {
+  const cust = r?.customer || active('customers')[0]?.code || '';
+  modal({ title: r?.orderNo ? `出荷予定の修正（${r.orderNo}）` : r?.copyOf ? `出荷予定登録（類似登録：元 ${r.copyOf}）` : '出荷予定登録', submit: r?.orderNo ? '更新する' : '登録する', wide: true, body: `<div class="form-grid">
+    ${field('出荷日', `<input type="date" name="date" value="${esc(r?.date || bizDate || today())}" required>`, { req: 1 })}${kindFields(r)}${opFields(r)}
+    ${field('決済方法', `<select name="method">${options(Object.entries(meta.methods).map(([code, name]) => ({ code, name })), r?.method || CREDIT, { label: x => `${x.code} ${x.name}` })}</select>`)}
+    ${field('得意先', `<select name="customer" required>${options(active('customers'), cust)}</select>`, { req: 1 })}${siteFields(cust, r)}
+    ${field('商品', `<select name="item" required>${options(active('items'), r?.item, { blank: '選択してください' })}</select>`, { req: 1 })}
+    ${field('数量', `<input name="quantity" class="num" inputmode="decimal" value="${esc(r?.quantity ?? '')}" required>`, { req: 1 })}
+    ${field('累計台数', `<input name="cumulativeCount" class="num" inputmode="numeric" value="${esc(r?.cumulativeCount ?? '')}" placeholder="自動">`, { hint: '空欄は同じ出荷日・得意先・納入場所・商品・納入区分の予定件数＋1' })}
+    ${field('累計数量', `<input name="cumulativeQty" class="num" inputmode="decimal" value="${esc(r?.cumulativeQty ?? '')}" placeholder="自動">`, { hint: '空欄は直前の台数の累計＋数量' })}
+    ${field('出発時間', `<input type="time" name="startTime" value="${esc(r?.startTime || '')}">`)}${field('車両番号', `<input name="vehicle" maxlength="15" value="${esc(r?.vehicle || '')}">`)}
+    ${field('伝票備考', `<input name="remarks" maxlength="128" value="${esc(r?.remarks || '')}">`, { wide: 1 })}</div><p class="muted small">納入場所名1は必須（現行 NS001001）。単価・運賃は単価マスタから自動。伝票登録時に数量・納入場所などを引き継ぎ、金額は伝票側で再計算します。</p>`,
+    onOpen: f => { f.customer.onchange = () => (f.site.innerHTML = siteOptions(f.customer.value, '', '（マスタ外・自由入力）')); },
+    onSubmit: async v => { const res = await post('/api/plans', { ...v, orderNo: r?.orderNo }); toast(`${r?.orderNo ? '更新' : '登録'}しました（予定 ${res.orderNo}・${res.cumulativeCount}台目・累計 ${res.cumulativeQty}）`); render(); } });
+}
+
+// ----- 納品書発行（現行 NI0060：出荷日単位、1伝票＝1ページ、単価・金額は印字しない、推定実装）-----
+async function deliveryNoteDialog() {
+  const bd = (await api('/api/business-date')).date;
+  modal({ title: '納品書発行', submit: '伝票発行', body: `<div class="form-grid">${field('出荷日', `<input type="date" name="date" value="${esc(bd)}">`, { req: 1, hint: 'この日の出荷伝票をすべて発行（現行 NI0060）。発行済みの伝票には「再」が付きます' })}</div>`,
+    onSubmit: async v => { await issueDeliveryNotes({ date: v.date }); } });
+}
+async function issueDeliveryNotes(p) {
+  const d = await post('/api/delivery-notes', p), co = d.company;
+  const ck = (on, label) => `<span class="dn-carry ${on ? 'on' : ''}">${label}</span>`, temp = s => (s.temperature === '' || s.temperature === null ? '' : esc(String(s.temperature)) + ' ℃');
+  $('#print-area').innerHTML = d.docs.map(s => `<section class="dn-doc">
+    <div class="dn-head">${s.reissue ? '<span class="dn-re">再</span>' : ''}<h1>納 品 書</h1></div>
+    <div class="dn-line"><span>${esc(s.date)}</span><span class="dn-no">No. ${esc(s.orderNo)}</span></div>
+    <p class="dn-to">${esc(s.customerName)}　殿</p>
+    <table class="dn-table"><tr><th>現場名</th><td colspan="3">${esc(s.siteName)}</td></tr><tr><th>種類</th><td colspan="3">${esc(s.itemName)}</td></tr>
+      <tr><th>車両番号</th><td>${esc(s.vehicle)}</td><th>天候</th><td>${esc(s.weather)}</td></tr>
+      <tr><th>出発時間</th><td>${esc(s.startH)} 時 ${esc(s.startM)} 分</td><th>出荷温度</th><td>${temp(s)}</td></tr>
+      <tr><th>到着時間</th><td>${esc(s.arriveH)} 時 ${esc(s.arriveM)} 分</td><th>到着温度</th><td>${temp(s)}</td></tr>
+      <tr><th>正味重量</th><td>${s.quantity.toFixed(2)} ${esc(s.unit)}</td><th rowspan="2">出荷係</th><td rowspan="2">${esc(s.operatorName)}</td></tr>
+      <tr><th>累計量</th><td>${s.cumulativeQty.toFixed(2)} ${esc(s.unit)}</td></tr>
+      <tr><th>累計台数</th><td>${s.cumulativeCount} 台</td><th>受領印</th><td class="dn-stamp"></td></tr>
+      <tr><th>運搬方法</th><td colspan="3">${ck(s.carry === 1, '1. 持込')}　${ck(s.carry === 2, '2. Ｐ渡')}</td></tr>
+      <tr><th>備考</th><td colspan="3" class="dn-remark">${esc(s.remarks)}</td></tr></table>
+    <p class="dn-thanks">毎度　ありがとうございます</p>
+    <div class="dn-co"><p>${esc(co.address)}</p><p class="dn-co1">${esc(co.name1)}</p><p>${esc(co.name2)}</p><p>TEL ${esc(co.tel)}</p><p>FAX ${esc(co.fax)}</p></div></section>`).join('');
+  toast(`納品書 ${d.docs.length} 件を発行しました`);
+  setTimeout(() => window.print(), 200);
+  if (route.name === 'shipments') render();
 }
 
 // ----- 請求締め・発行 -----

@@ -5,6 +5,7 @@ import { DomainError, Conflict, Forbidden, RATES, METHODS, csv, today } from './
 import { tx, mapSqlError, audit } from './db.mjs';
 import * as M from './masters.mjs';
 import * as S from './sales.mjs';
+import * as PL from './plans.mjs';
 import * as P from './payables.mjs';
 import * as L from './ledger.mjs';
 import * as U from './users.mjs';
@@ -37,6 +38,7 @@ export async function createApp({ pool, publicDir, secureCookies = process.env.N
   route('GET', '/api/price', 'read', x => db(c => S.priceFor(c, x.q)));
   route('GET', '/api/business-date', 'read', () => db(async c => ({ date: await S.businessDate(c) })));
   route('GET', '/api/shipments', 'read', x => db(c => S.listShipments(c, x.q)));
+  route('GET', '/api/plans', 'read', x => db(c => PL.listPlans(c, x.q)));
   route('GET', '/api/billing/preview', 'read', x => db(c => S.billingPreview(c, x.q)));
   route('GET', '/api/invoices', 'read', x => db(c => S.listInvoices(c, x.q)));
   route('GET', '/api/accounting/export', 'read', x => db(c => accountingExport(c, x, x.q)));
@@ -83,6 +85,9 @@ export async function createApp({ pool, publicDir, secureCookies = process.env.N
   w('/api/masters/:kind/import', (c, x, b) => M.importCsv(c, x, x.params.kind, b.csv));
   w('/api/shipments', (c, x, b) => S.saveShipment(c, x, b));
   w('/api/shipments/delete', (c, x, b) => S.deleteShipment(c, x, b));
+  w('/api/plans', (c, x, b) => PL.savePlan(c, x, b));
+  w('/api/plans/delete', (c, x, b) => PL.deletePlan(c, x, b));
+  w('/api/delivery-notes', (c, x, b) => PL.deliveryNotes(c, x, b));
   route('GET', '/api/petty/settings', 'read', () => db(c => P.pettySettings(c)));
   w('/api/petty/fund', (c, x, b) => P.savePettyFund(c, x, b));
   w('/api/petty/refill', (c, x, b) => P.pettyRefill(c, x, b));
