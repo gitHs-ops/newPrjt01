@@ -614,7 +614,7 @@ VIEWS.receipts = async q => {
 };
 function receiptForm(preset = '') {
   const key = uuid();
-  modal({ title: '入金消込', wide: true, submit: '入金を登録', body: `<div class="form-grid">
+  modal({ title: '入金消込', wide: true, submit: '入金を登録', body: `${sampleButton}<div class="form-grid">
     ${field('得意先検索（部分一致）', '<input id="rc-search" placeholder="得意先名・コードの一部">')}${field('得意先', `<select name="customer" required>${options(masters.customers, '', { blank: '選択してください' })}</select>`, { req: 1 })}
     ${field('入金日', `<input type="date" name="date" value="${today()}" required>`, { req: 1 })}${field('入金口座', `<select name="bankCode">${options(active('banks'), active('banks')[0]?.code)}</select>`, { hint: '当座預金 1112 の内訳' })}
     ${field('振込額（当座預金）', '<input name="bank" class="num" value="0">')}${field('現金', '<input name="cash" class="num" value="0">')}
@@ -646,6 +646,19 @@ function receiptForm(preset = '') {
       };
       RC_KEYS.forEach(([k]) => (f[k].oninput = diff)); $('#rc-auto').onclick = auto;
       if (preset) { f.customer.value = preset; f.customer.onchange(); }
+      // サンプル入力：発行済みで残高のある請求を1件選び、振込（手数料差引）で全額消込する値を入れる（登録はしない）
+      f.querySelector('[data-sample]')?.addEventListener('click', async () => {
+        const open = (await api('/api/invoices?status=open')).filter(i => i.issues > 0 && i.balance > 0);
+        if (!open.length) return toast('発行済みで残高のある請求がありません。先に請求書を発行してください', true);
+        const inv = open[Math.floor(Math.random() * open.length)];
+        $('#rc-search').value = ''; f.customer.innerHTML = options(all, inv.customer, { blank: '選択してください' }); f.customer.value = inv.customer;
+        await f.customer.onchange();
+        const fee = inv.balance > 10000 ? 660 : 0;
+        for (const [k] of RC_KEYS) f[k].value = 0;
+        f.date.value = today(); f.fee.value = fee; f.bank.value = inv.balance - fee;
+        for (const x of $$('.rc-amt')) x.value = Number(x.dataset.id) === inv.id ? inv.balance : 0;
+        diff();
+      });
     },
     onSubmit: async v => {
       const allocations = $$('.rc-amt').map(x => ({ invoiceId: Number(x.dataset.id), amount: Number(x.value) || 0 })).filter(a => a.amount > 0);
