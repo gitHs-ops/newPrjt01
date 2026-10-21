@@ -322,3 +322,15 @@ dialog.modal.wide:has(.slip-sheet) { width: min(1320px, calc(100vw - 24px)); } /
 .nav-sub.active { background: rgba(99,102,241,.14); color: var(--text-primary); font-weight: 600; }
 @keyframes navsub { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
 [data-sub][hidden], .page-head > .filters[hidden] { display: none !important; }
+
+/* サンプル入力ボタン（登録画面の上部） */
+.sample-bar { display: flex; align-items: center; justify-content: flex-end; gap: 10px; margin-bottom: 10px; flex-wrap: wrap; }
+.sample-btn { border: 1px dashed #6366f1; color: #4f46e5; background: rgba(99,102,241,.08); border-radius: 999px; padding: 6px 14px; font-weight: 600; font-size: 13px; cursor: pointer; }
+.sample-btn:hover { background: rgba(99,102,241,.16); }
+/* 出荷伝票：狭い画面はラベル＋値の2列。空きセルは隠し、名称・納入場所は値の列に置く */
+@media (max-width: 900px) {
+  .slip-sheet .fill { display: none !important; }
+  .slip-sheet > .sl { grid-column: 1 !important; }
+  .slip-sheet > .sv, .slip-sheet .span4c, .slip-sheet .span7, .slip-sheet .span5, .slip-sheet .span3 { grid-column: 2 !important; }
+  .slip-sheet .status-cell { grid-column: 1 / -1 !important; text-align: left; }
+}

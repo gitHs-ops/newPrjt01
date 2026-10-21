@@ -219,21 +219,21 @@ const SL = (label, html, { span = 1, req = false, cls = '' } = {}) => `<div clas
 const RO = (v, num) => `<div class="ro ${num ? 'num' : ''}">${v === '' || v === null || v === undefined ? '&nbsp;' : v}</div>`;
 const SEP = '<hr class="sep">';
 // 得意先・商品などは「コード＋名称」の2枠（提案書の画面どおり）
-const CODE_NAME = (codeHtml, nameHtml, after = '<div class="span2c"></div>') => `<div class="sv">${codeHtml}</div><div class="sv span4c">${nameHtml}</div>${after}`;
+const CODE_NAME = (codeHtml, nameHtml, after = '<div class="span2c fill"></div>') => `<div class="sv">${codeHtml}</div><div class="sv span4c">${nameHtml}</div>${after}`;
 const SITE_ROW = (a, b, c, d) => `<div class="sv span7"><div class="sv-site">${a}<span>—</span>${b}${c}<span>—</span>${d}</div></div>`;
 function slipInquiry(r) {
   const n2 = v => Number(v || 0).toFixed(2), [sc = '', ss = ''] = r.site.split('|');
   modal({ title: `出荷伝票照会（${r.orderNo}）`, wide: true, body: `<div class="slip-sheet">
-    ${SL('伝票番号', RO(esc(r.orderNo)))}${SL('伝票区分', RO(esc(r.shipKbName)))}<div class="span4c sv right muted small">${r.billed ? '請求済' : '未請求'}・納品書 ${r.printed ? (r.printed >= 2 ? '再発行済' : '発行済') : '未発行'}</div>
+    ${SL('伝票番号', RO(esc(r.orderNo)))}${SL('伝票区分', RO(esc(r.shipKbName)))}<div class="span4c sv right muted small status-cell">${r.billed ? '請求済' : '未請求'}・納品書 ${r.printed ? (r.printed >= 2 ? '再発行済' : '発行済') : '未発行'}</div>
     ${SL('出荷日', RO(esc(r.date.replaceAll('-', '/'))))}${SL('天候', RO(esc(r.weatherName)))}${SEP}
     <div class="sl">得意先</div>${CODE_NAME(RO(esc(r.customer)), RO(esc(r.customerName)))}
     <div class="sl">他社得意先</div>${CODE_NAME(RO(esc(r.otherCustomer)), RO(esc(r.otherCustomerName)))}
     <div class="sl">納入場所</div>${SITE_ROW(RO(esc(sc)), RO(esc(ss)), RO(esc(r.siteName1)), RO(esc(r.siteName2)))}${SEP}
     <div class="sl">商品</div>${CODE_NAME(RO(esc(r.item)), RO(esc(r.itemName)), SL('納入区分', RO(esc(r.deliveryKbnName))))}
     ${SL('数量', RO(n2(r.quantity), 1))}${SL('単位', RO(esc(r.unit)))}${SL('累計数量', RO(n2(r.cumulativeQty), 1))}${SL('予定数量', RO(n2(r.planQty), 1))}${SEP}
-    ${SL('決済方法', RO(esc(r.methodName)))}${SL('単価', RO(yen(r.price), 1))}${SL('運賃', RO(yen(r.freight), 1))}<div class="span2c"></div>
+    ${SL('決済方法', RO(esc(r.methodName)))}${SL('単価', RO(yen(r.price), 1))}${SL('運賃', RO(yen(r.freight), 1))}<div class="span2c fill"></div>
     ${SL('金額', RO(yen(r.net), 1))}${SL('税率', RO(Number(r.taxRate).toFixed(1), 1))}${SL('消費税', RO(yen(r.tax), 1))}${SL('決済金額', RO(yen(r.paymentMoney || r.net + r.tax), 1))}${SEP}
-    ${SL('車両番号', RO(esc(r.vehicle), 1))}${SL('累計台数', RO(String(r.cumulativeCount), 1))}<div class="span4c"></div>
+    ${SL('車両番号', RO(esc(r.vehicle), 1))}${SL('累計台数', RO(String(r.cumulativeCount), 1))}<div class="span4c fill"></div>
     ${SL('出発時間', RO(esc(r.startTime)))}${SL('予定時間', RO(esc(r.planTime)))}${SL('出発温度', RO(r.startTemp === '' ? '' : esc(r.startTemp) + ' ℃', 1))}${SL('担当者', RO(esc(r.operatorName || r.operator)))}
     ${SL('伝票備考', RO(esc(r.remarks)), { span: 4 })}</div>
     ${canWrite() && r.shipKb !== 5 ? '<div class="filters right" style="margin-top:12px"><button type="button" class="primary" id="dn-one">伝票発行（納品書）</button></div>' : ''}`,
@@ -260,7 +260,7 @@ function correctionForm(r) {
 }
 // 確認用：入力欄に架空のサンプル値を入れる（登録はしない）
 const SAMPLE_SITES = ['東名高速 豊田管内舗装補修工事', '市道3号線 舗装工事', '南町 駐車場整備工事', '北区 造成工事'];
-const sampleButton = '<div class="filters right" style="margin-bottom:8px"><button type="button" class="mini quiet" data-sample>サンプル入力</button><span class="muted small">架空の値を入れます（登録は「登録する」で）</span></div>';
+const sampleButton = '<div class="sample-bar"><button type="button" class="sample-btn" data-sample>🎲 サンプル入力</button><span class="muted small">架空の値を入れます（登録は「登録する」で）</span></div>';
 function fillSample(f, { plan = false } = {}) {
   const pick = list => list[Math.floor(Math.random() * list.length)], cus = active('customers'), items = active('items');
   if (cus.length) { f.customer.value = pick(cus).code; if (!f.siteCode) f.customer.dispatchEvent(new Event('change')); }
@@ -283,16 +283,16 @@ function shipmentForm(r, bizDate) {
   const kbOpts = [1, 2, 3, 4].map(k => `<option value="${k}" ${Number(r?.shipKb || 1) === k ? 'selected' : ''}>${esc(meta.shipKinds[k])}</option>`).join('');
   const kbnOpts = options(active('deliveryKinds'), r?.deliveryKbn || active('deliveryKinds')[0]?.code, { blank: '選択', label: x => x.name + (x.pickup ? '（運賃なし）' : '') });
   modal({ title: r?.orderNo ? `出荷伝票の修正（${r.orderNo}）` : r?.fromPlan ? `出荷伝票登録（出荷予定 ${r.fromPlan} から）` : r?.copyOf ? `出荷伝票登録（類似登録：元 ${r.copyOf}）` : '出荷伝票登録', submit: r?.orderNo ? '更新する' : '登録する', wide: true, body: `${r?.orderNo ? '' : sampleButton}<div class="slip-sheet">
-    ${SL('伝票番号', RO(r?.orderNo ? esc(r.orderNo) : '<span class="muted">登録時に採番</span>'))}${SL('伝票区分', `<select name="shipKb">${kbOpts}</select>`)}<div class="span4c"></div>
+    ${SL('伝票番号', RO(r?.orderNo ? esc(r.orderNo) : '<span class="muted">登録時に採番</span>'))}${SL('伝票区分', `<select name="shipKb">${kbOpts}</select>`)}<div class="span4c fill"></div>
     ${SL('出荷日', `<input type="date" name="date" value="${esc(r?.date || bizDate || today())}" required>`, { req: 1 })}${SL('天候', `<select name="weather">${opt(active('weathers'), r?.weather || '', '　')}</select>`)}${SEP}
     <div class="sl req">得意先</div>${CODE_NAME(`<input name="customer" list="dl-cust" maxlength="5" value="${esc(cust)}" autocomplete="off" required>`, '<div class="ro" id="sf-cname">&nbsp;</div>')}
     <div class="sl">他社得意先</div>${CODE_NAME(`<input name="otherCustomer" list="dl-cust" maxlength="5" value="${esc(r?.otherCustomer || '')}" autocomplete="off" placeholder="伝票区分 2・4 のとき">`, '<div class="ro" id="sf-oname">&nbsp;</div>')}
     <div class="sl">納入場所</div>${SITE_ROW(`<input name="siteCode" list="dl-site" maxlength="7" value="${esc(sc0)}" autocomplete="off" placeholder="現場CD">`, `<input name="siteSuffix" maxlength="3" value="${esc(ss0 || (sc0 ? '000' : ''))}" placeholder="000">`, `<input name="siteName1" maxlength="20" value="${esc(r?.siteName1 || '')}" placeholder="納入場所名1">`, `<input name="siteName2" maxlength="20" value="${esc(r?.siteName2 || '')}" placeholder="納入場所名2">`)}${SEP}
     <div class="sl req">商品</div>${CODE_NAME(`<input name="item" list="dl-item" maxlength="5" value="${esc(r?.item || '')}" autocomplete="off" required>`, '<div class="ro" id="sf-iname">&nbsp;</div>', SL('納入区分', `<select name="deliveryKbn">${kbnOpts}</select>`, { req: 1 }))}
     ${SL('数量', `<input name="quantity" class="num" inputmode="decimal" value="${esc(r?.quantity ?? '')}" required>`, { req: 1 })}${SL('単位', '<div class="ro" id="sf-unit">&nbsp;</div>')}${SL('累計数量', '<div class="ro num" id="sf-cq">0.00</div>')}${SL('予定数量', '<div class="ro num" id="sf-pq">0.00</div>')}${SEP}
-    ${SL('決済方法', `<select name="method">${methodOpts}</select>`)}${SL('単価', `<input name="price" class="num" inputmode="numeric" value="${esc(r?.price ?? '')}" required>`, { req: 1 })}${SL('運賃', `<input name="freight" class="num" inputmode="numeric" value="${esc(r?.freight ?? 0)}">`)}<div class="span2c"></div>
+    ${SL('決済方法', `<select name="method">${methodOpts}</select>`)}${SL('単価', `<input name="price" class="num" inputmode="numeric" value="${esc(r?.price ?? '')}" required>`, { req: 1 })}${SL('運賃', `<input name="freight" class="num" inputmode="numeric" value="${esc(r?.freight ?? 0)}">`)}<div class="span2c fill"></div>
     ${SL('金額', '<div class="ro num" id="sf-net">0</div>')}${SL('税率', `<input name="taxRate" class="num" value="${esc(r?.taxRate ?? '')}" readonly tabindex="-1">`)}${SL('消費税', '<div class="ro num" id="sf-tax">0</div>')}${SL('決済金額', '<div class="ro num" id="sf-pay">0</div>')}${SEP}
-    ${SL('車両番号', `<input name="vehicle" maxlength="15" class="num" value="${esc(r?.vehicle || '')}">`)}${SL('累計台数', '<div class="ro num" id="sf-cn">0</div>')}<div class="span4c"></div>
+    ${SL('車両番号', `<input name="vehicle" maxlength="15" class="num" value="${esc(r?.vehicle || '')}">`)}${SL('累計台数', '<div class="ro num" id="sf-cn">0</div>')}<div class="span4c fill"></div>
     ${SL('出発時間', `<input type="time" name="startTime" value="${esc(r?.startTime || '')}">`)}${SL('予定時間', '<div class="ro" id="sf-pt">&nbsp;</div>')}${SL('出発温度', `<input name="startTemp" class="num" inputmode="numeric" maxlength="3" value="${esc(r?.startTemp ?? '')}">`)}${SL('担当者', `<select name="operator">${opt(active('operators'), r?.operator || myOperator(), '選択')}</select>`, { req: 1 })}
     ${SL('伝票備考', `<input name="remarks" maxlength="20" value="${esc(r?.remarks || '')}">`, { span: 4 })}</div>
     ${dl('dl-cust', active('customers'))}${dl('dl-item', active('items'))}<datalist id="dl-site"></datalist>
