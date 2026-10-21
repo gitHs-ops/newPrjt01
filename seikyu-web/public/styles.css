@@ -278,3 +278,25 @@ details summary { cursor: pointer; font-size: 12.5px; color: var(--accent-second
 .dn-doc .dn-thanks { margin: 14px 0; }
 .dn-doc .dn-co { margin-left: 50%; line-height: 1.6; }
 .dn-doc .dn-co1 { font-size: 14pt; font-weight: 700; }
+
+/* 出荷伝票（提案書 スライド7・17 の配置：ラベル＋値 4組／行） */
+.slip-sheet { display: grid; grid-template-columns: 92px minmax(0,1fr) 92px minmax(0,1fr) 92px minmax(0,1fr) 92px minmax(0,1fr); gap: 8px 10px; align-items: center; }
+.slip-sheet .sl { border-left: 4px solid #22a06b; padding-left: 7px; font-size: 13px; font-weight: 600; color: var(--text-primary, #0f172a); white-space: nowrap; }
+.slip-sheet .sl.req::after { content: ' *'; color: var(--danger, #dc2626); }
+.slip-sheet .sv { min-width: 0; }
+.slip-sheet .sv > input, .slip-sheet .sv > select { width: 100%; }
+.slip-sheet .span3 { grid-column: span 3; } .slip-sheet .span5 { grid-column: span 5; } .slip-sheet .span7 { grid-column: span 7; }
+.slip-sheet .ro { background: var(--field-bg); border: 1px solid var(--field-border); border-radius: 8px; padding: 7px 10px; min-height: 36px; display: flex; align-items: center; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.slip-sheet .ro.num, .slip-sheet input.num { justify-content: flex-end; text-align: right; }
+.slip-sheet .sep { grid-column: 1 / -1; border: 0; border-top: 1px solid var(--field-border); margin: 2px 0; }
+.slip-sheet .sv-pair { display: grid; grid-template-columns: 140px minmax(0,1fr); gap: 8px; }
+.slip-sheet .sv-site { display: grid; grid-template-columns: minmax(150px,1fr) minmax(0,1.3fr) auto minmax(0,1fr); gap: 8px; align-items: center; }
+.slip-sheet .sv-site:has(> .ro) { grid-template-columns: 110px auto 80px minmax(0,1.6fr) auto minmax(0,1fr); }
+.slip-sheet input[readonly] { background: rgba(148,163,184,.10); }
+@media (max-width: 900px) {
+  .slip-sheet { grid-template-columns: 92px minmax(0,1fr); }
+  .slip-sheet .span3, .slip-sheet .span5, .slip-sheet .span7 { grid-column: auto; }
+  .slip-sheet .sv-site, .slip-sheet .sv-site:has(> .ro), .slip-sheet .sv-pair { grid-template-columns: 1fr; }
+  .slip-sheet .sv-site > span { display: none; }
+}
+dialog.modal.wide:has(.slip-sheet) { width: min(1320px, calc(100vw - 24px)); } /* 出荷伝票は提案書の横長レイアウト */

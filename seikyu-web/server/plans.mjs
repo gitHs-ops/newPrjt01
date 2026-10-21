@@ -96,7 +96,7 @@ export async function deletePlan(c, ctx, { orderNo }) {
 const CARRY = kbn => ([1, 3, 7].includes(kbn) ? 1 : kbn === 9 ? 2 : 0); // 運搬方法 1 持込 / 2 Ｐ渡（現行 jrxml の判定）
 export async function deliveryNotes(c, ctx, p) {
   const orderNo = String(p.orderNo || ''), date = orderNo ? '' : isoDate(p.date, '出荷日');
-  const rs = await rows(c, `SELECT s.*, c.customers_name, i.item_nam, unit_name(s.unit_cd) unit, op.tanto_nm FROM shipment_slip s LEFT JOIN client_m c ON c.customers_cd=s.customers_cd
+  const rs = await rows(c, `SELECT s.*, c.customers_name, i.item_nam, unit_name(s.unit_cd) unit, op.tanto_nm, (SELECT w.code_dtl_nam FROM code_m w WHERE w.code_key='A0010' AND w.code_dtl=CAST(s.weather_cd AS TEXT)) weather_name FROM shipment_slip s LEFT JOIN client_m c ON c.customers_cd=s.customers_cd
     LEFT JOIN item_m i ON i.item_cd=s.item_cd LEFT JOIN operator_m op ON op.tanto_cd=CAST(NULLIF(s.person_in_charge_cd,'') AS INTEGER)
     WHERE ${orderNo ? 's.order_no=?' : 's.shipment_dt=?'} ORDER BY s.order_no`, [orderNo || date]);
   check(rs.length, '該当データがありません。');
@@ -104,7 +104,7 @@ export async function deliveryNotes(c, ctx, p) {
   const docs = rs.map(r => {
     const d = String(r.shipment_dt).slice(0, 10), st = r.start_time || '', pt = r.plan_start_time || '';
     return { orderNo: r.order_no, date: jp(d), reissue: num(r.ship_printing_fg4) >= 1, customerName: r.customers_name || '', siteName: r.field_name1 || '', itemName: r.item_nam || '', vehicle: r.vehicle_no || '',
-      weather: '', startH: st.slice(0, 2), startM: st.slice(3, 5), arriveH: pt.slice(0, 2), arriveM: pt.slice(3, 5), temperature: r.start_temperature ?? '',
+      weather: r.weather_name || '', startH: st.slice(0, 2), startM: st.slice(3, 5), arriveH: pt.slice(0, 2), arriveM: pt.slice(3, 5), temperature: r.start_temperature ?? '',
       quantity: num(r.quantity), unit: r.unit || '', cumulativeQty: num(r.cumulative_quantity), cumulativeCount: num(r.cumulative_number), operatorName: r.tanto_nm || '', remarks: r.slip_remark || '', carry: CARRY(num(r.delivery_kbn_cd)) };
   });
   if (orderNo) await c.query('UPDATE shipment_slip SET ship_printing_fg4=CASE WHEN ship_printing_fg4=0 THEN 1 ELSE 2 END, update_daytime=UTC_TIMESTAMP(6) WHERE order_no=? AND ship_printing_fg4<>2', [orderNo]);

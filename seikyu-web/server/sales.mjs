@@ -80,7 +80,7 @@ export async function listShipments(c, q = {}) {
   if (q.status === 'open') where += " AND s.process_status='0'";
   if (q.status === 'billed') where += " AND s.process_status='1'";
   if (q.method) { where += ' AND s.payment_method_cd=?'; args.push(Number(q.method)); }
-  const rs = await rows(c, `SELECT s.*, c.customers_name, sl.vehicle_no, unit_name(sl.unit_cd) unit, sl.unit_price slip_price, sl.freight slip_freight, sl.person_in_charge_cd, sl.delivery_kbn_cd, sl.cumulative_quantity, sl.cumulative_number, sl.other_company_customers_cd, sl.start_time, sl.plan_start_time, sl.plan_cumulative_quantity, sl.ship_printing_fg4, oc.customers_name other_name, op.tanto_nm, dk.code_dtl_nam delivery_kbn_name, h.invoice_id,
+  const rs = await rows(c, `SELECT s.*, c.customers_name, sl.vehicle_no, unit_name(sl.unit_cd) unit, sl.unit_price slip_price, sl.freight slip_freight, sl.person_in_charge_cd, sl.delivery_kbn_cd, sl.cumulative_quantity, sl.cumulative_number, sl.other_company_customers_cd, sl.weather_cd, (SELECT w.code_dtl_nam FROM code_m w WHERE w.code_key='A0010' AND w.code_dtl=CAST(sl.weather_cd AS TEXT)) weather_name, sl.start_time, sl.plan_start_time, sl.plan_cumulative_quantity, sl.ship_printing_fg4, oc.customers_name other_name, op.tanto_nm, dk.code_dtl_nam delivery_kbn_name, h.invoice_id,
       (SELECT COUNT(*) FROM sales_trn x WHERE x.sales_no=s.order_no AND x.order_no<>s.order_no) corrections
     FROM sales_trn s LEFT JOIN client_m c ON c.customers_cd=s.customers_cd LEFT JOIN shipment_slip sl ON sl.order_no=s.order_no
     LEFT JOIN client_m oc ON oc.customers_cd=NULLIF(sl.other_company_customers_cd,'') LEFT JOIN operator_m op ON op.tanto_cd=CAST(NULLIF(sl.person_in_charge_cd,'') AS INTEGER) LEFT JOIN code_m dk ON dk.code_key='A0000' AND dk.code_dtl=CAST(sl.delivery_kbn_cd AS TEXT)
@@ -90,20 +90,26 @@ export async function listShipments(c, q = {}) {
     siteName1: r.field_name1 || '', siteName2: r.field_name2 || '', item: r.item_cd, itemName: r.item_name, quantity: Number(r.quantity), unit: r.unit || '', price: num(r.slip_price ?? r.unit_price), freight: num(r.slip_freight), unitPrice: num(r.unit_price),
     net: Number(r.money), taxRate: Number(r.tax_rate), tax: Number(r.consumption_tax), method: Number(r.payment_method_cd), methodName: METHODS[r.payment_method_cd] || '', billed: r.process_status === '1', invoiceId: r.invoice_id || null,
     vehicle: r.vehicle_no || '', remarks: r.remarks || '', operator: r.person_in_charge_cd || '', operatorName: r.tanto_nm || '', deliveryKbn: r.delivery_kbn_cd ? String(r.delivery_kbn_cd) : '', deliveryKbnName: r.delivery_kbn_name || '',
-    cumulativeQty: num(r.cumulative_quantity), cumulativeCount: num(r.cumulative_number), otherCustomer: r.other_company_customers_cd || '', otherCustomerName: r.other_name || '', paymentMoney: num(r.payment_money), startTime: r.start_time || '', planQty: num(r.plan_cumulative_quantity), planTime: r.plan_start_time || '', printed: Number(r.ship_printing_fg4 || 0), shipKb: Number(r.ship_kb || 1), shipKbName: SHIP_KB[Number(r.ship_kb || 1)] || '', originalNo: r.sales_no !== r.order_no ? r.sales_no : '', corrected: Number(r.corrections) > 0 }));
+    cumulativeQty: num(r.cumulative_quantity), cumulativeCount: num(r.cumulative_number), otherCustomer: r.other_company_customers_cd || '', otherCustomerName: r.other_name || '', paymentMoney: num(r.payment_money), weather: r.weather_cd === null || r.weather_cd === undefined ? '' : String(r.weather_cd), weatherName: r.weather_name || '', startTime: r.start_time || '', planQty: num(r.plan_cumulative_quantity), planTime: r.plan_start_time || '', printed: Number(r.ship_printing_fg4 || 0), shipKb: Number(r.ship_kb || 1), shipKbName: SHIP_KB[Number(r.ship_kb || 1)] || '', originalNo: r.sales_no !== r.order_no ? r.sales_no : '', corrected: Number(r.corrections) > 0 }));
 }
 // sales_trn の列は現行 Java（NI0010）に合わせる：unit_price＝単価＋運賃、proc_kb・tax_kb＝''、remarks＝伝票備考の先頭20文字
-async function insertSlip(c, { orderNo, shipKb, date, cust, f, it, q, price, freight = 0, net, rate, tax, method, vehicle, remarks, operator, kbn, other = '', salesNo, salesSuffix, startTime = '' }) {
+async function insertSlip(c, { orderNo, shipKb, date, cust, f, it, q, price, freight = 0, net, rate, tax, method, vehicle, remarks, operator, kbn, other = '', salesNo, salesSuffix, startTime = '', weather = null }) {
   const st = stamp(), paid = net + tax; // payment_money は決済方法に関係なく 金額＋税（現行 Java）
   await c.query(`INSERT INTO shipment_slip (order_no,ship_kb,shipment_dt,weather_cd,customers_cd,other_company_customers_cd,delivery_cd,delivery_name,field_cd,field_suffix,field_name1,field_name2,item_cd,delivery_kbn_cd,quantity,unit_cd,cumulative_quantity,plan_cumulative_quantity,unit_price,money,tax_rate,consumption_tax,payment_method_cd,payment_money,vehicle_no,cumulative_number,start_time,plan_start_time,start_temperature,person_in_charge_cd,slip_remark,ship_printing_fg1,ship_printing_fg2,ship_printing_fg3,ship_printing_fg4,printing_settled_fg,claim_status,claim_processing_period,freight,card_sales_sts,card_sales_dt,card_member_id,card_order_id,card_credit_dt,update_daytime,order_processing_period)
     VALUES (?,?,?,NULL,?,?,'','',?,?,?,?,?,?,?,?,0,0,?,?,?,?,?,?,?,0,'','',NULL,?,?,0,0,0,0,0,0,0,?,0,NULL,'','',NULL,UTC_TIMESTAMP(6),NULL)`,
     [orderNo, Number(shipKb), date, cust.customers_cd, other, f.field_cd, f.field_suffix, f.field_name1.slice(0, 20), f.field_name2.slice(0, 20), it.item_cd, Number(kbn), q.text, it.unit, price, net, rate, tax, method, paid, vehicle, operator, remarks, freight]);
-  if (startTime) await c.query('UPDATE shipment_slip SET start_time=? WHERE order_no=?', [startTime, orderNo]);
+  if (startTime || weather !== null) await c.query('UPDATE shipment_slip SET start_time=?, weather_cd=? WHERE order_no=?', [startTime, weather, orderNo]);
   await c.query(`INSERT INTO sales_trn (order_no,order_suffix,sales_date,sales_no,sales_suffix,ship_kb,customers_cd,field_cd,field_suffix,field_name1,field_name2,shipping_kb,item_cd,item_name,item_zaiko_cd,quantity,unit_cd,unit_price,money,proc_kb,tax_kb,tax_rate,consumption_tax,remarks,claim_processing_period,payment_method_cd,payment_money,process_status,update_day,update_time,update_pgm,update_ws)
     VALUES (?,1,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'','',?,?,?,NULL,?,?,'0',?,?,?,?)`,
     [orderNo, toNum(date), salesNo || orderNo, salesSuffix || 1, String(shipKb), cust.customers_cd, f.field_cd, f.field_suffix, f.field_name1, f.field_name2, Number(kbn), it.item_cd, it.item_nam.slice(0, 20), it.item_cd, q.text, /^\d+$/.test(it.unit) ? Number(it.unit) : null, price + freight, net, rate, tax, remarks.slice(0, 20), method, paid, st.update_day, st.update_time, st.update_pgm, st.update_ws]);
 }
 // 現場は任意（現行 Java と同じ）：コード指定ならマスタの現場、未指定なら現場名1・2 を自由入力
+// 天候（code_m A0010）：任意
+export async function weatherOf(c, v) {
+  if (v === undefined || v === null || v === '') return null;
+  check(/^\d{1,2}$/.test(String(v)) && await one(c, "SELECT 1 x FROM code_m WHERE code_key='A0010' AND code_dtl=?", [String(Number(v))]), '天候を天候マスタから選択してください');
+  return Number(v);
+}
 export const hhmm = (v, label) => text(v, label, 5, { required: false, pattern: /^([01]\d|2[0-3]):[0-5]\d$/ });
 export async function siteOf(c, cust, p) {
   const s = site(p.site);
@@ -130,7 +136,7 @@ async function slipValues(c, p, label = '') {
   if (['2', '4'].includes(shipKb)) { check(other, '伝票区分が他社納入のときは他社得意先を入力してください'); check(await one(c, 'SELECT 1 x FROM client_m WHERE customers_cd=?', [other]), '他社得意先が得意先マスタにありません'); }
   else check(!other, '他社得意先は伝票区分が他社納入（2・4）のときだけ入力できます');
   const mode = await roundModes(c), net = moneyOf(q, price + freight, mode.money); check(Math.abs(net) <= 999999999, '売上金額が上限(9億9999万円)を超えています');
-  return { date, cust, f, it, q, price, freight, rate, method, net, tax: lineTax(net, rate, mode.tax), operator: String(op.tanto_cd).padStart(6, '0'), kbn, shipKb, other, vehicle: text(p.vehicle, '車番', 15, { required: false }), remarks: text(p.remarks, '備考', 20, { required: false }), startTime: hhmm(p.startTime, label + '出発時間') };
+  return { date, cust, f, it, q, price, freight, rate, method, net, tax: lineTax(net, rate, mode.tax), operator: String(op.tanto_cd).padStart(6, '0'), kbn, shipKb, other, vehicle: text(p.vehicle, '車番', 15, { required: false }), remarks: text(p.remarks, '備考', 20, { required: false }), startTime: hhmm(p.startTime, label + '出発時間'), weather: await weatherOf(c, p.weather) };
 }
 export async function saveShipment(c, ctx, p) {
   const v = await slipValues(c, p), st = stamp();
@@ -148,7 +154,7 @@ export async function saveShipment(c, ctx, p) {
     const before = await one(c, 'SELECT * FROM shipment_slip WHERE order_no=?', [orderNo]);
     await c.query('UPDATE shipment_slip SET shipment_dt=?,customers_cd=?,field_cd=?,field_suffix=?,field_name1=?,field_name2=?,item_cd=?,delivery_kbn_cd=?,quantity=?,unit_cd=?,unit_price=?,freight=?,money=?,tax_rate=?,consumption_tax=?,payment_method_cd=?,payment_money=?,vehicle_no=?,person_in_charge_cd=?,slip_remark=?,update_daytime=UTC_TIMESTAMP(6) WHERE order_no=?',
       [v.date, v.cust.customers_cd, v.f.field_cd, v.f.field_suffix, v.f.field_name1.slice(0, 20), v.f.field_name2.slice(0, 20), v.it.item_cd, Number(v.kbn), v.q.text, v.it.unit, v.price, v.freight, v.net, v.rate, v.tax, v.method, v.net + v.tax, v.vehicle, v.operator, v.remarks, orderNo]);
-    await c.query('UPDATE shipment_slip SET ship_kb=?,other_company_customers_cd=?,start_time=? WHERE order_no=?', [Number(v.shipKb), v.other, v.startTime, orderNo]);
+    await c.query('UPDATE shipment_slip SET ship_kb=?,other_company_customers_cd=?,start_time=?,weather_cd=? WHERE order_no=?', [Number(v.shipKb), v.other, v.startTime, v.weather, orderNo]);
     if (before) await recalcCumulative(c, before);
     await recalcCumulative(c, await one(c, 'SELECT * FROM shipment_slip WHERE order_no=?', [orderNo]));
     await audit(c, ctx, 'sales_trn', orderNo, 'shipment.update', { date: v.date, customer: v.cust.customers_cd, item: v.it.item_cd, net: v.net });
@@ -191,6 +197,20 @@ export async function correctShipment(c, ctx, p) {
   }
   await audit(c, ctx, 'sales_trn', orig.order_no, 'shipment.correct', { original: orig.order_no, red: redNo, black: blackNo, net: red.net + (black?.net || 0) });
   return { orderNo: blackNo || redNo, red: redNo, black: blackNo, original: orig.order_no, net: red.net + (black?.net || 0) };
+}
+// 入力中の累計数量・累計台数・予定数量・予定時間（現行 NS006001 の lastCumulative／planInformation と同じ考え方）。登録後はサーバーで振り直す。
+export async function cumulativePreview(c, q) {
+  const z = { cumulativeQty: 0, cumulativeCount: 0, planQty: 0, planTime: '' };
+  const cust = q.customer && await one(c, 'SELECT * FROM client_m WHERE customers_cd=?', [String(q.customer)]);
+  if (!cust || !q.item || !q.deliveryKbn || !/^\d{4}-\d{2}-\d{2}$/.test(String(q.date || ''))) return z;
+  const f = await siteOf(c, cust, q).catch(() => null); if (!f) return z;
+  const qn = Number(q.quantity || 0), kb = String(q.shipKb || '1');
+  const key = { shipment_dt: q.date, customers_cd: cust.customers_cd, delivery_name: '', field_name1: f.field_name1.slice(0, 20), field_name2: f.field_name2.slice(0, 20), item_cd: String(q.item), delivery_kbn_cd: Number(q.deliveryKbn) };
+  const ex = await one(c, `SELECT COALESCE(SUM(quantity),0) qs, COUNT(*) FILTER (WHERE quantity>=0) n FROM shipment_slip WHERE ${WORK_WHERE} AND ship_kb NOT IN (2,9) AND order_no<>?`, [...workKeyArgs(key), String(q.orderNo || '')]);
+  if (['2', '9'].includes(kb)) return z;
+  const count = Number(ex.n) + (qn >= 0 ? 1 : 0), cq = Math.round((Number(ex.qs) + qn) * 100) / 100;
+  const plan = qn >= 0 ? await one(c, `SELECT cumulative_quantity, start_time FROM shipment_plan WHERE ${WORK_WHERE} AND cumulative_number=? ORDER BY order_no DESC LIMIT 1`, [...workKeyArgs(key), count]) : null;
+  return { cumulativeQty: cq, cumulativeCount: count, planQty: num(plan?.cumulative_quantity), planTime: plan?.start_time || '' };
 }
 export async function deleteShipment(c, ctx, { orderNo }) {
   const old = await one(c, 'SELECT * FROM sales_trn WHERE order_no=? AND order_suffix=1 FOR UPDATE', [String(orderNo || '')]);

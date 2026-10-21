@@ -279,6 +279,18 @@ export const MASTERS = {
       else await c.query("UPDATE code_m SET code_dtl_nam=?,code_dtl_abr=?,category1=?,category3=? WHERE code_key='A0000' AND code_dtl=?", [r.name, r.name.slice(0, 26), r.pickup ? '2' : '1', r.active ? ' ' : '0', r.code]);
     },
   },
+  weathers: {
+    label: '天候', table: 'code_m',
+    // 現行 code_m A0010（出荷伝票の天候・納品書に印字）。初期値は推定
+    fields: [F('code', '天候コード', { max: 2, key: true, hint: '数字2桁以内' }), F('name', '名称', { max: 20 }), F('active', '有効', { type: 'bool' })],
+    select: "SELECT * FROM code_m WHERE code_key='A0010'", where: 'code_dtl=?', keyOf: r => [r.code],
+    decode: r => ({ code: r.code_dtl, name: r.code_dtl_nam, active: r.category3 !== '0' }),
+    validate: r => ({ code: text(r.code, '天候コード', 2, { pattern: /^\d{1,2}$/ }), name: text(r.name, '名称', 20), active: bool(r.active ?? true) }),
+    async write(c, r, old) {
+      if (!old) await c.query("INSERT INTO code_m (code_key,code_key_nam,code_dtl,code_dtl_nam,code_dtl_abr,category1,category2,category3) VALUES ('A0010','天候',?,?,?,' ',' ',?)", [r.code, r.name, r.name, r.active ? ' ' : '0']);
+      else await c.query("UPDATE code_m SET code_dtl_nam=?,code_dtl_abr=?,category3=? WHERE code_key='A0010' AND code_dtl=?", [r.name, r.name, r.active ? ' ' : '0', r.code]);
+    },
+  },
   units: {
     label: '単位', table: 'code_m',
     fields: [F('code', '単位コード', { max: 2, key: true, hint: '数字2桁（現行 01 t・02 m3 …）' }), F('name', '単位名', { max: 40 }), F('active', '有効', { type: 'bool' })],
@@ -402,6 +414,8 @@ const REMOVE = {
   mixes: { refs: [], del: ["DELETE FROM code_m WHERE code_key='MIX' AND code_dtl=?"] },
   deliveryKinds: { refs: [['出荷伝票', 'SELECT 1 x FROM shipment_slip WHERE CAST(delivery_kbn_cd AS TEXT)=? LIMIT 1'], ['出荷予定', 'SELECT 1 x FROM shipment_plan WHERE CAST(delivery_kbn_cd AS TEXT)=? LIMIT 1']],
     del: ["DELETE FROM code_m WHERE code_key='A0000' AND code_dtl=?"] },
+  weathers: { refs: [['出荷伝票', 'SELECT 1 x FROM shipment_slip WHERE CAST(weather_cd AS TEXT)=? LIMIT 1'], ['出荷予定', 'SELECT 1 x FROM shipment_plan WHERE CAST(weather_cd AS TEXT)=? LIMIT 1']],
+    del: ["DELETE FROM code_m WHERE code_key='A0010' AND code_dtl=?"] },
   units: { refs: [['商品マスタ', 'SELECT 1 x FROM item_m WHERE unit=? LIMIT 1'], ['出荷伝票', 'SELECT 1 x FROM shipment_slip WHERE unit_cd=? LIMIT 1'], ['出荷予定', 'SELECT 1 x FROM shipment_plan WHERE unit_cd=? LIMIT 1']],
     del: ["DELETE FROM code_m WHERE code_key='A0003' AND code_dtl=?"] },
   taxRates: { refs: [['最後の1件', "SELECT 1 x FROM (SELECT COUNT(*) n FROM code_m WHERE code_key='A0007' AND code_dtl<>?) t WHERE t.n=0"],
