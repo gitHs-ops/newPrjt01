@@ -30,6 +30,14 @@ export async function setBusinessDate(c, ctx, { date }) {
   await audit(c, ctx, 'company_info_m', 1, 'business.date', { date: d });
   return { date: d || today() };
 }
+// 伝票番号（提案書 出荷伝票画面・現行 Java NumberingMEntity）：業務日付の YYMM＋5桁、月が変わると 00001 から
+async function nextShipNo(c) {
+  const bd = await businessDate(c), p = bd.slice(2, 4) + bd.slice(5, 7);
+  await one(c, 'SELECT present_value FROM numbering_m WHERE numbering_key=101 FOR UPDATE'); // 採番の直列化
+  const r = await one(c, "SELECT MAX(order_no) m FROM shipment_slip WHERE order_no ~ ?", ['^' + p + '[0-9]{5}$']);
+  const next = r?.m ? Number(String(r.m).slice(4)) + 1 : 1; check(next <= 99999, '今月の伝票番号が上限に達しました');
+  return p + String(next).padStart(5, '0');
+}
 export async function priceFor(c, { item, customer, site: s, date }) {
   const d = date || today(), { code, suffix } = site(s), taxRate = await taxRateOn(c, d);
   const r = await one(c, "SELECT * FROM uriage_tanka_m WHERE item_cd=? AND customers_cd=? AND delete_f<>'1' AND ((field_cd=? AND field_suffix=?) OR field_cd='') ORDER BY field_cd DESC, field_suffix DESC LIMIT 1", [item, customer, code, suffix]);
@@ -62,24 +70,24 @@ export async function listShipments(c, q = {}) {
   if (q.status === 'open') where += " AND s.process_status='0'";
   if (q.status === 'billed') where += " AND s.process_status='1'";
   if (q.method) { where += ' AND s.payment_method_cd=?'; args.push(Number(q.method)); }
-  const rs = await rows(c, `SELECT s.*, c.customers_name, sl.vehicle_no, unit_name(sl.unit_cd) unit, sl.unit_price slip_price, sl.freight slip_freight, sl.person_in_charge_cd, sl.delivery_kbn_cd, sl.cumulative_quantity, sl.cumulative_number, op.tanto_nm, dk.code_dtl_nam delivery_kbn_name, h.invoice_id,
+  const rs = await rows(c, `SELECT s.*, c.customers_name, sl.vehicle_no, unit_name(sl.unit_cd) unit, sl.unit_price slip_price, sl.freight slip_freight, sl.person_in_charge_cd, sl.delivery_kbn_cd, sl.cumulative_quantity, sl.cumulative_number, sl.other_company_customers_cd, oc.customers_name other_name, op.tanto_nm, dk.code_dtl_nam delivery_kbn_name, h.invoice_id,
       (SELECT COUNT(*) FROM sales_trn x WHERE x.sales_no=s.order_no AND x.order_no<>s.order_no) corrections
     FROM sales_trn s LEFT JOIN client_m c ON c.customers_cd=s.customers_cd LEFT JOIN shipment_slip sl ON sl.order_no=s.order_no
-    LEFT JOIN operator_m op ON op.tanto_cd=CAST(NULLIF(sl.person_in_charge_cd,'') AS INTEGER) LEFT JOIN code_m dk ON dk.code_key='A0000' AND dk.code_dtl=CAST(sl.delivery_kbn_cd AS TEXT)
+    LEFT JOIN client_m oc ON oc.customers_cd=NULLIF(sl.other_company_customers_cd,'') LEFT JOIN operator_m op ON op.tanto_cd=CAST(NULLIF(sl.person_in_charge_cd,'') AS INTEGER) LEFT JOIN code_m dk ON dk.code_key='A0000' AND dk.code_dtl=CAST(sl.delivery_kbn_cd AS TEXT)
     LEFT JOIN billing_detail d ON d.order_no=s.order_no LEFT JOIN billing_head h ON ${DETAIL_JOIN}
     WHERE s.sales_date BETWEEN ? AND ?${where} ORDER BY s.sales_date DESC, s.order_no DESC LIMIT 1000`, args);
   return rs.map(r => ({ orderNo: r.order_no, date: fromNum(r.sales_date), customer: r.customers_cd, customerName: r.customers_name, site: r.field_cd ? `${r.field_cd}|${r.field_suffix}` : '', siteName: [r.field_name1, r.field_name2].filter(Boolean).join(' '),
     siteName1: r.field_name1 || '', siteName2: r.field_name2 || '', item: r.item_cd, itemName: r.item_name, quantity: Number(r.quantity), unit: r.unit || '', price: num(r.slip_price ?? r.unit_price), freight: num(r.slip_freight), unitPrice: num(r.unit_price),
     net: Number(r.money), taxRate: Number(r.tax_rate), tax: Number(r.consumption_tax), method: Number(r.payment_method_cd), methodName: METHODS[r.payment_method_cd] || '', billed: r.process_status === '1', invoiceId: r.invoice_id || null,
     vehicle: r.vehicle_no || '', remarks: r.remarks || '', operator: r.person_in_charge_cd || '', operatorName: r.tanto_nm || '', deliveryKbn: r.delivery_kbn_cd ? String(r.delivery_kbn_cd) : '', deliveryKbnName: r.delivery_kbn_name || '',
-    cumulativeQty: num(r.cumulative_quantity), cumulativeCount: num(r.cumulative_number), shipKb: Number(r.ship_kb || 1), shipKbName: SHIP_KB[Number(r.ship_kb || 1)] || '', originalNo: r.sales_no !== r.order_no ? r.sales_no : '', corrected: Number(r.corrections) > 0 }));
+    cumulativeQty: num(r.cumulative_quantity), cumulativeCount: num(r.cumulative_number), otherCustomer: r.other_company_customers_cd || '', otherCustomerName: r.other_name || '', paymentMoney: num(r.payment_money), shipKb: Number(r.ship_kb || 1), shipKbName: SHIP_KB[Number(r.ship_kb || 1)] || '', originalNo: r.sales_no !== r.order_no ? r.sales_no : '', corrected: Number(r.corrections) > 0 }));
 }
 // sales_trn の列は現行 Java（NI0010）に合わせる：unit_price＝単価＋運賃、proc_kb・tax_kb＝''、remarks＝伝票備考の先頭20文字
-async function insertSlip(c, { orderNo, shipKb, date, cust, f, it, q, price, freight = 0, net, rate, tax, method, vehicle, remarks, operator, kbn, salesNo, salesSuffix }) {
+async function insertSlip(c, { orderNo, shipKb, date, cust, f, it, q, price, freight = 0, net, rate, tax, method, vehicle, remarks, operator, kbn, other = '', salesNo, salesSuffix }) {
   const st = stamp(), paid = net + tax; // payment_money は決済方法に関係なく 金額＋税（現行 Java）
   await c.query(`INSERT INTO shipment_slip (order_no,ship_kb,shipment_dt,weather_cd,customers_cd,other_company_customers_cd,delivery_cd,delivery_name,field_cd,field_suffix,field_name1,field_name2,item_cd,delivery_kbn_cd,quantity,unit_cd,cumulative_quantity,plan_cumulative_quantity,unit_price,money,tax_rate,consumption_tax,payment_method_cd,payment_money,vehicle_no,cumulative_number,start_time,plan_start_time,start_temperature,person_in_charge_cd,slip_remark,ship_printing_fg1,ship_printing_fg2,ship_printing_fg3,ship_printing_fg4,printing_settled_fg,claim_status,claim_processing_period,freight,card_sales_sts,card_sales_dt,card_member_id,card_order_id,card_credit_dt,update_daytime,order_processing_period)
-    VALUES (?,?,?,NULL,?,'','','',?,?,?,?,?,?,?,?,0,0,?,?,?,?,?,?,?,0,'','',NULL,?,?,0,0,0,0,0,0,0,?,0,NULL,'','',NULL,UTC_TIMESTAMP(6),NULL)`,
-    [orderNo, Number(shipKb), date, cust.customers_cd, f.field_cd, f.field_suffix, f.field_name1.slice(0, 20), f.field_name2.slice(0, 20), it.item_cd, Number(kbn), q.text, it.unit, price, net, rate, tax, method, paid, vehicle, operator, remarks, freight]);
+    VALUES (?,?,?,NULL,?,?,'','',?,?,?,?,?,?,?,?,0,0,?,?,?,?,?,?,?,0,'','',NULL,?,?,0,0,0,0,0,0,0,?,0,NULL,'','',NULL,UTC_TIMESTAMP(6),NULL)`,
+    [orderNo, Number(shipKb), date, cust.customers_cd, other, f.field_cd, f.field_suffix, f.field_name1.slice(0, 20), f.field_name2.slice(0, 20), it.item_cd, Number(kbn), q.text, it.unit, price, net, rate, tax, method, paid, vehicle, operator, remarks, freight]);
   await c.query(`INSERT INTO sales_trn (order_no,order_suffix,sales_date,sales_no,sales_suffix,ship_kb,customers_cd,field_cd,field_suffix,field_name1,field_name2,shipping_kb,item_cd,item_name,item_zaiko_cd,quantity,unit_cd,unit_price,money,proc_kb,tax_kb,tax_rate,consumption_tax,remarks,claim_processing_period,payment_method_cd,payment_money,process_status,update_day,update_time,update_pgm,update_ws)
     VALUES (?,1,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'','',?,?,?,NULL,?,?,'0',?,?,?,?)`,
     [orderNo, toNum(date), salesNo || orderNo, salesSuffix || 1, String(shipKb), cust.customers_cd, f.field_cd, f.field_suffix, f.field_name1, f.field_name2, Number(kbn), it.item_cd, it.item_nam.slice(0, 20), it.item_cd, q.text, /^\d+$/.test(it.unit) ? Number(it.unit) : null, price + freight, net, rate, tax, remarks.slice(0, 20), method, paid, st.update_day, st.update_time, st.update_pgm, st.update_ws]);
@@ -104,8 +112,13 @@ async function slipValues(c, p, label = '') {
   const kbn = text(p.deliveryKbn, label + '納入区分', 2, { pattern: /^\d{1,2}$/ });
   const dk = await one(c, "SELECT category1 FROM code_m WHERE code_key='A0000' AND code_dtl=?", [kbn]); check(dk, label + '納入区分を選択してください');
   if (dk.category1 === '2') check(freight === 0, '納入区分が引取のため運賃は0です');
+  // 伝票区分（提案書・現行 A0009）：1 出荷売上 / 2 他社納入 / 3 他社顧客購入 / 4 他社納入２。値引（9）は入金時に処理するため対象外（Q18）。区分 2・4 は他社得意先が必須、それ以外は入力不可
+  const shipKb = String(p.shipKb || '1'); check(['1', '2', '3', '4'].includes(shipKb), '伝票区分が不正です');
+  const other = text(p.otherCustomer, '他社得意先', 5, { required: false });
+  if (['2', '4'].includes(shipKb)) { check(other, '伝票区分が他社納入のときは他社得意先を入力してください'); check(await one(c, 'SELECT 1 x FROM client_m WHERE customers_cd=?', [other]), '他社得意先が得意先マスタにありません'); }
+  else check(!other, '他社得意先は伝票区分が他社納入（2・4）のときだけ入力できます');
   const mode = await roundModes(c), net = moneyOf(q, price + freight, mode.money); check(Math.abs(net) <= 999999999, '売上金額が上限(9億9999万円)を超えています');
-  return { date, cust, f, it, q, price, freight, rate, method, net, tax: lineTax(net, rate, mode.tax), operator: String(op.tanto_cd).padStart(6, '0'), kbn, vehicle: text(p.vehicle, '車番', 15, { required: false }), remarks: text(p.remarks, '備考', 20, { required: false }) };
+  return { date, cust, f, it, q, price, freight, rate, method, net, tax: lineTax(net, rate, mode.tax), operator: String(op.tanto_cd).padStart(6, '0'), kbn, shipKb, other, vehicle: text(p.vehicle, '車番', 15, { required: false }), remarks: text(p.remarks, '備考', 20, { required: false }) };
 }
 export async function saveShipment(c, ctx, p) {
   const v = await slipValues(c, p), st = stamp();
@@ -119,16 +132,17 @@ export async function saveShipment(c, ctx, p) {
     await assertOpen(c, fromNum(old.sales_date));
     await c.query(`UPDATE sales_trn SET sales_date=?,customers_cd=?,field_cd=?,field_suffix=?,field_name1=?,field_name2=?,item_cd=?,item_name=?,quantity=?,unit_price=?,money=?,tax_rate=?,consumption_tax=?,remarks=?,payment_method_cd=?,payment_money=?,update_day=?,update_time=?,update_pgm=?,update_ws=? WHERE order_no=? AND order_suffix=1`,
       [toNum(v.date), v.cust.customers_cd, v.f.field_cd, v.f.field_suffix, v.f.field_name1, v.f.field_name2, v.it.item_cd, v.it.item_nam.slice(0, 20), v.q.text, v.price + v.freight, v.net, v.rate, v.tax, v.remarks, v.method, v.net + v.tax, st.update_day, st.update_time, st.update_pgm, st.update_ws, orderNo]);
-    await c.query('UPDATE sales_trn SET shipping_kb=?,unit_cd=? WHERE order_no=?', [Number(v.kbn), /^\d+$/.test(v.it.unit) ? Number(v.it.unit) : null, orderNo]);
+    await c.query('UPDATE sales_trn SET shipping_kb=?,unit_cd=?,ship_kb=? WHERE order_no=?', [Number(v.kbn), /^\d+$/.test(v.it.unit) ? Number(v.it.unit) : null, v.shipKb, orderNo]);
     const before = await one(c, 'SELECT * FROM shipment_slip WHERE order_no=?', [orderNo]);
     await c.query('UPDATE shipment_slip SET shipment_dt=?,customers_cd=?,field_cd=?,field_suffix=?,field_name1=?,field_name2=?,item_cd=?,delivery_kbn_cd=?,quantity=?,unit_cd=?,unit_price=?,freight=?,money=?,tax_rate=?,consumption_tax=?,payment_method_cd=?,payment_money=?,vehicle_no=?,person_in_charge_cd=?,slip_remark=?,update_daytime=UTC_TIMESTAMP(6) WHERE order_no=?',
       [v.date, v.cust.customers_cd, v.f.field_cd, v.f.field_suffix, v.f.field_name1.slice(0, 20), v.f.field_name2.slice(0, 20), v.it.item_cd, Number(v.kbn), v.q.text, v.it.unit, v.price, v.freight, v.net, v.rate, v.tax, v.method, v.net + v.tax, v.vehicle, v.operator, v.remarks, orderNo]);
+    await c.query('UPDATE shipment_slip SET ship_kb=?,other_company_customers_cd=? WHERE order_no=?', [Number(v.shipKb), v.other, orderNo]);
     if (before) await recalcCumulative(c, before);
     await recalcCumulative(c, await one(c, 'SELECT * FROM shipment_slip WHERE order_no=?', [orderNo]));
     await audit(c, ctx, 'sales_trn', orderNo, 'shipment.update', { date: v.date, customer: v.cust.customers_cd, item: v.it.item_cd, net: v.net });
   } else {
-    orderNo = await nextNo(c, 'sales');
-    await insertSlip(c, { orderNo, shipKb: 1, ...v });
+    orderNo = await nextShipNo(c);
+    await insertSlip(c, { ...v, orderNo, shipKb: v.shipKb });
     await recalcCumulative(c, await one(c, 'SELECT * FROM shipment_slip WHERE order_no=?', [orderNo]));
     await audit(c, ctx, 'sales_trn', orderNo, 'shipment.create', { date: v.date, customer: v.cust.customers_cd, item: v.it.item_cd, net: v.net });
   }
@@ -151,14 +165,15 @@ export async function correctShipment(c, ctx, p) {
     net: -num(orig.money), rate: Math.round(num(orig.tax_rate)), tax: -num(orig.consumption_tax), method: Number(orig.payment_method_cd), vehicle: '', remarks: `赤 ${orig.order_no}`,
     operator: slip?.person_in_charge_cd || '', kbn: String(slip?.delivery_kbn_cd ?? orig.shipping_kb ?? 1) };
   if (Number(orig.quantity) < 0) red.q = qty(String(-Number(orig.quantity)), '数量'); // 元がマイナス伝票なら赤はプラス
-  const redNo = await nextNo(c, 'sales');
+  const redNo = await nextShipNo(c);
   await insertSlip(c, { orderNo: redNo, shipKb: CORRECTION, ...red, salesNo: orig.order_no, salesSuffix: 2 });
   await recalcCumulative(c, await one(c, 'SELECT * FROM shipment_slip WHERE order_no=?', [redNo]));
   let blackNo = null, black = null;
   if (p.quantity !== undefined && p.quantity !== '' && Number(p.quantity) !== 0) {
     black = await slipValues(c, { date, customer: p.customer || orig.customers_cd, site: p.site ?? (orig.field_cd ? `${orig.field_cd}|${orig.field_suffix}` : ''), siteName1: p.siteName1 ?? orig.field_name1, siteName2: p.siteName2 ?? orig.field_name2,
-      item: p.item || orig.item_cd, quantity: p.quantity, price: p.price ?? red.price, freight: p.freight ?? red.freight, method: p.method ?? red.method, operator: p.operator || red.operator, deliveryKbn: p.deliveryKbn || red.kbn, vehicle: slip?.vehicle_no || '', remarks: p.remarks || `黒 ${orig.order_no}` }, '黒伝票の');
-    blackNo = await nextNo(c, 'sales');
+      item: p.item || orig.item_cd, quantity: p.quantity, price: p.price ?? red.price, freight: p.freight ?? red.freight, method: p.method ?? red.method, operator: p.operator || red.operator, deliveryKbn: p.deliveryKbn || red.kbn,
+      shipKb: '1', otherCustomer: '', vehicle: slip?.vehicle_no || '', remarks: p.remarks || `黒 ${orig.order_no}` }, '黒伝票の');
+    blackNo = await nextShipNo(c);
     await insertSlip(c, { orderNo: blackNo, shipKb: CORRECTION, ...black, salesNo: orig.order_no, salesSuffix: 3 });
     await recalcCumulative(c, await one(c, 'SELECT * FROM shipment_slip WHERE order_no=?', [blackNo]));
   }
@@ -266,6 +281,7 @@ export async function listInvoices(c, q = {}) {
   const args = [], w = [];
   if (q.month) { isoMonth(q.month); w.push('h.closing_yymm=?'); args.push(Number(q.month.replace('-', ''))); }
   if (q.customer) { w.push('h.customers_cd=?'); args.push(q.customer); }
+  if (q.closing) { w.push('h.closingdd=?'); args.push(Number(q.closing)); }
   if (q.customerFrom) { w.push('h.customers_cd>=?'); args.push(q.customerFrom); }
   if (q.customerTo) { w.push('h.customers_cd<=?'); args.push(q.customerTo); }
   let list = (await rows(c, `${invoiceSql}${w.length ? ' WHERE ' + w.join(' AND ') : ''} ORDER BY h.closing_date DESC, h.customers_cd, h.invoice_id DESC LIMIT 1000`, args)).map(decodeInvoice);
@@ -345,23 +361,26 @@ export async function billingConfirm(c, { month, closing }) {
 export async function companyProfile(c) {
   const co = await one(c, 'SELECT * FROM company_info_m ORDER BY company_info_id LIMIT 1');
   const set = Object.fromEntries((await rows(c, "SELECT code_dtl, code_dtl_abr FROM code_m WHERE code_key='SET'")).map(r => [r.code_dtl, r.code_dtl_abr]));
+  const bankOf = async code => {
   let bankText = '';
-  if (set.INVBANK) {
-    const z = await one(c, "SELECT b.code_dtl_nam name, z.category1 bk, z.category2 bt, z.category3 acc FROM code_m b LEFT JOIN code_m z ON z.code_key='ZGN' AND z.code_dtl=b.code_dtl WHERE b.code_key='BANK' AND b.code_dtl=?", [set.INVBANK]);
+  if (code) {
+    const z = await one(c, "SELECT b.code_dtl_nam name, z.category1 bk, z.category2 bt, z.category3 acc FROM code_m b LEFT JOIN code_m z ON z.code_key='ZGN' AND z.code_dtl=b.code_dtl WHERE b.code_key='BANK' AND b.code_dtl=?", [code]);
     if (z) {
       const dir = Object.fromEntries((await rows(c, "SELECT code_dtl, code_dtl_nam FROM code_m WHERE code_key='BKDIR' AND code_dtl IN (?, ?)", [z.bk || '', (z.bk || '') + '-' + String(z.bt || '').slice(0, 3)])).map(r => [r.code_dtl, r.code_dtl_nam]));
       const type = { 1: '普', 2: '当', 4: '貯' }[String(z.bt || '').slice(3, 4)] || '';
       bankText = [dir[z.bk] || z.name, dir[(z.bk || '') + '-' + String(z.bt || '').slice(0, 3)] || '', type ? '(' + type + ')' : '', z.acc || ''].filter(Boolean).join(' ');
     }
   }
-  return { name: [co?.company_name1, co?.company_name2].filter(Boolean).join(' '), address: [co?.postcode && '〒' + co.postcode, co?.pref, co?.addr1, co?.addr2].filter(Boolean).join(' '), tel: co?.tel_no || '', fax: co?.fax_no || '', plant: co?.plant_name || '', invoiceNo: set.INVNO || '', bankText };
+  return bankText; };
+  const bankText = await bankOf(set.INVBANK), bankText2 = await bankOf(set.INVBANK2);
+  return { name: [co?.company_name1, co?.company_name2].filter(Boolean).join(' '), address: [co?.postcode && '〒' + co.postcode, co?.pref, co?.addr1, co?.addr2].filter(Boolean).join(' '), tel: co?.tel_no || '', fax: co?.fax_no || '', plant: co?.plant_name || '', invoiceNo: set.INVNO || '', bankText, banks: [bankText, bankText2].filter(Boolean), layout: set.INVLAYOUT || 'proposal' };
 }
 async function snapshot(c, inv) {
   const cu = await one(c, 'SELECT * FROM client_m WHERE customers_cd=?', [inv.customer]);
   const s = await statement(c, inv.customer, inv.month, inv.closingDay);
   const buckets = RATES.map(rate => { const net = inv.lines.filter(l => l.taxRate === rate).reduce((n, l) => n + l.net, 0); return { rate, net, tax: bucketTax(net, rate) }; }).filter(b => b.net);
   return {
-    company: await companyProfile(c), discount: 0,
+    company: await companyProfile(c), discount: 0, invoiceNo: 'K' + String(inv.closing).slice(0, 7).replace('-', '') + String(inv.id).padStart(5, '0'),
     customer: { code: inv.customer, name: cu?.customers_name || inv.customerName, address: cu?.addr1 || '', tel: cu?.tel_no || '' },
     site: { key: inv.site, name: inv.siteName }, invoiceId: inv.id, periodStart: s.start, closing: inv.closing, due: inv.due,
     demo: process.env.SHOW_DEMO_NOTICE !== '0', prevBalance: s.prevBalance, received: s.received, carried: s.carried, net: inv.net, tax: inv.tax, total: inv.total, grandTotal: s.carried + inv.total, buckets, lines: inv.lines,
@@ -405,7 +424,7 @@ export async function cancelInvoice(c, ctx, { id }) {
 }
 
 // ---------- 入金・消込 (NO17: 当座預金・現金・手形・振込手数料・協力会費・預り金充当・値引) ----------
-export const RECEIPT_PARTS = { BANK: '振込', CASH: '現金', NOTE: '手形', FEE: '振込手数料', COOP: '協力会費等', DEPOSIT: '預り金充当', DISCOUNT: '値引・端数' };
+export const RECEIPT_PARTS = { BANK: '振込', CASH: '現金', NOTE: '手形', FEE: '振込手数料', COOP: '協力会費等', DEPOSIT: '預り金充当', DISCOUNT: '値引', LOSS: '雑損失' };
 const DEPOSIT_USED = "SELECT COALESCE(SUM(k.amount),0) v FROM receipt_component k JOIN receipt r ON r.receipt_id=k.receipt_id AND r.status='POSTED' WHERE r.customers_cd=? AND k.component_kind='DEPOSIT'";
 export async function depositBalance(c, customer) {
   const base = num((await one(c, "SELECT COALESCE(SUM(amount),0) v FROM opening_balance WHERE customers_cd=? AND balance_kind='ADVANCE'", [customer])).v);
@@ -430,7 +449,7 @@ export async function listReceipts(c, q = {}) {
   return rs.map(r => {
     const part = k => num(comps.find(x => x.receipt_id === r.receipt_id && x.component_kind === k)?.amount);
     return { id: r.receipt_id, no: r.receipt_no, date: r.receipt_date, customer: r.customers_cd, customerName: r.customers_name, received: num(r.received_amount), settlement: num(r.settlement_amount),
-      bank: part('BANK'), cash: part('CASH'), notes: part('NOTE'), fee: part('FEE'), coop: part('COOP'), deposit: part('DEPOSIT'), overpay: part('OVERPAY'), discount: part('DISCOUNT'), bankCode: r.bank_code || '', status: r.status,
+      bank: part('BANK'), cash: part('CASH'), notes: part('NOTE'), fee: part('FEE'), coop: part('COOP'), deposit: part('DEPOSIT'), overpay: part('OVERPAY'), discount: part('DISCOUNT'), loss: part('LOSS'), bankCode: r.bank_code || '', status: r.status,
       allocations: allocs.filter(a => a.receipt_id === r.receipt_id).map(a => ({ invoiceId: a.invoice_id, closing: fromNum(a.closing_date), amount: num(a.amount) })) };
   });
 }
@@ -441,7 +460,7 @@ export async function createReceipt(c, ctx, p) {
   const date = isoDate(p.date, '入金日'); await assertOpen(c, date);
   // Customer row lock serialises receipts of the same customer (deposit balance, allocations).
   const cust = await one(c, 'SELECT customers_cd FROM client_m WHERE customers_cd=? FOR UPDATE', [String(p.customer || '')]); check(cust, '得意先を選択してください');
-  const parts = { BANK: yen(p.bank || 0, '振込'), CASH: yen(p.cash || 0, '現金'), NOTE: yen(p.notes || 0, '手形'), FEE: yen(p.fee || 0, '振込手数料'), COOP: yen(p.coop || 0, '協力会費等'), DEPOSIT: yen(p.deposit || 0, '預り金充当'), DISCOUNT: yen(p.discount || 0, '値引・端数') };
+  const parts = { BANK: yen(p.bank || 0, '振込'), CASH: yen(p.cash || 0, '現金'), NOTE: yen(p.notes || 0, '手形'), FEE: yen(p.fee || 0, '振込手数料'), COOP: yen(p.coop || 0, '協力会費等'), DEPOSIT: yen(p.deposit || 0, '預り金充当'), DISCOUNT: yen(p.discount || 0, '値引・端数') , LOSS: yen(p.loss || 0, '雑損失') };
   const received = parts.BANK + parts.CASH + parts.NOTE, settlement = Object.values(parts).reduce((a, b) => a + b, 0);
   check(settlement > 0, '入金額を入力してください');
   let bankCode = null;
@@ -474,7 +493,7 @@ export async function createReceipt(c, ctx, p) {
   await postJournal(c, { date, pattern: 'B01', sourceType: 'receipt', sourceId: r.insertId, lines: [
     line('D', '1112', parts.BANK, { sub: bankCode, tax: '9' }), line('D', '1111', parts.CASH, { tax: '9' }), line('D', '1120', parts.NOTE, { customer: cust.customers_cd, tax: '9' }),
     line('D', '8330', parts.FEE, { sub: '101', dept: '063', tax: '141' }), line('D', '8330', parts.COOP, { sub: '107', dept: '063', tax: '141' }),
-    line('D', '4170', parts.DEPOSIT, { customer: cust.customers_cd, tax: '9' }), line('D', '8850', parts.DISCOUNT, { dept: '063', tax: '141' }),
+    line('D', '4170', parts.DEPOSIT, { customer: cust.customers_cd, tax: '9' }), line('D', '8850', parts.DISCOUNT, { dept: '063', tax: '141' }), line('D', '8850', parts.LOSS, { dept: '063', tax: '9' }),
     ...allocs.map(a => line('C', '1131', a.amount, { customer: cust.customers_cd, tax: '9' })), line('C', '4170', overpay, { customer: cust.customers_cd, tax: '9' }) ] });
   await audit(c, ctx, 'receipt', r.insertId, 'receipt.create', { no, customer: cust.customers_cd, received, settlement, parts: Object.fromEntries(Object.entries(parts).filter(([, v]) => v)), invoices: allocs.map(a => a.id) });
   return { id: r.insertId, no };
@@ -486,4 +505,37 @@ export async function reverseReceipt(c, ctx, { id }) {
   await reverseJournal(c, { sourceType: 'receipt', sourceId: r.receipt_id, date: r.receipt_date });
   await audit(c, ctx, 'receipt', r.receipt_id, 'receipt.reverse', { no: r.receipt_no });
   return { id: r.receipt_id };
+}
+
+// ---------- 請求残高照会・入金消込の対象選択・入金予定一覧（提案書 スライド18〜21） ----------
+// 得意先×請求年月ごとに 前回残高（前回の今回残高）→ 当月請求金額 → 今回請求金額 → 消込金額（その締日の翌日から次の締日までの入金消込）→ 今回残高
+export async function arLedger(c, q = {}) {
+  const t = String(q.customer || '').trim(), like = `%${t}%`;
+  const custs = await rows(c, `SELECT customers_cd, customers_name FROM client_m WHERE (customers_cd LIKE ? OR customers_name LIKE ?) ORDER BY customers_cd`, [like, like]);
+  const out = [];
+  for (const cu of custs) {
+    const invs = (await listInvoices(c, { customer: cu.customers_cd })).filter(i => i.customer === cu.customers_cd).sort((a, b) => a.closing.localeCompare(b.closing) || a.id - b.id);
+    const opening = num((await one(c, "SELECT COALESCE(SUM(amount),0) v FROM opening_balance WHERE customers_cd=? AND balance_kind='AR'", [cu.customers_cd])).v);
+    if (!invs.length && !opening) continue;
+    const pays = await rows(c, "SELECT r.receipt_date d, SUM(a.amount) v FROM receipt_allocation a JOIN receipt r ON r.receipt_id=a.receipt_id AND r.status='POSTED' WHERE a.customers_cd=? GROUP BY r.receipt_date", [cu.customers_cd]);
+    let prev = opening;
+    invs.forEach((inv, i) => {
+      const next = invs[i + 1]?.closing || '9999-12-31', cleared = pays.filter(p => String(p.d).slice(0, 10) > inv.closing && String(p.d).slice(0, 10) <= next).reduce((n, p) => n + num(p.v), 0);
+      const claim = prev + inv.total, remain = claim - cleared;
+      out.push({ customer: cu.customers_cd, name: cu.customers_name, month: inv.month, closing: inv.closing, invoiceId: inv.id, prev, current: inv.total, claim, cleared, remain, latest: i === invs.length - 1, issued: inv.issues > 0, status: inv.status });
+      prev = remain;
+    });
+  }
+  const rowsOut = q.month ? out.filter(r => r.month === q.month) : out;
+  return { rows: rowsOut, totals: { current: rowsOut.reduce((n, r) => n + r.current, 0), claim: rowsOut.reduce((n, r) => n + r.claim, 0), cleared: rowsOut.reduce((n, r) => n + r.cleared, 0), remain: rowsOut.filter(r => r.latest).reduce((n, r) => n + r.remain, 0) } };
+}
+// 入金予定一覧（提案書 スライド18）：入金予定月（＝支払期日の月）・得意先（部分一致）で、請求金額・サイト・入金予定日・入金予定金額・入金金額・残高
+export async function receiptPlan(c, q = {}) {
+  const t = String(q.customer || '').trim(), month = q.month ? isoMonth(q.month, '入金予定月') : '';
+  const list = (await listInvoices(c, {})).filter(i => (!month || i.due.slice(0, 7) === month) && (!t || i.customer.includes(t) || String(i.customerName || '').includes(t)));
+  const label = s => (!s.set ? '翌月末（未設定）' : `${['当月', '翌月', '翌々月'][s.months] || s.months + 'か月後'}${s.day >= 31 ? '末' : s.day + '日'}`);
+  const sites = {};
+  for (const i of list) if (!sites[i.customer]) sites[i.customer] = label(await customerSite(c, i.customer));
+  const rowsOut = list.sort((a, b) => a.due.localeCompare(b.due) || a.customer.localeCompare(b.customer)).map(i => ({ customer: i.customer, name: i.customerName, closing: i.closing, total: i.total, site: sites[i.customer], due: i.due, planned: i.total, paid: i.paid, balance: i.balance, overdue: i.overdue }));
+  return { month, rows: rowsOut, totals: { planned: rowsOut.reduce((n, r) => n + r.planned, 0), paid: rowsOut.reduce((n, r) => n + r.paid, 0), balance: rowsOut.reduce((n, r) => n + r.balance, 0) } };
 }

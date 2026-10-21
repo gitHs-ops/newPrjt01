@@ -56,6 +56,8 @@ export async function createApp({ pool, publicDir, secureCookies = process.env.N
     const k = x.params.kind, fn = MR.MISC[k] || XR.EXTRA[k] || NEW_REPORTS[k]; if (!fn) throw new DomainError('帳票の種類が不正です');
     return x.q.format === 'xlsx' ? db(c => (NEW_REPORTS[k] ? genericBook : XR.EXTRA[k] ? XR.extraBook : MR.miscBook)(c, k, x.q)).then(b => ({ file: b })) : db(c => fn(c, x.q));
   });
+  route('GET', '/api/ar-ledger', 'read', x => db(c => S.arLedger(c, x.q)));
+  route('GET', '/api/receipt-plan', 'read', x => db(c => S.receiptPlan(c, x.q)));
   route('GET', '/api/receipt-context', 'read', x => db(c => S.receiptContext(c, x.q.customer)));
   route('GET', '/api/reports/billing-list', 'read', x => x.q.format === 'xlsx' ? db(c => X.billingListBook(c, x.q)).then(b => ({ file: b })) : db(c => S.billingList(c, x.q)));
   route('GET', '/api/reports/billing-confirm', 'read', x => x.q.format === 'xlsx' ? db(c => X.billingConfirmBook(c, x.q)).then(b => ({ file: b })) : db(c => S.billingConfirm(c, x.q)));

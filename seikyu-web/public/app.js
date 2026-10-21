@@ -139,16 +139,20 @@ VIEWS.shipments = async q => {
   // 業務日付（現行 MA057 出荷日変更）：出荷日の初期値。日付をまたぐ出荷（深夜）でも前日の業務日付で登録できる
   A.bizDate = () => modal({ title: '業務日付の変更', submit: '変更する', body: `<div class="form-grid">${field('業務日付', `<input type="date" name="date" value="${bd}">`, { req: 1, hint: '出荷登録の出荷日の初期値。空欄で当日に戻す' })}</div>`,
     onSubmit: async v => { const r = await post('/api/business-date', v); toast(`業務日付を ${r.date} にしました`); render(); } });
-  A.new = () => shipmentForm(null, bd); A.edit = d => shipmentForm(list.find(r => r.orderNo === d.id)); A.correct = d => correctionForm(list.find(r => r.orderNo === d.id));
+  A.new = () => shipmentForm(null, bd);
+  // 提案書 スライド17（出荷伝票照会）：照会・類似登録
+  A.copy = d => { const r = list.find(x => x.orderNo === d.id); shipmentForm({ ...r, orderNo: undefined, date: bd, copyOf: r.orderNo }, bd); };
+  A.view = d => slipInquiry(list.find(x => x.orderNo === d.id)); A.edit = d => shipmentForm(list.find(r => r.orderNo === d.id)); A.correct = d => correctionForm(list.find(r => r.orderNo === d.id));
   A.del = d => confirmBox('出荷の取消', `売上No ${d.id} を取消します。請求前の伝票のみ取消できます（赤黒は組で取消）。`, () => post('/api/shipments/delete', { orderNo: d.id }).then(() => { toast('取消しました'); render(); }), '取消する');
   const net = list.reduce((n, r) => n + r.net, 0), tax = list.reduce((n, r) => n + r.tax, 0);
   const red = r => r.shipKb === 5 && r.quantity < 0;
   const acts = r => {
-    if (!canWrite()) return '';
-    const b = [];
+    const b = [`<button class="mini quiet" data-act="view" data-id="${esc(r.orderNo)}">照会</button>`];
+    if (!canWrite()) return `<div class="actions">${b.join('')}</div>`;
     if (!r.billed && r.shipKb !== 5 && !r.corrected) b.push(`<button class="mini" data-act="edit" data-id="${esc(r.orderNo)}">編集</button>`);
     if (!red(r) && !r.corrected) b.push(`<button class="mini" data-act="correct" data-id="${esc(r.orderNo)}">赤黒訂正</button>`);
     if (!r.billed && !r.corrected) b.push(`<button class="mini danger" data-act="del" data-id="${esc(r.orderNo)}">取消</button>`);
+    if (r.shipKb !== 5) b.push(`<button class="mini quiet" data-act="copy" data-id="${esc(r.orderNo)}" title="この伝票の内容で新規登録">類似登録</button>`);
     return `<div class="actions">${b.join('')}</div>`;
   };
   return page('出荷・売上', '出荷伝票（shipment_slip）と売上（sales_trn）を同時に登録します。請求済みの伝票は「赤黒訂正」で、元伝票のマイナス（赤）と訂正後（黒）を起票します（NO11、10/14 打合せ）。',
@@ -167,6 +171,19 @@ VIEWS.shipments = async q => {
 const myOperator = () => active('operators').find(o => Number(o.userId) === Number(session.user.id))?.code || active('operators')[0]?.code || '';
 const opFields = r => `${field('担当者', `<select name="operator">${options(active('operators'), r?.operator || myOperator(), { blank: '選択してください' })}</select>`, { req: 1, hint: '担当者マスタ（利用者と紐付けた担当者が初期値）' })}
     ${field('納入区分', `<select name="deliveryKbn">${options(active('deliveryKinds'), r?.deliveryKbn || active('deliveryKinds')[0]?.code, { blank: '選択してください', label: x => `${x.code} ${x.name}${x.pickup ? '（運賃なし）' : ''}` })}</select>`, { req: 1 })}`;
+const kindFields = r => `${field('伝票区分', `<select name="shipKb">${[1, 2, 3, 4].map(k => `<option value="${k}" ${Number(r?.shipKb || 1) === k ? 'selected' : ''}>${k} ${esc(meta.shipKinds[k])}</option>`).join('')}</select>`, { hint: '値引（9）は入金時に処理（Q18）' })}
+    ${field('他社得意先', `<select name="otherCustomer">${options(active('customers'), r?.otherCustomer || '', { blank: '（なし）' })}</select>`, { hint: '伝票区分 2・4（他社納入）のときは必須' })}`;
+// 提案書 スライド7・17：出荷伝票照会（全項目）
+function slipInquiry(r) {
+  const row = (k, v) => `<div><div class="muted small">${esc(k)}</div><b>${v}</b></div>`;
+  modal({ title: `出荷伝票照会（${r.orderNo}）`, wide: true, body: `<div class="grid3">${row('伝票番号', esc(r.orderNo))}${row('伝票区分', esc(r.shipKbName))}${row('出荷日', esc(r.date))}
+    ${row('得意先', esc(`${r.customer} ${r.customerName}`))}${row('他社得意先', esc(r.otherCustomer ? `${r.otherCustomer} ${r.otherCustomerName}` : '—'))}${row('納入場所', esc(r.siteName || '—'))}
+    ${row('商品', esc(r.itemName))}${row('納入区分', esc(r.deliveryKbnName || '—'))}${row('担当者', esc(r.operatorName || r.operator || '—'))}
+    ${row('数量', `${r.quantity} ${esc(r.unit)}`)}${row('累計数量', String(r.cumulativeQty))}${row('累計台数', String(r.cumulativeCount))}
+    ${row('決済方法', esc(r.methodName))}${row('単価', yen(r.price))}${row('運賃', yen(r.freight))}
+    ${row('金額', yen(r.net))}${row('税率', r.taxRate + '%')}${row('消費税', yen(r.tax))}
+    ${row('決済金額', yen(r.paymentMoney || r.net + r.tax))}${row('車両番号', esc(r.vehicle || '—'))}${row('状態', r.billed ? '請求済' : '未請求')}</div>${r.remarks ? `<p class="small">備考: ${esc(r.remarks)}</p>` : ''}` });
+}
 const siteFields = (cust, r) => `${field('現場', `<select name="site">${siteOptions(cust, r?.site, '（マスタ外・自由入力）')}</select>`, { hint: '現場マスタから選択、または空欄で現場名を自由入力（現行と同じ）' })}
     ${field('現場名1', `<input name="siteName1" maxlength="20" value="${esc(r?.siteName1 || '')}">`)}${field('現場名2', `<input name="siteName2" maxlength="20" value="${esc(r?.siteName2 || '')}">`)}`;
 function correctionForm(r) {
@@ -188,8 +205,8 @@ function correctionForm(r) {
 }
 function shipmentForm(r, bizDate) {
   const cust = r?.customer || active('customers')[0]?.code || '';
-  modal({ title: r ? `出荷の修正（${r.orderNo}）` : '出荷登録', submit: r ? '更新する' : '登録する', wide: true, body: `<div class="form-grid">
-    ${field('出荷日', `<input type="date" name="date" value="${esc(r?.date || bizDate || today())}" required>`, { req: 1, hint: '初期値は業務日付' })}${opFields(r)}
+  modal({ title: r?.orderNo ? `出荷の修正（${r.orderNo}）` : r?.copyOf ? `出荷登録（類似登録：元 ${r.copyOf}）` : '出荷登録', submit: r?.orderNo ? '更新する' : '登録する', wide: true, body: `<div class="form-grid">
+    ${field('出荷日', `<input type="date" name="date" value="${esc(r?.date || bizDate || today())}" required>`, { req: 1, hint: '初期値は業務日付' })}${kindFields(r)}${opFields(r)}
     ${field('決済方法', `<select name="method">${options(Object.entries(meta.methods).map(([code, name]) => ({ code, name })), r?.method || CREDIT, { label: x => `${x.code} ${x.name}` })}</select>`, { hint: '掛売のみ請求対象。現金・カードは対象外（Q16/Q17）' })}
     ${field('得意先', `<select name="customer" required>${options(active('customers'), cust)}</select>`, { req: 1 })}${siteFields(cust, r)}
     ${field('商品', `<select name="item" required>${options(active('items'), r?.item, { blank: '選択してください' })}</select>`, { req: 1 })}
@@ -201,13 +218,13 @@ function shipmentForm(r, bizDate) {
     <div class="wide note" id="amount-preview">金額: -</div></div>`,
     onOpen: f => {
       const preview = () => { const qn = Number(f.quantity.value), p = Number(f.price.value) + Number(f.freight.value || 0), rate = Number(f.taxRate.value); if (!qn) return ($('#amount-preview').textContent = '金額: -');
-        const net = Math.round(Math.round(qn * 100) * p / 100); $('#amount-preview').textContent = `金額: ${yen(net)} 円（四捨五入・自社情報の端数処理） ／ 消費税(参考): ${yen(Math.floor(net * rate / 100))} 円`; };
+        const net = Math.round(Math.round(qn * 100) * p / 100), tx = Math.floor(net * (rate || 0) / 100); $('#amount-preview').textContent = `金額: ${yen(net)} 円 ／ 消費税(参考): ${yen(tx)} 円 ／ 決済金額: ${yen(net + tx)} 円`; };
       const pickup = () => active('deliveryKinds').find(k => k.code === f.deliveryKbn.value)?.pickup;
       const price = async () => { if (!f.item.value || !f.customer.value) return; const p = await api('/api/price?' + qs({ item: f.item.value, customer: f.customer.value, site: f.site.value, date: f.date.value })); f.price.value = p.price; f.freight.value = pickup() ? 0 : p.freight; f.taxRate.value = p.taxRate; preview(); toast(`単価: ${p.source} ${yen(p.price)}円${p.freight ? '・運賃 ' + yen(p.freight) + '円' : ''}`); };
       f.customer.onchange = () => { f.site.innerHTML = siteOptions(f.customer.value, '', '（マスタ外・自由入力）'); price(); };
       f.item.onchange = price; f.site.onchange = price; f.date.onchange = price; f.deliveryKbn.onchange = () => { if (pickup()) f.freight.value = 0; preview(); }; for (const n of ['quantity', 'price', 'freight']) f[n].oninput = preview; preview(); if (!r) price();
     },
-    onSubmit: async v => { const res = await post('/api/shipments', { ...v, orderNo: r?.orderNo }); toast(`${r ? '更新' : '登録'}しました（売上No ${res.orderNo}）`); render(); },
+    onSubmit: async v => { const res = await post('/api/shipments', { ...v, orderNo: r?.orderNo }); toast(`${r?.orderNo ? '更新' : '登録'}しました（伝票番号 ${res.orderNo}）`); render(); },
   });
 }
 
@@ -217,7 +234,9 @@ VIEWS.invoices = async q => {
   const A = actions;
   A.view = d => go('invoices', { view: d.view });
   if (q.view === 'balance') return invoiceBalanceView(q);
-  const list = await api('/api/invoices?' + qs({ month: q.month, customer: q.customer, status: q.status, customerFrom: q.customerFrom, customerTo: q.customerTo }));
+  const list = await api('/api/invoices?' + qs({ month: q.month, closing: q.closing, customer: q.customer, status: q.status, customerFrom: q.customerFrom, customerTo: q.customerTo }));
+  if (q.view === 'ledger') return arLedgerView(q);
+  const claimOf = Object.fromEntries((await api('/api/ar-ledger')).rows.map(r => [r.invoiceId, r.claim])); // 今回請求額＝前回残高＋当月請求（提案書 スライド11）
   const closings = [...new Set(active('customers').map(c => c.closing))].sort((a, b) => a - b);
   A.preview = async () => {
     const month = $('#bill-month').value, closing = $('#bill-closing').value, p = await api('/api/billing/preview?' + qs({ month, closing }));
@@ -245,7 +264,7 @@ VIEWS.invoices = async q => {
   const sum = k => list.reduce((n, r) => n + r[k], 0);
   const closeSel = id => `<select id="${id}">${closings.map(c => `<option value="${c}">${closingLabel(c)}</option>`).join('')}</select>`;
   return page('請求締め・発行', '得意先単位・締日ごとに請求を作成し、請求書を発行します。発行内容はスナップショットとして保存され、再発行時も同じ内容を出力します。',
-    `${monthInput('month', q.month || '')}${filterSelect('customer', masters.customers, q.customer, 'すべての得意先')}<select name="customerFrom" data-filter title="得意先範囲（開始）">${options(masters.customers, q.customerFrom, { blank: '得意先 自' })}</select><select name="customerTo" data-filter title="得意先範囲（終了）">${options(masters.customers, q.customerTo, { blank: '得意先 至' })}</select><select name="status" data-filter>${options(Object.entries({ open: '未入金あり', draft: '未発行', issued: '発行済', partial: '一部入金', paid: '入金済' }).map(([code, name]) => ({ code, name })), q.status, { blank: 'すべて', label: r => r.name })}</select>${csvLink('invoices', { month: q.month })}`,
+    `${monthInput('month', q.month || '')}${filterSelect('customer', masters.customers, q.customer, 'すべての得意先')}<select name="closing" data-filter title="締日">${options(closings.map(x => ({ code: String(x), name: closingLabel(x) })), q.closing, { blank: 'すべての締日', label: x => x.name })}</select><select name="customerFrom" data-filter title="得意先範囲（開始）">${options(masters.customers, q.customerFrom, { blank: '得意先 自' })}</select><select name="customerTo" data-filter title="得意先範囲（終了）">${options(masters.customers, q.customerTo, { blank: '得意先 至' })}</select><select name="status" data-filter>${options(Object.entries({ open: '未入金あり', draft: '未発行', issued: '発行済', partial: '一部入金', paid: '入金済' }).map(([code, name]) => ({ code, name })), q.status, { blank: 'すべて', label: r => r.name })}</select>${csvLink('invoices', { month: q.month })}`,
     `<div class="grid2">${canWrite() ? `<section class="card glass"><div class="card-head"><h2>請求データ作成（NO6）</h2><span class="muted small">掛売の未請求売上が対象</span></div>
       <div class="filters"><label class="field">請求年月<input type="month" id="bill-month" value="${thisMonth()}"></label><label class="field">締日${closeSel('bill-closing')}</label><button data-act="preview" style="align-self:flex-end">対象得意先を表示</button></div>
       <div id="bill-result" style="margin-top:10px"></div></section>` : ''}
@@ -253,12 +272,12 @@ VIEWS.invoices = async q => {
       <div class="filters"><label class="field">請求年月<input type="month" id="rep-month" value="${q.month || thisMonth()}"></label><label class="field">締日${closeSel('rep-closing')}</label>
       <button data-act="report" data-kind="list" style="align-self:flex-end">請求一覧表（確認用）</button><button data-act="report" data-kind="confirm" style="align-self:flex-end">請求書発行確認表</button></div>
       <p class="muted small">請求一覧表は発行前の確認用（得意先ごとの集計）、発行確認表は発行後の請求内容（明細付き）です。同じ計算ロジックで出力形式だけを変えています。</p></section></div>
-    <div class="tabs"><button class="active" data-act="view" data-view="list">請求一覧</button><button data-act="view" data-view="balance">得意先別残高照会（NO9・NO15）</button></div>
+    <div class="tabs"><button class="active" data-act="view" data-view="list">請求一覧</button><button data-act="view" data-view="balance">得意先別残高照会（NO9・NO15）</button><button data-act="view" data-view="ledger">請求残高照会（得意先×請求年月）</button></div>
     <section class="card glass"><div class="card-head"><h2>請求一覧</h2><div class="filters"><button data-act="bulk" title="チェックなしは表示中の発行済み全件">⇩ 発行済み請求書を一括ダウンロード（Excel）</button>${canWrite() ? '<button class="primary" data-act="issue">☑ 選択した請求書を発行・印刷</button>' : ''}</div></div>
-    ${table([{ label: '', html: r => `<input type="checkbox" class="inv-pick" value="${r.id}">` }, { label: 'No', value: r => r.id }, { label: '締日', value: r => r.closing }, { label: '得意先', value: r => r.customerName }, { label: '現場名', html: r => r.siteNames ? `<span class="small">${r.siteNames.map(esc).join('<br>')}</span>` : '<span class="muted small">（現場なし）</span>' },
-      { label: '税抜', num: 1, value: r => yen(r.net) }, { label: '消費税', num: 1, value: r => yen(r.tax) }, { label: '請求額', num: 1, value: r => yen(r.total) }, { label: '入金済', num: 1, value: r => yen(r.paid) }, { label: '残高', num: 1, html: r => r.overdue ? `<span class="check-ng">${yen(r.balance)}</span>` : yen(r.balance) },
+    ${table([{ label: '', html: r => `<input type="checkbox" class="inv-pick" value="${r.id}">` }, { label: 'No', value: r => r.id }, { label: '締日', value: r => r.closing }, { label: '得意先コード', value: r => r.customer }, { label: '得意先', value: r => r.customerName }, { label: '現場名', html: r => r.siteNames ? `<span class="small">${r.siteNames.map(esc).join('<br>')}</span>` : '<span class="muted small">（現場なし）</span>' },
+      { label: '税抜', num: 1, value: r => yen(r.net) }, { label: '消費税', num: 1, value: r => yen(r.tax) }, { label: '請求額', num: 1, value: r => yen(r.total) }, { label: '今回請求額', num: 1, value: r => (claimOf[r.id] !== undefined ? yen(claimOf[r.id]) : '') }, { label: '入金済', num: 1, value: r => yen(r.paid) }, { label: '残高', num: 1, html: r => r.overdue ? `<span class="check-ng">${yen(r.balance)}</span>` : yen(r.balance) },
       { label: '支払期日', html: r => r.overdue ? `<span class="check-ng">${esc(r.due)} 超過</span>` : esc(r.due) }, { label: '発行', num: 1, value: r => r.issues ? r.issues + '回' : '' }, { label: '状態', html: r => status(r.status) },
-      { label: '', html: r => `<button class="mini" data-act="detail" data-id="${r.id}">詳細</button>` }], list, { empty: '請求がありません', foot: ['', '合計', '', '', '', yen(sum('net')), yen(sum('tax')), yen(sum('total')), yen(sum('paid')), yen(sum('balance')), '', '', '', ''] })}</section>`);
+      { label: '', html: r => `<button class="mini" data-act="detail" data-id="${r.id}">詳細</button>` }], list, { empty: '請求がありません', foot: ['', '合計', '', '', '', '', yen(sum('net')), yen(sum('tax')), yen(sum('total')), '', yen(sum('paid')), yen(sum('balance')), '', '', '', ''] })}</section>`);
 };
 // NO9・NO15 得意先別残高照会（請求一覧照会で請求残高照会を兼ねる：削減案3）
 async function invoiceBalanceView(q) {
@@ -271,7 +290,7 @@ async function invoiceBalanceView(q) {
   const s = k => d.rows.reduce((n, r) => n + r[k], 0);
   return page('請求締め・発行', '得意先ごとの前回請求額・入金・繰越・今回請求額を締日単位で照会します（請求一覧表と同じ計算）。', `<input type="month" name="bmonth" value="${month}" data-filter><select name="bclosing" data-filter>${closings.map(c => `<option value="${c}" ${String(c) === String(closing) ? 'selected' : ''}>${closingLabel(c)}</option>`).join('')}</select><input type="hidden" name="view" value="balance" data-filter>
     <a class="button" href="/api/reports/billing-list?${qs({ month, closing, format: 'xlsx' })}" download>⇩ Excel</a>`,
-    `<div class="tabs"><button data-act="view" data-view="list">請求一覧</button><button class="active" data-act="view" data-view="balance">得意先別残高照会（NO9・NO15）</button></div>
+    `<div class="tabs"><button data-act="view" data-view="list">請求一覧</button><button class="active" data-act="view" data-view="balance">得意先別残高照会（NO9・NO15）</button><button data-act="view" data-view="ledger">請求残高照会（得意先×請求年月）</button></div>
     <section class="card glass"><div class="card-head"><h2>${esc(month)} ${closingLabel(closing)}締（${esc(d.end)}）</h2></div>${table([{ label: '得意先', value: r => `${r.customer} ${r.name}` }, { label: '前回請求額', num: 1, value: r => yen(r.prevBalance) }, { label: '御入金額', num: 1, value: r => yen(r.received) },
       { label: '差引繰越額', num: 1, value: r => yen(r.carried) }, { label: '今回お買上額', num: 1, value: r => yen(r.net) }, { label: '消費税', num: 1, value: r => yen(r.tax) }, { label: '今回請求額', num: 1, value: r => yen(r.total) }, { label: '支払期日', value: r => r.due },
       { label: '請求書状況', html: r => badge(r.stateName, r.state === 'issued' ? 'green' : r.state === 'draft' ? '' : 'gray') }, { label: '', html: r => r.invoiceIds.map(id => `<button class="mini" data-act="detail" data-id="${id}">詳細</button>`).join('') }],
@@ -319,9 +338,29 @@ async function invoiceDetail(id) {
       $('#inv-cancel')?.addEventListener('click', async () => { try { await post('/api/invoices/cancel', { id: inv.id }); $('#dialog').close(); toast('請求を取消しました（売上は未請求に戻り、仕訳は逆仕訳）'); render(); } catch (e) { $('#form-error').textContent = e.message; } });
     } });
 }
+// 提案書 スライド14 の請求書様式：請求書番号・取引銀行（2行）・前回残高／今回入金額／今回請求額(税抜)／今回消費税／今回消費税(軽減)／今回請求額(税込)／今回残高、明細（月日・伝票NO・区分・品名・数量・単位・単価・金額）
+const jpDate = d => (d ? `${d.slice(0, 4)}年${d.slice(5, 7)}月${d.slice(8, 10)}日` : '');
+function proposalInvoice(s) {
+  const tax10 = s.buckets.filter(b => b.rate !== 8).reduce((n, b) => n + b.tax, 0), tax8 = s.buckets.filter(b => b.rate === 8).reduce((n, b) => n + b.tax, 0);
+  const kind = l => (l.shipKb === 5 ? (l.quantity < 0 ? '赤' : '黒') : '売上');
+  const no = s.invoiceNo || 'K' + String(s.closing).slice(0, 7).replace('-', '') + String(s.invoiceId).padStart(5, '0');
+  const banks = s.company.banks || (s.company.bankText ? [s.company.bankText] : []);
+  return `<section class="invoice-doc prop-inv">
+    <div class="inv-top"><div style="flex:1"></div><h1 style="flex:0 0 auto">請 求 書</h1><div style="flex:1;text-align:right"><p>請求書番号: ${esc(no)}${s.reissue ? `<br><span class="reissue">${esc(s.company.saisyutsu || '再発行')}（${s.issueNo}回目）</span>` : ''}</p><p>${esc(jpDate(s.issuedOn || today()))}</p></div></div>
+    <div class="inv-top"><div><p>${esc(s.customer.address)}</p><p class="to">${esc(s.customer.name)} 御中</p>
+        <p>毎度ありがとうございます。<br>下記のとおり御請求申し上げます。</p><p>${esc(jpDate(s.periodStart))} 〜 ${esc(jpDate(s.closing))}</p></div>
+      <div><p><b>${esc(s.company.name)}</b><br>${esc(s.company.address)}<br>TEL ${esc(s.company.tel)}${s.company.fax ? ' FAX ' + esc(s.company.fax) : ''}${s.company.invoiceNo ? `<br>登録番号: ${esc(s.company.invoiceNo)}` : ''}</p>
+        ${banks.length ? `<p>取引銀行 ${banks.map(esc).join('<br>')}</p>` : ''}<p>お支払期日 ${esc(s.due)}</p></div></div>
+    <table class="totals"><tr><th>前回残高</th><th>今回入金額</th><th>今回請求額(税抜)</th><th>今回消費税</th><th>今回消費税(軽減)</th><th>今回請求額(税込)</th><th>今回残高</th></tr>
+      <tr><td class="num">${yen(s.prevBalance ?? s.carried)}</td><td class="num">${yen(s.received ?? 0)}</td><td class="num">${yen(s.net)}</td><td class="num">${yen(tax10)}</td><td class="num">${yen(tax8)}</td><td class="num">${yen(s.total)}</td><td class="num"><b>${yen(s.grandTotal)}</b></td></tr></table>
+    <table><tr><th>月日</th><th>伝票NO</th><th>区分</th><th>品名</th><th>数量</th><th>単位</th><th>単価</th><th>金額</th></tr>
+      ${s.lines.map(l => `<tr><td>${esc(String(l.date).slice(5).replace('-', '/'))}</td><td>${esc(l.orderNo)}</td><td>${kind(l)}</td><td>${esc(l.itemName)}${l.siteName ? ` <span class="small">（${esc(l.siteName)}）</span>` : ''}</td><td class="num">${l.quantity}</td><td>${esc(l.unit || '')}</td><td class="num">${yen(l.price)}</td><td class="num">${yen(l.net)}</td></tr>`).join('')}</table>
+    ${s.demo === false ? '' : '<p class="stamp">※ 架空データによる検証用の請求書です。今回残高＝前回残高−今回入金額＋今回請求額(税込)。消費税は税率ごとに合計して端数を切り捨てています。</p>'}</section>`;
+}
 function printDocs(docs) {
   // 現行の請求書（帳票一覧③）と同じ構成：当月御買上額・消費税額・当月値引額・当月御請求額、明細（年月日・伝票番号・商品名・数量・単位・単価・金額・備考）、税率別合計
   $('#print-area').innerHTML = docs.map(s => {
+    if ((s.company.layout || 'proposal') !== 'legacy') return proposalInvoice(s);
     const lines = s.lines.map(l => `<tr><td>${esc(l.date)}</td><td>${esc(l.orderNo)}${l.shipKb === 5 ? (l.quantity < 0 ? ' 赤' : ' 黒') : ''}</td><td>${esc(l.itemName)}</td><td class="num">${l.quantity}</td><td>${esc(l.unit || '')}</td><td class="num">${yen(l.price)}</td><td class="num">${yen(l.net)}</td><td>${esc(l.siteName || '')}${l.remarks ? ' ' + esc(l.remarks) : ''}</td></tr>`).join('');
     const sites = [...new Set(s.lines.map(l => l.siteName).filter(Boolean))];
     return `<section class="invoice-doc">
@@ -339,21 +378,54 @@ function printDocs(docs) {
 }
 
 // ----- 入金・消込 (NO17) -----
-const RC_KEYS = [['bank', 'BANK'], ['cash', 'CASH'], ['notes', 'NOTE'], ['fee', 'FEE'], ['coop', 'COOP'], ['deposit', 'DEPOSIT'], ['discount', 'DISCOUNT']];
+const RC_KEYS = [['bank', 'BANK'], ['cash', 'CASH'], ['notes', 'NOTE'], ['fee', 'FEE'], ['coop', 'COOP'], ['deposit', 'DEPOSIT'], ['discount', 'DISCOUNT'], ['loss', 'LOSS']];
+// 提案書 スライド19・21：得意先×請求年月の 前回残高・当月請求金額・今回請求金額・消込金額・今回残高（得意先は部分一致）
+const ledgerTable = (d, { clear = false } = {}) => table([{ label: '得意先', value: r => `${r.customer} ${r.name}` }, { label: '請求年月', value: r => r.month }, { label: '前回残高', num: 1, html: r => (r.prev ? `<b class="${r.prev > 0 ? 'check-ng' : ''}">${yen(r.prev)}</b>` : '0') },
+  { label: '当月請求金額', num: 1, value: r => yen(r.current) }, { label: '今回請求金額', num: 1, value: r => yen(r.claim) }, { label: '消込金額', num: 1, value: r => yen(r.cleared) }, { label: '今回残高', num: 1, html: r => (r.remain ? `<b class="${r.latest ? '' : 'check-ng'}">${yen(r.remain)}</b>` : '0') },
+  ...(clear ? [{ label: '', html: r => (r.latest && r.remain > 0 && canWrite() ? `<button class="mini primary" data-act="clear" data-customer="${esc(r.customer)}">消込</button>` : '') }] : [])], d.rows,
+  { empty: '該当する請求はありません', rowClass: r => (r.latest ? '' : 'muted'), foot: ['合計', '', '', yen(d.totals.current), '', yen(d.totals.cleared), yen(d.totals.remain), ...(clear ? [''] : [])] });
+async function arLedgerView(q) {
+  const A = actions; A.view = d => go('invoices', { view: d.view });
+  const d = await api('/api/ar-ledger?' + qs({ customer: q.ledgerCustomer, month: q.ledgerMonth }));
+  A.search = () => go('invoices', { view: 'ledger', ledgerCustomer: $('#lg-cust').value, ledgerMonth: $('#lg-month').value });
+  return page('請求締め・発行', '請求残高照会（提案書 スライド21）：得意先×請求年月で 前回残高 → 当月請求金額 → 今回請求金額 → 消込金額（締日翌日〜次の締日の入金）→ 今回残高。',
+    `<input id="lg-cust" placeholder="得意先（部分一致）" value="${esc(q.ledgerCustomer || '')}" style="width:200px"><input type="month" id="lg-month" value="${esc(q.ledgerMonth || '')}"><button data-act="search">検索</button>`,
+    `<div class="tabs"><button data-act="view" data-view="list">請求一覧</button><button data-act="view" data-view="balance">得意先別残高照会（NO9・NO15）</button><button class="active" data-act="view" data-view="ledger">請求残高照会（得意先×請求年月）</button></div>
+    <section class="card glass">${ledgerTable(d)}</section>`);
+}
 VIEWS.receipts = async q => {
   const A = actions;
   A.misc = d => miscReport(d.kind, d.src).catch(e => toast(e.message, true));
+  const tab = ['targets', 'plan'].includes(q.tab) ? q.tab : 'list';
+  A.tab = d => go('receipts', { tab: d.tab });
+  A.new = () => receiptForm(); A.clear = d => receiptForm(d.customer);
+  const tabs = `<div class="tabs">${[['list', '入金一覧'], ['targets', '消込対象（得意先×請求年月）'], ['plan', '入金予定一覧']].map(([k, l]) => `<button class="${tab === k ? 'active' : ''}" data-act="tab" data-tab="${k}">${l}</button>`).join('')}</div>`;
+  if (tab === 'targets') {
+    // 提案書 スライド19：得意先（部分一致）で検索し、残高のある請求年月の行から「消込」へ
+    const d = await api('/api/ar-ledger?' + qs({ customer: q.customer }));
+    A.search = () => go('receipts', { tab, customer: $('#rt-cust').value });
+    return page('入金・消込', '消込対象の選択（提案書 スライド19）：今回残高のある最新の請求年月から「消込」を押すと、その得意先の入金消込画面を開きます。', `<input id="rt-cust" placeholder="得意先（部分一致）" value="${esc(q.customer || '')}" style="width:200px"><button data-act="search">検索</button>`,
+      `${tabs}<section class="card glass">${ledgerTable(d, { clear: true })}</section>`);
+  }
+  if (tab === 'plan') {
+    // 提案書 スライド18：入金予定月・得意先（部分一致）
+    const pm = q.planMonth || thisMonth(), d = await api('/api/receipt-plan?' + qs({ month: pm, customer: q.customer }));
+    A.search = () => go('receipts', { tab, planMonth: $('#rp-month').value, customer: $('#rp-cust').value });
+    return page('入金・消込', '入金予定一覧（提案書 スライド18）：支払期日（得意先の回収サイト）が入金予定月に入る請求。', `<input type="month" id="rp-month" value="${esc(pm)}"><input id="rp-cust" placeholder="得意先（部分一致）" value="${esc(q.customer || '')}" style="width:200px"><button data-act="search">検索</button>`,
+      `${tabs}<section class="card glass">${table([{ label: '得意先', value: r => `${r.customer} ${r.name}` }, { label: '請求年月（締日）', value: r => r.closing }, { label: '請求金額', num: 1, value: r => yen(r.total) }, { label: 'サイト', value: r => r.site },
+        { label: '入金予定日', html: r => (r.overdue ? `<span class="check-ng">${esc(r.due)} 超過</span>` : esc(r.due)) }, { label: '入金予定金額', num: 1, value: r => yen(r.planned) }, { label: '入金金額', num: 1, value: r => yen(r.paid) }, { label: '残高', num: 1, value: r => yen(r.balance) }],
+        d.rows, { empty: 'この月に入金予定の請求はありません', foot: ['入金予定合計', '', '', '', '', yen(d.totals.planned), yen(d.totals.paid), yen(d.totals.balance)] })}</section>`);
+  }
   const month = q.month || thisMonth(), list = await api('/api/receipts?' + qs({ month, customer: q.customer }));
-  A.new = () => receiptForm();
   A.rev = d => confirmBox('入金の取消', `入金No ${d.no} を取消します。消込が解除され、逆仕訳を計上します。`, () => post('/api/receipts/reverse', { id: Number(d.id) }).then(() => { toast('取消しました'); render(); }), '取消する');
   return page('入金・消込', '得意先ごとに、請求（得意先×請求年月）に対する入金を消し込みます。当座預金・現金・手形・振込手数料・協力会費・預り金充当・値引を処理します（receipt / receipt_component / receipt_allocation）。',
     `${monthInput('month', month)}${filterSelect('customer', masters.customers, q.customer, 'すべての得意先')}${csvLink('receipts', { month })}${canWrite() ? '<button class="primary" data-act="new">＋ 入金消込</button>' : ''}`,
-    `<section class="card glass">${table([{ label: '入金No', value: r => r.no }, { label: '入金日', value: r => r.date }, { label: '得意先', value: r => r.customerName }, { label: '振込', num: 1, value: r => yen(r.bank) }, { label: '銀行', value: r => nameOf('banks', r.bankCode) },
-      { label: '現金', num: 1, value: r => yen(r.cash) }, { label: '手形', num: 1, value: r => yen(r.notes) }, { label: '手数料', num: 1, value: r => yen(r.fee) }, { label: '協力会費', num: 1, value: r => yen(r.coop) }, { label: '預り金', num: 1, value: r => yen(r.deposit) }, { label: '値引', num: 1, value: r => yen(r.discount) }, { label: '消込額', num: 1, value: r => yen(r.settlement) },
+    `${tabs}<section class="card glass">${table([{ label: '入金No', value: r => r.no }, { label: '入金日', value: r => r.date }, { label: '得意先', value: r => r.customerName }, { label: '振込', num: 1, value: r => yen(r.bank) }, { label: '銀行', value: r => nameOf('banks', r.bankCode) },
+      { label: '現金', num: 1, value: r => yen(r.cash) }, { label: '手形', num: 1, value: r => yen(r.notes) }, { label: '手数料', num: 1, value: r => yen(r.fee) }, { label: '協力会費', num: 1, value: r => yen(r.coop) }, { label: '預り金', num: 1, value: r => yen(r.deposit) }, { label: '値引', num: 1, value: r => yen(r.discount) }, { label: '雑損失', num: 1, value: r => yen(r.loss) }, { label: '消込額', num: 1, value: r => yen(r.settlement) },
       { label: '消込先(請求No)', value: r => r.allocations.map(a => `${a.invoiceId}`).join(', ') }, { label: '状態', html: r => status(r.status) },
       { label: '', html: r => canWrite() && r.status === 'POSTED' ? `<button class="mini danger" data-act="rev" data-id="${r.id}" data-no="${esc(r.no)}">取消</button>` : '' }], list, { empty: 'この条件の入金はありません', rowClass: r => r.status === 'REVERSED' ? 'reversed' : '' })}</section>${receiptScheduleCard()}`);
 };
-function receiptForm() {
+function receiptForm(preset = '') {
   const key = uuid();
   modal({ title: '入金消込', wide: true, submit: '入金を登録', body: `<div class="form-grid">
     ${field('得意先検索（部分一致）', '<input id="rc-search" placeholder="得意先名・コードの一部">')}${field('得意先', `<select name="customer" required>${options(masters.customers, '', { blank: '選択してください' })}</select>`, { req: 1 })}
@@ -361,7 +433,7 @@ function receiptForm() {
     ${field('振込額（当座預金）', '<input name="bank" class="num" value="0">')}${field('現金', '<input name="cash" class="num" value="0">')}
     ${field('手形・でんさい', '<input name="notes" class="num" value="0">')}${field('手形期日', '<input type="date" name="noteDue">', { hint: '手形がある場合のみ' })}
     ${field('振込手数料（先方差引）', '<input name="fee" class="num" value="0">', { hint: '雑費 8330-101（B-02）' })}${field('協力会費・災防協会費（差引）', '<input name="coop" class="num" value="0">', { hint: '雑費 8330-107（B-03）処税率は確認待ち Q04' })}
-    ${field('預り金充当', '<input name="deposit" class="num" value="0">', { hint: '預り金 4170（B-06）' })}${field('値引・端数', '<input name="discount" class="num" value="0">', { hint: '雑損失 8850（B-04）' })}
+    ${field('預り金充当', '<input name="deposit" class="num" value="0">', { hint: '預り金 4170（B-06）' })}${field('値引', '<input name="discount" class="num" value="0">', { hint: '8850（B-04）' })}${field('雑損失（端数等）', '<input name="loss" class="num" value="0">', { hint: '8850・対象外（提案書の消込画面）' })}
     <label class="field wide"><span>差額の扱い</span><span><input type="checkbox" name="overpayToDeposit"> 消込後の差額（過入金）を預り金として受け入れる（貸方 預り金 4170）</span></label>
     <div class="note wide" id="rc-total">入金合計: 0 円</div></div>
     <h3 style="margin-top:14px">消込対象（得意先×請求年月・発行済みで残高あり）</h3><div id="rc-open" class="muted small">得意先を選択してください</div>
@@ -386,6 +458,7 @@ function receiptForm() {
         $$('.rc-amt').forEach(x => (x.oninput = diff)); diff();
       };
       RC_KEYS.forEach(([k]) => (f[k].oninput = diff)); $('#rc-auto').onclick = auto;
+      if (preset) { f.customer.value = preset; f.customer.onchange(); }
     },
     onSubmit: async v => {
       const allocations = $$('.rc-amt').map(x => ({ invoiceId: Number(x.dataset.id), amount: Number(x.value) || 0 })).filter(a => a.amount > 0);
