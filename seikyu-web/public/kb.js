@@ -156,7 +156,7 @@ export function installKb(h) {
         const r = await post('/api/kb/slips', readSlip());
         toast(`伝票No ${r.no} を${s ? '修正' : '登録'}しました`);
         if (s) go('kb-journal', { from: q.back_from || '', to: q.back_to || '' }); else go('kb-entry', { date: $('#kb-slip').date.value, t: Date.now() });
-      } catch (e) { $('#kb-err').textContent = e.message; } finally { btn.disabled = false; }
+      } catch (e) { $('#kb-err').textContent = e.message; toast(e.message, true); } finally { btn.disabled = false; }
     };
     A.clear = () => go('kb-entry', { date: $('#kb-slip').date.value, t: Date.now() });
     A.tpl = () => {

@@ -334,3 +334,13 @@ dialog.modal.wide:has(.slip-sheet) { width: min(1320px, calc(100vw - 24px)); } /
   .slip-sheet > .sv, .slip-sheet .span4c, .slip-sheet .span7, .slip-sheet .span5, .slip-sheet .span3 { grid-column: 2 !important; }
   .slip-sheet .status-cell { grid-column: 1 / -1 !important; text-align: left; }
 }
+
+/* 共通ポップアップ通知（popover＝ダイアログより前面） */
+#toast[popover] { inset: auto 20px 20px auto; margin: 0; border: 0; overflow: visible; }
+#toast { display: none; align-items: flex-start; gap: 8px; cursor: pointer; box-shadow: 0 12px 32px rgba(15,23,42,.28); }
+#toast:popover-open { display: flex; }
+#toast .toast-icon { flex: 0 0 auto; }
+#toast.error { inset: 24px auto auto 50% !important; transform: translateX(-50%); right: auto; bottom: auto; min-width: min(420px, calc(100vw - 32px)); max-width: min(640px, calc(100vw - 32px)); padding: 14px 18px; font-size: 14px; font-weight: 600; border-radius: 14px; animation: toastDrop .25s ease-out both; }
+@keyframes toastDrop { from { opacity: 0; transform: translate(-50%, -10px); } to { opacity: 1; transform: translate(-50%, 0); } }
+@media print { #toast { display: none !important; } }
+#toast.error { background: #b91c1c; color: #fff; } #toast:not(.error) { background: #0f172a; }

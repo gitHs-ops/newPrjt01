@@ -25,7 +25,14 @@ async function loadMasters() { masters = await api('/api/masters'); }
 const qs = o => new URLSearchParams(Object.entries(o).filter(([, v]) => v !== undefined && v !== '' && v !== null)).toString();
 
 // ---------- UI helpers ----------
-function toast(msg, error = false) { const t = $('#toast'); t.textContent = msg; t.className = error ? 'error' : ''; t.style.display = 'block'; clearTimeout(toast.t); toast.t = setTimeout(() => (t.style.display = 'none'), error ? 7000 : 4000); }
+// 全画面共通のポップアップ通知。popover（最前面レイヤー）で出すので、開いているダイアログの上にも表示される。エラーは画面上部中央・赤・長めに表示、クリックで閉じる
+function toast(msg, error = false) {
+  const t = $('#toast'), top = !!t.showPopover;
+  t.innerHTML = `${error ? '<b class="toast-icon">⚠</b>' : '<b class="toast-icon">✓</b>'}<span>${esc(msg)}</span>`; t.className = error ? 'error' : '';
+  if (top) { try { t.hidePopover(); } catch {} t.showPopover(); } else t.style.display = 'flex';
+  clearTimeout(toast.t); toast.t = setTimeout(() => (top ? t.hidePopover() : (t.style.display = 'none')), error ? 8000 : 4000);
+  t.onclick = () => { clearTimeout(toast.t); top ? t.hidePopover() : (t.style.display = 'none'); };
+}
 const badge = (label, cls = '') => `<span class="badge ${cls}">${esc(label)}</span>`;
 const STATUS = { draft: ['未発行', 'gray'], issued: ['発行済', ''], partial: ['一部入金', 'amber'], credit: ['クレジット', 'amber'], paid: ['入金済', 'green'], POSTED: ['計上済', 'green'], REVERSED: ['取消', 'gray'], DRAFT: ['下書き', 'gray'] };
 const status = s => badge(...(STATUS[s] || [s, 'gray']));
@@ -55,7 +62,7 @@ function modal({ title, body, submit, onSubmit, wide = false, onOpen, danger = f
     e.preventDefault(); if (!onSubmit) return close();
     const btn = $('#modal-submit'); btn.disabled = true; $('#form-error').textContent = '';
     try { if ((await onSubmit(Object.fromEntries(new FormData(form)), form)) !== false) close(); }
-    catch (err) { $('#form-error').textContent = err.message; }
+    catch (err) { $('#form-error').textContent = err.message; toast(err.message, true); }
     finally { btn.disabled = false; }
   };
   d.showModal(); onOpen?.(form);
@@ -114,7 +121,7 @@ async function render() {
   $('#content').classList.add('busy');
   actions = own; try { pending = fn(route.q); } finally { actions = prev; } // view captures `own` synchronously; old page stays usable while loading
   try { html = await pending; }
-  catch (e) { html = `<div class="card glass"><h2>読み込みエラー</h2><p class="check-ng">${esc(e.message)}</p></div>`; }
+  catch (e) { html = `<div class="card glass"><h2>読み込みエラー</h2><p class="check-ng">${esc(e.message)}</p></div>`; toast(e.message, true); }
   if (token !== renderSeq) return; // a newer navigation finished first
   const content = $('#content');
   actions = own; content.innerHTML = html; content.dataset.view = route.name; content.classList.remove('busy');
@@ -506,8 +513,8 @@ async function invoiceDetail(id) {
     <div class="filters" style="margin-top:14px">${inv.issues ? '<button type="button" id="inv-copy">最新発行分を印刷（控え）</button>' : ''}${canWrite() ? `<button type="button" class="primary" id="inv-issue">${inv.issues ? '再発行して印刷' : '発行して印刷'}</button>` : ''}${canWrite() && !inv.issues && !inv.allocations.length ? '<button type="button" class="danger" id="inv-cancel">請求取消</button>' : ''}</div>`,
     onOpen: () => {
       $('#inv-copy')?.addEventListener('click', async () => printDocs([await api(`/api/invoices/${inv.id}/document`)]));
-      $('#inv-issue')?.addEventListener('click', async () => { try { const r = await post('/api/invoices/issue', { ids: [inv.id] }); $('#dialog').close(); printDocs(r.documents); render(); } catch (e) { $('#form-error').textContent = e.message; } });
-      $('#inv-cancel')?.addEventListener('click', async () => { try { await post('/api/invoices/cancel', { id: inv.id }); $('#dialog').close(); toast('請求を取消しました（売上は未請求に戻り、仕訳は逆仕訳）'); render(); } catch (e) { $('#form-error').textContent = e.message; } });
+      $('#inv-issue')?.addEventListener('click', async () => { try { const r = await post('/api/invoices/issue', { ids: [inv.id] }); $('#dialog').close(); printDocs(r.documents); render(); } catch (e) { $('#form-error').textContent = e.message; toast(e.message, true); } });
+      $('#inv-cancel')?.addEventListener('click', async () => { try { await post('/api/invoices/cancel', { id: inv.id }); $('#dialog').close(); toast('請求を取消しました（売上は未請求に戻り、仕訳は逆仕訳）'); render(); } catch (e) { $('#form-error').textContent = e.message; toast(e.message, true); } });
     } });
 }
 // 提案書 スライド14 の請求書様式：請求書番号・取引銀行（2行）・前回残高／今回入金額／今回請求額(税抜)／今回消費税／今回消費税(軽減)／今回請求額(税込)／今回残高、明細（月日・伝票NO・区分・品名・数量・単位・単価・金額）
