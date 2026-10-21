@@ -1,4 +1,4 @@
-// APLink 請求・入金管理 — single page client. All data comes from the MySQL-backed API.
+// APLink 請求・入金管理 — single page client. All data comes from the PostgreSQL-backed API.
 import { installKb } from './kb.js';
 const $ =(s, r = document) => r.querySelector(s), $$ = (s, r = document) => [...r.querySelectorAll(s)];
 const esc = v => String(v ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));

@@ -1,10 +1,12 @@
 # APLink 請求・入金管理 Web（seikyu-web）
 
-AS400 請求・入金業務の Web 移行検証用システム。`seikyu-preview`（JSON 集約保存のデモ）を置き換える新規実装で、**すべての業務データを Railway PostgreSQL の業務テーブル（44 表設計）に直接保存**する（2026-10-16 MySQL から移行）。表示データは架空。Java/Spring Boot 本開発の前に、業務フローと表設計を実画面で確認するためのもの。
+AS400 請求・入金業務の Web 移行検証用システム。`seikyu-preview`（JSON 集約保存のデモ）を置き換える新規実装で、**すべての業務データを PostgreSQL の業務テーブル（44 表設計）に直接保存**する（2026-10-16 MySQL から移行、2026-10-21 Railway PostgreSQL から Supabase へ移行）。表示データは架空。Java/Spring Boot 本開発の前に、業務フローと表設計を実画面で確認するためのもの。
 
-- 配置: GitHub `gitHs-ops/newPrjt01` → Railway サービス `seikyu-web`（Root Directory `/seikyu-web`、Dockerfile）
-- URL: https://seikyu-web-production.up.railway.app/
-- DB: Railway PostgreSQL（サービス `Postgres`）のデータベース `seikyu_web`。接続は変数 `DATABASE_URL`（内部ネットワーク）。`DEMO_USER`/`DEMO_PASSWORD` は `newPrjt01` サービスの変数を参照する
+- 配置: GitHub `gitHs-ops/newPrjt01`（Root Directory `/seikyu-web`、Dockerfile）
+  - Render サービス `seikyu-web`（singapore、自動デプロイなし）: https://seikyu-web.onrender.com/ ← 2026-10-21 から現行
+  - Railway サービス `seikyu-web`: https://seikyu-web-production.up.railway.app/ （2026-10-21 Railway 障害で停止中。次回デプロイ時は Supabase・Singapore で起動する設定済み）
+- DB: Supabase プロジェクト `qodbrclechpenajxdbqg`（ap-southeast-1、PostgreSQL 17）の `postgres` データベース `public` スキーマ。接続は変数 `DATABASE_URL`（Session pooler、ポート 5432）。`DEMO_USER`/`DEMO_PASSWORD` は Railway `newPrjt01` サービスと同じ値
+- 旧 DB: Railway PostgreSQL（サービス `Postgres`）の `seikyu_web` は 2026-10-21 19:40 時点の内容のまま切り戻し用に残す（Supabase へ全 52 表を移行し、行数・内容ハッシュ一致を確認済み）
 - 旧 MySQL の `seikyu_web`・検証用 DB 3 つは 2026-10-16 に削除（削除前の全体バックアップ：seikyuPrjt02/backup/mysql-20261016/*.sql、復元して CHECKSUM 一致を確認済み）。MySQL サービスは旧デモ `newPrjt01`（`railway` データベース）用に残す
 - 旧デモ（seikyu-preview）は従来の URL https://newprjt01-production.up.railway.app/ に残す
 - **禁止: サービス `newPrjt01` の Root Directory を `/seikyu-web` に戻さない（`/seikyu-preview` 固定、2026-10-15 ユーザー指示）。** seikyu-web の変更はサービス `seikyu-web` だけに配備・検証する
