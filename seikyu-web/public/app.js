@@ -426,10 +426,16 @@ async function billingReport(kind, month, closing) {
       ${table([{ label: '売上日', value: l => l.date }, { label: '伝票No', value: l => l.orderNo }, { label: '区分', value: l => l.shipKb === 5 ? (l.quantity < 0 ? '赤' : '黒') : '売上' }, { label: '商品名', value: l => `${l.item} ${l.itemName}` }, { label: '数量', num: 1, value: l => `${l.quantity} ${l.unit}` },
         { label: '単価', num: 1, value: l => yen(l.price) }, { label: '金額', num: 1, value: l => yen(l.net) }, { label: '税率', num: 1, value: l => l.taxRate + '%' }, { label: '備考', value: l => l.siteName }], r.lines)}
       <p class="small">（売上額 <b>${yen(r.net)}</b>）（消費税額 <b>${yen(r.tax)}</b>）（値引額 <b>0</b>）（今回請求額 <b>${yen(r.current)}</b>）　${[0, 8, 10].map(rt => { const n = r.lines.filter(l => l.taxRate === rt).reduce((x, l) => x + l.net, 0); return n ? `${rt}%対象 ${yen(n)}` : ''; }).filter(Boolean).join(' ／ ')}</p></div>`).join('')
-      : '<div class="empty">この締日の発行済み請求書はありません</div>';
+      : `<div class="empty">この請求年月・締日の発行済み請求書はありません</div>${d.available?.length ? `<p class="small">発行済みの請求がある年月・締日：${d.available.map(a => `<button type="button" class="mini" data-period="${a.month}|${a.closing}">${a.month} ${closingLabel(a.closing)}締</button>`).join(' ')}</p>` : '<p class="muted small">発行済みの請求書がまだありません。「請求データ作成」→ 請求一覧で選択して「発行」すると表示されます。</p>'}`;
   }
   modal({ title: `${title} ${month} ${closingLabel(closing)}締`, wide: true, body: `<div class="filters" style="margin-bottom:10px"><a class="button" href="${url}&format=xlsx" download>⇩ Excel</a><button type="button" id="rep-print">🖨 印刷</button></div><div id="rep-body">${body}</div>`,
-    onOpen: () => $('#rep-print').addEventListener('click', () => { $('#print-area').innerHTML = `<section class="invoice-doc report-doc"><h2>${esc(title)}</h2><p>締日 ${closingLabel(closing)} ／ 請求日 ${esc(d.end)} ／ 出力日 ${today()}</p>${$('#rep-body').innerHTML}</section>`; setTimeout(() => window.print(), 200); }) });
+    onOpen: () => {
+      $('#rep-print').addEventListener('click', () => { $('#print-area').innerHTML = `<section class="invoice-doc report-doc"><h2>${esc(title)}</h2><p>締日 ${closingLabel(closing)} ／ 請求日 ${esc(d.end)} ／ 出力日 ${today()}</p>${$('#rep-body').innerHTML}</section>`; setTimeout(() => window.print(), 200); });
+      // 該当なしのとき：発行済みがある年月・締日を押すとその条件で出し直す
+      $$('#rep-body [data-period]').forEach(b => (b.onclick = () => { const [m, cl] = b.dataset.period.split('|'), sel = $('#rep-closing');
+        if ($('#rep-month')) $('#rep-month').value = m; if (sel && ![...sel.options].some(o => o.value === cl)) sel.insertAdjacentHTML('beforeend', `<option value="${cl}">${closingLabel(cl)}</option>`); if (sel) sel.value = cl;
+        billingReport(kind, m, cl).catch(e => toast(e.message, true)); }));
+    } });
 }
 async function invoiceDetail(id) {
   const inv = await api('/api/invoices/' + id);

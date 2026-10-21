@@ -379,6 +379,11 @@ export async function billingList(c, { month, closing }) {
   return { month, closing: day, end, rows: out };
 }
 // NO13 請求書発行確認表: issued customers with lines, same calculation as NO12.
+// 該当なしのとき案内する「請求がある年月・締日」（新しい順）。issued=true は発行済みのみ
+async function billingPeriods(c, issued) {
+  return (await rows(c, `SELECT DISTINCT h.closing_yymm, h.closingdd FROM billing_head h${issued ? ' WHERE EXISTS (SELECT 1 FROM invoice_issue i WHERE i.invoice_id=h.invoice_id)' : ''} ORDER BY h.closing_yymm DESC, h.closingdd LIMIT 12`))
+    .map(r => ({ month: String(r.closing_yymm).replace(/^(\d{4})(\d{2})$/, '$1-$2'), closing: Number(r.closingdd) }));
+}
 export async function billingConfirm(c, { month, closing }) {
   const { end } = period(month, closing);
   const heads = await rows(c, "SELECT DISTINCT h.customers_cd, c.customers_name FROM billing_head h JOIN client_m c ON c.customers_cd=h.customers_cd WHERE h.closing_date=? AND EXISTS (SELECT 1 FROM invoice_issue i WHERE i.invoice_id=h.invoice_id) ORDER BY h.customers_cd", [toNum(end)]);
@@ -388,7 +393,7 @@ export async function billingConfirm(c, { month, closing }) {
     const last = await one(c, `SELECT i.issue_no, i.issued_at, i.issued_by FROM invoice_issue i WHERE i.invoice_id IN (${s.invoiceIds.map(() => '?').join(',')}) ORDER BY i.issued_at DESC LIMIT 1`, s.invoiceIds);
     out.push({ ...s, name: h.customers_name, lastIssue: last ? { no: last.issue_no, at: last.issued_at, by: last.issued_by } : null });
   }
-  return { month, end, rows: out };
+  return { month, end, rows: out, available: out.length ? [] : await billingPeriods(c, true) };
 }
 export async function companyProfile(c) {
   const co = await one(c, 'SELECT * FROM company_info_m ORDER BY company_info_id LIMIT 1');
