@@ -83,6 +83,7 @@ export async function createApp({ pool, publicDir, secureCookies = process.env.N
   const w = (path, fn, perm = 'write') => route('POST', path, perm, x => db(c => fn(c, x, x.body)));
   w('/api/masters/:kind', (c, x, b) => M.save(c, x, x.params.kind, b.record, b.mode === 'create' ? 'create' : 'update'));
   w('/api/masters/:kind/import', (c, x, b) => M.importCsv(c, x, x.params.kind, b.csv));
+  w('/api/masters/:kind/delete', (c, x, b) => M.remove(c, x, x.params.kind, b.record));
   w('/api/shipments', (c, x, b) => S.saveShipment(c, x, b));
   w('/api/shipments/delete', (c, x, b) => S.deleteShipment(c, x, b));
   w('/api/plans', (c, x, b) => PL.savePlan(c, x, b));

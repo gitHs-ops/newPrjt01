@@ -352,7 +352,8 @@ export async function list(c, kind) {
 export async function allMasters(c) { const out = {}; for (const k of Object.keys(MASTERS)) out[k] = await list(c, k); return out; }
 
 async function current(c, cfg, key) {
-  const r = await one(c, `${cfg.select} ${cfg.select.includes(' WHERE ') ? 'AND' : 'WHERE'} ${cfg.where} FOR UPDATE`, key);
+  const topWhere = / WHERE /.test(cfg.select.replace(/\([^()]*\)/g, '')); // 副問合せの WHERE は数えない（勘定科目の既定処税率）
+  const r = await one(c, `${cfg.select} ${topWhere ? 'AND' : 'WHERE'} ${cfg.where} FOR UPDATE`, key);
   return r ? withVersion(cfg, r) : null;
 }
 // mode: 'create' requires the key to be absent; 'update' requires a matching version.
@@ -369,6 +370,64 @@ export async function save(c, ctx, kind, input, mode) {
   const after = await current(c, cfg, key);
   await audit(c, ctx, cfg.table, key.join('|'), mode === 'create' ? 'master.create' : 'master.update', { kind, key: key.join('|'), fields: Object.keys(r).filter(k => !['account', 'holder'].includes(k) || kind !== 'vendors') });
   return after;
+}
+// ---------- 削除（物理削除） ----------
+// 取引・他のマスタから使われているコードは削除せず、「有効」を外して無効化するよう案内する（現行 Java の論理削除 delete_f='1' と同じ扱い）。
+// SQL の ? にはキー配列を先頭から順に繰り返し当てる。
+const VID = '(SELECT vendor_id FROM vendor WHERE vendor_code=?)';
+const REMOVE = {
+  customers: { refs: [['出荷・売上', 'SELECT 1 x FROM sales_trn WHERE customers_cd=? LIMIT 1'], ['出荷伝票（他社得意先）', 'SELECT 1 x FROM shipment_slip WHERE other_company_customers_cd=? LIMIT 1'],
+    ['出荷予定', 'SELECT 1 x FROM shipment_plan WHERE customers_cd=? LIMIT 1'], ['請求', 'SELECT 1 x FROM billing_head WHERE customers_cd=? LIMIT 1'], ['入金', 'SELECT 1 x FROM receipt WHERE customers_cd=? LIMIT 1'],
+    ['仕訳', 'SELECT 1 x FROM journal_line WHERE customers_cd=? LIMIT 1'], ['期首残高', 'SELECT 1 x FROM opening_balance WHERE customers_cd=? LIMIT 1'],
+    ['現場マスタ', 'SELECT 1 x FROM field_name_m WHERE customers_cd=? LIMIT 1'], ['得意先別単価', 'SELECT 1 x FROM uriage_tanka_m WHERE customers_cd=? LIMIT 1']],
+    del: ['DELETE FROM client_m WHERE customers_cd=?'] },
+  sites: { refs: [['出荷・売上', 'SELECT 1 x FROM sales_trn WHERE customers_cd=? AND field_cd=? AND field_suffix=? LIMIT 1'], ['出荷予定', 'SELECT 1 x FROM shipment_plan WHERE customers_cd=? AND field_cd=? AND field_suffix=? LIMIT 1'],
+    ['請求', 'SELECT 1 x FROM billing_head WHERE customers_cd=? AND field_cd=? AND field_suffix=? LIMIT 1'], ['得意先別単価', 'SELECT 1 x FROM uriage_tanka_m WHERE customers_cd=? AND field_cd=? AND field_suffix=? LIMIT 1']],
+    del: ['DELETE FROM field_name_m WHERE customers_cd=? AND field_cd=? AND field_suffix=?'] },
+  items: { refs: [['出荷・売上', 'SELECT 1 x FROM sales_trn WHERE item_cd=? LIMIT 1'], ['出荷予定', 'SELECT 1 x FROM shipment_plan WHERE item_cd=? LIMIT 1'], ['得意先別単価', 'SELECT 1 x FROM uriage_tanka_m WHERE item_cd=? LIMIT 1'],
+    ['商品仕入', 'SELECT 1 x FROM purchase WHERE item_cd=? LIMIT 1'], ['在庫', 'SELECT 1 x FROM inventory_count WHERE item_cd=? LIMIT 1'], ['配合', "SELECT 1 x FROM code_m WHERE code_key='MIX' AND (split_part(code_dtl,':',1)=? OR split_part(code_dtl,':',2)=?) LIMIT 1"]],
+    del: ['DELETE FROM item_m WHERE item_cd=?'] },
+  prices: { refs: [], del: ['DELETE FROM uriage_tanka_m WHERE item_cd=? AND customers_cd=? AND field_cd=? AND field_suffix=?'] },
+  banks: { refs: [['仕訳', "SELECT 1 x FROM journal_line WHERE account_code IN ('1112','1113') AND sub_code=? LIMIT 1"], ['財務会計の伝票', "SELECT 1 x FROM kb_line WHERE account_code IN ('1112','1113') AND sub_code=? LIMIT 1"],
+    ['業者の支払銀行', "SELECT 1 x FROM code_m WHERE code_key='VPAY' AND code_dtl_nam=? LIMIT 1"], ['請求書の振込先', "SELECT 1 x FROM code_m WHERE code_key='SET' AND code_dtl IN ('INVBANK','INVBANK2') AND code_dtl_abr=? LIMIT 1"]],
+    del: ["DELETE FROM code_m WHERE code_key IN ('BANK','ZGN') AND code_dtl=?", "DELETE FROM account_subsubject WHERE account_code IN ('1112','1113') AND sub_code=?"] },
+  vendors: { refs: [['商品仕入', `SELECT 1 x FROM purchase WHERE vendor_id=${VID} LIMIT 1`], ['定時請求・小口現金', `SELECT 1 x FROM expense_document WHERE vendor_id=${VID} LIMIT 1`], ['支払', `SELECT 1 x FROM payment WHERE vendor_id=${VID} LIMIT 1`],
+    ['仕訳', `SELECT 1 x FROM journal_line WHERE vendor_id=${VID} LIMIT 1`], ['期首残高', `SELECT 1 x FROM opening_balance WHERE vendor_id=${VID} LIMIT 1`]],
+    del: ["DELETE FROM code_m WHERE code_key='VPAY' AND code_dtl=?", 'DELETE FROM vendor WHERE vendor_code=?'] },
+  bankdir: { refs: [['業者の振込先口座', "SELECT 1 x FROM bank_account WHERE bank_code=split_part(?,'-',1) AND (position('-' in ?)=0 OR branch_code=split_part(?,'-',2)) LIMIT 1"]],
+    del: ["DELETE FROM code_m WHERE code_key='BKDIR' AND code_dtl=?"] },
+  depts: { refs: [['仕訳', 'SELECT 1 x FROM journal_line WHERE department_code=? LIMIT 1'], ['定時請求・小口現金', 'SELECT 1 x FROM expense_line WHERE department_code=? LIMIT 1'], ['財務会計の伝票', 'SELECT 1 x FROM kb_line WHERE dept_code=? LIMIT 1']],
+    del: ["DELETE FROM code_m WHERE code_key='DEPT' AND code_dtl=?"] },
+  jv: { refs: [], del: ["DELETE FROM code_m WHERE code_key='JV' AND code_dtl=?"] },
+  mixes: { refs: [], del: ["DELETE FROM code_m WHERE code_key='MIX' AND code_dtl=?"] },
+  deliveryKinds: { refs: [['出荷伝票', 'SELECT 1 x FROM shipment_slip WHERE CAST(delivery_kbn_cd AS TEXT)=? LIMIT 1'], ['出荷予定', 'SELECT 1 x FROM shipment_plan WHERE CAST(delivery_kbn_cd AS TEXT)=? LIMIT 1']],
+    del: ["DELETE FROM code_m WHERE code_key='A0000' AND code_dtl=?"] },
+  units: { refs: [['商品マスタ', 'SELECT 1 x FROM item_m WHERE unit=? LIMIT 1'], ['出荷伝票', 'SELECT 1 x FROM shipment_slip WHERE unit_cd=? LIMIT 1'], ['出荷予定', 'SELECT 1 x FROM shipment_plan WHERE unit_cd=? LIMIT 1']],
+    del: ["DELETE FROM code_m WHERE code_key='A0003' AND code_dtl=?"] },
+  taxRates: { refs: [['最後の1件', "SELECT 1 x FROM (SELECT COUNT(*) n FROM code_m WHERE code_key='A0007' AND code_dtl<>?) t WHERE t.n=0"],
+    ['この税率期間の出荷・売上', "SELECT 1 x FROM sales_trn WHERE sales_date>=CAST(? AS INTEGER) AND sales_date<COALESCE((SELECT MIN(CAST(code_dtl AS INTEGER)) FROM code_m WHERE code_key='A0007' AND code_dtl>?),99999999) LIMIT 1"]], del: ["DELETE FROM code_m WHERE code_key='A0007' AND code_dtl=?"] },
+  operators: { refs: [['出荷伝票', "SELECT 1 x FROM shipment_slip WHERE person_in_charge_cd=lpad(CAST(? AS TEXT),6,'0') LIMIT 1"], ['出荷予定', "SELECT 1 x FROM shipment_plan WHERE person_in_charge_cd=lpad(CAST(? AS TEXT),6,'0') LIMIT 1"]],
+    del: ['DELETE FROM operator_m WHERE tanto_cd=?'] },
+  accounts: { refs: [['仕訳', 'SELECT 1 x FROM journal_line WHERE account_code=? LIMIT 1'], ['財務会計の伝票', 'SELECT 1 x FROM kb_line WHERE account_code=? LIMIT 1'], ['期首残高（財務会計）', 'SELECT 1 x FROM kb_opening WHERE account_code=? LIMIT 1'],
+    ['定時請求・小口現金', 'SELECT 1 x FROM expense_line WHERE account_code=? LIMIT 1'], ['内訳科目', 'SELECT 1 x FROM account_subsubject WHERE account_code=? LIMIT 1']],
+    del: ['DELETE FROM kb_account WHERE account_code=?', 'DELETE FROM account_subject WHERE account_code=?'] },
+  subaccounts: { refs: [['仕訳', 'SELECT 1 x FROM journal_line WHERE account_code=? AND sub_code=? LIMIT 1'], ['財務会計の伝票', 'SELECT 1 x FROM kb_line WHERE account_code=? AND sub_code=? LIMIT 1'],
+    ['期首残高（財務会計）', 'SELECT 1 x FROM kb_opening WHERE account_code=? AND sub_code=? LIMIT 1'], ['定時請求・小口現金', 'SELECT 1 x FROM expense_line WHERE account_code=? AND sub_code=? LIMIT 1']],
+    del: ['DELETE FROM account_subsubject WHERE account_code=? AND sub_code=?'] },
+};
+const argsFor = (sql, key) => Array.from({ length: (sql.match(/\?/g) || []).length }, (_, i) => key[i % key.length]);
+export async function remove(c, ctx, kind, input) {
+  const cfg = MASTERS[kind], rm = REMOVE[kind]; check(cfg, 'マスタ種別が不正です'); check(rm, `${cfg?.label || 'このマスタ'}は削除できません`);
+  const key = cfg.keyOf(input || {}), old = await current(c, cfg, key);
+  if (!old) throw new Conflict('対象のマスタが見つかりません。再読込してください');
+  if (old.version !== input.version) throw new Conflict('他の利用者が更新しました。再読込してからやり直してください');
+  if (kind === 'accounts') check(!SYSTEM_ACCOUNTS.some(a => a[0] === key[0]), '請求システムの自動仕訳で使用する科目は削除できません');
+  const used = []; for (const [label, sql] of rm.refs) if (await one(c, sql, argsFor(sql, key))) used.push(label);
+  if (kind === 'taxRates') check(!used.length, '消費税率は最低1件必要です');
+  check(!used.length, `${cfg.label}「${key.filter(v => v !== '').join('-')}」は ${used.join('・')} で使われているため削除できません。「有効」を外して無効にしてください（現行と同じ論理削除）`);
+  for (const sql of rm.del) await c.query(sql, argsFor(sql, key));
+  await audit(c, ctx, cfg.table, key.join('|'), 'master.delete', { kind, key: key.join('|') });
+  return { kind, key: key.join('|') };
 }
 // CSV import: header row uses field names or labels. Whole file is rolled back on the first error.
 export async function importCsv(c, ctx, kind, csvText) {

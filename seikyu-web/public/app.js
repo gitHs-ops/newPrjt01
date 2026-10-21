@@ -922,7 +922,7 @@ VIEWS.masters = async q => {
       let csv; try { csv = new TextDecoder('utf-8', { fatal: true }).decode(buf); } catch { csv = new TextDecoder('shift_jis').decode(buf); }
       const r = await post(`/api/masters/${kind}/import`, { csv }); toast(`登録 ${r.created}件・更新 ${r.updated}件`); await loadMasters(); render(); } });
   const show = f => r => f.type === 'bool' ? (r[f.name] ? '有効' : '無効') : f.type === 'ref' ? `${r[f.name]} ${nameOf(f.ref, r[f.name])}` : f.type === 'select' ? (f.options.find(o => o[0] === String(r[f.name]))?.[1] || r[f.name]) : f.type === 'int' ? yen(r[f.name]) : r[f.name];
-  return page('マスタ管理', `${Object.keys(meta.masters).length}種類のマスタを業務テーブルで直接管理します。登録後のコード・所属は変更できません（新規登録して旧マスタを無効化）。`, `<input id="m-search" placeholder="コード・名称などで検索" value="${esc(q.search || '')}" style="width:220px"><button data-act="search">検索</button>${csvLink('master-' + kind)}${canWrite() ? '<button data-act="import">⇧ CSV取込</button><button class="primary" data-act="new">＋ 新規登録</button>' : ''}`,
+  return page('マスタ管理', `${Object.keys(meta.masters).length}種類のマスタを業務テーブルで直接管理します。登録後のコード・所属は変更できません（新規登録して旧マスタを無効化）。使われていないコードは編集画面から削除できます。`, `<input id="m-search" placeholder="コード・名称などで検索" value="${esc(q.search || '')}" style="width:220px"><button data-act="search">検索</button>${csvLink('master-' + kind)}${canWrite() ? '<button data-act="import">⇧ CSV取込</button><button class="primary" data-act="new">＋ 新規登録</button>' : ''}`,
     `<div class="tabs">${Object.entries(meta.masters).map(([k, x]) => `<button class="${k === kind ? 'active' : ''}" data-act="tab" data-kind="${k}">${esc(x.label)}</button>`).join('')}</div>
     <section class="card glass">${term ? `<p class="muted small">「${esc(q.search)}」の検索結果 ${list.length} / ${all.length} 件</p>` : ''}${table([...m.fields.filter(f => f.type !== 'bool' && f.list !== false).map(f => ({ label: f.label, num: f.type === 'int', value: show(f) })), { label: '状態', html: r => r.active ? badge('有効', 'green') : badge('無効', 'gray') },
       { label: '', html: r => canWrite() ? `<button class="mini" data-act="edit" data-key="${esc(r.key)}">編集</button>` : '' }], list, { rowClass: r => r.active ? '' : 'muted' })}</section>`);
@@ -941,7 +941,12 @@ function masterInput(f, r, isNew) {
 function masterForm(kind, r) {
   const m = meta.masters[kind];
   modal({ title: `${m.label}の${r ? '編集' : '新規登録'}`, submit: r ? '更新する' : '登録する', body: `<div class="form-grid">${m.fields.map(f => masterInput(f, r, !r)).join('')}</div>${r?.system ? '<p class="note small">自動仕訳で使用する科目のため無効化できません。</p>' : ''}`,
-    onOpen: f => { if (f.site && f.customer) f.customer.onchange = () => (f.site.innerHTML = siteOptions(f.customer.value, '', '（得意先共通）')); },
+    onOpen: f => {
+      if (f.site && f.customer) f.customer.onchange = () => (f.site.innerHTML = siteOptions(f.customer.value, '', '（得意先共通）'));
+      // 削除：使用中のコードはサーバーが拒否し、無効化を案内する
+      if (r && kind !== 'company' && !r.system) { $('#modal-body').insertAdjacentHTML('beforeend', '<div class="filters" style="margin-top:10px"><button type="button" class="danger" id="m-del">削除</button><span class="muted small">取引などで使われているコードは削除できません（「有効」を外して無効化）</span></div>');
+        $('#m-del').onclick = () => confirmBox(`${m.label}の削除`, `「${r.key.split('|').filter(Boolean).join('-')}」を削除します。元に戻せません。`, async () => { await post(`/api/masters/${kind}/delete`, { record: r }); toast('削除しました'); await loadMasters(); render(); }, '削除する'); }
+    },
     onSubmit: async (v, f) => {
       const rec = { ...(r || {}), ...v }; for (const x of m.fields) if (x.type === 'bool') rec[x.name] = f[x.name].checked;
       await post('/api/masters/' + kind, { mode: r ? 'update' : 'create', record: rec }); toast(r ? '更新しました' : '登録しました'); await loadMasters(); render();
