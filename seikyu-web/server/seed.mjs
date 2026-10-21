@@ -23,7 +23,7 @@ export async function seedIfEmpty(pool) {
       await ensure(c, 'sites', { customer: code, code: sites[code][0], suffix: '000', name: sites[code][1], active: true });
     }
     const items = [['P001', '再生砕石 RC-40', 3200], ['P002', '粒度調整砕石 M-30', 4800], ['P003', '山砂', 2600]];
-    for (const [code, name, price] of items) await ensure(c, 'items', { code, name, unit: 't', price, active: true });
+    for (const [code, name, price] of items) await ensure(c, 'items', { code, name, unit: '01', price, active: true });
     await ensure(c, 'prices', { item: 'P002', customer: 'C002', site: '', price: 4650, active: true });
     await ensure(c, 'banks', { code: '041', name: 'サンプル銀行（架空）', active: true });
     await ensure(c, 'vendors', { code: 'V001', name: 'サンプル資材（架空）', active: true });
@@ -36,9 +36,9 @@ export async function seedIfEmpty(pool) {
       if (m === 0 && dom < 6) break;
       for (let i = 0; i < 3; i++) {
         const [code] = customers[i], [item, , price] = items[i];
-        for (const d of [3, 5]) await saveShipment(c, ctx, { date: day(m, d), customer: code, site: `${sites[code][0]}|000`, item, quantity: String(40 + (m + 5) * 9 + i * 7 + d), price: code === 'C002' ? 4650 : price, taxRate: 10, method: 2, vehicle: `デモ${100 + i}` });
+        for (const d of [3, 5]) await saveShipment(c, ctx, { date: day(m, d), customer: code, site: `${sites[code][0]}|000`, item, quantity: String(40 + (m + 5) * 9 + i * 7 + d), price: code === 'C002' ? 4650 : price, taxRate: 10, operator: '1', deliveryKbn: '1', method: 2, vehicle: `デモ${100 + i}` });
       }
-      if (m === -2) await saveShipment(c, ctx, { date: day(m, 4), customer: 'C001', site: 'G0101|000', item: 'P003', quantity: '6.5', price: 2600, taxRate: 10, method: 1, remarks: '現金売上' });
+      if (m === -2) await saveShipment(c, ctx, { date: day(m, 4), customer: 'C001', site: 'G0101|000', item: 'P003', quantity: '6.5', price: 2600, taxRate: 10, operator: '1', deliveryKbn: '1', method: 1, remarks: '現金売上' });
       if (m === 0 && dom < 10) continue;
       await runBilling(c, ctx, { month: addMonths(month, m), closing: 10, customers: ['C001', 'C002', 'C003'] });
       const inv = (await listInvoices(c, { month: addMonths(month, m) })).filter(x => ['C001', 'C002', 'C003'].includes(x.customer));
@@ -51,7 +51,7 @@ export async function seedIfEmpty(pool) {
         await createReceipt(c, ctx, { idempotencyKey: `seed-${x.id}`, date, customer: x.customer, bank: value - fee, bankCode: '041', fee, allocations: [{ invoiceId: x.id, amount: value }] });
       }
     }
-    for (let n = 0; n < 3; n++) if (dom >= 2) await saveShipment(c, ctx, { date: day(0, Math.min(dom, 2 + n * 3)), customer: 'C004', site: 'G0401|000', item: items[n][0], quantity: String(25 + n * 12.5), price: items[n][2], taxRate: 10, method: 2 });
+    for (let n = 0; n < 3; n++) if (dom >= 2) await saveShipment(c, ctx, { date: day(0, Math.min(dom, 2 + n * 3)), customer: 'C004', site: 'G0401|000', item: items[n][0], quantity: String(25 + n * 12.5), price: items[n][2], taxRate: 10, operator: '1', deliveryKbn: '1', method: 2 });
     const pm = addMonths(month, -1);
     for (let n = 0; n < 2; n++) {
       await createPurchase(c, ctx, { date: `${pm}-12`, vendor: n ? 'V002' : 'V001', item: items[n][0], quantity: String(120 + n * 40), price: 1800 + n * 300, taxCode: '10%', memo: 'サンプル仕入' });

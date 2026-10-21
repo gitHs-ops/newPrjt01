@@ -39,33 +39,33 @@ test('workflow against PostgreSQL business tables', { skip, timeout: 900000 }, a
       ok(await a.call('/api/masters/customers', { mode: 'create', record: { code: C, name: '結合試験(架空)', closing: 31, active: true } }));
       ok(await a.call('/api/masters/sites', { mode: 'create', record: { customer: C, code: 'S' + tag, suffix: '000', name: '試験現場', active: true } }));
       ok(await a.call('/api/masters/sites', { mode: 'create', record: { customer: C, code: 'T' + tag, suffix: '000', name: '試験現場2', active: true } }));
-      ok(await a.call('/api/masters/items', { mode: 'create', record: { code: 'I' + tag, name: '試験商品', unit: 't', price: 1000, active: true } }));
+      ok(await a.call('/api/masters/items', { mode: 'create', record: { code: 'I' + tag, name: '試験商品', unit: '01', price: 1000, active: true } }));
       ok(await a.call('/api/masters/vendors', { mode: 'create', record: { code: 'V' + tag, name: '試験業者', bank: '0001', branch: '001', accountType: '1', account: '1234567', holder: 'ｼｹﾝ', active: true } }));
       ok(await a.call('/api/masters/banks', { mode: 'create', record: { code: 'B' + tag, name: '試験銀行', active: true } }));
       assert.equal((await a.call('/api/masters/customers', { mode: 'create', record: { code: C, name: 'dup', closing: 31 } })).status, 400);
       const cust = (await a.call('/api/masters/customers')).data.find(x => x.code === C);
       ok(await a.call('/api/masters/customers', { mode: 'update', record: { ...cust, name: '結合試験(更新)' } }));
       assert.equal((await a.call('/api/masters/customers', { mode: 'update', record: { ...cust, name: 'stale' } })).status, 409);
-      const bad = await a.call(`/api/masters/items/import`, { csv: `code,name,unit,price\nJ${tag},ok,t,10\nK${tag},${'x'.repeat(30)},t,10\n` });
+      const bad = await a.call(`/api/masters/items/import`, { csv: `code,name,unit,price\nJ${tag},ok,01,10\nK${tag},${'x'.repeat(30)},01,10\n` });
       assert.equal(bad.status, 400); assert.match(bad.data.error, /3行目/);
       assert.ok(!(await a.call('/api/masters/items')).data.some(x => x.code === 'J' + tag), 'CSV import rolled back');
     });
 
     let invoiceId;
     await t.test('shipment → billing → issue → receipt with journals', async () => {
-      const s1 = await a.call('/api/shipments', { date: sd, customer: C, site: `S${tag}|000`, item: 'I' + tag, quantity: '10.5', price: 1000, taxRate: 10, method: 2 });
+      const s1 = await a.call('/api/shipments', { date: sd, customer: C, site: `S${tag}|000`, item: 'I' + tag, quantity: '10.5', price: 1000, taxRate: 10, operator: '1', deliveryKbn: '1', method: 2 });
       assert.equal(s1.status, 200, JSON.stringify(s1.data));
-      await a.call('/api/shipments', { date: sd, customer: C, site: `T${tag}|000`, item: 'I' + tag, quantity: '3', price: 999, taxRate: 8, method: 2 });
+      await a.call('/api/shipments', { date: sd, customer: C, site: `T${tag}|000`, item: 'I' + tag, quantity: '3', price: 999, taxRate: 8, operator: '1', deliveryKbn: '1', method: 2 });
       // NO11 赤黒（10/14）：赤＝元の全量マイナス、黒＝訂正後。同じ伝票の二重訂正は不可
       const corr = await a.call('/api/shipments/correct', { orderNo: s1.data.orderNo, date: sd, quantity: '10' });
       assert.equal(corr.status, 200, JSON.stringify(corr.data)); assert.equal(corr.data.net, -500); assert.ok(corr.data.red && corr.data.black);
       assert.equal((await a.call('/api/shipments/correct', { orderNo: s1.data.orderNo, date: sd, quantity: '9' })).status, 400, 'already corrected');
-      const cash = await a.call('/api/shipments', { date: sd, customer: C, site: `S${tag}|000`, item: 'I' + tag, quantity: '1', price: 500, taxRate: 10, method: 1 });
+      const cash = await a.call('/api/shipments', { date: sd, customer: C, site: `S${tag}|000`, item: 'I' + tag, quantity: '1', price: 500, taxRate: 10, operator: '1', deliveryKbn: '1', method: 1 });
       const run = await a.call('/api/billing/run', { month, closing: 31, customers: [C] });
       assert.equal(run.status, 200, JSON.stringify(run.data)); assert.equal(run.data.created, 1); invoiceId = run.data.ids[0];
       const inv = (await a.call('/api/invoices/' + invoiceId)).data;
       // NO6: one head per customer covering both sites and the correction
-      assert.equal(inv.net, 10500 - 500 + 2997); assert.equal(inv.tax, 1000 + 239); assert.equal(inv.lines.length, 4); assert.equal(new Set(inv.lines.map(l => l.site)).size, 2);
+      assert.equal(inv.net, 10500 - 500 + 2997); assert.equal(inv.tax, 1299); // 税率は出荷日で消費税率マスタ（A0007）から自動＝10% assert.equal(inv.lines.length, 4); assert.equal(new Set(inv.lines.map(l => l.site)).size, 2);
       const list = await a.call(`/api/reports/billing-list?month=${month}&closing=31`); assert.equal(list.status, 200);
       const row = list.data.rows.find(r => r.customer === C); assert.equal(row.current, inv.total); assert.equal(row.total, row.carried + inv.total); assert.equal(row.state, 'draft');
       const book = await fetch(base + `/api/reports/billing-list?month=${month}&closing=31&format=xlsx`, { headers: { cookie: a.cookie } });
@@ -162,7 +162,7 @@ test('workflow against PostgreSQL business tables', { skip, timeout: 900000 }, a
       // material: mark item as 材料, buy 10 @1000 this month, define a product recipe at 60%
       const it = (await a.call('/api/masters/items')).data.find(x => x.code === 'I' + tag);
       ok(await a.call('/api/masters/items', { mode: 'update', record: { ...it, kind: '1' } })); // 1=材料（現行 Java）
-      ok(await a.call('/api/masters/items', { mode: 'create', record: { code: 'G' + tag, name: '試験合材', unit: 't', price: 9000, kind: '2', active: true } })); // 2=製品
+      ok(await a.call('/api/masters/items', { mode: 'create', record: { code: 'G' + tag, name: '試験合材', unit: '01', price: 9000, kind: '2', active: true } })); // 2=製品
       ok(await a.call('/api/purchases', { date: d, vendor: 'V' + tag, item: 'I' + tag, quantity: '10', price: 1000, taxCode: '10%' }));
       const ml = (await a.call('/api/reports/misc/material-ledger?closing=31&month=' + d.slice(0, 7))).data.items.find(x => x.item === 'I' + tag);
       assert.equal(ml.purchase.qty, 10); assert.equal(ml.purchase.value, 10000);
@@ -225,7 +225,7 @@ test('workflow against PostgreSQL business tables', { skip, timeout: 900000 }, a
       const cl = Math.max(1, Math.min(28, Number(d.slice(8)))), K = 'K' + tag, curMonth = d.slice(0, 7);
       ok(await a.call('/api/masters/customers', { mode: 'create', record: { code: K, name: '締日試験', closing: cl, siteMonths: '2', siteDay: '10', payMethod: '2', payBank: 'B' + tag, active: true } }));
       ok(await a.call('/api/masters/sites', { mode: 'create', record: { customer: K, code: 'K' + tag, suffix: '000', name: 'K現場', active: true } }));
-      const s1 = ok(await a.call('/api/shipments', { date: pm + '-01', customer: K, site: 'K' + tag + '|000', item: 'I' + tag, quantity: '2', price: 1000, taxRate: 10, method: 2 }));
+      const s1 = ok(await a.call('/api/shipments', { date: pm + '-01', customer: K, site: 'K' + tag + '|000', item: 'I' + tag, quantity: '2', price: 1000, taxRate: 10, operator: '1', deliveryKbn: '1', method: 2 }));
       const h1 = ok(await a.call('/api/billing/run', { month: pm, closing: cl, customers: [K] })); assert.equal(h1.created, 1);
       const inv1 = ok(await a.call('/api/invoices/' + h1.ids[0]));
       const [yy, mm] = pm.split('-').map(Number); const exp = new Date(Date.UTC(yy, mm - 1 + 2, Math.min(10, new Date(Date.UTC(yy, mm + 2, 0)).getUTCDate()))).toISOString().slice(0, 10);
@@ -239,7 +239,7 @@ test('workflow against PostgreSQL business tables', { skip, timeout: 900000 }, a
       const h2 = ok(await a.call('/api/billing/run', { month: curMonth, closing: cl, customers: [K] }));
       const inv2 = ok(await a.call('/api/invoices/' + h2.ids[0])); assert.equal(inv2.total, -2200); assert.equal(inv2.status, 'credit');
       // unissued invoice: additional sale is appended to the same invoice
-      ok(await a.call('/api/shipments', { date: pm + '-02', customer: K, site: 'K' + tag + '|000', item: 'I' + tag, quantity: '5', price: 1000, taxRate: 10, method: 2 }));
+      ok(await a.call('/api/shipments', { date: pm + '-02', customer: K, site: 'K' + tag + '|000', item: 'I' + tag, quantity: '5', price: 1000, taxRate: 10, operator: '1', deliveryKbn: '1', method: 2 }));
       const h3 = ok(await a.call('/api/billing/run', { month: curMonth, closing: cl, customers: [K] })); assert.equal(h3.appended, 1);
       const inv3 = ok(await a.call('/api/invoices/' + h2.ids[0])); assert.equal(inv3.total, 3300); assert.equal(inv3.lines.length, 2);
       const jl = ok(await a.call('/api/journals?month=' + curMonth)).filter(j => j.source === 'billing_head' && j.sourceId === String(h2.ids[0]));

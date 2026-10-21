@@ -5,6 +5,7 @@ import { SYSTEM_ACCOUNTS } from './masters.mjs';
 import { TABLES } from './ledger.mjs';
 import { hashPassword, verifyPassword, ROLES } from './users.mjs';
 import { prepareKb } from './kb.mjs';
+import { CUMULATIVE_SQL } from './sales.mjs';
 
 export const MENUS = [
   [1, 'ダッシュボード', '#dashboard', '▦', 'OVERVIEW'], [2, '出荷・売上', '#shipments', '▤', '販売・請求'], [3, '請求締め・発行', '#invoices', '▧', '販売・請求'], [4, '入金・消込', '#receipts', '↙', '販売・請求'],
@@ -36,6 +37,33 @@ async function compatMigration(pool) {
   // デモ用の自社情報は現行データと同じ端数処理（金額 3 四捨五入・税 2 切捨）にする
   await pool.query("UPDATE company_info_m SET proceed_round='3', tax_round='2' WHERE company_info_id=1 AND company_name1='サンプル建材株式会社'");
   await pool.query("INSERT INTO code_m (code_key,code_key_nam,code_dtl,code_dtl_nam,code_dtl_abr,category1,category2,category3) VALUES ('SET','設定','CMP1021','現行Javaコード互換 移行済',?,'','','')", [new Date().toISOString().slice(0, 10)]);
+}
+// 現行 Java のコードマスタ初期値（code_m A0000 納入区分・A0003 単位・A0007 消費税率、テーブルデータ code_m より）と単位名の関数。
+// 既存データは一度だけ変換（code_m SET/CMP1021B）：商品・出荷の単位を名称→コード、納入区分・担当者の未設定を既定値に、累計数量・台数を再計算。
+const JAVA_CODES = [
+  ['A0000', '納入区分', [['1', '大型現着', '1'], ['3', '小型現着', '1'], ['7', '引取', '2'], ['9', 'その他', '1']]],
+  ['A0003', '単位', [['01', 't'], ['02', 'm3'], ['03', 'Kg'], ['04', 'KL'], ['05', 'L'], ['06', '本'], ['07', '缶'], ['08', '袋'], ['09', '日'], ['10', '時間'], ['11', '人'], ['12', '台'], ['13', '回'], ['14', '式'], ['15', '㎡'], ['16', '年'], ['17', '月'], ['18', '箱'], ['19', '名'], ['20', '円'], ['21', '枚'], ['22', 'm'], ['23', '点'], ['99', 'その他']]],
+  ['A0007', '消費税率', [['20140401', '8%', '8'], ['20191001', '10%', '10']]],
+];
+async function javaCodes(pool, env) {
+  for (const [key, keyName, list] of JAVA_CODES)
+    for (const [code, name, cat1 = ' '] of list) await pool.query("INSERT IGNORE INTO code_m (code_key,code_key_nam,code_dtl,code_dtl_nam,code_dtl_abr,category1,category2,category3) VALUES (?,?,?,?,?,?,' ',' ')", [key, keyName, code, name, name, cat1]);
+  await pool.query("CREATE OR REPLACE FUNCTION unit_name(c text) RETURNS text LANGUAGE sql STABLE AS $f$ SELECT COALESCE((SELECT code_dtl_nam FROM code_m WHERE code_key='A0003' AND code_dtl=c LIMIT 1), c) $f$");
+  const [[op]] = await pool.query('SELECT COUNT(*) n FROM operator_m');
+  if (!Number(op.n)) {
+    const [[u]] = await pool.query('SELECT user_id FROM users WHERE login_id=?', [env.DEMO_USER || '']);
+    await pool.query("INSERT INTO operator_m (tanto_cd,tanto_nm,user_id,mailaddr,delete_f) VALUES (1,'デモ担当者',?,'','')", [u?.user_id || 0]);
+  }
+  const [[done]] = await pool.query("SELECT 1 x FROM code_m WHERE code_key='SET' AND code_dtl='CMP1021B'");
+  if (done) return;
+  await pool.query("UPDATE item_m i SET unit=u.code_dtl FROM code_m u WHERE u.code_key='A0003' AND u.code_dtl_nam=i.unit AND i.unit !~ '^[0-9]{2}$'");
+  await pool.query("UPDATE shipment_slip s SET unit_cd=u.code_dtl FROM code_m u WHERE u.code_key='A0003' AND u.code_dtl_nam=s.unit_cd AND s.unit_cd !~ '^[0-9]{2}$'");
+  await pool.query("UPDATE sales_trn t SET unit_cd=CAST(i.unit AS INTEGER) FROM item_m i WHERE i.item_cd=t.item_cd AND i.unit ~ '^[0-9]{2}$' AND t.unit_cd IS NULL");
+  await pool.query('UPDATE shipment_slip SET delivery_kbn_cd=1 WHERE delivery_kbn_cd=0');
+  await pool.query('UPDATE sales_trn s SET shipping_kb=1 WHERE shipping_kb IS NULL');
+  await pool.query("UPDATE shipment_slip SET person_in_charge_cd=(SELECT LPAD(CAST(MIN(tanto_cd) AS TEXT),6,'0') FROM operator_m) WHERE person_in_charge_cd=''");
+  await pool.query(CUMULATIVE_SQL.replace('%WHERE%', 'TRUE'));
+  await pool.query("INSERT INTO code_m (code_key,code_key_nam,code_dtl,code_dtl_nam,code_dtl_abr,category1,category2,category3) VALUES ('SET','設定','CMP1021B','単位コード・納入区分・担当者・累計 移行済',?,'','','')", [new Date().toISOString().slice(0, 10)]);
 }
 // Applies the reviewed DDL only when explicitly pointed at it (empty test databases). Production tables already exist.
 async function applyDdl(pool, dir) {
@@ -74,6 +102,7 @@ export async function prepare(pool, env = process.env) {
   await pool.query(`INSERT IGNORE INTO company_info_m (company_info_id,company_name1,company_name2,company_kana1,company_kana2,company_abr,plant_name,plant_kana,plant_mgr,postcode,pref,addr1,addr2,tel_no,fax_no,saisyuturyoku_word,closing_m,closing_d,tax_round,package_nam,package_ver,trading_day,claim_typ,proceed_round,n_pr_kind)
     VALUES (1,'サンプル建材株式会社','（架空・デモ用）','サンプルケンザイ','','サンプル建材','サンプル工場','','','0000000','東京都','架空区デモ町1-2-3','','00-0000-0000','00-0000-0001','再発行',3,31,'1','APLink請求入金',1.00,NULL,'1','1','1')`);
   await compatMigration(pool);
+  await javaCodes(pool, env);
   for (const [id, name] of Object.entries(ROLES)) await pool.query('INSERT INTO roles (role_id,role_name) VALUES (?,?) ON DUPLICATE KEY UPDATE role_name=VALUES(role_name)', [Number(id), name]);
   for (const [id, title, url, icon, grp] of MENUS) {
     await pool.query('INSERT INTO menus (menu_id,menu_title,launch_url,parent_menu_id,display_seq,menu_class,group_title) VALUES (?,?,?,0,?,?,?) ON DUPLICATE KEY UPDATE menu_title=VALUES(menu_title),launch_url=VALUES(launch_url),display_seq=VALUES(display_seq),menu_class=VALUES(menu_class),group_title=VALUES(group_title)', [id, title, url, id * 10, icon, grp]);
@@ -92,4 +121,6 @@ export async function prepare(pool, env = process.env) {
     await pool.query('UPDATE users SET enabled=TRUE WHERE user_id=?', [u.user_id]);
     await pool.query('INSERT IGNORE INTO user_role_ts (user_id,role_id) VALUES (?,1)', [u.user_id]);
   }
+  // 初期の担当者（javaCodes で作成、空の DB では利用者作成前）を初期管理者に紐付ける
+  await pool.query("UPDATE operator_m SET user_id=(SELECT user_id FROM users WHERE login_id=?) WHERE tanto_cd=1 AND tanto_nm='デモ担当者' AND user_id=0", [login]);
 }

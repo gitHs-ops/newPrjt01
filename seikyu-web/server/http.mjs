@@ -31,10 +31,11 @@ export async function createApp({ pool, publicDir, secureCookies = process.env.N
   const failures = new Map();
 
   // ----- read -----
-  route('GET', '/api/meta', 'read', () => ({ journalLists: { ...Object.fromEntries(Object.entries(J.LISTS).map(([k, v]) => [k, { title: v.title, ref: v.ref }])), BANK: { title: J.BANK_LIST.title, ref: J.BANK_LIST.ref } }, receiptParts: S.RECEIPT_PARTS, masters: M.meta(), rates: RATES, methods: METHODS, taxCodes: P.TAX_CODES, purchaseKinds: P.PURCHASE_KINDS, patterns: L.PATTERNS, roles: U.ROLES, today: today(), version }));
+  route('GET', '/api/meta', 'read', () => ({ journalLists: { ...Object.fromEntries(Object.entries(J.LISTS).map(([k, v]) => [k, { title: v.title, ref: v.ref }])), BANK: { title: J.BANK_LIST.title, ref: J.BANK_LIST.ref } }, receiptParts: S.RECEIPT_PARTS, masters: M.meta(), rates: RATES, methods: METHODS, taxCodes: P.TAX_CODES, purchaseKinds: P.PURCHASE_KINDS, shipKinds: S.SHIP_KB, patterns: L.PATTERNS, roles: U.ROLES, today: today(), version }));
   route('GET', '/api/masters', 'read', () => db(c => M.allMasters(c)));
   route('GET', '/api/masters/:kind', 'read', x => db(c => M.list(c, x.params.kind)));
   route('GET', '/api/price', 'read', x => db(c => S.priceFor(c, x.q)));
+  route('GET', '/api/business-date', 'read', () => db(async c => ({ date: await S.businessDate(c) })));
   route('GET', '/api/shipments', 'read', x => db(c => S.listShipments(c, x.q)));
   route('GET', '/api/billing/preview', 'read', x => db(c => S.billingPreview(c, x.q)));
   route('GET', '/api/invoices', 'read', x => db(c => S.listInvoices(c, x.q)));
@@ -85,6 +86,7 @@ export async function createApp({ pool, publicDir, secureCookies = process.env.N
   w('/api/petty/refill', (c, x, b) => P.pettyRefill(c, x, b));
   w('/api/mix/save', (c, x, b) => MR.saveMix(c, x, b));
   w('/api/shipments/correct', (c, x, b) => S.correctShipment(c, x, b));
+  w('/api/business-date', (c, x, b) => S.setBusinessDate(c, x, b));
   w('/api/billing/run', (c, x, b) => S.runBilling(c, x, b));
   w('/api/invoices/issue', (c, x, b) => S.issueInvoices(c, x, b));
   w('/api/invoices/cancel', (c, x, b) => S.cancelInvoice(c, x, b));
@@ -163,7 +165,7 @@ export async function createApp({ pool, publicDir, secureCookies = process.env.N
       if (path.startsWith('/api/')) {
         if (!user) return send(401, { error: 'ログインしてください' });
         if (req.method === 'POST' && req.headers['x-csrf-token'] !== user.csrf) return send(403, { error: 'セッションが更新されました。再読込してください' });
-        if (path === '/api/session' && req.method === 'GET') return send(200, { user: { loginId: user.login_id, name: user.name, role: user.role, roleName: user.roleName }, csrf: user.csrf, menus: await db(c => U.menusFor(c, user.role)) });
+        if (path === '/api/session' && req.method === 'GET') return send(200, { user: { id: user.user_id, loginId: user.login_id, name: user.name, role: user.role, roleName: user.roleName }, csrf: user.csrf, menus: await db(c => U.menusFor(c, user.role)) });
         for (const r of routes) {
           const m = r.method === req.method && path.match(r.re); if (!m) continue;
           if (r.perm === 'write' && !U.WRITE_ROLES.includes(user.role)) throw new Forbidden('参照者は登録・変更できません');

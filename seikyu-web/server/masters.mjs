@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { check, Conflict, text, bool, yen, closingDay, isoDate, today, parseCsv } from './domain.mjs';
+import { check, Conflict, text, bool, yen, closingDay, isoDate, today, parseCsv, fromNum } from './domain.mjs';
 import { rows, one, audit, mapSqlError } from './db.mjs';
 import { toZenginKana, zenginInvalid } from './zengin.mjs';
 
@@ -79,11 +79,12 @@ export const MASTERS = {
   },
   items: {
     label: '商品', table: 'item_m',
-    fields: [F('code', '商品コード', { max: 5, key: true }), F('name', '商品名', { max: 22 }), F('unit', '単位', { max: 2 }), F('price', '標準単価', { type: 'int' }), F('kind', '製品・材料区分', { type: 'select', options: [['', '共通'], ['2', '製品（自社製品）'], ['1', '材料・仕入品']], optional: true, hint: '現行 Java と同じ 2=製品・1=材料。配合計算・材料受払表・粗利で使用' }), F('active', '有効', { type: 'bool' })],
+    fields: [F('code', '商品コード', { max: 5, key: true }), F('name', '商品名', { max: 22 }), F('unit', '単位', { type: 'ref', ref: 'units', hint: '単位マスタ（現行 A0003）' }), F('price', '標準単価', { type: 'int' }), F('kind', '製品・材料区分', { type: 'select', options: [['', '共通'], ['2', '製品（自社製品）'], ['1', '材料・仕入品']], optional: true, hint: '現行 Java と同じ 2=製品・1=材料。配合計算・材料受払表・粗利で使用' }), F('active', '有効', { type: 'bool' })],
     select: 'SELECT * FROM item_m', where: 'item_cd=?', keyOf: r => [r.code],
     decode: r => ({ code: r.item_cd, name: r.item_nam, unit: r.unit, price: Number(r.tanka), kind: r.item_product_kb || '', active: live(r) }),
-    validate: r => ({ code: text(r.code, '商品コード', 5, { pattern: CODE }), name: text(r.name, '商品名', 22), unit: text(r.unit || 't', '単位', 2), price: yen(r.price ?? 0, '標準単価', { max: 9999999 }), kind: ['1', '2'].includes(String(r.kind || '')) ? String(r.kind) : '', active: bool(r.active ?? true) }),
+    validate: r => ({ code: text(r.code, '商品コード', 5, { pattern: CODE }), name: text(r.name, '商品名', 22), unit: text(r.unit || '01', '単位', 2, { pattern: /^\d{2}$/ }), price: yen(r.price ?? 0, '標準単価', { max: 9999999 }), kind: ['1', '2'].includes(String(r.kind || '')) ? String(r.kind) : '', active: bool(r.active ?? true) }),
     async write(c, r, old) {
+      check(await one(c, "SELECT 1 x FROM code_m WHERE code_key='A0003' AND code_dtl=?", [r.unit]), '単位は単位マスタから選択してください');
       if (!old) await c.query("INSERT INTO item_m (item_cd,item_nam,item_abr,item_kana,item_bunrui_cd,tanka,freight,unit,base_temp,vary_temp,credit_discount_rate,delete_f,item_product_kb) VALUES (?,?,'','','',?,0,?,0,0,0,?,?)", [r.code, r.name, r.price, r.unit, del(r.active), r.kind]);
       else await c.query('UPDATE item_m SET item_nam=?,tanka=?,unit=?,item_product_kb=?,delete_f=? WHERE item_cd=?', [r.name, r.price, r.unit, r.kind, del(r.active), r.code]);
     },
@@ -194,16 +195,16 @@ export const MASTERS = {
     label: '自社情報・請求書設定', table: 'company_info_m',
     fields: [F('id', 'ID', { max: 1, key: true, hint: '1固定' }), F('name1', '会社名1', { max: 21 }), F('name2', '会社名2', { max: 30, optional: true }), F('postcode', '郵便番号', { max: 7, optional: true }),
       F('pref', '都道府県', { max: 8, optional: true }), F('addr1', '住所1', { max: 42, optional: true }), F('addr2', '住所2', { max: 42, optional: true }), F('tel', '電話番号', { max: 14, optional: true }), F('fax', 'FAX', { list: false, max: 14, optional: true }),
-      F('plant', '工場名', { list: false, max: 26, optional: true }), F('invoiceNo', '適格請求書発行事業者登録番号', { max: 14, optional: true, hint: 'T＋13桁（例 T4180001002429）' }), F('invoiceBank', '請求書の振込先口座', { type: 'ref', ref: 'banks', optional: true, hint: '銀行マスタの振込元口座情報を表示' })],
+      F('plant', '工場名', { list: false, max: 26, optional: true }), F('tradingDay', '業務日付', { type: 'date', optional: true, list: false, hint: '出荷日の初期値（現行 MA057 出荷日変更）。空欄は当日' }), F('invoiceNo', '適格請求書発行事業者登録番号', { max: 14, optional: true, hint: 'T＋13桁（例 T4180001002429）' }), F('invoiceBank', '請求書の振込先口座', { type: 'ref', ref: 'banks', optional: true, hint: '銀行マスタの振込元口座情報を表示' })],
     select: "SELECT c.*, n.code_dtl_abr inv_no, b.code_dtl_abr inv_bank FROM company_info_m c LEFT JOIN code_m n ON n.code_key='SET' AND n.code_dtl='INVNO' LEFT JOIN code_m b ON b.code_key='SET' AND b.code_dtl='INVBANK'",
     where: 'c.company_info_id=?', keyOf: r => [String(r.id || '1')],
-    decode: r => ({ id: String(r.company_info_id), name1: r.company_name1, name2: r.company_name2, postcode: r.postcode, pref: r.pref, addr1: r.addr1, addr2: r.addr2, tel: r.tel_no, fax: r.fax_no, plant: r.plant_name, invoiceNo: r.inv_no || '', invoiceBank: r.inv_bank || '' }),
+    decode: r => ({ id: String(r.company_info_id), name1: r.company_name1, name2: r.company_name2, postcode: r.postcode, pref: r.pref, addr1: r.addr1, addr2: r.addr2, tel: r.tel_no, fax: r.fax_no, plant: r.plant_name, tradingDay: r.trading_day ? String(r.trading_day).slice(0, 10) : '', invoiceNo: r.inv_no || '', invoiceBank: r.inv_bank || '' }),
     validate: r => ({ id: '1', name1: text(r.name1, '会社名1', 21), name2: text(r.name2, '会社名2', 30, { required: false }), postcode: text(String(r.postcode || '').replace('-', ''), '郵便番号', 7, { required: false, pattern: /^\d{7}$/ }),
       pref: text(r.pref, '都道府県', 8, { required: false }), addr1: text(r.addr1, '住所1', 42, { required: false }), addr2: text(r.addr2, '住所2', 42, { required: false }), tel: text(r.tel, '電話番号', 14, { required: false }), fax: text(r.fax, 'FAX', 14, { required: false }),
-      plant: text(r.plant, '工場名', 26, { required: false }), invoiceNo: text(String(r.invoiceNo || '').replace(/[\s-]/g, '').toUpperCase(), '登録番号', 14, { required: false, pattern: /^T\d{13}$/ }), invoiceBank: text(r.invoiceBank, '振込先口座', 12, { required: false }) }),
+      plant: text(r.plant, '工場名', 26, { required: false }), tradingDay: r.tradingDay ? isoDate(r.tradingDay, '業務日付') : '', invoiceNo: text(String(r.invoiceNo || '').replace(/[\s-]/g, '').toUpperCase(), '登録番号', 14, { required: false, pattern: /^T\d{13}$/ }), invoiceBank: text(r.invoiceBank, '振込先口座', 12, { required: false }) }),
     async write(c, r, old) {
       check(old, '自社情報は1件のみです（新規登録はできません）');
-      await c.query('UPDATE company_info_m SET company_name1=?,company_name2=?,postcode=?,pref=?,addr1=?,addr2=?,tel_no=?,fax_no=?,plant_name=? WHERE company_info_id=1', [r.name1, r.name2, r.postcode, r.pref, r.addr1, r.addr2, r.tel, r.fax, r.plant]);
+      await c.query('UPDATE company_info_m SET company_name1=?,company_name2=?,postcode=?,pref=?,addr1=?,addr2=?,tel_no=?,fax_no=?,plant_name=?,trading_day=? WHERE company_info_id=1', [r.name1, r.name2, r.postcode, r.pref, r.addr1, r.addr2, r.tel, r.fax, r.plant, r.tradingDay || null]);
       for (const [k, v, n] of [['INVNO', r.invoiceNo, '登録番号'], ['INVBANK', r.invoiceBank, '請求書振込先']]) {
         await c.query("DELETE FROM code_m WHERE code_key='SET' AND code_dtl=?", [k]);
         if (v) await c.query("INSERT INTO code_m (code_key,code_key_nam,code_dtl,code_dtl_nam,code_dtl_abr,category1,category2,category3) VALUES ('SET','設定',?,?,?,'','','')", [k, n, v]);
@@ -261,6 +262,55 @@ export const MASTERS = {
       const key = `${r.product}:${r.material}`;
       if (!old) await c.query("INSERT INTO code_m (code_key,code_key_nam,code_dtl,code_dtl_nam,code_dtl_abr,category1,category2,category3) VALUES ('MIX','配合',?,'',?,?,?,?)", [key, r.active ? '1' : '0', r.product, r.material, String(Math.round(r.ratio * 100))]);
       else await c.query("UPDATE code_m SET code_dtl_abr=?,category3=? WHERE code_key='MIX' AND code_dtl=?", [r.active ? '1' : '0', String(Math.round(r.ratio * 100)), key]);
+    },
+  },
+  // 現行 Java のコードマスタ（code_m）：A0000 納入区分（category1 '2'＝引取＝運賃なし）、A0003 単位、A0007 消費税率（code_dtl＝適用開始日 YYYYMMDD）
+  deliveryKinds: {
+    label: '納入区分', table: 'code_m',
+    fields: [F('code', '納入区分コード', { max: 2, key: true, hint: '数字2桁以内（現行 1 大型現着・3 小型現着・7 引取・9 その他）' }), F('name', '名称', { max: 40 }),
+      F('pickup', '引取（運賃なし）', { type: 'bool', hint: '現行の category1=2。運賃は0のみ' }), F('active', '有効', { type: 'bool' })],
+    select: "SELECT * FROM code_m WHERE code_key='A0000'", where: 'code_dtl=?', keyOf: r => [r.code],
+    decode: r => ({ code: r.code_dtl, name: r.code_dtl_nam, pickup: r.category1 === '2', active: r.category3 !== '0' }),
+    validate: r => ({ code: text(r.code, '納入区分コード', 2, { pattern: /^\d{1,2}$/ }), name: text(r.name, '名称', 40), pickup: bool(r.pickup ?? false), active: bool(r.active ?? true) }),
+    async write(c, r, old) {
+      if (!old) await c.query("INSERT INTO code_m (code_key,code_key_nam,code_dtl,code_dtl_nam,code_dtl_abr,category1,category2,category3) VALUES ('A0000','納入区分',?,?,?,?,' ',?)", [r.code, r.name, r.name.slice(0, 26), r.pickup ? '2' : '1', r.active ? ' ' : '0']);
+      else await c.query("UPDATE code_m SET code_dtl_nam=?,code_dtl_abr=?,category1=?,category3=? WHERE code_key='A0000' AND code_dtl=?", [r.name, r.name.slice(0, 26), r.pickup ? '2' : '1', r.active ? ' ' : '0', r.code]);
+    },
+  },
+  units: {
+    label: '単位', table: 'code_m',
+    fields: [F('code', '単位コード', { max: 2, key: true, hint: '数字2桁（現行 01 t・02 m3 …）' }), F('name', '単位名', { max: 40 }), F('active', '有効', { type: 'bool' })],
+    select: "SELECT * FROM code_m WHERE code_key='A0003'", where: 'code_dtl=?', keyOf: r => [r.code],
+    decode: r => ({ code: r.code_dtl, name: r.code_dtl_nam, active: r.category3 !== '0' }),
+    validate: r => ({ code: text(r.code, '単位コード', 2, { pattern: /^\d{2}$/ }), name: text(r.name, '単位名', 40), active: bool(r.active ?? true) }),
+    async write(c, r, old) {
+      if (!old) await c.query("INSERT INTO code_m (code_key,code_key_nam,code_dtl,code_dtl_nam,code_dtl_abr,category1,category2,category3) VALUES ('A0003','単位',?,?,?,' ',' ',?)", [r.code, r.name, r.name.slice(0, 26), r.active ? '' : '0']);
+      else await c.query("UPDATE code_m SET code_dtl_nam=?,code_dtl_abr=?,category3=? WHERE code_key='A0003' AND code_dtl=?", [r.name, r.name.slice(0, 26), r.active ? '' : '0', r.code]);
+    },
+  },
+  taxRates: {
+    label: '消費税率', table: 'code_m',
+    fields: [F('code', '適用開始日', { type: 'date', key: true, hint: 'この日以降の出荷に適用（現行 2014-04-01 8%・2019-10-01 10%）' }), F('rate', '税率(%)', { type: 'int' }), F('active', '有効', { type: 'bool' })],
+    select: "SELECT * FROM code_m WHERE code_key='A0007'", where: 'code_dtl=?', keyOf: r => [String(r.code || '').replaceAll('-', '')],
+    decode: r => ({ code: fromNum(r.code_dtl), rate: Number(r.category1), active: r.category3 !== '0' }),
+    validate: r => { const v = { code: isoDate(r.code, '適用開始日'), rate: yen(r.rate, '税率', { max: 100 }), active: bool(r.active ?? true) }; return v; },
+    async write(c, r, old) {
+      const k = r.code.replaceAll('-', '');
+      if (!old) await c.query("INSERT INTO code_m (code_key,code_key_nam,code_dtl,code_dtl_nam,code_dtl_abr,category1,category2,category3) VALUES ('A0007','消費税率',?,?,?,?,' ',?)", [k, r.rate + '%', r.rate + '%', String(r.rate), r.active ? ' ' : '0']);
+      else await c.query("UPDATE code_m SET code_dtl_nam=?,code_dtl_abr=?,category1=?,category3=? WHERE code_key='A0007' AND code_dtl=?", [r.rate + '%', r.rate + '%', String(r.rate), r.active ? ' ' : '0', k]);
+    },
+  },
+  // 担当者（現行 Java operator_m・MA003〜008）：出荷の担当者（必須）。利用者IDを紐付けるとその利用者の出荷登録の初期値になる
+  operators: {
+    label: '担当者', table: 'operator_m',
+    fields: [F('code', '担当者コード', { max: 6, key: true, hint: '数字6桁以内' }), F('name', '担当者名', { max: 20 }), F('userId', '利用者ID（ログインと紐付け）', { type: 'int', optional: true, list: false, hint: '利用者管理のID' }),
+      F('mail', 'メール', { max: 100, optional: true, list: false }), F('active', '有効', { type: 'bool' })],
+    select: 'SELECT * FROM operator_m', where: 'tanto_cd=?', keyOf: r => [Number(r.code)],
+    decode: r => ({ code: String(r.tanto_cd).padStart(6, '0'), name: r.tanto_nm, userId: Number(r.user_id || 0) || '', mail: r.mailaddr || '', active: live(r) }),
+    validate: r => ({ code: String(Number(text(r.code, '担当者コード', 6, { pattern: /^\d{1,6}$/ }))).padStart(6, '0'), name: text(r.name, '担当者名', 20), userId: yen(r.userId || 0, '利用者ID', { max: 999999 }), mail: text(r.mail, 'メール', 100, { required: false }), active: bool(r.active ?? true) }),
+    async write(c, r, old) {
+      if (!old) await c.query('INSERT INTO operator_m (tanto_cd,tanto_nm,user_id,mailaddr,delete_f) VALUES (?,?,?,?,?)', [Number(r.code), r.name, r.userId, r.mail, del(r.active)]);
+      else await c.query('UPDATE operator_m SET tanto_nm=?,user_id=?,mailaddr=?,delete_f=? WHERE tanto_cd=?', [r.name, r.userId, r.mail, del(r.active), Number(r.code)]);
     },
   },
   accounts: {

@@ -134,8 +134,12 @@ const CREDIT = 2;
 VIEWS.shipments = async q => {
   const A = actions;
   const month = q.month || thisMonth(), list = await api('/api/shipments?' + qs({ month, customer: q.customer, status: q.status, method: q.method }));
+  const bd = (await api('/api/business-date')).date;
   A.misc = d => miscReport(d.kind, d.src).catch(e => toast(e.message, true));
-  A.new = () => shipmentForm(); A.edit = d => shipmentForm(list.find(r => r.orderNo === d.id)); A.correct = d => correctionForm(list.find(r => r.orderNo === d.id));
+  // 業務日付（現行 MA057 出荷日変更）：出荷日の初期値。日付をまたぐ出荷（深夜）でも前日の業務日付で登録できる
+  A.bizDate = () => modal({ title: '業務日付の変更', submit: '変更する', body: `<div class="form-grid">${field('業務日付', `<input type="date" name="date" value="${bd}">`, { req: 1, hint: '出荷登録の出荷日の初期値。空欄で当日に戻す' })}</div>`,
+    onSubmit: async v => { const r = await post('/api/business-date', v); toast(`業務日付を ${r.date} にしました`); render(); } });
+  A.new = () => shipmentForm(null, bd); A.edit = d => shipmentForm(list.find(r => r.orderNo === d.id)); A.correct = d => correctionForm(list.find(r => r.orderNo === d.id));
   A.del = d => confirmBox('出荷の取消', `売上No ${d.id} を取消します。請求前の伝票のみ取消できます（赤黒は組で取消）。`, () => post('/api/shipments/delete', { orderNo: d.id }).then(() => { toast('取消しました'); render(); }), '取消する');
   const net = list.reduce((n, r) => n + r.net, 0), tax = list.reduce((n, r) => n + r.tax, 0);
   const red = r => r.shipKb === 5 && r.quantity < 0;
@@ -149,15 +153,20 @@ VIEWS.shipments = async q => {
   };
   return page('出荷・売上', '出荷伝票（shipment_slip）と売上（sales_trn）を同時に登録します。請求済みの伝票は「赤黒訂正」で、元伝票のマイナス（赤）と訂正後（黒）を起票します（NO11、10/14 打合せ）。',
     `${monthInput('month', month)}${filterSelect('customer', masters.customers, q.customer, 'すべての得意先')}<select name="status" data-filter>${options([{ code: 'open', name: '未請求' }, { code: 'billed', name: '請求済' }], q.status, { blank: 'すべて', label: r => r.name })}</select>
-     <select name="method" data-filter>${options(Object.entries(meta.methods).map(([code, name]) => ({ code, name })), q.method, { blank: 'すべての決済', label: r => r.name })}</select>${csvLink('shipments', { month })}${canWrite() ? '<button class="primary" data-act="new">＋ 出荷登録</button>' : ''}`,
+     <select name="method" data-filter>${options(Object.entries(meta.methods).map(([code, name]) => ({ code, name })), q.method, { blank: 'すべての決済', label: r => r.name })}</select>${csvLink('shipments', { month })}
+     <span class="badge ${bd !== today() ? 'amber' : ''}" title="出荷日の初期値">業務日付 ${esc(bd)}</span>${canWrite() ? '<button class="mini" data-act="bizDate">変更</button><button class="primary" data-act="new">＋ 出荷登録</button>' : ''}`,
     `<section class="card glass">${table([{ label: '売上No', html: r => esc(r.orderNo) + (r.shipKb === 5 ? `<br><span class="small muted">元 ${esc(r.originalNo)}</span>` : '') }, { label: '出荷日', value: r => r.date }, { label: '得意先', value: r => r.customerName }, { label: '現場', value: r => r.siteName }, { label: '商品', value: r => r.itemName },
-      { label: '数量', num: 1, html: r => `${r.quantity < 0 ? `<span class="check-ng">${r.quantity}</span>` : r.quantity} ${esc(r.unit)}` },
+      { label: '数量', num: 1, html: r => `${r.quantity < 0 ? `<span class="check-ng">${r.quantity}</span>` : r.quantity} ${esc(r.unit)}${r.cumulativeCount ? `<br><span class="small muted" title="同日・同現場・同商品・同納入区分の累計（現行 updateWorkKeyGroup）">累計 ${r.cumulativeQty}／${r.cumulativeCount}台</span>` : ''}` },
+      { label: '担当・納入', html: r => `<span class="small">${esc(r.operatorName || r.operator)}<br>${esc(r.deliveryKbnName)}</span>` },
       { label: '単価', num: 1, value: r => yen(r.price) }, { label: '運賃', num: 1, value: r => (r.freight ? yen(r.freight) : '') }, { label: '金額', num: 1, value: r => yen(r.net) }, { label: '税', num: 1, value: r => `${r.taxRate}%` },
       { label: '決済', html: r => r.method === CREDIT ? esc(r.methodName) : badge(r.methodName, 'amber') },
       { label: '状態', html: r => (r.shipKb === 5 ? badge(red(r) ? '赤' : '黒', red(r) ? 'red' : 'amber') + ' ' : r.shipKb !== 1 ? badge(r.shipKbName, 'gray') + ' ' : '') + (r.corrected ? badge('訂正済', 'gray') + ' ' : '') + (r.billed ? badge('請求済', 'green') : r.method === CREDIT ? badge('未請求', 'gray') : badge('請求対象外', 'amber')) },
       { label: '', html: acts }],
-      list, { empty: 'この条件の出荷はありません', rowClass: r => (r.corrected ? 'reversed' : ''), foot: ['合計', '', '', '', '', '', '', '', yen(net), '', `税 ${yen(tax)}`, ''] })}</section>${shipmentReportsCard()}`);
+      list, { empty: 'この条件の出荷はありません', rowClass: r => (r.corrected ? 'reversed' : ''), foot: ['合計', '', '', '', '', '', '', '', '', yen(net), '', `税 ${yen(tax)}`, ''] })}</section>${shipmentReportsCard()}`);
 };
+const myOperator = () => active('operators').find(o => Number(o.userId) === Number(session.user.id))?.code || active('operators')[0]?.code || '';
+const opFields = r => `${field('担当者', `<select name="operator">${options(active('operators'), r?.operator || myOperator(), { blank: '選択してください' })}</select>`, { req: 1, hint: '担当者マスタ（利用者と紐付けた担当者が初期値）' })}
+    ${field('納入区分', `<select name="deliveryKbn">${options(active('deliveryKinds'), r?.deliveryKbn || active('deliveryKinds')[0]?.code, { blank: '選択してください', label: x => `${x.code} ${x.name}${x.pickup ? '（運賃なし）' : ''}` })}</select>`, { req: 1 })}`;
 const siteFields = (cust, r) => `${field('現場', `<select name="site">${siteOptions(cust, r?.site, '（マスタ外・自由入力）')}</select>`, { hint: '現場マスタから選択、または空欄で現場名を自由入力（現行と同じ）' })}
     ${field('現場名1', `<input name="siteName1" maxlength="20" value="${esc(r?.siteName1 || '')}">`)}${field('現場名2', `<input name="siteName2" maxlength="20" value="${esc(r?.siteName2 || '')}">`)}`;
 function correctionForm(r) {
@@ -169,8 +178,7 @@ function correctionForm(r) {
       ${field('得意先', `<select name="customer">${options(active('customers'), cust)}</select>`)}${siteFields(cust, r)}
       ${field('商品', `<select name="item">${options(active('items'), r.item)}</select>`)}${field('数量（黒）', `<input name="quantity" class="num" inputmode="decimal" value="${r.quantity}">`, { req: 1 })}
       ${field('単価', `<input name="price" class="num" value="${r.price}">`)}${field('運賃', `<input name="freight" class="num" value="${r.freight || 0}">`)}
-      ${field('税率', `<select name="taxRate">${options(meta.rates.map(x => ({ code: x, name: x + '%' })), r.taxRate, { label: x => x.name })}</select>`)}
-      ${field('備考', `<input name="remarks" maxlength="20" value="黒 ${esc(r.orderNo)}">`)}<div class="wide note" id="corr-preview"></div></div>`,
+      ${opFields(r)}${field('備考', `<input name="remarks" maxlength="20" value="黒 ${esc(r.orderNo)}">`, { hint: '税率は訂正日の消費税率マスタで自動' })}<div class="wide note" id="corr-preview"></div></div>`,
     onOpen: f => {
       f.customer.onchange = () => (f.site.innerHTML = siteOptions(f.customer.value, '', '（マスタ外・自由入力）'));
       const pv = () => { const qn = Number(f.quantity.value) || 0, black = Math.round(Math.round(qn * 100) * (Number(f.price.value) + Number(f.freight.value || 0)) / 100); $('#corr-preview').textContent = `赤 ${yen(-r.net)} 円 ＋ 黒 ${yen(black)} 円 ＝ 差額 ${yen(black - r.net)} 円（税抜）`; };
@@ -178,14 +186,14 @@ function correctionForm(r) {
     },
     onSubmit: async v => { const res = await post('/api/shipments/correct', { ...v, orderNo: r.orderNo }); toast(`赤 ${res.red}${res.black ? '・黒 ' + res.black : ''} を登録しました（差額 ${yen(res.net)}円）`); render(); } });
 }
-function shipmentForm(r) {
+function shipmentForm(r, bizDate) {
   const cust = r?.customer || active('customers')[0]?.code || '';
   modal({ title: r ? `出荷の修正（${r.orderNo}）` : '出荷登録', submit: r ? '更新する' : '登録する', wide: true, body: `<div class="form-grid">
-    ${field('出荷日', `<input type="date" name="date" value="${esc(r?.date || today())}" required>`, { req: 1 })}
+    ${field('出荷日', `<input type="date" name="date" value="${esc(r?.date || bizDate || today())}" required>`, { req: 1, hint: '初期値は業務日付' })}${opFields(r)}
     ${field('決済方法', `<select name="method">${options(Object.entries(meta.methods).map(([code, name]) => ({ code, name })), r?.method || CREDIT, { label: x => `${x.code} ${x.name}` })}</select>`, { hint: '掛売のみ請求対象。現金・カードは対象外（Q16/Q17）' })}
     ${field('得意先', `<select name="customer" required>${options(active('customers'), cust)}</select>`, { req: 1 })}${siteFields(cust, r)}
     ${field('商品', `<select name="item" required>${options(active('items'), r?.item, { blank: '選択してください' })}</select>`, { req: 1 })}
-    ${field('税率', `<select name="taxRate">${options(meta.rates.map(x => ({ code: x, name: x + '%' })), r?.taxRate ?? 10, { label: x => x.name })}</select>`)}
+    ${field('税率', `<input name="taxRate" class="num" value="${esc(r?.taxRate ?? '')}" readonly>`, { hint: '出荷日で消費税率マスタ（A0007）から自動' })}
     ${field('数量', `<input name="quantity" class="num" inputmode="decimal" value="${esc(r?.quantity ?? '')}" required>`, { req: 1, hint: '小数2桁まで。マイナス可（返品等）' })}
     ${field('単価（円）', `<input name="price" class="num" inputmode="numeric" value="${esc(r?.price ?? '')}" required>`, { req: 1, hint: '単価マスタ（適用期間内は適用単価）から自動設定' })}
     ${field('運賃（円）', `<input name="freight" class="num" inputmode="numeric" value="${esc(r?.freight ?? 0)}">`, { hint: '金額＝数量×(単価＋運賃)' })}
@@ -194,9 +202,10 @@ function shipmentForm(r) {
     onOpen: f => {
       const preview = () => { const qn = Number(f.quantity.value), p = Number(f.price.value) + Number(f.freight.value || 0), rate = Number(f.taxRate.value); if (!qn) return ($('#amount-preview').textContent = '金額: -');
         const net = Math.round(Math.round(qn * 100) * p / 100); $('#amount-preview').textContent = `金額: ${yen(net)} 円（四捨五入・自社情報の端数処理） ／ 消費税(参考): ${yen(Math.floor(net * rate / 100))} 円`; };
-      const price = async () => { if (!f.item.value || !f.customer.value) return; const p = await api('/api/price?' + qs({ item: f.item.value, customer: f.customer.value, site: f.site.value, date: f.date.value })); f.price.value = p.price; f.freight.value = p.freight; preview(); toast(`単価: ${p.source} ${yen(p.price)}円${p.freight ? '・運賃 ' + yen(p.freight) + '円' : ''}`); };
+      const pickup = () => active('deliveryKinds').find(k => k.code === f.deliveryKbn.value)?.pickup;
+      const price = async () => { if (!f.item.value || !f.customer.value) return; const p = await api('/api/price?' + qs({ item: f.item.value, customer: f.customer.value, site: f.site.value, date: f.date.value })); f.price.value = p.price; f.freight.value = pickup() ? 0 : p.freight; f.taxRate.value = p.taxRate; preview(); toast(`単価: ${p.source} ${yen(p.price)}円${p.freight ? '・運賃 ' + yen(p.freight) + '円' : ''}`); };
       f.customer.onchange = () => { f.site.innerHTML = siteOptions(f.customer.value, '', '（マスタ外・自由入力）'); price(); };
-      f.item.onchange = price; f.site.onchange = price; f.date.onchange = price; for (const n of ['quantity', 'price', 'freight']) f[n].oninput = preview; f.taxRate.onchange = preview; preview();
+      f.item.onchange = price; f.site.onchange = price; f.date.onchange = price; f.deliveryKbn.onchange = () => { if (pickup()) f.freight.value = 0; preview(); }; for (const n of ['quantity', 'price', 'freight']) f[n].oninput = preview; preview(); if (!r) price();
     },
     onSubmit: async v => { const res = await post('/api/shipments', { ...v, orderNo: r?.orderNo }); toast(`${r ? '更新' : '登録'}しました（売上No ${res.orderNo}）`); render(); },
   });
@@ -755,7 +764,7 @@ VIEWS.masters = async q => {
       let csv; try { csv = new TextDecoder('utf-8', { fatal: true }).decode(buf); } catch { csv = new TextDecoder('shift_jis').decode(buf); }
       const r = await post(`/api/masters/${kind}/import`, { csv }); toast(`登録 ${r.created}件・更新 ${r.updated}件`); await loadMasters(); render(); } });
   const show = f => r => f.type === 'bool' ? (r[f.name] ? '有効' : '無効') : f.type === 'ref' ? `${r[f.name]} ${nameOf(f.ref, r[f.name])}` : f.type === 'select' ? (f.options.find(o => o[0] === String(r[f.name]))?.[1] || r[f.name]) : f.type === 'int' ? yen(r[f.name]) : r[f.name];
-  return page('マスタ管理', '8種類のマスタを業務テーブルで直接管理します。登録後のコード・所属は変更できません（新規登録して旧マスタを無効化）。', `<input id="m-search" placeholder="コード・名称などで検索" value="${esc(q.search || '')}" style="width:220px"><button data-act="search">検索</button>${csvLink('master-' + kind)}${canWrite() ? '<button data-act="import">⇧ CSV取込</button><button class="primary" data-act="new">＋ 新規登録</button>' : ''}`,
+  return page('マスタ管理', `${Object.keys(meta.masters).length}種類のマスタを業務テーブルで直接管理します。登録後のコード・所属は変更できません（新規登録して旧マスタを無効化）。`, `<input id="m-search" placeholder="コード・名称などで検索" value="${esc(q.search || '')}" style="width:220px"><button data-act="search">検索</button>${csvLink('master-' + kind)}${canWrite() ? '<button data-act="import">⇧ CSV取込</button><button class="primary" data-act="new">＋ 新規登録</button>' : ''}`,
     `<div class="tabs">${Object.entries(meta.masters).map(([k, x]) => `<button class="${k === kind ? 'active' : ''}" data-act="tab" data-kind="${k}">${esc(x.label)}</button>`).join('')}</div>
     <section class="card glass">${term ? `<p class="muted small">「${esc(q.search)}」の検索結果 ${list.length} / ${all.length} 件</p>` : ''}${table([...m.fields.filter(f => f.type !== 'bool' && f.list !== false).map(f => ({ label: f.label, num: f.type === 'int', value: show(f) })), { label: '状態', html: r => r.active ? badge('有効', 'green') : badge('無効', 'gray') },
       { label: '', html: r => canWrite() ? `<button class="mini" data-act="edit" data-key="${esc(r.key)}">編集</button>` : '' }], list, { rowClass: r => r.active ? '' : 'muted' })}</section>`);

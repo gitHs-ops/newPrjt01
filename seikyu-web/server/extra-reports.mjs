@@ -56,7 +56,7 @@ export async function pettyCashBook(c, q) {
 // ---------- NO40 商品売上登録リスト（得意先別・売上日・区分・伝票No） ----------
 export async function salesRegister(c, q) {
   const { from, to } = range(q);
-  const rs = await rows(c, `SELECT s.*, c.customers_name, i.unit FROM sales_trn s LEFT JOIN client_m c ON c.customers_cd=s.customers_cd LEFT JOIN item_m i ON i.item_cd=s.item_cd
+  const rs = await rows(c, `SELECT s.*, c.customers_name, unit_name(i.unit) unit FROM sales_trn s LEFT JOIN client_m c ON c.customers_cd=s.customers_cd LEFT JOIN item_m i ON i.item_cd=s.item_cd
     WHERE s.sales_date BETWEEN ? AND ? ORDER BY s.customers_cd, s.sales_date, s.ship_kb, s.order_no`, [toNum(from), toNum(to)]);
   const customers = [];
   for (const r of rs) {

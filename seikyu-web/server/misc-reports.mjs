@@ -15,7 +15,7 @@ const closingRange = (month, closing) => { const d = Number(closing || 20); if (
 // ---------- NO41 商品・製品別出荷集計表 ----------
 export async function shipmentSummary(c, q) {
   const { from, to } = range(q);
-  const rs = await rows(c, `SELECT s.item_cd, MAX(s.item_name) item_name, MAX(i.unit) unit, s.payment_method_cd m, COUNT(*) n, SUM(s.quantity) qty, SUM(s.money) net, SUM(s.consumption_tax) tax
+  const rs = await rows(c, `SELECT s.item_cd, MAX(s.item_name) item_name, MAX(unit_name(i.unit)) unit, s.payment_method_cd m, COUNT(*) n, SUM(s.quantity) qty, SUM(s.money) net, SUM(s.consumption_tax) tax
     FROM sales_trn s LEFT JOIN item_m i ON i.item_cd=s.item_cd WHERE s.sales_date BETWEEN ? AND ? GROUP BY s.item_cd, s.payment_method_cd ORDER BY s.item_cd`, [toNum(from), toNum(to)]);
   const items = [];
   for (const r of rs) {
@@ -28,7 +28,7 @@ export async function shipmentSummary(c, q) {
 // ---------- NO42 得意先別商品別出荷累計表 ----------
 export async function customerItems(c, q) {
   const { from, to } = range(q);
-  const rs = await rows(c, `SELECT s.customers_cd, c.customers_name, s.item_cd, MAX(s.item_name) item_name, MAX(i.unit) unit, COUNT(*) n, SUM(s.quantity) qty, SUM(s.money) net, SUM(s.consumption_tax) tax
+  const rs = await rows(c, `SELECT s.customers_cd, c.customers_name, s.item_cd, MAX(s.item_name) item_name, MAX(unit_name(i.unit)) unit, COUNT(*) n, SUM(s.quantity) qty, SUM(s.money) net, SUM(s.consumption_tax) tax
     FROM sales_trn s LEFT JOIN client_m c ON c.customers_cd=s.customers_cd LEFT JOIN item_m i ON i.item_cd=s.item_cd WHERE s.sales_date BETWEEN ? AND ? GROUP BY s.customers_cd, c.customers_name, s.item_cd ORDER BY s.customers_cd, s.item_cd`, [toNum(from), toNum(to)]);
   const customers = [];
   for (const r of rs) {
@@ -63,9 +63,9 @@ export async function materialLedger(c, q) {
   const cr = closingRange(month, q.closing);
   const pur = Object.fromEntries((await rows(c, 'SELECT item_cd, SUM(quantity) q, SUM(net_amount) v FROM purchase WHERE purchase_date BETWEEN ? AND ? GROUP BY item_cd', [cr.from, cr.to])).map(r => [r.item_cd, { qty: num(r.q), value: num(r.v) }]));
   const codes = new Set([...Object.keys(prev), ...Object.keys(end), ...Object.keys(open), ...Object.keys(pur)]);
-  const kinds = await rows(c, "SELECT item_cd, item_nam, unit, item_product_kb FROM item_m WHERE item_product_kb='1'"); // 1=材料（現行 Java）
+  const kinds = await rows(c, "SELECT item_cd, item_nam, unit_name(unit) unit, item_product_kb FROM item_m WHERE item_product_kb='1'"); // 1=材料（現行 Java）
   kinds.forEach(k => codes.add(k.item_cd));
-  const names = Object.fromEntries((await rows(c, 'SELECT item_cd, item_nam, unit FROM item_m')).map(r => [r.item_cd, r]));
+  const names = Object.fromEntries((await rows(c, 'SELECT item_cd, item_nam, unit_name(unit) unit FROM item_m')).map(r => [r.item_cd, r]));
   const z = { qty: 0, value: 0 };
   const items = [...codes].sort().map(code => {
     const o = open[code] || z, p = prev[code] || z, b = pur[code] || z, e = end[code] || null;
@@ -84,7 +84,7 @@ export async function mixCalc(c, q) {
   const [prev, end] = [await inv(c, addMonths(month, -1)), await inv(c, month)];
   const cr = closingRange(month, q.closing);
   const pur = Object.fromEntries((await rows(c, 'SELECT item_cd, SUM(quantity) q, SUM(net_amount) v FROM purchase WHERE purchase_date BETWEEN ? AND ? GROUP BY item_cd', [cr.from, cr.to])).map(r => [r.item_cd, { qty: num(r.q), value: num(r.v) }]));
-  const names = Object.fromEntries((await rows(c, 'SELECT item_cd, item_nam, unit FROM item_m')).map(r => [r.item_cd, r]));
+  const names = Object.fromEntries((await rows(c, 'SELECT item_cd, item_nam, unit_name(unit) unit FROM item_m')).map(r => [r.item_cd, r]));
   // Material unit price: moving average of 前月末在庫＋当月仕入, else 当月末評価単価.
   const price = code => {
     const p = prev[code], b = pur[code], qty = (p?.qty || 0) + (b?.qty || 0);

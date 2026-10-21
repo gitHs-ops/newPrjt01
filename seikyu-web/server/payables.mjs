@@ -15,7 +15,7 @@ export async function listPurchases(c, q = {}) {
   if (q.from) { w.push('p.purchase_date>=?'); args.push(isoDate(q.from, '開始日')); }
   if (q.to) { w.push('p.purchase_date<=?'); args.push(isoDate(q.to, '終了日')); }
   if (q.vendor) { w.push('v.vendor_code=?'); args.push(q.vendor); }
-  const rs = await rows(c, `SELECT p.*, v.vendor_code, v.vendor_name, i.item_nam, i.unit FROM purchase p JOIN vendor v ON v.vendor_id=p.vendor_id LEFT JOIN item_m i ON i.item_cd=p.item_cd ${w.length ? 'WHERE ' + w.join(' AND ') : ''} ORDER BY p.purchase_date DESC, p.source_document_no DESC, p.line_no LIMIT 3000`, args);
+  const rs = await rows(c, `SELECT p.*, v.vendor_code, v.vendor_name, i.item_nam, unit_name(i.unit) unit FROM purchase p JOIN vendor v ON v.vendor_id=p.vendor_id LEFT JOIN item_m i ON i.item_cd=p.item_cd ${w.length ? 'WHERE ' + w.join(' AND ') : ''} ORDER BY p.purchase_date DESC, p.source_document_no DESC, p.line_no LIMIT 3000`, args);
   return rs.map(r => ({ id: r.purchase_id, no: r.source_document_no, line: Number(r.line_no), date: r.purchase_date, vendor: r.vendor_code, vendorName: r.vendor_name, kind: r.purchase_kb || '1', kindName: PURCHASE_KINDS[r.purchase_kb || '1'],
     lineKind: r.line_kind || '1', item: r.item_cd, itemName: r.item_nam, unit: r.unit, quantity: Number(r.quantity), price: Number(r.unit_price), net: Number(r.net_amount), taxCode: r.source_tax_code, memo: r.memo }));
 }
@@ -61,7 +61,7 @@ const monthEnd = m => new Date(Date.UTC(+m.slice(0, 4), +m.slice(5, 7), 0)).toIS
 export async function listInventory(c, q = {}) {
   const w = [], args = [];
   if (q.month) { isoMonth(q.month); w.push('n.period_start=?'); args.push(q.month + '-01'); }
-  const rs = await rows(c, `SELECT n.*, i.item_nam, i.unit FROM inventory_count n LEFT JOIN item_m i ON i.item_cd=n.item_cd ${w.length ? 'WHERE ' + w.join(' AND ') : ''} ORDER BY n.period_start DESC, n.item_cd LIMIT 1000`, args);
+  const rs = await rows(c, `SELECT n.*, i.item_nam, unit_name(i.unit) unit FROM inventory_count n LEFT JOIN item_m i ON i.item_cd=n.item_cd ${w.length ? 'WHERE ' + w.join(' AND ') : ''} ORDER BY n.period_start DESC, n.item_cd LIMIT 1000`, args);
   return rs.map(r => ({ id: r.inventory_id, month: r.period_start.slice(0, 7), item: r.item_cd, itemName: r.item_nam, unit: r.unit, location: r.location_code, countedOn: r.counted_on, quantity: Number(r.quantity), price: Number(r.valuation_price), value: Number(r.valuation_amount), status: r.status }));
 }
 export async function saveInventory(c, ctx, p) {
