@@ -300,3 +300,11 @@ details summary { cursor: pointer; font-size: 12.5px; color: var(--accent-second
   .slip-sheet .sv-site > span { display: none; }
 }
 dialog.modal.wide:has(.slip-sheet) { width: min(1320px, calc(100vw - 24px)); } /* 出荷伝票は提案書の横長レイアウト */
+
+/* 請求書発行確認表（現行 HAR430） */
+.har430-head { display: flex; flex-wrap: wrap; gap: 6px 22px; margin-bottom: 10px; font-size: 13px; }
+.har430-head .right { margin-left: auto; font-weight: 600; }
+.har430-cust { margin-bottom: 18px; }
+.har430-sum { margin: 6px 0 0; }
+.har430-rate { display: grid; grid-template-columns: 60px 140px 120px; margin: 0; padding-left: 14px; }
+.har430-rate span:nth-child(n+2) { text-align: right; }

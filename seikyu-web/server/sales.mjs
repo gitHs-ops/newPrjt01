@@ -327,9 +327,11 @@ export async function listInvoices(c, q = {}) {
   else if (q.status) list = list.filter(i => i.status === q.status);
   return list;
 }
-const decodeLine = l => ({ unit: l.unit || '', orderNo: l.order_no, date: fromNum(l.sales_date), site: `${l.field_cd}|${l.field_suffix}`, siteName: l.field_name || '', item: l.item_cd, itemName: l.item_name, quantity: num(l.quantity), price: num(l.unit_price),
+// 運送（現行 HAR430「1 当方／2 先方」）：納入区分が引取（category1=2）なら先方、それ以外は当方（推定）
+const CARRY = cat => (cat === '2' ? '2 先方' : '1 当方');
+const decodeLine = l => ({ carry: CARRY(l.kbn_cat), unit: l.unit || '', orderNo: l.order_no, date: fromNum(l.sales_date), site: `${l.field_cd}|${l.field_suffix}`, siteName: l.field_name || '', item: l.item_cd, itemName: l.item_name, quantity: num(l.quantity), price: num(l.unit_price),
   net: num(l.money), taxRate: num(l.tax_rate), remarks: l.remarks || '', shipKb: Number(l.ship_kb || 1) });
-async function headLines(c, h) { const w = detailWhere(h); return (await rows(c, `SELECT d.*, unit_name(i.unit) unit FROM billing_detail d LEFT JOIN item_m i ON i.item_cd=d.item_cd WHERE ${w.sql.replace(/(^|AND )(\w+)=/g, '$1d.$2=')} ORDER BY d.field_cd, d.field_suffix, d.sales_date, d.order_no`, w.args)).map(decodeLine); }
+async function headLines(c, h) { const w = detailWhere(h); return (await rows(c, `SELECT d.*, unit_name(i.unit) unit, (SELECT k.category1 FROM code_m k WHERE k.code_key='A0000' AND k.code_dtl=CAST(d.shipping_kb AS TEXT)) kbn_cat FROM billing_detail d LEFT JOIN item_m i ON i.item_cd=d.item_cd WHERE ${w.sql.replace(/(^|AND )(\w+)=/g, '$1d.$2=')} ORDER BY d.field_cd, d.field_suffix, d.sales_date, d.order_no`, w.args)).map(decodeLine); }
 export async function invoiceDetail(c, id) {
   const h = await one(c, `${invoiceSql} WHERE h.invoice_id=?`, [Number(id)]); check(h, '請求が見つかりません');
   const issues = await rows(c, 'SELECT issue_no, issued_at, issued_by, document_sha256 FROM invoice_issue WHERE invoice_id=? ORDER BY issue_no', [h.invoice_id]);
@@ -393,7 +395,10 @@ export async function billingConfirm(c, { month, closing }) {
     const last = await one(c, `SELECT i.issue_no, i.issued_at, i.issued_by FROM invoice_issue i WHERE i.invoice_id IN (${s.invoiceIds.map(() => '?').join(',')}) ORDER BY i.issued_at DESC LIMIT 1`, s.invoiceIds);
     out.push({ ...s, name: h.customers_name, lastIssue: last ? { no: last.issue_no, at: last.issued_at, by: last.issued_by } : null });
   }
-  return { month, end, rows: out, available: out.length ? [] : await billingPeriods(c, true) };
+  // 税率別（現行 HAR430 の合計下段「10 %  売上額  消費税額」）
+  for (const r of out) r.byRate = RATES.map(rate => { const n = r.lines.filter(l => Math.round(l.taxRate) === rate).reduce((a, l) => a + l.net, 0); return { rate, net: n, tax: bucketTax(n, rate) }; }).filter(x => x.net);
+  const co = await one(c, 'SELECT company_name1 FROM company_info_m WHERE company_info_id=1');
+  return { month, end, closing: closingDay(closing), company: co?.company_name1 || '', rows: out, available: out.length ? [] : await billingPeriods(c, true) };
 }
 export async function companyProfile(c) {
   const co = await one(c, 'SELECT * FROM company_info_m ORDER BY company_info_id LIMIT 1');
