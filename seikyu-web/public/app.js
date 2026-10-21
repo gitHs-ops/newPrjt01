@@ -26,7 +26,17 @@ const qs = o => new URLSearchParams(Object.entries(o).filter(([, v]) => v !== un
 
 // ---------- UI helpers ----------
 // 全画面共通のポップアップ通知。popover（最前面レイヤー）で出すので、開いているダイアログの上にも表示される。エラーは画面上部中央・赤・長めに表示、クリックで閉じる
+// エラーは小さな確認ポップアップ（「確認」で閉じる。右上の×・Esc でも閉じる）。開いている入力ダイアログの上に重ねて表示し、入力内容は残す
+document.addEventListener('click', e => { if (e.target.closest('#alert-ok, #alert-x')) $('#alert-dialog').close(); });
+function alertBox(msg) {
+  const d = $('#alert-dialog');
+  if (!d?.showModal) return window.alert(msg);
+  $('#alert-msg').textContent = msg;
+  if (!d.open) d.showModal();
+  $('#alert-ok').focus();
+}
 function toast(msg, error = false) {
+  if (error) return alertBox(msg);
   const t = $('#toast'), top = !!t.showPopover;
   t.innerHTML = `${error ? '<b class="toast-icon">⚠</b>' : '<b class="toast-icon">✓</b>'}<span>${esc(msg)}</span>`; t.className = error ? 'error' : '';
   if (top) { try { t.hidePopover(); } catch {} t.showPopover(); } else t.style.display = 'flex';

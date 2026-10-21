@@ -33,6 +33,11 @@
   <footer>APLink Business Platform · 請求・入金管理 Web版（検証用）</footer>
 </div>
 <div id="toast" role="status" aria-live="assertive" popover="manual"></div>
+<dialog id="alert-dialog" class="alert-dialog" role="alertdialog" aria-labelledby="alert-title" aria-describedby="alert-msg">
+  <button type="button" class="modal-x" id="alert-x" aria-label="閉じる">×</button>
+  <div class="alert-body"><div class="alert-icon" aria-hidden="true">!</div><div><h2 id="alert-title">確認してください</h2><p id="alert-msg"></p></div></div>
+  <div class="alert-foot"><button type="button" class="primary" id="alert-ok">確認</button></div>
+</dialog>
 <dialog id="dialog" class="modal glass" aria-labelledby="modal-title">
   <button type="button" class="modal-x" id="modal-x" aria-label="閉じる">×</button>
   <div class="modal-head"><h2 id="modal-title"></h2></div>
