@@ -40,6 +40,7 @@ export async function createApp({ pool, publicDir, secureCookies = process.env.N
   route('GET', '/api/shipments', 'read', x => db(c => S.listShipments(c, x.q)));
   route('GET', '/api/plans', 'read', x => db(c => PL.listPlans(c, x.q)));
   route('GET', '/api/shipments/preview', 'read', x => db(c => S.cumulativePreview(c, x.q)));
+  route('GET', '/api/shipments/range', 'read', () => db(c => S.shipmentRange(c)));
   route('GET', '/api/billing/preview', 'read', x => db(c => S.billingPreview(c, x.q)));
   route('GET', '/api/invoices', 'read', x => db(c => S.listInvoices(c, x.q)));
   route('GET', '/api/accounting/export', 'read', x => db(c => accountingExport(c, x, x.q)));

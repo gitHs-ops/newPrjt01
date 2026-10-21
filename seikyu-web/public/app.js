@@ -782,7 +782,7 @@ function miscCard(title, sub, inputs, buttons, note = '') {
 }
 const shipmentReportsCard = () => miscCard('出荷・売上帳票（NO40・41・42・43）', '画面表示・印刷・Excel', rangeInputs('ms', '出荷日'),
   '<button data-act="misc" data-kind="shipment-summary" data-src="ms">NO41 商品・製品別出荷集計表</button><button data-act="misc" data-kind="customer-items" data-src="ms">NO42 得意先別商品別出荷累計表</button><button data-act="misc" data-kind="cash-sales" data-src="ms">NO43 現金売上明細表</button><button data-act="misc" data-kind="sales-register" data-src="ms">NO40 商品売上登録リスト</button>',
-  '期間は締日単位（例: 前月21日〜当月20日）で指定できます。');
+  '期間は締日単位（例: 前月21日〜当月20日）で指定できます。<span id="ms-range"></span>');
 const inventoryReportsCard = () => miscCard('材料受払表・配合計算（NO26・NO25）', '月次', `<label class="field">対象月<input type="month" id="mi-month" value="${addMonths(thisMonth(), -1)}"></label><label class="field">締日<select id="mi-closing"><option value="20" selected>20日（現行）</option><option value="10">10日</option><option value="31">月末（暦月）</option></select></label>`,
   '<button data-act="misc" data-kind="material-ledger" data-src="mi">NO26 材料受払表</button><button data-act="mix">NO25 配合計算（暫定）</button>',
   '材料は商品マスタの「製品・材料区分＝材料」と、仕入・在庫のある商品が対象。配合計算は配合表の資料が未提供のため暫定で、配合率は「マスタ管理 → 配合」で登録します。');
@@ -1076,3 +1076,11 @@ async function boot() {
   await render();
 }
 boot();
+
+// 出荷・売上帳票：登録済みの出荷日の範囲を表示し、押すとその最終月を期間に入れる（移行データは過去日付のため）
+document.addEventListener('view:rendered', async () => {
+  const el = $('#ms-range'); if (!el) return;
+  const r = await api('/api/shipments/range').catch(() => null); if (!r?.to) return;
+  el.innerHTML = ` 登録済みの出荷日：${esc(r.from)}〜${esc(r.to)} <button type="button" class="mini" id="ms-last">最終月を指定</button>`;
+  $('#ms-last').onclick = () => { $('#ms-from').value = r.to.slice(0, 8) + '01'; $('#ms-to').value = r.to; };
+}); // shipmentRangeHint

@@ -201,6 +201,11 @@ export async function correctShipment(c, ctx, p) {
   return { orderNo: blackNo || redNo, red: redNo, black: blackNo, original: orig.order_no, net: red.net + (black?.net || 0) };
 }
 // 入力中の累計数量・累計台数・予定数量・予定時間（現行 NS006001 の lastCumulative／planInformation と同じ考え方）。登録後はサーバーで振り直す。
+// 登録済みの出荷日の範囲（帳票の期間指定の目安）
+export async function shipmentRange(c) {
+  const r = await one(c, 'SELECT MIN(sales_date) a, MAX(sales_date) b FROM sales_trn');
+  return { from: r?.a ? fromNum(r.a) : '', to: r?.b ? fromNum(r.b) : '' };
+}
 export async function cumulativePreview(c, q) {
   const z = { cumulativeQty: 0, cumulativeCount: 0, planQty: 0, planTime: '' };
   const cust = q.customer && await one(c, 'SELECT * FROM client_m WHERE customers_cd=?', [String(q.customer)]);

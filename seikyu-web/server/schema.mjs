@@ -97,6 +97,10 @@ export async function prepare(pool, env = process.env) {
   await pool.query(`CREATE TABLE IF NOT EXISTS app_slip_series (series varchar(4) COLLATE "C" PRIMARY KEY, last_no integer NOT NULL)`);
   await pool.query(`CREATE TABLE IF NOT EXISTS app_slip_no (journal_id bigint PRIMARY KEY, slip_no varchar(12) COLLATE "C" NOT NULL)`);
   await slipNoBackfill(pool);
+  // 現行データ移行後（出荷 約10万件）でも一覧・訂正判定・帳票が遅くならないよう索引を追加（2026-10-21 Render で1か月の一覧に約25秒）
+  for (const sql of ['CREATE INDEX IF NOT EXISTS ix_sales_trn_sales_no ON sales_trn (sales_no)', 'CREATE INDEX IF NOT EXISTS ix_sales_trn_date ON sales_trn (sales_date, customers_cd)',
+    'CREATE INDEX IF NOT EXISTS ix_shipment_slip_work ON shipment_slip (shipment_dt, customers_cd, item_cd)', 'CREATE INDEX IF NOT EXISTS ix_shipment_plan_work ON shipment_plan (shipment_dt, customers_cd, item_cd)',
+    'CREATE INDEX IF NOT EXISTS ix_billing_detail_head ON billing_detail (customers_cd, closing_yymm, claim_processing_period)', 'CREATE INDEX IF NOT EXISTS ix_billing_head_cust ON billing_head (customers_cd, closing_date)']) await pool.query(sql);
   // 2026-10-21 再構成：仕入の区分・運賃行、定時請求の請求No（業者ごと4桁）、明細の摘要コード（工事コード7桁）。44表設計への列追加。
   await pool.query(`ALTER TABLE purchase ADD COLUMN IF NOT EXISTS purchase_kb varchar(1) COLLATE "C" NOT NULL DEFAULT '1'`);
   await pool.query(`ALTER TABLE purchase ADD COLUMN IF NOT EXISTS line_kind varchar(1) COLLATE "C" NOT NULL DEFAULT '1'`);
