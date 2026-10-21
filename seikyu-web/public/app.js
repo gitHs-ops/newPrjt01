@@ -1057,24 +1057,30 @@ function masterForm(kind, r) {
 VIEWS.migration = async () => {
   const A = actions;
   const [cov, req] = await Promise.all([api('/api/coverage'), fetch('/requirements.json').then(r => r.json())]);
-  const used = cov.filter(t => t.use === '使用').length;
-  return page('移行・確認事項', 'AS400 業務の Web 移行における本システムの前提と、確認が必要な事項です。', '', `
+  const used = cov.filter(t => t.use.startsWith('使用')).length;
+  return page('移行・確認事項', 'AS400 業務の Web 移行における本システムの前提と、確認が必要な事項です（2026-10-22 更新）。', '', `
     <div class="grid2"><section class="card glass"><div class="card-head"><h2>本システムの前提（仮決定）</h2></div><ol class="list small">
       <li>出荷1件＝1商品＝売上1行（sales_trn.order_suffix=1）。請求明細（billing_detail）は売上No単位で作成し、請求ヘッダとは得意先・請求年月・締日で結び付けます。<b>billing_detail と sales_trn 枝番の正式な関係は確認待ち</b>です。</li><li>出荷伝票訂正（NO11）は<b>赤黒</b>（10/14 打合せ）：元伝票は変更せず、赤＝元伝票の全量マイナス、黒＝訂正後の内容（日付・得意先・現場・商品・数量・単価・運賃すべて変更可）を伝票区分5で起票（sales_no＝元売上No）。次回の請求締めに含めます。</li>
-      <li>請求は<b>得意先×締日の単位</b>（NO6：現場単位から得意先単位へ変更、2026-10-15決定）。現場は明細に保持し、請求書では現場ごとに小計します。掛売のみ対象とし、現金・カード売上は請求対象外（Q16/Q17）。値引（伝票区分9）は未対応（Q18）。</li>
+      <li>請求は<b>得意先×締日の単位</b>（NO6：現場単位から得意先単位へ変更、2026-10-15決定）。現場は明細に保持し、請求書では現場ごとに小計します。掛売のみ対象とし、現金・カード売上は請求対象外（Q16/Q17）。値引は請求時点では行わず、入金消込で処理します（Q18 回答済）。</li>
       <li>消費税は請求書単位で税率ごとに合計し、円未満切り捨て。支払期日は締日の翌月末（仮）。</li>
       <li>入金は振込・現金・手形・振込手数料・協力会費等・預り金充当・値引の内訳で記録し、得意先×請求年月の請求へ消込できます（仕訳 B-01〜B-06）。協力会費の処税率は141で仮置き（Q04）、預り金の受入は開始残高のみ（Q11）。</li>
-      <li>仕訳パターン A01〜F01 は仕訳パターン分析の科目名を用いた仮パターンです。会計システムの受入形式は未確定（Q14/Q19）。</li>
-      <li>銀行マスタ（code_m BANK）は当座預金 1112 の内訳科目として同期します。支払の振込手数料・相殺は未対応（Q03）。</li>
-      <li>月次確定はアプリ用テーブル app_period_close で管理。利用者・権限は users / roles / menus の既存定義を使用（管理者・担当者・参照者）。</li>
-      <li>原本の業務データは移行していません。表示中のデータはすべて架空です。</li></ol><h3 style="margin-top:12px">2026-10-21 再構成（議事メモ 10/14・10/19、QA回答、消費税区分、現行 Java ソース）</h3><ul class="list small">
+      <li>仕訳パターン A01〜G03 は仕訳パターン分析と現行の仕訳帳（ハーツ＆ソウル AC2205）に合わせています。伝票番号は現行の系列（R 売掛計上・B 入金・S 定時請求・K 小口現金・U 支払・6桁 在庫計上/小口補充）を引き継ぎます。会計システムは勘定奉行、受入形式は 10/26 打合せで確定予定（Q14/Q19）。</li>
+      <li>銀行マスタ（code_m BANK）は当座預金 1112・普通預金 1113 の内訳科目として同期します。支払の振込手数料差引は雑収入 8790-001（処税率9）、相殺は業者立替金 1431 で仕訳します（Q03）。</li>
+      <li>月次確定はアプリ用テーブル app_period_close で管理。利用者・権限は users / roles / menus を使用し、ロールは現行 Java と同じ 1 管理者／2 担当者（受付）／3 担当者（事務）／4 担当者（出荷のみ）／5 参照者です。</li>
+      <li>運用環境は Render（アプリ）＋ Supabase（PostgreSQL）です（2026-10-21、Railway の障害により移行）。データは現行システムのテストデータを移行したもので、2022年の月度分（2021-12-21〜2022-12-31）だけを残し、4年後ろへずらして 2026年として表示しています（出荷 2025-12-21〜2026-10-20、請求 2026-01〜03・締日20日）。実取引のデータではありません。</li></ol><h3 style="margin-top:12px">2026-10-21 再構成（議事メモ 10/14・10/19、QA回答、消費税区分、現行 Java ソース）</h3><ul class="list small">
       <li>現行 Java とコードを統一：決済方法 1 現金／2 掛売／3 カード、伝票区分 2 他社納入（訂正は 5）、製品・材料区分 2 製品／1 材料、ロール 1〜5、採番キー 101〜105。既存データは起動時に一度だけ変換。</li>
       <li>単価は現行と同じ選び方（現場別→得意先共通、出荷日が適用期間内なら適用単価・適用運賃）。金額＝数量×(単価＋運賃) を自社情報の端数処理（金額 四捨五入・税 切捨）で計算。現場はマスタ外の自由入力も可。</li>
       <li>税区分は処税率（3桁）をそのまま使用。1桁目 2（211・241）は税抜と推定（Q26）。</li>
       <li>定時請求・小口現金・商品仕入は伝票＋複数明細。請求No は業者ごと4桁、支払予定日は業者マスタの支払繰延区分。仕入は区分（仕入／他社納入）と運賃行。帳票⑭⑰・振込先一覧を追加。</li>
       <li>JV構成員は業者マスタ参照（最大7社）。按分端数の規則は現行帳票と一致しない行があり確認中（Q27）。</li></ul>
+      <h3 style="margin-top:12px">2026-10-21〜22 追加（見積提案書・現行 Java・仕訳帳）</h3><ul class="list small">
+      <li>出荷：伝票番号 YYMM＋5桁、伝票区分・他社得意先、担当者・納入区分は必須、天候・出発時間・出発温度、累計数量・累計台数・予定数量。画面は提案書 スライド7・17 の配置。</li>
+      <li>出荷予定（現行 NS001001 等）と納品書発行（NI0060）を推定で実装（機能一覧の範囲外）。</li>
+      <li>会計月度は 21日〜20日、決算は 10月20日（期首 10月21日）。財務会計（勘定奉行相当）も同じ月度で集計します。</li>
+      <li>請求書は提案書様式（前回残高・今回入金額・今回残高、取引銀行2行）。請求書発行確認表は現行 HAR430 の項目。</li>
+      <li>マスタは使用中のコードを削除せず無効化を案内。画面はサイドバーの小メニューで機能ごとに表示します。</li></ul>
       <h3 style="margin-top:12px">資料未着のため推定で実装した項目（2026-10-15）</h3><ul class="list small"><li>NO20 会計連携: 勘定奉行受入CSV（OBC受入記号・税区分は会計設定で登録）・汎用CSV・弥生形式。処税率は3桁を分解して変換（消費税区分.xlsx）。</li><li>NO25 配合計算: 配合率は配合マスタ、経費単価は当月経費（電気8242／製造8244・8243／一般管理費系）÷製品出荷数量で自動算出。灯油は材料「灯油」の使用高。</li><li>NO30 定時請求入力明細表: 発注残・相殺は0、現比100%。</li><li>NO33 小口現金出納簿: 定額資金前渡制（期首受入・支払後残高・次期補充額）を仮定。</li><li>NO44 入金予定チェックリスト: 予定日＝支払期日、予定額＝残高の現場別売上比按分、入金方法・入金先は過去実績から推定。</li><li>NO10 一括ダウンロード: Excel（1請求書＝1シート）。NO9 は得意先別残高照会タブで請求残高照会を兼ねる（削減案3）。</li></ul></section>
-    <section class="card glass"><div class="card-head"><h2>テーブル使用状況</h2>${badge(`${used} / ${cov.length} 表を使用`, 'green')}</div>${table([{ label: 'テーブル', value: r => r.table }, { label: '内容', value: r => r.label }, { label: '区分', value: r => r.origin }, { label: '本システム', html: r => r.use === '使用' ? badge('使用', 'green') : badge(r.use, 'gray') }, { label: '件数', num: 1, value: r => yen(r.rows) }], cov)}</section></div>
+    <section class="card glass"><div class="card-head"><h2>テーブル使用状況</h2>${badge(`${used} / ${cov.length} 表を使用`, 'green')}</div>${table([{ label: 'テーブル', value: r => r.table }, { label: '内容', value: r => r.label }, { label: '区分', value: r => r.origin }, { label: '本システム', html: r => r.use.startsWith('使用') ? badge(r.use, 'green') : badge(r.use, 'gray') }, { label: '件数', num: 1, value: r => yen(r.rows) }], cov)}</section></div>
     <section class="card glass"><div class="card-head"><h2>確認事項（${req.questions.length}件・未回答 ${req.questions.filter(r => r.status === '未回答').length}件）</h2></div>${table([{ label: 'No', value: r => r.id }, { label: '状態', html: r => badge(r.status || '未回答', r.status === '回答済' ? 'green' : r.status === '一部回答' ? 'amber' : 'gray') },
       { label: '確認事項', value: r => r.question }, { label: '回答・根拠', value: r => r.answer || '' }, { label: '影響', value: r => r.impact }], req.questions)}</section>`);
 };
