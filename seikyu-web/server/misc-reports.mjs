@@ -20,7 +20,7 @@ export async function shipmentSummary(c, q) {
   const items = [];
   for (const r of rs) {
     let it = items.find(x => x.item === r.item_cd); if (!it) items.push(it = { item: r.item_cd, name: r.item_name, unit: r.unit || '', count: 0, qty: 0, net: 0, tax: 0, credit: 0, cash: 0, card: 0 });
-    it.count += num(r.n); it.qty = r2(it.qty + num(r.qty)); it.net += num(r.net); it.tax += num(r.tax); it[{ 1: 'credit', 2: 'cash', 3: 'card' }[r.m] || 'credit'] += num(r.net);
+    it.count += num(r.n); it.qty = r2(it.qty + num(r.qty)); it.net += num(r.net); it.tax += num(r.tax); it[{ 1: 'cash', 2: 'credit', 3: 'card' }[r.m] || 'credit'] += num(r.net);
   }
   const t = k => items.reduce((n, x) => n + x[k], 0);
   return { title: '商品・製品別出荷集計表', ref: 'NO41 / 添付帳票⑯', from, to, items, totals: { count: t('count'), net: t('net'), tax: t('tax'), credit: t('credit'), cash: t('cash'), card: t('card') } };
