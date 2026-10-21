@@ -1043,7 +1043,16 @@ VIEWS.periods = async () => {
   const A = actions;
   const p = await api('/api/periods');
   A.check = async d => { const issues = await api('/api/periods/check?month=' + d.month); $(`#chk-${d.month}`).innerHTML = issues.length ? `<ul class="list check-ng small">${issues.map(i => `<li>${esc(i)}</li>`).join('')}</ul>` : '<span class="check-ok small">確定可能です</span>'; };
-  A.close = d => confirmBox('月次確定', `${d.month} を確定します。確定後はこの月の日付で登録・変更・取消ができません。`, () => post('/api/periods/close', { month: d.month }).then(() => { toast('確定しました'); render(); }), '確定する');
+  // 確定：先にチェックし、未請求・未発行があれば一覧（得意先・締日・件数）を見せて「それでも確定する」を選べるようにする
+  A.close = async d => {
+    const k = await api('/api/periods/check?' + qs({ month: d.month, detail: 1 })), open = k.unbilled.length || k.drafts;
+    if (!open) return confirmBox('月次確定', `${d.month} を確定します。確定後はこの月の日付で登録・変更・取消ができません。`, () => post('/api/periods/close', { month: d.month }).then(() => { toast('確定しました'); render(); }), '確定する');
+    modal({ title: `月次確定（${d.month}）`, submit: '確定する', danger: true, wide: true, body: `<p>${esc(d.month)} を確定します。確定後はこの月の日付で登録・変更・取消ができません。</p>
+      <div class="note" style="margin:10px 0"><b class="check-ng">確定前チェックで未処理があります</b>：未請求の出荷がある得意先 <b>${k.unbilled.length}社（${yen(k.unbilledCount)}件）</b>${k.drafts ? `・未発行の請求書 <b>${k.drafts}件</b>` : ''}。<br>通常は「請求締め・発行」で請求を作成・発行してから確定します。</div>
+      ${k.unbilled.length ? `<details><summary>未請求の出荷がある得意先（${k.unbilled.length}社）</summary><div style="max-height:260px;overflow:auto;margin-top:6px">${table([{ label: '得意先', value: r => `${r.customer} ${r.name}` }, { label: '締日', value: r => r.closing }, { label: '未請求出荷', num: 1, value: r => r.count + '件' }], k.unbilled)}</div></details>` : ''}
+      <label class="field wide" style="margin-top:12px"><span><input type="checkbox" name="force"> 未請求・未発行があっても確定する（テスト・移行データ用。操作履歴に記録します）</span></label>`,
+      onSubmit: async v => { if (v.force !== 'on') throw Error('未請求・未発行があるため確定できません。確定する場合は「未請求・未発行があっても確定する」にチェックしてください'); await post('/api/periods/close', { month: d.month, force: true }); toast('確定しました'); render(); } });
+  };
   A.reopen = d => confirmBox('確定解除', `${d.month} の確定を解除します。`, () => post('/api/periods/reopen', { month: d.month }).then(() => { toast('解除しました'); render(); }), '解除する');
   return page('月次確定', '確定した月の伝票は登録・変更・取消ができなくなります。確定・解除は管理者のみ実行できます。', '', `<section class="card glass">${table([{ label: '月', value: r => r.month }, { label: '状態', html: r => r.closed ? badge('確定済', 'green') : badge('未確定', 'gray') },
     { label: '確定日時 / 実行者', value: r => r.closed ? `${jst(r.closedAt, 16)} / ${r.closedBy}` : '' }, { label: 'チェック', html: r => `<div id="chk-${r.month}">${r.closed ? '' : `<button class="mini" data-act="check" data-month="${r.month}">確定前チェック</button>`}</div>` },

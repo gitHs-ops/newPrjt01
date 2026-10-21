@@ -73,7 +73,7 @@ export async function createApp({ pool, publicDir, secureCookies = process.env.N
   route('GET', '/api/journals', 'read', x => db(c => L.listJournals(c, x.q)));
   route('GET', '/api/trial-balance', 'read', x => db(c => L.trialBalance(c, x.q.month)));
   route('GET', '/api/periods', 'read', () => db(c => L.periods(c)));
-  route('GET', '/api/periods/check', 'read', x => db(c => L.closeCheck(c, x.q.month)));
+  route('GET', '/api/periods/check', 'read', x => db(c => (x.q.detail ? L.closeCheckDetail(c, x.q.month) : L.closeCheck(c, x.q.month))));
   route('GET', '/api/dashboard', 'read', () => db(c => L.dashboard(c)));
   route('GET', '/api/reports/ar', 'read', () => db(c => L.arReport(c)));
   route('GET', '/api/reports/ap', 'read', () => db(c => L.apReport(c)));

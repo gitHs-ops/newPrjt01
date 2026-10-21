@@ -35,26 +35,32 @@ export async function periods(c) {
   for (let i = -6; i <= 0; i++) { const m = addMonths(now, i); const r = closed.find(x => x.period === m); list.push({ month: m, closed: !!r, closedAt: r?.closed_at || '', closedBy: r?.closed_by || '' }); }
   return { months: list.reverse(), closed: closed.map(r => r.period) };
 }
-export async function closeCheck(c, month) {
-  isoMonth(month); const end = monthEnd(month), issues = [];
+// 確定前チェック：得意先ごとの締日までの未請求出荷（掛売）と、未発行の請求書
+export async function closeCheckDetail(c, month) {
+  isoMonth(month); const end = monthEnd(month), unbilled = [];
   const custs = await rows(c, "SELECT customers_cd, customers_name, deadline FROM client_m WHERE delete_f<>'1'");
   for (const cu of custs) {
     const { end: cl } = period(month, Number(cu.deadline) || 31), limit = cl < end ? cl : end;
     const r = await one(c, "SELECT COUNT(*) n FROM sales_trn WHERE customers_cd=? AND process_status='0' AND payment_method_cd=2 AND sales_date BETWEEN ? AND ?", [cu.customers_cd, toNum(month + '-01'), toNum(limit)]);
-    if (Number(r.n)) issues.push(`${cu.customers_name}: ${limit}締の未請求出荷 ${r.n}件`);
+    if (Number(r.n)) unbilled.push({ customer: cu.customers_cd, name: cu.customers_name, closing: limit, count: Number(r.n) });
   }
   const draft = await one(c, "SELECT COUNT(*) n FROM billing_head h WHERE h.closing_date BETWEEN ? AND ? AND NOT EXISTS (SELECT 1 FROM invoice_issue i WHERE i.invoice_id=h.invoice_id)", [toNum(month + '-01'), toNum(end)]);
-  if (Number(draft.n)) issues.push(`未発行の請求書 ${draft.n}件`);
-  return issues;
+  return { month, unbilled, unbilledCount: unbilled.reduce((n, r) => n + r.count, 0), drafts: Number(draft.n) };
 }
-export async function closeMonth(c, ctx, { month }) {
+export async function closeCheck(c, month) {
+  const d = await closeCheckDetail(c, month);
+  return [...d.unbilled.map(r => `${r.name}: ${r.closing}締の未請求出荷 ${r.count}件`), ...(d.drafts ? [`未発行の請求書 ${d.drafts}件`] : [])];
+}
+export async function closeMonth(c, ctx, { month, force }) {
   isoMonth(month, '確定月'); check(month <= today().slice(0, 7), '未来の月は確定できません');
   check(!(await one(c, 'SELECT 1 x FROM app_period_close WHERE period=? FOR UPDATE', [month])), 'すでに確定済みです');
   const prev = addMonths(month, -1), anyClosed = await one(c, 'SELECT COUNT(*) n FROM app_period_close');
   if (Number(anyClosed.n)) check(await one(c, 'SELECT 1 x FROM app_period_close WHERE period=?', [prev]), `前月 ${prev} を先に確定してください`);
-  const issues = await closeCheck(c, month); check(!issues.length, '確定できません: ' + issues.join(' / '));
+  // 未請求・未発行が残っていても、管理者が明示した場合（force）は確定できる（テスト・移行データ用）。操作履歴に件数を残す
+  const d = await closeCheckDetail(c, month), open = d.unbilled.length || d.drafts;
+  check(!open || force === true, `確定できません：未請求の出荷がある得意先 ${d.unbilled.length}社（${d.unbilledCount}件）${d.drafts ? `・未発行の請求書 ${d.drafts}件` : ''}。請求を作成・発行するか、「未請求があっても確定する」を選んでください`);
   await c.query('INSERT INTO app_period_close (period, closed_at, closed_by) VALUES (?, UTC_TIMESTAMP(6), ?)', [month, ctx.user.login_id]);
-  await audit(c, ctx, 'app_period_close', month, 'period.close', {});
+  await audit(c, ctx, 'app_period_close', month, 'period.close', open ? { forced: true, unbilledCustomers: d.unbilled.length, unbilledSlips: d.unbilledCount, drafts: d.drafts } : {});
   return { month };
 }
 export async function reopenMonth(c, ctx, { month }) {
