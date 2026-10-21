@@ -312,3 +312,13 @@ dialog.modal.wide:has(.slip-sheet) { width: min(1320px, calc(100vw - 24px)); } /
 .slip-sheet .span2c { grid-column: span 2; } .slip-sheet .span4c { grid-column: span 4; }
 .slip-sheet .sv-site { grid-template-columns: minmax(0,1fr) auto minmax(0,.7fr) minmax(0,2.2fr) auto minmax(0,1.6fr) !important; }
 @media (max-width: 900px) { .slip-sheet .span2c { display: none; } .slip-sheet .span4c { grid-column: auto; } .slip-sheet .sv-site { grid-template-columns: 1fr !important; } }
+
+/* サイドバーの小メニュー */
+.nav-link .nav-caret { margin-left: auto; font-size: 10px; opacity: .55; transition: transform .2s; }
+.nav-link.open .nav-caret { transform: rotate(90deg); }
+.nav-subs { display: flex; flex-direction: column; gap: 2px; margin: 2px 0 6px 30px; padding-left: 10px; border-left: 2px solid var(--field-border); animation: navsub .18s ease-out; }
+.nav-sub { font-size: 12.5px; padding: 6px 10px; border-radius: 8px; color: var(--text-secondary); text-decoration: none; line-height: 1.3; }
+.nav-sub:hover { background: rgba(99,102,241,.08); color: var(--text-primary); }
+.nav-sub.active { background: rgba(99,102,241,.14); color: var(--text-primary); font-weight: 600; }
+@keyframes navsub { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
+[data-sub][hidden], .page-head > .filters[hidden] { display: none !important; }
