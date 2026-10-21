@@ -308,3 +308,7 @@ dialog.modal.wide:has(.slip-sheet) { width: min(1320px, calc(100vw - 24px)); } /
 .har430-sum { margin: 6px 0 0; }
 .har430-rate { display: grid; grid-template-columns: 60px 140px 120px; margin: 0; padding-left: 14px; }
 .har430-rate span:nth-child(n+2) { text-align: right; }
+
+.slip-sheet .span2c { grid-column: span 2; } .slip-sheet .span4c { grid-column: span 4; }
+.slip-sheet .sv-site { grid-template-columns: minmax(0,1fr) auto minmax(0,.7fr) minmax(0,2.2fr) auto minmax(0,1.6fr) !important; }
+@media (max-width: 900px) { .slip-sheet .span2c { display: none; } .slip-sheet .span4c { grid-column: auto; } .slip-sheet .sv-site { grid-template-columns: 1fr !important; } }
