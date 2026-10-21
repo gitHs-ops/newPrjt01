@@ -252,7 +252,7 @@ test('workflow against PostgreSQL business tables', { skip, timeout: 900000 }, a
       const pay = ok(await a.call('/api/payments', { idempotencyKey: 'pf' + tag, date: d, vendor: 'V' + tag, bankCode: 'B' + tag, fee: 770, offset: 2000, safety: 500, allocations: [{ expenseId: doc.id, amount: 10000 }] }));
       const pj = ok(await a.call('/api/journals?month=' + curMonth)).find(j => j.source === 'payment' && j.sourceId === String(pay.id));
       const amt = (side, acc) => pj.lines.filter(l => l.side === side && l.account === acc).reduce((n, l) => n + l.amount, 0);
-      assert.equal(amt('D', '4121'), 10000); assert.equal(amt('C', '1112'), 6730); assert.equal(amt('C', '4171'), 500); assert.equal(amt('C', '8790'), 700); assert.equal(amt('C', '4415'), 70); assert.equal(amt('C', '1431'), 2000);
+      assert.equal(amt('D', '4121'), 10000); assert.equal(amt('C', '1112'), 6730); assert.equal(amt('C', '4171'), 500); assert.equal(amt('C', '8790'), 770); assert.equal(amt('C', '4415'), 0); assert.equal(amt('C', '1431'), 2000); // 現行：手数料差引は 8790-001 処税率9 の全額
       const co = ok(await a.call('/api/reports/payments/carryover?date=' + d)).vendors.find(v => v.vendor === 'V' + tag);
       if (co) assert.equal(co.offset, 1000, 'remaining 業者立替金 = 3000 - 2000');
       const vp = ok(await a.call('/api/reports/payments/vendor-payments?' + new URLSearchParams({ from: d, to: d }))).vendors.find(v => v.vendor === 'V' + tag);

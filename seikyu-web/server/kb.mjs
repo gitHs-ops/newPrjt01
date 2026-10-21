@@ -1,13 +1,14 @@
 // 財務会計（勘定奉行相当）: 仕訳伝票入力・仕訳帳・総勘定元帳/補助元帳・合計残高試算表・月次推移表・決算書・消費税集計表・仕訳受入/書出。
 // 科目コード・名称は account_subject（請求システムと共通）、会計属性（区分・貸借・補助区分・既定税区分）は kb_account に持つ。
 // 金額は整数円。集計の内部値は「借方プラス」の符号付きで持ち、表示時に科目の正残高側へ符号を合わせる。
-import { check, Conflict, text, bool, yen, isoDate, today, csv, parseCsv, addMonths } from './domain.mjs';
+import { check, Conflict, text, bool, yen, isoDate, today, csv, parseCsv } from './domain.mjs';
 import { rows, one, audit } from './db.mjs';
 import { xlsx } from './xlsx.mjs';
 import { PATTERNS } from './ledger.mjs';
 import { SYSTEM_ACCOUNTS } from './masters.mjs';
 import { decode, taxOf, CATALOG, TAX_KIND, TAX_RATE } from './taxcode.mjs';
 import { bugyoSettings, bugyoFile } from './bugyo.mjs';
+import { getsudo } from './period.mjs';
 
 // [区分コード, 名称, 区分(BS-A 資産 / BS-L 負債 / BS-E 純資産 / PL), 正残高]
 export const GROUPS = [
@@ -44,7 +45,7 @@ const CHART = [
   ['8312', '従業員給与', 'P3'], ['8314', '法定福利費', 'P3'], ['8315', '福利厚生費', 'P3', 'SUB', '141'], ['8316', '修繕維持費', 'P3', 'SUB', '141'], ['8317', '事務用品費', 'P3', 'SUB', '141'],
   ['8318', '旅費交通費', 'P3', 'SUB', '141'], ['83181', '車輌維持費', 'P3', 'SUB', '141'], ['8319', '通信費', 'P3', 'SUB', '141'], ['8320', '用水光熱費', 'P3', 'SUB', '141'], ['8321', '調査研究費', 'P3', '', '141'],
   ['8322', '広告宣伝費', 'P3', '', '141'], ['8323', '交際費', 'P3', 'SUB', '141'], ['8324', '寄付金', 'P3'], ['8325', '地代家賃', 'P3', '', '141'], ['8326', '減価償却費', 'P3'], ['8327', '租税公課', 'P3'],
-  ['8328', '賦課金及会費', 'P3', '', '141'], ['8329', '保険料', 'P3', 'SUB'], ['8330', '雑費', 'P3', 'SUB', '141'], ['8331', '会議費', 'P3', '', '141'], ['8332', '購読料', 'P3', 'SUB', '141'],
+  ['8328', '賦課金及会費', 'P3', '', '041'], ['8329', '保険料', 'P3', 'SUB', '070'], ['8330', '雑費', 'P3', 'SUB', '141'], ['8331', '会議費', 'P3', '', '141'], ['8332', '購読料', 'P3', 'SUB', '148'],
   ['8610', '受取利息', 'P4', 'SUB'], ['8630', '受取地代家賃', 'P4', 'SUB', '111'], ['8650', '材料売却収入', 'P4', '', '111'], ['8790', '雑収入', 'P4', 'SUB'],
   ['8810', '支払利息割引料', 'P5', 'SUB'], ['8850', '雑損失', 'P5', '', '141'], ['9150', '前期損益修正益', 'P6'], ['9217', '前期損益修正損', 'P7'], ['9410', '法人税等', 'P8'],
 ];
@@ -82,21 +83,40 @@ export async function prepareKb(pool) {
     await pool.query("UPDATE kb_account SET tax_code=CASE tax_code WHEN '00' THEN '090' WHEN '10' THEN '111' WHEN '11' THEN '118' WHEN '12' THEN '020' WHEN '20' THEN '141' WHEN '21' THEN '148' WHEN '22' THEN '070' ELSE tax_code END");
     await pool.query("INSERT INTO kb_setting (k,v) VALUES ('tax_scheme','shozeiritsu')");
   }
+  // 2026-10-21 ハーツ＆ソウル仕訳帳の実績から科目の既定処税率を補正（一度だけ）
+  const [[acctTax]] = await pool.query("SELECT 1 x FROM kb_setting WHERE k='acct_tax_hs'");
+  if (!acctTax) {
+    for (const [code, tax] of ACCOUNT_TAX_HS) await pool.query('UPDATE kb_account SET tax_code=? WHERE account_code=?', [tax, code]);
+    await pool.query("INSERT INTO kb_setting (k,v) VALUES ('acct_tax_hs','1')");
+  }
+}
+const ACCOUNT_TAX_HS = [['8329', '070'], ['8328', '041'], ['8332', '148'], ['8251', '090'], ['8312', '090']];
+// 2026-10-21 ハーツ＆ソウル仕訳帳：会計月度 21日〜20日・決算 10月20日へ一度だけ切替（初期値 3月末のままの会社のみ）。導入年度は従来の期首・最古伝票を含む年度に読み替える。
+export async function getsudoMigration(pool) {
+  const [[done]] = await pool.query("SELECT 1 x FROM kb_setting WHERE k='getsudo'");
+  if (done) return;
+  const [[ci]] = await pool.query('SELECT closing_m, closing_d FROM company_info_m WHERE company_info_id=1');
+  if (ci && Number(ci.closing_m) === 3 && Number(ci.closing_d) === 31) {
+    const [[s]] = await pool.query("SELECT v FROM kb_setting WHERE k='start_fy'"), [[m]] = await pool.query('SELECT MIN(slip_date) d FROM kb_slip');
+    await pool.query('UPDATE company_info_m SET closing_m=10, closing_d=20 WHERE company_info_id=1');
+    const G = getsudo({ closingMonth: 10, closingDay: 20 }), t = today(), oldFy = s ? Number(s.v) : (+t.slice(5, 7) >= 4 ? +t.slice(0, 4) : +t.slice(0, 4) - 1);
+    const dates = [`${oldFy}-04-01`, m?.d ? String(m.d).slice(0, 10) : ''].filter(Boolean).sort();
+    await pool.query('INSERT INTO kb_setting (k,v) VALUES (?,?) ON DUPLICATE KEY UPDATE v=VALUES(v)', ['start_fy', String(G.fyOf(dates[0]))]);
+  }
+  await pool.query("INSERT INTO kb_setting (k,v) VALUES ('getsudo','10/20')");
 }
 
 // ---------- 共通 ----------
-const pad = n => String(n).padStart(2, '0');
-const monthEnd = m => new Date(Date.UTC(+m.slice(0, 4), +m.slice(5, 7), 0)).toISOString().slice(0, 10);
+// 会計年度・月度は自社情報の決算月・締日（現行 仕訳帳 AC2205：月度 21日〜20日、期首 10月21日）
 async function fiscal(c) {
-  const ci = await one(c, 'SELECT closing_m FROM company_info_m WHERE company_info_id=1');
-  const closingMonth = Number(ci?.closing_m) || 3, startMonth = closingMonth % 12 + 1;
+  const ci = await one(c, 'SELECT closing_m, closing_d FROM company_info_m WHERE company_info_id=1');
+  const G = getsudo({ closingMonth: ci?.closing_m, closingDay: ci?.closing_d }), closingMonth = G.closingMonth, startMonth = closingMonth % 12 + 1;
   const s = Object.fromEntries((await rows(c, 'SELECT k, v FROM kb_setting')).map(r => [r.k, r.v]));
-  const fyOf = iso => (+iso.slice(5, 7) >= startMonth ? +iso.slice(0, 4) : +iso.slice(0, 4) - 1);
-  const range = fy => { const from = `${fy}-${pad(startMonth)}-01`; return { from, to: monthEnd(addMonths(from.slice(0, 7), 11)) }; };
+  const fyOf = G.fyOf, range = G.fyRange;
   const startFy = Number(s.start_fy) || fyOf(today());
-  return { closingMonth, startMonth, fyOf, range, startFy, startDate: range(startFy).from, lockDate: s.lock_date || '', currentFy: fyOf(today()) };
+  return { closingMonth, startMonth, closingDay: G.closingDay, labelOf: G.labelOf, monthRange: G.monthRange, months: G.months, fyOf, range, startFy, startDate: range(startFy).from, lockDate: s.lock_date || '', currentFy: fyOf(today()) };
 }
-const fyLabel = (F, fy) => { const r = F.range(fy); return `${fy}年度（${r.from.slice(0, 7)}〜${r.to.slice(0, 7)}）`; };
+const fyLabel = (F, fy) => { const r = F.range(fy); return `${fy}年度（${r.from}〜${r.to}）`; };
 
 // 区分未設定の科目に推定区分を付ける（請求システム側で追加された科目）
 async function ensureAttrs(c) {
@@ -120,7 +140,7 @@ async function subNamer(c) {
 async function deptNames(c) { return new Map((await rows(c, "SELECT code_dtl, code_dtl_nam FROM code_m WHERE code_key='DEPT'")).map(r => [r.code_dtl, r.code_dtl_nam])); }
 const sign = acc => (acc.side === 'D' ? 1 : -1);
 function period(F, q, { sameFy = true } = {}) {
-  const t = today(), from = q.from ? isoDate(q.from, '開始日') : `${t.slice(0, 7)}-01`, to = q.to ? isoDate(q.to, '終了日') : monthEnd(t.slice(0, 7));
+  const cur = F.monthRange(F.labelOf(today())), from = q.from ? isoDate(q.from, '開始日') : cur.from, to = q.to ? isoDate(q.to, '終了日') : cur.to;
   check(from <= to, '期間が不正です');
   check(to >= F.startDate, `期間は導入年度の期首 ${F.startDate} 以降で指定してください`);
   const f = from < F.startDate ? F.startDate : from;
@@ -132,7 +152,7 @@ export async function kbMeta(c) {
   const F = await fiscal(c), A = await accountMap(c);
   const fys = []; for (let y = F.startFy; y <= Math.max(F.currentFy, F.startFy) + 1; y++) fys.push({ fy: y, label: fyLabel(F, y), ...F.range(y) });
   return { groups: GROUPS, sections: SECTIONS, taxes: TAXES, taxKinds: TAX_KIND, taxRates: TAX_RATE, subKinds: SUB_KINDS, sources: SOURCES,
-    fiscal: { startFy: F.startFy, startDate: F.startDate, lockDate: F.lockDate, closingMonth: F.closingMonth, startMonth: F.startMonth, currentFy: F.currentFy, years: fys },
+    fiscal: { startFy: F.startFy, startDate: F.startDate, lockDate: F.lockDate, closingMonth: F.closingMonth, closingDay: F.closingDay, startMonth: F.startMonth, currentFy: F.currentFy, currentMonth: F.labelOf(today()), years: fys },
     accounts: [...A.values()] };
 }
 
@@ -227,11 +247,12 @@ export async function trialBalance(c, q = {}) {
 export async function monthly(c, q = {}) {
   const F = await fiscal(c), A = await accountMap(c), fy = Number(q.fy) || F.currentFy;
   check(fy >= F.startFy && fy <= F.currentFy + 1, '会計年度が範囲外です');
-  const { from, to } = F.range(fy), months = Array.from({ length: 12 }, (_, i) => addMonths(from.slice(0, 7), i)), kind = q.kind === 'bs' ? 'bs' : 'pl';
+  const { from, to } = F.range(fy), months = F.months(fy), kind = q.kind === 'bs' ? 'bs' : 'pl';
   const args = [F.startDate, to]; let dw = '';
   if (q.dept) { dw = ' AND l.dept_code=?'; args.push(q.dept); }
-  const rs = await rows(c, `SELECT l.account_code a, to_char(s.slip_date,'YYYY-MM') m, SUM(CASE WHEN l.side='D' THEN l.amount ELSE -l.amount END) v
-    FROM kb_line l JOIN kb_slip s ON s.slip_id=l.slip_id WHERE s.slip_date BETWEEN ? AND ?${dw} GROUP BY l.account_code, to_char(s.slip_date,'YYYY-MM')`, args);
+  // 月度（締日基準）で集計：日付ごとに合計してから月度ラベルへ寄せる
+  const rs = (await rows(c, `SELECT l.account_code a, s.slip_date d, SUM(CASE WHEN l.side='D' THEN l.amount ELSE -l.amount END) v
+    FROM kb_line l JOIN kb_slip s ON s.slip_id=l.slip_id WHERE s.slip_date BETWEEN ? AND ?${dw} GROUP BY l.account_code, s.slip_date`, args)).map(r => ({ a: r.a, m: F.labelOf(String(r.d).slice(0, 10)), v: r.v }));
   const mv = new Map(); // account -> {before: v, m: [12]}
   for (const r of rs) {
     if (!mv.has(r.a)) mv.set(r.a, { before: 0, prior: 0, m: Array(12).fill(0) });
@@ -295,7 +316,7 @@ export async function ledger(c, q = {}) {
     const counter = pair && other.length === 1 ? pair.account_code : new Set(other.map(o => o.account_code)).size === 1 ? other[0].account_code : '';
     const dr = l.side === 'D' ? Number(l.amount) : 0, cr = l.side === 'C' ? Number(l.amount) : 0;
     run += (dr - cr) * s;
-    const m = String(l.slip_date).slice(0, 7); if (!months.has(m)) months.set(m, { month: m, dr: 0, cr: 0 }); months.get(m).dr += dr; months.get(m).cr += cr;
+    const m = F.labelOf(String(l.slip_date).slice(0, 10)); if (!months.has(m)) months.set(m, { month: m, dr: 0, cr: 0 }); months.get(m).dr += dr; months.get(m).cr += cr;
     lines.push({ slipId: l.slip_id, no: l.slip_no, date: l.slip_date, counter: counter ? `${counter} ${A.get(counter)?.name || ''}` : '諸口', sub: l.sub_code, subName: name(acc, l.sub_code), dept: l.dept_code,
       tax: l.tax_code, memo: l.memo || l.smemo, dr, cr, taxAmount: Number(l.tax_amount), balance: run, source: l.source });
   }
@@ -474,7 +495,7 @@ async function storeImport(c, ctx, F, source, label, slips) {
 // 請求システムの自動仕訳（journal_entry / journal_line）を伝票として受け入れる。1仕訳＝1伝票、受入済み（source_ref=仕訳ID）は対象外。
 export async function importSeikyu(c, ctx, p) {
   const F = await fiscal(c), A = await accountMap(c), from = isoDate(p.from, '開始日'), to = isoDate(p.to, '終了日'); check(from <= to, '期間が不正です');
-  const es = await rows(c, `SELECT e.* FROM journal_entry e WHERE e.journal_date BETWEEN ? AND ? AND NOT EXISTS (SELECT 1 FROM kb_slip k WHERE k.source='SEIKYU' AND k.source_ref=CAST(e.journal_id AS CHAR)) ORDER BY e.journal_date, e.journal_id`, [from, to]);
+  const es = await rows(c, `SELECT e.*, n.slip_no FROM journal_entry e LEFT JOIN app_slip_no n ON n.journal_id=e.journal_id WHERE e.journal_date BETWEEN ? AND ? AND NOT EXISTS (SELECT 1 FROM kb_slip k WHERE k.source='SEIKYU' AND k.source_ref=CAST(e.journal_id AS CHAR)) ORDER BY e.journal_date, e.journal_id`, [from, to]);
   const ls = es.length ? await rows(c, `SELECT l.*, v.vendor_code, cu.customers_name, v.vendor_name FROM journal_line l LEFT JOIN vendor v ON v.vendor_id=l.vendor_id LEFT JOIN client_m cu ON cu.customers_cd=l.customers_cd
     WHERE l.journal_id IN (${es.map(() => '?').join(',')}) ORDER BY l.journal_id, l.line_no`, es.map(e => e.journal_id)) : [];
   const errors = [], slips = [];
@@ -493,7 +514,7 @@ export async function importSeikyu(c, ctx, p) {
     }
     if (!sides.length) continue;
     applyVat(sides);
-    const memo = `${PATTERNS[e.pattern_code] || e.pattern_code} ${e.source_type}:${e.source_id}${e.reversal_of ? ` 取消(#${e.reversal_of})` : ''}`;
+    const memo = `${e.slip_no ? e.slip_no + ' ' : ''}${PATTERNS[e.pattern_code] || e.pattern_code} ${e.source_type}:${e.source_id}${e.reversal_of ? ` 取消(#${e.reversal_of})` : ''}`;
     slips.push({ date, ref: String(e.journal_id), memo, rows: toRows(sides), pattern: e.pattern_code });
   }
   const summary = { candidates: es.length, slips: slips.length, amount: slips.reduce((n, s) => n + s.rows.reduce((t, r) => t + (r.dr?.amount || 0), 0), 0), errors,
@@ -521,8 +542,8 @@ export async function importCsv(c, ctx, p) {
       const code = get(r, pre + '科目CD'), amt = get(r, pre + '金額'); if (!code && !amt) continue;
       const rawTax = get(r, pre + '税区分'), tax = rawTax ? decode(rawTax)?.code : A.get(code)?.tax || '090';
       if (!tax) { errors.push(`${i + 1}行目: ${pre}税区分「${rawTax}」は処税率として解釈できません`); continue; }
-      const taxAmt = get(r, pre + '税額');
-      g.sides.push({ side, row: i + 1, raw: { account: code, sub: get(r, pre + '補助CD'), dept: get(r, pre + '部門'), tax, amount: amt, taxAmount: taxAmt === '' ? undefined : taxAmt, taxExcl: get(r, pre + '外税') === '1' }, memo: get(r, '摘要1') });
+      const taxAmt = get(r, pre + '税額'), neg = /^-/.test(amt.replace(/[,\s]/g, '')), unsign = v => v.replace(/^(\s*)-/, '$1'); // マイナス金額は反対側へ（現行CSVの戻し行）
+      g.sides.push({ side: neg ? (side === 'D' ? 'C' : 'D') : side, row: i + 1, raw: { account: code, sub: get(r, pre + '補助CD'), dept: get(r, pre + '部門'), tax, amount: neg ? unsign(amt) : amt, taxAmount: taxAmt === '' ? undefined : neg ? unsign(taxAmt) : taxAmt, taxExcl: get(r, pre + '外税') === '1' }, memo: get(r, '摘要1') });
     }
   }
   const slips = [];

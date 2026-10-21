@@ -36,6 +36,18 @@ export const stamp = () => {
 };
 
 export const line = (side, account, amount, extra = {}) => ({ side, account, amount, ...extra });
+// 伝票番号は現行（仕訳帳 AC2205）の系列ごとの連番を引き継ぐ：R 売掛計上・B 入金・S 定時請求・K 小口現金・U 支払、接頭辞なし6桁＝在庫計上・小口補充。
+export const SLIP_SERIES = { A01: 'R', B01: 'B', D01: 'S', E01: 'K', F01: 'U', C01: '', G03: '' };
+export const SLIP_SEED = { R: 819, B: 27587, S: 14435, K: 2032, U: 14402, '': 100321 }; // 現行の最終番号（次は R00820・B27588・S14436・K02033・U14403・100322）
+export const formatSlipNo = (series, n) => series + String(n).padStart(series ? 5 : 6, '0');
+export async function assignSlipNo(c, journalId, pattern) {
+  const series = SLIP_SERIES[pattern]; if (series === undefined) return '';
+  const r = await one(c, 'SELECT last_no FROM app_slip_series WHERE series=? FOR UPDATE', [series]), n = Number(r?.last_no ?? SLIP_SEED[series]) + 1;
+  await c.query('INSERT INTO app_slip_series (series,last_no) VALUES (?,?) ON DUPLICATE KEY UPDATE last_no=VALUES(last_no)', [series, n]);
+  const no = formatSlipNo(series, n);
+  await c.query('INSERT INTO app_slip_no (journal_id,slip_no) VALUES (?,?)', [journalId, no]);
+  return no;
+}
 const insertLine = (c, id, no, l) => c.query('INSERT INTO journal_line (journal_id,line_no,side,account_code,sub_code,department_code,source_tax_code,amount,customers_cd,vendor_id) VALUES (?,?,?,?,?,?,?,?,?,?)',
   [id, no, l.side, l.account, l.sub || null, l.dept || null, l.tax || null, l.amount, l.customer || null, l.vendor || null]);
 
@@ -49,6 +61,7 @@ export async function postJournal(c, { date, pattern, sourceType, sourceId, line
   const [r] = await c.query("INSERT INTO journal_entry (journal_date,pattern_code,source_type,source_id,posting_revision,status,created_at) VALUES (?,?,?,?,?,'POSTED',UTC_TIMESTAMP(6))", [date, pattern, sourceType, String(sourceId), Number(prev.r) + 1]);
   let no = 0;
   for (const l of live) await insertLine(c, r.insertId, ++no, l);
+  await assignSlipNo(c, r.insertId, pattern);
   return r.insertId;
 }
 // Reversal keeps the original entry, inserts a mirrored entry and marks the original REVERSED.
@@ -59,6 +72,7 @@ export async function reverseJournal(c, { sourceType, sourceId, date }) {
     const max = await one(c, 'SELECT MAX(posting_revision) r FROM journal_entry WHERE source_type=? AND source_id=?', [sourceType, String(sourceId)]);
     const [r] = await c.query("INSERT INTO journal_entry (journal_date,pattern_code,source_type,source_id,posting_revision,reversal_of,status,created_at) VALUES (?,?,?,?,?,?,'POSTED',UTC_TIMESTAMP(6))", [date, e.pattern_code, sourceType, String(sourceId), Number(max.r) + 1, e.journal_id]);
     for (const l of lines) await insertLine(c, r.insertId, l.line_no, { side: l.side === 'D' ? 'C' : 'D', account: l.account_code, sub: l.sub_code, dept: l.department_code, tax: l.source_tax_code, amount: Number(l.amount), customer: l.customers_cd, vendor: l.vendor_id });
+    await assignSlipNo(c, r.insertId, e.pattern_code);
     await c.query("UPDATE journal_entry SET status='REVERSED' WHERE journal_id=?", [e.journal_id]);
   }
   return entries.length;

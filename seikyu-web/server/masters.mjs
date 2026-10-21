@@ -5,10 +5,10 @@ import { toZenginKana, zenginInvalid } from './zengin.mjs';
 
 // Accounts referenced by automatic journal patterns. They cannot be deactivated.
 export const SYSTEM_ACCOUNTS = [
-  ['1111', '現金'], ['1112', '当座預金'], ['1120', '受取手形'], ['1131', '売掛金'], ['1360', '材料及び貯蔵品'],
+  ['1111', '現金'], ['1112', '当座預金'], ['1113', '普通預金'], ['1120', '受取手形'], ['1131', '売掛金'], ['1360', '材料及び貯蔵品'],
   ['1431', '業者立替金'], ['4121', '買掛金'], ['4170', '預り金'], ['4171', '預り金（安全協力費等）'], ['8790', '雑収入'], ['4415', '仮受消費税'], ['8130', '合材売上'], ['8231', '仕入'], ['8330', '雑費'], ['8850', '雑損失'], ['82316', '期末棚卸高'],
 ];
-const CODE = /^[0-9A-Za-z\-]+$/;
+const CODE = /^[0-9A-Za-z\-ｦ-ﾟ]+$/; // 半角英数・ハイフン・半角カナ（現行の得意先・業者コードに半角カナあり）
 const del = active => (active ? '' : '1'); // 現行 Java：有効は空、無効は '1'
 const live = r => r.delete_f !== '1';
 const hash = o => createHash('sha1').update(JSON.stringify(o)).digest('hex').slice(0, 16);
@@ -144,7 +144,7 @@ export const MASTERS = {
       await c.query("DELETE FROM code_m WHERE code_key='ZGN' AND code_dtl=?", [r.code]);
       if (r.zgBank) await c.query("INSERT INTO code_m (code_key,code_key_nam,code_dtl,code_dtl_nam,code_dtl_abr,category1,category2,category3) VALUES ('ZGN','全銀振込元',?,?,?,?,?,?)", [r.code, r.zgName, r.zgCode, r.zgBank, r.zgBranch + r.zgType, r.zgAccount]);
       // Bank codes are the sub-accounts of 1112 used in journal lines.
-      await c.query("INSERT INTO account_subsubject (account_code,sub_code,sub_name,active) VALUES ('1112',?,?,?) ON DUPLICATE KEY UPDATE sub_name=VALUES(sub_name),active=VALUES(active)", [r.code, r.name.slice(0, 100), r.active]);
+      for (const acc of ['1112', '1113']) await c.query("INSERT INTO account_subsubject (account_code,sub_code,sub_name,active) VALUES (?,?,?,?) ON DUPLICATE KEY UPDATE sub_name=VALUES(sub_name),active=VALUES(active)", [acc, r.code, r.name.slice(0, 100), r.active]);
     },
   },
   vendors: {
@@ -195,18 +195,18 @@ export const MASTERS = {
     label: '自社情報・請求書設定', table: 'company_info_m',
     fields: [F('id', 'ID', { max: 1, key: true, hint: '1固定' }), F('name1', '会社名1', { max: 21 }), F('name2', '会社名2', { max: 30, optional: true }), F('postcode', '郵便番号', { max: 7, optional: true }),
       F('pref', '都道府県', { max: 8, optional: true }), F('addr1', '住所1', { max: 42, optional: true }), F('addr2', '住所2', { max: 42, optional: true }), F('tel', '電話番号', { max: 14, optional: true }), F('fax', 'FAX', { list: false, max: 14, optional: true }),
-      F('plant', '工場名', { list: false, max: 26, optional: true }), F('tradingDay', '業務日付', { type: 'date', optional: true, list: false, hint: '出荷日の初期値（現行 MA057 出荷日変更）。空欄は当日' }), F('invoiceNo', '適格請求書発行事業者登録番号', { max: 14, optional: true, hint: 'T＋13桁（例 T4180001002429）' }), F('invoiceBank2', '請求書の取引銀行2', { type: 'ref', ref: 'banks', optional: true, list: false, hint: '提案書様式は取引銀行を2行表示' }),
+      F('plant', '工場名', { list: false, max: 26, optional: true }), F('closingMonth', '決算月', { type: 'int', max: 2, list: false, hint: '1〜12（現行 10）' }), F('closingDay', '月度締日', { type: 'int', max: 2, list: false, hint: '会計月度の締日。20＝21日〜20日（現行）、31＝暦月' }), F('tradingDay', '業務日付', { type: 'date', optional: true, list: false, hint: '出荷日の初期値（現行 MA057 出荷日変更）。空欄は当日' }), F('invoiceNo', '適格請求書発行事業者登録番号', { max: 14, optional: true, hint: 'T＋13桁（例 T4180001002429）' }), F('invoiceBank2', '請求書の取引銀行2', { type: 'ref', ref: 'banks', optional: true, list: false, hint: '提案書様式は取引銀行を2行表示' }),
       F('invoiceLayout', '請求書様式', { type: 'select', optional: true, list: false, options: [['proposal', '提案書様式（前回残高・今回入金額・今回残高）'], ['legacy', '現行様式（当月御買上額・当月御請求額）']] }),
       F('invoiceBank', '請求書の振込先口座', { type: 'ref', ref: 'banks', optional: true, hint: '銀行マスタの振込元口座情報を表示' })],
     select: "SELECT c.*, n.code_dtl_abr inv_no, b.code_dtl_abr inv_bank, b2.code_dtl_abr inv_bank2, lay.code_dtl_abr inv_layout FROM company_info_m c LEFT JOIN code_m n ON n.code_key='SET' AND n.code_dtl='INVNO' LEFT JOIN code_m b ON b.code_key='SET' AND b.code_dtl='INVBANK' LEFT JOIN code_m b2 ON b2.code_key='SET' AND b2.code_dtl='INVBANK2' LEFT JOIN code_m lay ON lay.code_key='SET' AND lay.code_dtl='INVLAYOUT'",
     where: 'c.company_info_id=?', keyOf: r => [String(r.id || '1')],
-    decode: r => ({ id: String(r.company_info_id), name1: r.company_name1, name2: r.company_name2, postcode: r.postcode, pref: r.pref, addr1: r.addr1, addr2: r.addr2, tel: r.tel_no, fax: r.fax_no, plant: r.plant_name, tradingDay: r.trading_day ? String(r.trading_day).slice(0, 10) : '', invoiceNo: r.inv_no || '', invoiceBank: r.inv_bank || '', invoiceBank2: r.inv_bank2 || '', invoiceLayout: r.inv_layout || 'proposal' }),
+    decode: r => ({ id: String(r.company_info_id), name1: r.company_name1, name2: r.company_name2, postcode: r.postcode, pref: r.pref, addr1: r.addr1, addr2: r.addr2, tel: r.tel_no, fax: r.fax_no, plant: r.plant_name, closingMonth: String(Number(r.closing_m) || 3), closingDay: String(Number(r.closing_d) || 31), tradingDay: r.trading_day ? String(r.trading_day).slice(0, 10) : '', invoiceNo: r.inv_no || '', invoiceBank: r.inv_bank || '', invoiceBank2: r.inv_bank2 || '', invoiceLayout: r.inv_layout || 'proposal' }),
     validate: r => ({ id: '1', name1: text(r.name1, '会社名1', 21), name2: text(r.name2, '会社名2', 30, { required: false }), postcode: text(String(r.postcode || '').replace('-', ''), '郵便番号', 7, { required: false, pattern: /^\d{7}$/ }),
       pref: text(r.pref, '都道府県', 8, { required: false }), addr1: text(r.addr1, '住所1', 42, { required: false }), addr2: text(r.addr2, '住所2', 42, { required: false }), tel: text(r.tel, '電話番号', 14, { required: false }), fax: text(r.fax, 'FAX', 14, { required: false }),
-      plant: text(r.plant, '工場名', 26, { required: false }), tradingDay: r.tradingDay ? isoDate(r.tradingDay, '業務日付') : '', invoiceNo: text(String(r.invoiceNo || '').replace(/[\s-]/g, '').toUpperCase(), '登録番号', 14, { required: false, pattern: /^T\d{13}$/ }), invoiceBank: text(r.invoiceBank, '振込先口座', 12, { required: false }), invoiceBank2: text(r.invoiceBank2, '取引銀行2', 12, { required: false }), invoiceLayout: r.invoiceLayout === 'legacy' ? 'legacy' : 'proposal' }),
+      plant: text(r.plant, '工場名', 26, { required: false }), closingMonth: ((n) => (check(Number.isInteger(n) && n >= 1 && n <= 12, '決算月は1〜12です'), n))(Number(r.closingMonth || 3)), closingDay: closingDay(r.closingDay || 31), tradingDay: r.tradingDay ? isoDate(r.tradingDay, '業務日付') : '', invoiceNo: text(String(r.invoiceNo || '').replace(/[\s-]/g, '').toUpperCase(), '登録番号', 14, { required: false, pattern: /^T\d{13}$/ }), invoiceBank: text(r.invoiceBank, '振込先口座', 12, { required: false }), invoiceBank2: text(r.invoiceBank2, '取引銀行2', 12, { required: false }), invoiceLayout: r.invoiceLayout === 'legacy' ? 'legacy' : 'proposal' }),
     async write(c, r, old) {
       check(old, '自社情報は1件のみです（新規登録はできません）');
-      await c.query('UPDATE company_info_m SET company_name1=?,company_name2=?,postcode=?,pref=?,addr1=?,addr2=?,tel_no=?,fax_no=?,plant_name=?,trading_day=? WHERE company_info_id=1', [r.name1, r.name2, r.postcode, r.pref, r.addr1, r.addr2, r.tel, r.fax, r.plant, r.tradingDay || null]);
+      await c.query('UPDATE company_info_m SET company_name1=?,company_name2=?,postcode=?,pref=?,addr1=?,addr2=?,tel_no=?,fax_no=?,plant_name=?,trading_day=?,closing_m=?,closing_d=? WHERE company_info_id=1', [r.name1, r.name2, r.postcode, r.pref, r.addr1, r.addr2, r.tel, r.fax, r.plant, r.tradingDay || null, r.closingMonth, r.closingDay]);
       for (const [k, v, n] of [['INVNO', r.invoiceNo, '登録番号'], ['INVBANK', r.invoiceBank, '請求書振込先'], ['INVBANK2', r.invoiceBank2, '請求書取引銀行2'], ['INVLAYOUT', r.invoiceLayout, '請求書様式']]) {
         await c.query("DELETE FROM code_m WHERE code_key='SET' AND code_dtl=?", [k]);
         if (v) await c.query("INSERT INTO code_m (code_key,code_key_nam,code_dtl,code_dtl_nam,code_dtl_abr,category1,category2,category3) VALUES ('SET','設定',?,?,?,'','','')", [k, n, v]);
@@ -318,8 +318,8 @@ export const MASTERS = {
   accounts: {
     label: '勘定科目', table: 'account_subject',
     fields: [F('code', '科目コード', { max: 20, key: true }), F('name', '科目名', { max: 100 }), F('active', '有効', { type: 'bool' })],
-    select: 'SELECT * FROM account_subject', where: 'account_code=?', keyOf: r => [r.code],
-    decode: r => ({ code: r.account_code, name: r.account_name, active: !!r.active, system: SYSTEM_ACCOUNTS.some(a => a[0] === r.account_code) }),
+    select: 'SELECT a.*, (SELECT k.tax_code FROM kb_account k WHERE k.account_code=a.account_code) kb_tax FROM account_subject a', where: 'a.account_code=?', keyOf: r => [r.code],
+    decode: r => ({ code: r.account_code, name: r.account_name, active: !!r.active, system: SYSTEM_ACCOUNTS.some(a => a[0] === r.account_code), tax: r.kb_tax || '' }),
     validate: r => ({ code: text(r.code, '科目コード', 20, { pattern: CODE }), name: text(r.name, '科目名', 100), active: bool(r.active ?? true) }),
     async write(c, r, old) {
       check(r.active || !SYSTEM_ACCOUNTS.some(a => a[0] === r.code), '自動仕訳で使用する科目は無効化できません');

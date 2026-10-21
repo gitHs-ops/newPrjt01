@@ -20,18 +20,17 @@ const range = q => {
   check(from <= to, '期間が不正です'); check((Date.parse(to) - Date.parse(from)) / 864e5 <= 400, '期間は400日以内で指定してください');
   return { from, to };
 };
-const slipNo = (pattern, id) => (LISTS[pattern].prefix || '') + String(id).padStart(LISTS[pattern].prefix ? 5 : 6, '0');
 
 export async function journalList(c, q) {
   const def = LISTS[q.pattern]; check(def, '仕訳リストの種類が不正です');
   const { from, to } = range(q);
-  const es = await rows(c, 'SELECT * FROM journal_entry WHERE pattern_code=? AND journal_date BETWEEN ? AND ? ORDER BY journal_date, journal_id', [q.pattern, from, to]);
+  const es = await rows(c, 'SELECT e.*, n.slip_no FROM journal_entry e LEFT JOIN app_slip_no n ON n.journal_id=e.journal_id WHERE e.pattern_code=? AND e.journal_date BETWEEN ? AND ? ORDER BY e.journal_date, e.journal_id', [q.pattern, from, to]);
   const ids = es.map(e => e.journal_id);
   const ls = ids.length ? await rows(c, `SELECT l.*, a.account_name, s.sub_name, cu.customers_name, v.vendor_code, v.vendor_name FROM journal_line l
     LEFT JOIN account_subject a ON a.account_code=l.account_code LEFT JOIN account_subsubject s ON s.account_code=l.account_code AND s.sub_code=l.sub_code
     LEFT JOIN client_m cu ON cu.customers_cd=l.customers_cd LEFT JOIN vendor v ON v.vendor_id=l.vendor_id WHERE l.journal_id IN (${ph(ids)}) ORDER BY l.journal_id, l.line_no`, ids) : [];
   // Source documents for 摘要 (memo) columns.
-  const src = new Map(), srcIds = [...new Set(es.map(e => Number(e.source_id)))];
+  const src = new Map(), srcIds = [...new Set(es.filter(e => e.source_type === def.source).map(e => Number(e.source_id)))];
   if (srcIds.length) {
     if (def.source === 'billing_head') for (const r of await rows(c, `SELECT h.invoice_id id, h.closing_date, h.customers_cd, c.customers_name FROM billing_head h LEFT JOIN client_m c ON c.customers_cd=h.customers_cd WHERE h.invoice_id IN (${ph(srcIds)})`, srcIds)) src.set(r.id, { no: 'I' + r.id, memo2: `${fromNum(r.closing_date)}締` });
     if (def.source === 'receipt') {
@@ -45,7 +44,7 @@ export async function journalList(c, q) {
   }
   const DEDUCT = { '8330|101': '手数料', '8330|107': '協力費', '8850|': '値引き', '4170|': '預り金充当' };
   const slips = es.map(e => {
-    const s = src.get(Number(e.source_id)) || { no: '' }, lines = ls.filter(l => l.journal_id === e.journal_id);
+    const s = e.source_type === 'inventory_month' ? { no: `棚卸 ${e.source_id.slice(0, 4)}-${e.source_id.slice(4)}月度` } : src.get(Number(e.source_id)) || { no: '' }, lines = ls.filter(l => l.journal_id === e.journal_id);
     const partnerLine = lines.find(l => l.customers_cd || l.vendor_id), partner = partnerLine ? { code: partnerLine.customers_cd || partnerLine.vendor_code, name: partnerLine.customers_name || partnerLine.vendor_name } : null;
     let creditNo = 0;
     const side = l => {
@@ -66,8 +65,10 @@ export async function journalList(c, q) {
     const dr = lines.filter(l => l.side === 'D'), cr = lines.filter(l => l.side === 'C'), pairs = [];
     // Inventory pairs follow the 洗替 order (前月末戻し, 当月末計上) even if one side is zero.
     for (let i = 0; i < Math.max(dr.length, cr.length); i++) pairs.push({ dr: side(dr[i]), cr: side(cr[i]) });
+    // 在庫計上（月度1伝票）：摘要1＝1360 の補助（商品）
+    if (e.pattern_code === 'C01') for (const p of pairs) { const inv = [p.dr, p.cr].find(x => x?.account === '1360' && x.sub); if (inv) for (const x of [p.dr, p.cr]) if (x) x.memo1 = `${inv.sub} ${inv.subName}`.trim(); }
     const total = dr.reduce((n, l) => n + Number(l.amount), 0);
-    return { id: e.journal_id, date: e.journal_date, slipNo: slipNo(e.pattern_code, e.journal_id), sourceNo: s.no, status: e.reversal_of ? `逆仕訳（#${e.reversal_of}）` : e.status === 'REVERSED' ? '取消済' : '', pairs, total };
+    return { id: e.journal_id, date: e.journal_date, slipNo: e.slip_no || String(e.journal_id), sourceNo: s.no, status: e.reversal_of ? `逆仕訳（#${e.reversal_of}）` : e.status === 'REVERSED' ? '取消済' : '', pairs, total };
   });
   // NO8: 現行の売掛金計上は締日単位で一括、1伝票に最大45得意先程度で分割（Q08・推定）。
   if (q.pattern === 'A01' && q.group !== 'none') {

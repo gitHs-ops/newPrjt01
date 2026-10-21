@@ -4,7 +4,8 @@ import { rows, one, NUMBERING } from './db.mjs';
 import { SYSTEM_ACCOUNTS } from './masters.mjs';
 import { TABLES } from './ledger.mjs';
 import { hashPassword, verifyPassword, ROLES } from './users.mjs';
-import { prepareKb } from './kb.mjs';
+import { prepareKb, getsudoMigration } from './kb.mjs';
+import { SLIP_SERIES, SLIP_SEED, formatSlipNo } from './db.mjs';
 import { CUMULATIVE_SQL } from './sales.mjs';
 
 export const MENUS = [
@@ -21,6 +22,15 @@ export const MENUS = [
 //  伝票区分 A0009：2 は他社納入（旧本システムの訂正 2）→ 訂正は 5 に変更
 //  商品の製品・材料区分：2 製品 / 1 材料（旧本システムは逆）／ delete_f：有効は空（旧 '0'）
 //  ロール：参照者 3 → 5（3 は現行の manager）／ 採番：キー 1〜5 → 101〜105（1〜6 は現行が使用）／ payment_money は常に 金額＋税
+async function slipNoBackfill(pool) {
+  for (const [series, seed] of Object.entries(SLIP_SEED)) await pool.query('INSERT IGNORE INTO app_slip_series (series,last_no) VALUES (?,?)', [series, seed]);
+  const pats = Object.keys(SLIP_SERIES);
+  const [missing] = await pool.query(`SELECT journal_id, pattern_code FROM journal_entry e WHERE pattern_code IN (${pats.map(() => '?').join(',')}) AND NOT EXISTS (SELECT 1 FROM app_slip_no n WHERE n.journal_id=e.journal_id) ORDER BY journal_date, journal_id`, pats);
+  if (!missing.length) return;
+  const [cur] = await pool.query('SELECT series, last_no FROM app_slip_series'), last = Object.fromEntries(cur.map(r => [r.series, Number(r.last_no)]));
+  for (const e of missing) { const s = SLIP_SERIES[e.pattern_code]; last[s] += 1; await pool.query('INSERT INTO app_slip_no (journal_id,slip_no) VALUES (?,?)', [e.journal_id, formatSlipNo(s, last[s])]); }
+  for (const [s, n] of Object.entries(last)) await pool.query('UPDATE app_slip_series SET last_no=? WHERE series=?', [n, s]);
+}
 async function compatMigration(pool) {
   const [[done]] = await pool.query("SELECT 1 x FROM code_m WHERE code_key='SET' AND code_dtl='CMP1021'");
   if (done) return;
@@ -82,6 +92,10 @@ export async function prepare(pool, env = process.env) {
   await pool.query('CREATE INDEX IF NOT EXISTS ix_session_user ON app_session (user_id)');
   await pool.query('CREATE INDEX IF NOT EXISTS ix_session_expiry ON app_session (expires_at)');
   await pool.query(`CREATE TABLE IF NOT EXISTS app_period_close (period varchar(7) COLLATE "C" PRIMARY KEY, closed_at timestamp(6) NOT NULL, closed_by varchar(256) COLLATE "C" NOT NULL)`);
+  // 伝票番号（現行の系列連番を引継ぎ）。既存仕訳には日付・ID順で一度だけ採番する。
+  await pool.query(`CREATE TABLE IF NOT EXISTS app_slip_series (series varchar(4) COLLATE "C" PRIMARY KEY, last_no integer NOT NULL)`);
+  await pool.query(`CREATE TABLE IF NOT EXISTS app_slip_no (journal_id bigint PRIMARY KEY, slip_no varchar(12) COLLATE "C" NOT NULL)`);
+  await slipNoBackfill(pool);
   // 2026-10-21 再構成：仕入の区分・運賃行、定時請求の請求No（業者ごと4桁）、明細の摘要コード（工事コード7桁）。44表設計への列追加。
   await pool.query(`ALTER TABLE purchase ADD COLUMN IF NOT EXISTS purchase_kb varchar(1) COLLATE "C" NOT NULL DEFAULT '1'`);
   await pool.query(`ALTER TABLE purchase ADD COLUMN IF NOT EXISTS line_kind varchar(1) COLLATE "C" NOT NULL DEFAULT '1'`);
@@ -98,10 +112,12 @@ export async function prepare(pool, env = process.env) {
   await pool.query("INSERT IGNORE INTO code_m (code_key,code_key_nam,code_dtl,code_dtl_nam,code_dtl_abr,category1,category2,category3) VALUES ('DEPT','部門','063','工場（部門063）','','1','','')");
   // NO6: billing is per customer. Older per-site heads that are the only head of their customer/closing become customer-level.
   await pool.query("UPDATE billing_head h SET field_cd='', field_suffix='' FROM (SELECT customers_cd, closing_yymm, closing_date FROM billing_head GROUP BY customers_cd, closing_yymm, closing_date HAVING COUNT(*)=1) o WHERE o.customers_cd=h.customers_cd AND o.closing_yymm=h.closing_yymm AND o.closing_date=h.closing_date AND h.field_cd<>''");
+  await pool.query("INSERT IGNORE INTO account_subsubject (account_code,sub_code,sub_name,active) SELECT '1113', code_dtl, LEFT(code_dtl_nam,100), category1<>'0' FROM code_m WHERE code_key='BANK'");
   await pool.query("INSERT IGNORE INTO account_subsubject (account_code,sub_code,sub_name,active) SELECT '1112', code_dtl, LEFT(code_dtl_nam,100), category1<>'0' FROM code_m WHERE code_key='BANK'");
   await pool.query(`INSERT IGNORE INTO company_info_m (company_info_id,company_name1,company_name2,company_kana1,company_kana2,company_abr,plant_name,plant_kana,plant_mgr,postcode,pref,addr1,addr2,tel_no,fax_no,saisyuturyoku_word,closing_m,closing_d,tax_round,package_nam,package_ver,trading_day,claim_typ,proceed_round,n_pr_kind)
-    VALUES (1,'サンプル建材株式会社','（架空・デモ用）','サンプルケンザイ','','サンプル建材','サンプル工場','','','0000000','東京都','架空区デモ町1-2-3','','00-0000-0000','00-0000-0001','再発行',3,31,'1','APLink請求入金',1.00,NULL,'1','1','1')`);
+    VALUES (1,'サンプル建材株式会社','（架空・デモ用）','サンプルケンザイ','','サンプル建材','サンプル工場','','','0000000','東京都','架空区デモ町1-2-3','','00-0000-0000','00-0000-0001','再発行',10,20,'1','APLink請求入金',1.00,NULL,'1','1','1')`);
   await compatMigration(pool);
+  await getsudoMigration(pool);
   await javaCodes(pool, env);
   for (const [id, name] of Object.entries(ROLES)) await pool.query('INSERT INTO roles (role_id,role_name) VALUES (?,?) ON DUPLICATE KEY UPDATE role_name=VALUES(role_name)', [Number(id), name]);
   for (const [id, title, url, icon, grp] of MENUS) {

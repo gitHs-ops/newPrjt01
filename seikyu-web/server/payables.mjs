@@ -1,6 +1,7 @@
 import { check, Conflict, yen, qty, lineAmount, isoDate, isoMonth, text, dueDate } from './domain.mjs';
 import { rows, one, nextNo, assertOpen, audit, postJournal, reverseJournal, line } from './db.mjs';
 import { mustDecode, taxOf, CATALOG } from './taxcode.mjs';
+import { companyPeriod } from './period.mjs';
 
 const monthWhere = (col, q, w, args) => { if (q.month) { isoMonth(q.month); w.push(`to_char(${col},'YYYY-MM')=?`); args.push(q.month); } };
 async function vendorOf(c, code) { const v = await one(c, 'SELECT * FROM vendor WHERE vendor_code=?', [String(code || '')]); check(v && v.active, '有効な業者を選択してください'); return v; }
@@ -57,23 +58,35 @@ export async function deletePurchase(c, ctx, { id }) {
 }
 
 // ---------- 在庫計上 (inventory_count, monthly valuation, journal C01) ----------
-const monthEnd = m => new Date(Date.UTC(+m.slice(0, 4), +m.slice(5, 7), 0)).toISOString().slice(0, 10);
 export async function listInventory(c, q = {}) {
   const w = [], args = [];
   if (q.month) { isoMonth(q.month); w.push('n.period_start=?'); args.push(q.month + '-01'); }
   const rs = await rows(c, `SELECT n.*, i.item_nam, unit_name(i.unit) unit FROM inventory_count n LEFT JOIN item_m i ON i.item_cd=n.item_cd ${w.length ? 'WHERE ' + w.join(' AND ') : ''} ORDER BY n.period_start DESC, n.item_cd LIMIT 1000`, args);
   return rs.map(r => ({ id: r.inventory_id, month: r.period_start.slice(0, 7), item: r.item_cd, itemName: r.item_nam, unit: r.unit, location: r.location_code, countedOn: r.counted_on, quantity: Number(r.quantity), price: Number(r.valuation_price), value: Number(r.valuation_amount), status: r.status }));
 }
+// 棚卸の振替仕訳は月度ごとに1伝票（現行 C01：期首在庫→82316／期末在庫←82316、1360 の補助＝商品コード、処税率 9）。登録・取消のたびに月度分を組み直す。
+async function repostInventoryMonth(c, month, date) {
+  const list = await rows(c, "SELECT i.*, m.item_nam FROM inventory_count i LEFT JOIN item_m m ON m.item_cd=i.item_cd WHERE i.period_start=? AND i.location_code='MAIN' AND i.status='POSTED' ORDER BY i.item_cd", [month + '-01']);
+  for (const r of list) await reverseJournal(c, { sourceType: 'inventory_count', sourceId: r.inventory_id, date }); // 旧：商品別伝票
+  await reverseJournal(c, { sourceType: 'inventory_month', sourceId: month.replace('-', ''), date });
+  const lines = [];
+  for (const r of list) {
+    const prior = await one(c, "SELECT valuation_amount FROM inventory_count WHERE item_cd=? AND location_code='MAIN' AND period_start<? AND status='POSTED' ORDER BY period_start DESC LIMIT 1", [r.item_cd, month + '-01']);
+    const previous = Number(prior?.valuation_amount || 0), value = Number(r.valuation_amount);
+    await c.query('INSERT IGNORE INTO account_subsubject (account_code,sub_code,sub_name,active) VALUES (?,?,?,TRUE)', ['1360', r.item_cd, String(r.item_nam || r.item_cd).slice(0, 100)]);
+    lines.push(line('D', '82316', previous, { dept: '063', tax: '9' }), line('C', '1360', previous, { sub: r.item_cd, tax: '9' }), line('D', '1360', value, { sub: r.item_cd, tax: '9' }), line('C', '82316', value, { dept: '063', tax: '9' }));
+  }
+  if (lines.some(l => l.amount)) await postJournal(c, { date, pattern: 'C01', sourceType: 'inventory_month', sourceId: month.replace('-', ''), lines });
+}
 export async function saveInventory(c, ctx, p) {
-  const month = isoMonth(p.month, '計上月'), end = monthEnd(month); await assertOpen(c, end);
+  const month = isoMonth(p.month, '計上月'), end = (await companyPeriod(c)).closeOf(+month.slice(0, 4), +month.slice(5, 7)); await assertOpen(c, end);
   const it = await one(c, 'SELECT * FROM item_m WHERE item_cd=?', [String(p.item || '')]); check(it, '商品を選択してください');
   const q = qty(p.quantity, '月末在庫数量', { max: 99999999, positive: false }), price = yen(p.price, '評価単価', { max: 99999999 }), value = lineAmount(q, price);
   check(!(await one(c, "SELECT 1 x FROM inventory_count WHERE item_cd=? AND location_code='MAIN' AND period_start>? LIMIT 1", [it.item_cd, month + '-01'])), '後の月の在庫が登録済みです');
   const prior = await one(c, "SELECT valuation_amount FROM inventory_count WHERE item_cd=? AND location_code='MAIN' AND period_start<? AND status='POSTED' ORDER BY period_start DESC LIMIT 1", [it.item_cd, month + '-01']);
   const previous = Number(prior?.valuation_amount || 0);
   const [r] = await c.query("INSERT INTO inventory_count (period_start,location_code,item_cd,counted_on,quantity,valuation_price,valuation_amount,status) VALUES (?,'MAIN',?,?,?,?,?,'POSTED')", [month + '-01', it.item_cd, end, q.text, price, value]);
-  if (value || previous) await postJournal(c, { date: end, pattern: 'C01', sourceType: 'inventory_count', sourceId: r.insertId, lines: [
-    line('D', '82316', previous, { dept: '063', tax: '9' }), line('C', '1360', previous, { tax: '9' }), line('D', '1360', value, { tax: '9' }), line('C', '82316', value, { dept: '063', tax: '9' })] });
+  await repostInventoryMonth(c, month, end);
   await audit(c, ctx, 'inventory_count', r.insertId, 'inventory.create', { month, item: it.item_cd, value, previous });
   return { id: r.insertId, value, previous };
 }
@@ -83,6 +96,7 @@ export async function deleteInventory(c, ctx, { id }) {
   check(!(await one(c, 'SELECT 1 x FROM inventory_count WHERE item_cd=? AND location_code=? AND period_start>? LIMIT 1', [r.item_cd, r.location_code, r.period_start])), '後の月の在庫を先に取消してください');
   await reverseJournal(c, { sourceType: 'inventory_count', sourceId: r.inventory_id, date: r.counted_on });
   await c.query('DELETE FROM inventory_count WHERE inventory_id=?', [r.inventory_id]);
+  await repostInventoryMonth(c, String(r.period_start).slice(0, 7), String(r.counted_on).slice(0, 10));
   await audit(c, ctx, 'inventory_count', r.inventory_id, 'inventory.delete', { month: r.period_start.slice(0, 7), item: r.item_cd });
   return { id: r.inventory_id };
 }
@@ -130,12 +144,13 @@ export async function createExpense(c, ctx, p) {
     const acc = await one(c, 'SELECT * FROM account_subject WHERE account_code=?', [String(l.account || '')]); check(acc?.active, `${label}: 有効な勘定科目を選択してください`);
     const sub = String(l.sub || '') || null;
     if (sub) check(await one(c, 'SELECT 1 x FROM account_subsubject WHERE account_code=? AND sub_code=? AND active', [acc.account_code, sub]), `${label}: 内訳科目が上位科目に登録されていません`);
-    const amount = yen(l.amount, `${label}の金額`); check(amount > 0, `${label}: 金額を入力してください`);
-    const tax = mustDecode(l.taxCode || '141', `${label}の処税率`).code, taxAmt = taxOf(amount, tax);
+    const amount = yen(l.amount, `${label}の金額`, { negative: true }); check(amount !== 0, `${label}: 金額を入力してください`); // マイナス行（戻し・値引）は貸方に計上
+    const tax = mustDecode(l.taxCode || '141', `${label}の処税率`).code, taxAmt = Math.sign(amount) * taxOf(Math.abs(amount), tax);
     ls.push({ account: acc.account_code, sub, tax, amount, taxAmt, memoCode: text(l.memoCode, `${label}の摘要コード`, 7, { required: false, pattern: /^\d{1,7}$/ }), memo: text(l.memo, `${label}の摘要名`, 500, { required: false }) });
   }
   check(ls.length, '明細を入力してください'); check(ls.length <= 99, '明細は99行以内です');
-  const amount = ls.reduce((n, l) => n + l.amount, 0), memo = text(p.memo || ls[0].memo || (kind === 'PAYABLE' ? '定時請求' : '小口現金'), '摘要', 500), no = await nextNo(c, 'expense');
+  const amount = ls.reduce((n, l) => n + l.amount, 0); check(amount > 0, '合計金額がマイナスまたは0です');
+  const memo = text(p.memo || ls[0].memo || (kind === 'PAYABLE' ? '定時請求' : '小口現金'), '摘要', 500), no = await nextNo(c, 'expense');
   let billNo = null;
   if (kind === 'PAYABLE') {
     const m = await one(c, "SELECT MAX(CAST(bill_no AS INTEGER)) n FROM expense_document WHERE vendor_id=? AND bill_no ~ '^[0-9]+$'", [v.vendor_id]);
@@ -146,7 +161,7 @@ export async function createExpense(c, ctx, p) {
     await c.query('INSERT INTO expense_line (expense_id,line_no,account_code,sub_code,department_code,source_tax_code,net_amount,tax_amount,gross_amount,memo,memo_code) VALUES (?,?,?,?,?,?,?,?,?,?,?)',
       [r.insertId, i + 1, l.account, l.sub, dept, l.tax, l.amount - l.taxAmt, l.taxAmt, l.amount, payee && i === 0 ? payee : l.memo || memo, l.memoCode || null]);
   await postJournal(c, { date, pattern: kind === 'PAYABLE' ? 'D01' : 'E01', sourceType: 'expense_document', sourceId: r.insertId, lines: [
-    ...ls.map(l => line('D', l.account, l.amount, { sub: l.sub, dept, tax: l.tax })), kind === 'PAYABLE' ? line('C', '4121', amount, { vendor: v.vendor_id, tax: '9' }) : line('C', '1111', amount, { tax: '9' })] });
+    ...ls.map(l => line(l.amount < 0 ? 'C' : 'D', l.account, Math.abs(l.amount), { sub: l.sub, dept, tax: l.tax })), kind === 'PAYABLE' ? line('C', '4121', amount, { vendor: v.vendor_id, tax: '9' }) : line('C', '1111', amount, { tax: '9' })] });
   await audit(c, ctx, 'expense_document', r.insertId, kind === 'PAYABLE' ? 'payable.create' : 'pettycash.create', { no, billNo, vendor: v?.vendor_code, lines: ls.length, amount });
   return { id: r.insertId, no, billNo, due };
 }
@@ -201,7 +216,7 @@ export async function createPayment(c, ctx, p) {
   const [r] = await c.query("INSERT INTO payment (payment_no,vendor_id,paid_on,bank_account_id,bank_amount,fee_amount,offset_amount,status,idempotency_key) VALUES (?,?,?,?,?,?,?,'POSTED',?)", [no, v.vendor_id, date, v.bank_account_id, bank, fee, offset, idem]);
   for (const a of allocs) await c.query('INSERT INTO payment_allocation (payment_id,expense_id,amount) VALUES (?,?,?)', [r.insertId, a.id, a.amount]);
   await postJournal(c, { date, pattern: 'F01', sourceType: 'payment', sourceId: r.insertId, lines: [line('D', '4121', total, { vendor: v.vendor_id, tax: '9' }), line('C', '1112', bank, { sub: bankCode, tax: '9' }),
-    line('C', '8790', fee - Math.floor(fee * 10 / 110), { sub: '001', dept: '063', tax: '11' }), line('C', '4415', Math.floor(fee * 10 / 110), { tax: '9' }), line('C', '1431', offset, { vendor: v.vendor_id, tax: '9' }), line('C', '4171', safety, { vendor: v.vendor_id, tax: '9' })] });
+    line('C', '8790', fee, { sub: '001', tax: '9' }), line('C', '1431', offset, { vendor: v.vendor_id, tax: '9' }), line('C', '4171', safety, { vendor: v.vendor_id, tax: '9' })] });
   await audit(c, ctx, 'payment', r.insertId, 'payment.create', { no, vendor: v.vendor_code, amount: total, bank, fee, offset, safety, documents: allocs.map(a => a.id) });
   return { id: r.insertId, no };
 }
@@ -217,7 +232,7 @@ export async function reversePayment(c, ctx, { id }) {
 // ---------- 小口現金の定額資金設定と現金補充（仕訳パターン G-03 相当：現金／当座預金） ----------
 export async function pettySettings(c) {
   const r = await one(c, "SELECT code_dtl_abr v FROM code_m WHERE code_key='SET' AND code_dtl='PETTYFUND'");
-  const refills = await rows(c, "SELECT e.journal_id id, e.journal_date date, e.status, l.amount, (SELECT sub_code FROM journal_line x WHERE x.journal_id=e.journal_id AND x.account_code='1112' LIMIT 1) bank FROM journal_entry e JOIN journal_line l ON l.journal_id=e.journal_id AND l.account_code='1111' AND l.side='D' WHERE e.source_type='petty_refill' AND e.reversal_of IS NULL ORDER BY e.journal_date DESC LIMIT 50");
+  const refills = await rows(c, "SELECT e.journal_id id, e.journal_date date, e.status, l.amount, (SELECT sub_code FROM journal_line x WHERE x.journal_id=e.journal_id AND x.account_code IN ('1112','1113') AND x.side='C' LIMIT 1) bank FROM journal_entry e JOIN journal_line l ON l.journal_id=e.journal_id AND l.account_code='1111' AND l.side='D' WHERE e.source_type='petty_refill' AND e.reversal_of IS NULL ORDER BY e.journal_date DESC LIMIT 50");
   return { fund: Number(r?.v || 100000), fundSet: !!r, refills: refills.map(x => ({ ...x, amount: Number(x.amount) })) };
 }
 export async function savePettyFund(c, ctx, p) {
@@ -232,7 +247,7 @@ export async function pettyRefill(c, ctx, p) {
   const amount = yen(p.amount, '補充額'); check(amount > 0, '補充額を入力してください');
   const bankCode = String(p.bankCode || ''); const b = await one(c, "SELECT category1 FROM code_m WHERE code_key='BANK' AND code_dtl=?", [bankCode]); check(b && b.category1 !== '0', '引出口座（銀行）を選択してください');
   const id = 'PR' + date.replaceAll('-', '') + '-' + Date.now().toString(36);
-  const jid = await postJournal(c, { date, pattern: 'G03', sourceType: 'petty_refill', sourceId: id, lines: [line('D', '1111', amount, { tax: '9' }), line('C', '1112', amount, { sub: bankCode, tax: '9' })] });
+  const jid = await postJournal(c, { date, pattern: 'G03', sourceType: 'petty_refill', sourceId: id, lines: [line('D', '1111', amount, { tax: '9' }), line('C', '1113', amount, { sub: bankCode, tax: '9' })] }); // 現行：普通預金 1113 からの引出（補助＝銀行）
   await audit(c, ctx, 'journal_entry', jid, 'petty.refill', { date, amount, bank: bankCode });
   return { id: jid };
 }

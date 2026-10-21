@@ -14,8 +14,13 @@ export function installKb(h) {
     return { code: s, name: `${K.taxKinds[k]}${taxable ? ' ' + rate + '%' : ''}`, rate, taxable, excl: taxable && (s[0] === '2' || (s[0] === '0' && k === 1)) };
   }
   const money = v => `<span class="${v < 0 ? 'kb-neg' : ''}">${yen(v)}</span>`;
-  const monthEnd = m => new Date(Date.UTC(+m.slice(0, 4), +m.slice(5, 7), 0)).toISOString().slice(0, 10);
-  const thisMonth = () => today().slice(0, 7);
+  // 会計月度（自社情報の締日：20＝21日〜20日、31＝暦月）。ラベル YYYY-MM＝締日の属する月
+  const lastDay = (y, m) => new Date(Date.UTC(y, m, 0)).getUTCDate();
+  const closeOf = m => { const y = +m.slice(0, 4), mm = +m.slice(5, 7); return `${m}-${String(Math.min(K.fiscal.closingDay || 31, lastDay(y, mm))).padStart(2, '0')}`; };
+  const monthEnd = m => closeOf(m);
+  const monthStart = m => { const d = new Date(closeOf(addMonths(m, -1)) + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() + 1); return d.toISOString().slice(0, 10); };
+  const labelOf = iso => (iso <= closeOf(iso.slice(0, 7)) ? iso.slice(0, 7) : addMonths(iso.slice(0, 7), 1));
+  const thisMonth = () => labelOf(today());
   const tabs = (cur, list) => `<div class="tabs">${list.map(([k, label]) => `<button class="${cur === k ? 'active' : ''}" data-act="tab" data-tab="${k}">${esc(label)}</button>`).join('')}</div>`;
   const dateInput = (name, value, label) => `<label class="kb-inline">${esc(label)}<input type="date" name="${name}" value="${esc(value)}" data-filter></label>`;
   const xlsxLink = (path, q) => `<a class="button" href="/api/kb/${path}?${qs({ ...q, format: 'xlsx' })}" download>⇩ Excel</a>`;
@@ -40,19 +45,22 @@ export function installKb(h) {
   const deptOptions = (value, blank = '（部門なし）') => `<option value="">${esc(blank)}</option>` + (masters().depts || []).filter(d => d.active || d.code === value).map(d => `<option value="${esc(d.code)}" ${d.code === value ? 'selected' : ''}>${esc(d.code + ' ' + d.name)}</option>`).join('');
   const taxOptions = value => (value && !K.taxes.some(t => t.code === value) && TAX(value) ? [TAX(value), ...K.taxes] : K.taxes).map(t => `<option value="${t.code}" ${t.code === value ? 'selected' : ''}>${esc(t.code + ' ' + t.name)}</option>`).join('');
   const fyOptions = value => K.fiscal.years.map(y => `<option value="${y.fy}" ${Number(value) === y.fy ? 'selected' : ''}>${esc(y.label)}</option>`).join('');
-  const fyOf = iso => (+iso.slice(5, 7) >= K.fiscal.startMonth ? +iso.slice(0, 4) : +iso.slice(0, 4) - 1);
-  const fyRange = fy => K.fiscal.years.find(y => y.fy === fy) || { from: `${fy}-${String(K.fiscal.startMonth).padStart(2, '0')}-01`, to: monthEnd(addMonths(`${fy}-${String(K.fiscal.startMonth).padStart(2, '0')}`, 11)) };
-  // 期間：指定がなければ当月。プリセット（当月・前月・期首から当月・年度）を data-act で切替。
-  const periodOf = q => ({ from: q.from || thisMonth() + '-01', to: q.to || monthEnd(thisMonth()) });
+  const fyOf = iso => (iso > closeOf(`${iso.slice(0, 4)}-${String(K.fiscal.closingMonth).padStart(2, '0')}`) ? +iso.slice(0, 4) : +iso.slice(0, 4) - 1);
+  const fyRange = fy => K.fiscal.years.find(y => y.fy === fy) || { from: monthStart(addMonths(`${fy}-${String(K.fiscal.closingMonth).padStart(2, '0')}`, 1)), to: closeOf(`${fy + 1}-${String(K.fiscal.closingMonth).padStart(2, '0')}`) };
+  // 期間：指定がなければ当月度。プリセット（前月度・単月度・期首から当月度・年度）を data-act で切替。
+  const periodOf = q => ({ from: q.from || monthStart(thisMonth()), to: q.to || monthEnd(thisMonth()) });
+  // プリセットはドキュメントで受ける（periodBar は await の後に呼ばれるため、画面ごとの actions に登録すると前画面に付いてしまう）
+  document.addEventListener('click', e => {
+    const b = e.target.closest('[data-kbp]'); if (!b) return;
+    e.preventDefault();
+    const q = route().q, p = b.dataset.kbp, base = labelOf(q.to || today()), m = p === 'prev' ? addMonths(base, -1) : p === 'next' ? addMonths(base, 1) : base;
+    if (p === 'cum') { const r = fyRange(fyOf(monthEnd(base))); return go(route().name, { ...q, from: r.from, to: monthEnd(base) }); }
+    if (p === 'fy') { const r = fyRange(fyOf(monthEnd(base))); return go(route().name, { ...q, from: r.from, to: r.to }); }
+    go(route().name, { ...q, from: monthStart(m), to: monthEnd(m) });
+  });
   function periodBar(q, { presets = true } = {}) {
-    const A = acts(), p = periodOf(q);
-    A.preset = d => {
-      const base = (q.to || today()).slice(0, 7), m = d.p === 'prev' ? addMonths(base, -1) : d.p === 'next' ? addMonths(base, 1) : base;
-      if (d.p === 'cum') { const r = fyRange(fyOf(base + '-01')); return go(route().name, { ...route().q, from: r.from, to: monthEnd(base) }); }
-      if (d.p === 'fy') { const r = fyRange(fyOf(base + '-01')); return go(route().name, { ...route().q, from: r.from, to: r.to }); }
-      go(route().name, { ...route().q, from: m + '-01', to: monthEnd(m) });
-    };
-    return `${dateInput('from', p.from, '自')}${dateInput('to', p.to, '至')}${presets ? `<span class="kb-presets"><button class="mini quiet" data-act="preset" data-p="prev">◀ 前月</button><button class="mini quiet" data-act="preset" data-p="month">単月</button><button class="mini quiet" data-act="preset" data-p="next">翌月 ▶</button><button class="mini quiet" data-act="preset" data-p="cum">期首〜当月</button><button class="mini quiet" data-act="preset" data-p="fy">年度</button></span>` : ''}`;
+    const p = periodOf(q);
+    return `${dateInput('from', p.from, '自')}${dateInput('to', p.to, '至')}${presets ? `<span class="kb-presets"><button class="mini quiet" data-kbp="prev">◀ 前月</button><button class="mini quiet" data-kbp="month">単月</button><button class="mini quiet" data-kbp="next">翌月 ▶</button><button class="mini quiet" data-kbp="cum">期首〜当月</button><button class="mini quiet" data-kbp="fy">年度</button></span>` : ''}`;
   }
   const deptFilter = value => `<select name="dept" data-filter>${deptOptions(value, 'すべての部門')}</select>`;
 
@@ -68,6 +76,24 @@ export function installKb(h) {
   };
   const rowHtml = (r = {}, i = 0) => `<div class="kb-row"><div class="kb-rowno">${i + 1}</div>${sideHtml('D', r.dr || {})}<div class="kb-memo"><textarea data-kb="memo" rows="3" placeholder="摘要" aria-label="摘要">${esc(r.memo || '')}</textarea></div>${sideHtml('C', r.cr || {})}<button type="button" class="mini quiet kb-delrow" data-kbrow="del" title="行を削除" aria-label="行を削除">×</button></div>`;
   const num = v => Number(String(v || '').replace(/[,\s]/g, '')) || 0;
+  // 定型仕訳（現行 仕訳帳 AC2205 の手入力伝票で繰り返し現れる組合せ）。金額・業者補助は入力時に指定。
+  const S = (account, sub = '', tax = '', dept = '') => ({ account, sub, tax, dept });
+  const TEMPLATES = [
+    ['振込手数料（普通預金）', [[S('8330', '101', '141', '063'), S('1113', '041')]]],
+    ['振込手数料（当座預金）', [[S('8330', '101', '141', '063'), S('1112', '041')]]],
+    ['小口現金の補充（普通預金→現金）', [[S('1111'), S('1113', '041')]]],
+    ['現金売上の預入（現金→当座預金）', [[S('1112', '041'), S('1111')]]],
+    ['普通預金→当座預金 振替', [[S('1112', '041'), S('1113', '042')]]],
+    ['受取手形 期日入金', [[S('1113', '042'), S('1120')]]],
+    ['受取利息', [[S('1113', '041'), S('8610')]]],
+    ['雑収入（鉄くず売却等）', [[S('1112', '041'), S('8790', '030', '111', '063')]]],
+    ['JV 出資金の請求（未収入金／構成員出資金）', [[S('1450'), S('4199')]]],
+    ['JV 出資金の入金', [[S('1112', '041'), S('1450')]]],
+    ['JV 分配金の確定', [[S('1480'), S('4140')], [{}, S('4199')]]],
+    ['JV 分配金の支払', [[S('4140'), S('1112', '041')]]],
+    ['消費税の精算（仮受／仮払・差額）', [[S('4415'), S('1465')], [{}, S('7322')]]],
+    ['前払費用の振替（保険料）', [[S('8329', '110', '070', '063'), S('1420')]]],
+  ];
   function autoTax(sideEl) {
     const t = TAX($('[data-kb=tax]', sideEl).value), amt = num($('[data-kb=amount]', sideEl).value), ti = $('[data-kb=taxAmount]', sideEl);
     if (ti.dataset.manual) return;
@@ -133,6 +159,12 @@ export function installKb(h) {
       } catch (e) { $('#kb-err').textContent = e.message; } finally { btn.disabled = false; }
     };
     A.clear = () => go('kb-entry', { date: $('#kb-slip').date.value, t: Date.now() });
+    A.tpl = () => {
+      const t = TEMPLATES[Number($('#kb-tpl').value)]; if (!t) return;
+      $('#kb-rows').innerHTML = t[1].map(([dr, cr], i) => rowHtml({ dr, cr, memo: t[0] }, i)).join('');
+      if (!$('#kb-slip').memo.value) $('#kb-slip').memo.value = t[0];
+      slipTotals(); $('#kb-rows [data-kb=amount]')?.focus();
+    };
     A.del = () => confirmBox('伝票の削除', `伝票No ${s.no}（${s.date}）を削除します。操作履歴には残ります。`, () => post('/api/kb/slips/delete', { id: s.id, version: s.version }).then(() => { toast('削除しました'); go('kb-journal', {}); }), '削除する');
     A.back = () => history.back();
     const head = s ? `伝票No <b>${s.no}</b> ／ ${badge(s.sourceName, s.source === 'MANUAL' ? '' : 'amber')} ${s.sourceRef ? `<span class="muted small">元仕訳 #${esc(s.sourceRef)}</span>` : ''} <span class="muted small">更新 ${esc(s.updatedBy)}</span>` : '<span class="muted">新規伝票（伝票No は登録時に年度内連番で採番）</span>';
@@ -141,6 +173,7 @@ export function installKb(h) {
       `<section class="card glass"><form id="kb-slip" data-id="${s?.id || ''}" data-version="${s?.version || ''}">
         <div class="kb-slip-head"><label class="field req"><span>伝票日付</span><input type="date" name="date" value="${esc(date)}" required></label>
           <label class="field wide"><span>伝票摘要</span><input name="memo" maxlength="100" value="${esc(s?.memo || '')}" placeholder="例）3月分 事務所家賃"></label><div class="kb-slip-info">${head}</div></div>
+        ${s ? '' : `<div class="filters"><label class="kb-inline">定型仕訳<select id="kb-tpl"><option value="">（選択）</option>${TEMPLATES.map((t, i) => `<option value="${i}">${esc(t[0])}</option>`).join('')}</select></label><button type="button" class="mini" data-act="tpl">明細に展開</button><span class="muted small">金額と業者などの補助を入力してください</span></div>`}
         <div class="kb-grid-head"><div></div><div>借方（科目・補助・部門／税区分・金額・税額）</div><div>摘要</div><div>貸方（科目・補助・部門／税区分・金額・税額）</div><div></div></div>
         <div id="kb-rows">${list.map(rowHtml).join('')}</div>
         <div class="kb-foot"><div class="filters"><button type="button" data-kbrow="add">＋ 行追加</button><button type="button" data-kbrow="balance" title="借方・貸方の差額を空欄側に入れます">貸借差額を補完</button></div>
@@ -401,8 +434,8 @@ export function installKb(h) {
       A.saveSettings = async (_, b) => { b.disabled = true; try { await post('/api/kb/settings', { startFy: $('#ks-fy').value, lockDate: $('#ks-lock').value }); await kb(true); toast('保存しました'); render(); } catch (e) { toast(e.message, true); } finally { b.disabled = false; } };
       const years = []; for (let y = K.fiscal.currentFy - 5; y <= K.fiscal.currentFy + 1; y++) years.push(y);
       body = `<div class="form-grid" style="max-width:720px">
-        <label class="field"><span>決算月</span><input value="${K.fiscal.closingMonth}月（期首 ${K.fiscal.startMonth}月）" readonly><small>マスタ管理「自社情報」の決算月に従います</small></label>
-        <label class="field"><span>導入年度（期首残高の基準）</span><select id="ks-fy" ${isAdmin() ? '' : 'disabled'}>${years.map(y => `<option value="${y}" ${y === K.fiscal.startFy ? 'selected' : ''}>${y}年度（${y}-${String(K.fiscal.startMonth).padStart(2, '0')}-01〜）</option>`).join('')}</select><small>導入期首より前の日付の伝票は入力できません</small></label>
+        <label class="field"><span>決算月・月度</span><input value="${K.fiscal.closingMonth}月決算・${K.fiscal.closingDay >= 31 ? '暦月（末締）' : `月度 ${K.fiscal.closingDay + 1}日〜${K.fiscal.closingDay}日`}" readonly><small>マスタ管理「自社情報」の決算月・月度締日に従います</small></label>
+        <label class="field"><span>導入年度（期首残高の基準）</span><select id="ks-fy" ${isAdmin() ? '' : 'disabled'}>${years.map(y => `<option value="${y}" ${y === K.fiscal.startFy ? 'selected' : ''}>${y}年度（${fyRange(y).from}〜）</option>`).join('')}</select><small>導入期首より前の日付の伝票は入力できません</small></label>
         <label class="field"><span>入力制限日</span><input type="date" id="ks-lock" value="${esc(K.fiscal.lockDate)}" ${isAdmin() ? '' : 'disabled'}><small>この日以前の伝票は登録・修正・削除・受入できません（月次締め）。空欄で制限なし</small></label></div>
         ${isAdmin() ? '<div class="filters"><button class="primary" data-act="saveSettings">保存</button></div>' : '<p class="muted small">変更は管理者のみです。</p>'}`;
     } else if (tab === 'bugyo') {

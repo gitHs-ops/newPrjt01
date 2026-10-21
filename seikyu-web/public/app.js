@@ -546,8 +546,8 @@ function expenseView(kind) {
       ${payable ? field('業者', `<select name="vendor">${options(active('vendors'), '', { blank: '選択してください' })}</select>`, { req: 1 }) + field('支払予定日', '<input type="date" name="due">', { hint: '未入力は業者マスタの支払繰延区分（未設定は翌月末）' })
         : field('支払先（業者）', `<select name="vendor">${options(active('vendors'), '', { blank: '（マスタにない支払先は右に入力）' })}</select>`) + field('支払先（自由入力）', '<input name="payee" maxlength="100" placeholder="例: 文具店">')}
       ${field('伝票摘要', '<input name="memo" maxlength="500">', { wide: 1 })}</div>${lineGrid('ex-lines', cols)}
-      <p class="muted small">${payable ? '請求No は業者ごとの4桁連番で自動採番。合計は明細から自動集計します。摘要コード（7桁）は工事コード（中部舗材で使用）。' : '支払先はマスタ選択か自由入力。合計は明細から自動集計します。'}</p>`,
-      onOpen: () => { const g = $('#ex-lines'); g.addEventListener('change', e => { if (e.target.name === 'account') e.target.closest('tr').querySelector('[name=sub]').innerHTML = '<option value="">（なし）</option>' + options(active('subaccounts').filter(s => s.account === e.target.value), ''); lineTotal('ex-lines'); }); g.addEventListener('input', () => lineTotal('ex-lines')); },
+      <p class="muted small">${payable ? '請求No は業者ごとの4桁連番で自動採番。合計は明細から自動集計します。摘要コード（7桁）は工事コード（中部舗材で使用）。科目を選ぶと既定の処税率に切り替わります。マイナス金額の行は貸方（戻し）に計上します。' : '支払先はマスタ選択か自由入力。合計は明細から自動集計します。科目を選ぶと既定の処税率に切り替わります。マイナス金額の行は貸方（戻し）に計上します。'}</p>`,
+      onOpen: () => { const g = $('#ex-lines'); g.addEventListener('change', e => { if (e.target.name === 'account') { const tr = e.target.closest('tr'), acc = masters.accounts.find(a => a.code === e.target.value); tr.querySelector('[name=sub]').innerHTML = '<option value="">（なし）</option>' + options(active('subaccounts').filter(s => s.account === e.target.value), ''); if (acc?.tax && tr.querySelector(`[name=taxCode] option[value="${acc.tax}"]`)) tr.querySelector('[name=taxCode]').value = acc.tax; } lineTotal('ex-lines'); }); g.addEventListener('input', () => lineTotal('ex-lines')); },
       onSubmit: async v => { const r = await post('/api/expenses', { kind, date: v.date, dept: v.dept, vendor: v.vendor, payee: v.payee, due: v.due, memo: v.memo, lines: readLines('ex-lines').map(l => ({ ...l, memo: l.lmemo })) });
         toast(`${r.no}${r.billNo ? '（請求No ' + r.billNo + '）' : ''} を登録しました${r.due ? '・支払予定日 ' + r.due : ''}（仕訳 ${payable ? 'D01' : 'E01'}）`); render(); } });
     A.rev = d => confirmBox('伝票の取消', `${d.no} を取消し、逆仕訳を計上します。`, () => post('/api/expenses/reverse', { id: Number(d.id) }).then(() => { toast('取消しました'); render(); }), '取消する');
@@ -735,7 +735,7 @@ async function pettyFundDialog() {
 async function pettyRefillDialog() {
   const s = await api('/api/petty/settings');
   modal({ title: '小口現金の補充（受入）', submit: '補充を登録', body: `<div class="form-grid">${field('補充日', `<input type="date" name="date" value="${today()}">`, { req: 1 })}${field('補充額（円）', '<input name="amount" class="num">', { req: 1 })}
-    ${field('引出口座', `<select name="bankCode">${options(active('banks'), active('banks')[0]?.code)}</select>`, { req: 1 })}</div><p class="muted small">仕訳: 現金 1111 ／ 当座預金 1112（G-03 相当、現行は手入力）。</p>
+    ${field('引出口座', `<select name="bankCode">${options(active('banks'), (active('banks').find(b => b.code === '041') || active('banks')[0])?.code)}</select>`, { req: 1 })}</div><p class="muted small">仕訳: 現金 1111 ／ 普通預金 1113（補助＝銀行、現行仕訳帳の小口補充）。</p>
     ${table([{ label: '補充日', value: r => r.date }, { label: '補充額', num: 1, value: r => yen(r.amount) }, { label: '引出口座', value: r => r.bank }], s.refills, { empty: '補充の履歴はありません' })}`,
     onSubmit: async v => { await post('/api/petty/refill', v); toast('現金補充を登録しました'); } });
 }

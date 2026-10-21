@@ -223,7 +223,7 @@ const signed = (side, acc, v, extra) => line(v >= 0 ? side : (side === 'D' ? 'C'
 async function postBillingJournal(c, id, end, customer, net, tax) {
   if (net + tax === 0 && net === 0) return;
   await postJournal(c, { date: end, pattern: 'A01', sourceType: 'billing_head', sourceId: id,
-    lines: [signed('D', '1131', net + tax, { customer, tax: '9' }), signed('C', '8130', net, { dept: '063', tax: '11' }), signed('C', '4415', tax, { tax: '9' })] });
+    lines: [signed('D', '1131', net + tax, { customer, tax: '9' }), signed('C', '8130', net, { customer, dept: '063', tax: '11' }), signed('C', '4415', tax, { customer, tax: '9' })] });
 }
 // 請求締め（NO6）: 当期締日までの未請求掛売上（前回締め後に入力された過去日付の売上・訂正伝票を含む）を得意先単位で請求。
 // 同じ締日の請求が未発行・未消込なら追加分を加算、発行済みなら次回締めで請求。マイナス（訂正のみ）はクレジット請求として作成。
