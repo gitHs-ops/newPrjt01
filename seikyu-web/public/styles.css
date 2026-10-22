@@ -391,3 +391,5 @@ tr.overdue td { background: rgba(254, 226, 226, .55); }
 table.rc-journal th { text-align: left; white-space: nowrap; }
 table.rc-journal td select { margin-top: 4px; max-width: 220px; }
 table.rc-journal tfoot th, table.rc-journal tfoot td { border-top: 2px solid var(--field-border); }
+table.rc-journal .rc-inline { display: flex; align-items: center; gap: 8px; margin-top: 4px; white-space: nowrap; }
+table.rc-journal .rc-inline input { width: auto; flex: 0 0 auto; }
