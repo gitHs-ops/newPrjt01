@@ -386,3 +386,8 @@ dialog.progress-dialog::backdrop { background: rgba(15,23,42,.35); }
 
 /* 入金予定一覧：入金予定日を過ぎた未入金の行 */
 tr.overdue td { background: rgba(254, 226, 226, .55); }
+
+/* 入金消込：仕訳明細入力（提案書 スライド20） */
+table.rc-journal th { text-align: left; white-space: nowrap; }
+table.rc-journal td select { margin-top: 4px; max-width: 220px; }
+table.rc-journal tfoot th, table.rc-journal tfoot td { border-top: 2px solid var(--field-border); }

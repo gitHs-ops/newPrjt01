@@ -481,8 +481,9 @@ export async function depositBalance(c, customer) {
   return base + over - num((await one(c, DEPOSIT_USED, [customer])).v);
 }
 export async function receiptContext(c, customer) {
-  const cu = String(customer || '');
-  const invoices = (await listInvoices(c, { customer: cu, status: 'open' })).filter(i => i.issues > 0).sort((a, b) => a.closing.localeCompare(b.closing));
+  // 得意先が空のときは全得意先の請求を返さない（未選択のまま消込対象が表示されて登録エラーになっていた）
+  const cu = String(customer || ''); if (!cu) return { invoices: [], deposit: 0 };
+  const invoices = (await listInvoices(c, { customer: cu, status: 'open' })).filter(i => i.issues > 0).sort((a, b) => a.closing.localeCompare(b.closing) || a.id - b.id);
   return { invoices, deposit: cu ? await depositBalance(c, cu) : 0 };
 }
 export const openInvoices = async (c, customer) => (await receiptContext(c, customer)).invoices;

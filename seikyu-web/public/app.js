@@ -322,7 +322,7 @@ function correctionForm(r) {
 }
 // 確認用：入力欄に架空のサンプル値を入れる（登録はしない）
 const SAMPLE_SITES = ['東名高速 豊田管内舗装補修工事', '市道3号線 舗装工事', '南町 駐車場整備工事', '北区 造成工事'];
-const sampleButton = '<div class="sample-bar"><button type="button" class="sample-btn" data-sample>🎲 サンプル入力</button><span class="muted small">架空の値を入れます（登録は「登録する」で）</span></div>';
+const sampleButton = '<div class="sample-bar"><button type="button" class="sample-btn" data-sample>🎲 サンプル入力</button><span class="muted small">架空の値を入れます（登録は下のボタンで）</span></div>';
 function fillSample(f, { plan = false } = {}) {
   const pick = list => list[Math.floor(Math.random() * list.length)], cus = active('customers'), items = active('items');
   if (cus.length) { f.customer.value = pick(cus).code; if (!f.siteCode) f.customer.dispatchEvent(new Event('change')); }
@@ -680,55 +680,77 @@ VIEWS.receipts = async q => {
       { label: '消込先(請求No)', value: r => r.allocations.map(a => `${a.invoiceId}`).join(', ') }, { label: '状態', html: r => status(r.status) },
       { label: '', html: r => canWrite() && r.status === 'POSTED' ? `<button class="mini danger" data-act="rev" data-id="${r.id}" data-no="${esc(r.no)}">取消</button>` : '' }], list, { empty: 'この条件の入金はありません', rowClass: r => r.status === 'REVERSED' ? 'reversed' : '' })}</section><div data-sub="schedule">${receiptScheduleCard()}</div>`);
 };
+// 入金消込（提案書 スライド20「消込画面」の並び）：消込対象（得意先×請求年月）→ 仕訳明細入力（当座預金・振込手数料・協力金・預り金・雑損失・値引き・現金）→ 消込金額 → 登録
+// 消込対象は最新の請求年月の1行に、請求残高（前月までの未入金）・当月請求金額・今回請求金額をまとめる。消込金額は請求No の古い順に自動配分（内訳で変更可）
+const RC_ROWS = [['bank', '当座預金（振込）', '当座預金 1112・入金口座の内訳'], ['fee', '振込手数料', '先方差引・雑費 8330-101（B-02）'], ['coop', '協力金', '協力会費・災防協会費の差引・雑費 8330-107（B-03）'],
+  ['deposit', '預り金', '預り金 4170 から充当（B-06）'], ['loss', '雑損失', '端数等・8850・対象外'], ['discount', '値引き', '8850（B-04）'], ['cash', '現金', '現金 1111']];
 function receiptForm(preset = '') {
   const key = uuid();
-  modal({ title: '入金消込', wide: true, submit: '入金を登録', body: `${sampleButton}<div class="form-grid">
-    ${field('得意先検索（部分一致）', '<input id="rc-search" placeholder="得意先名・コードの一部">')}${field('得意先', `<select name="customer" required>${options(masters.customers, '', { blank: '選択してください' })}</select>`, { req: 1 })}
-    ${field('入金日', `<input type="date" name="date" value="${today()}" required>`, { req: 1 })}${field('入金口座', `<select name="bankCode">${options(active('banks'), active('banks')[0]?.code)}</select>`, { hint: '当座預金 1112 の内訳' })}
-    ${field('振込額（当座預金）', '<input name="bank" class="num" value="0">')}${field('現金', '<input name="cash" class="num" value="0">')}
-    ${field('手形・でんさい', '<input name="notes" class="num" value="0">')}${field('手形期日', '<input type="date" name="noteDue">', { hint: '手形がある場合のみ' })}
-    ${field('振込手数料（先方差引）', '<input name="fee" class="num" value="0">', { hint: '雑費 8330-101（B-02）' })}${field('協力会費・災防協会費（差引）', '<input name="coop" class="num" value="0">', { hint: '雑費 8330-107（B-03）処税率は確認待ち Q04' })}
-    ${field('預り金充当', '<input name="deposit" class="num" value="0">', { hint: '預り金 4170（B-06）' })}${field('値引', '<input name="discount" class="num" value="0">', { hint: '8850（B-04）' })}${field('雑損失（端数等）', '<input name="loss" class="num" value="0">', { hint: '8850・対象外（提案書の消込画面）' })}
-    <label class="field wide"><span>差額の扱い</span><span><input type="checkbox" name="overpayToDeposit"> 消込後の差額（過入金）を預り金として受け入れる（貸方 預り金 4170）</span></label>
-    <div class="note wide" id="rc-total">入金合計: 0 円</div></div>
-    <h3 style="margin-top:14px">消込対象（得意先×請求年月・発行済みで残高あり）</h3><div id="rc-open" class="muted small">得意先を選択してください</div>
-    <div class="filters" style="margin-top:8px"><button type="button" id="rc-auto">古い順に自動配分</button><span id="rc-diff" class="small"></span></div>`,
+  const rcRow = ([k, l, h]) => `<tr><th>${esc(l)}</th><td><input name="${k}" class="num" value="0" style="width:150px"></td><td class="small muted">${esc(h)}${k === 'bank' ? `<br><select name="bankCode" aria-label="入金口座">${options(active('banks'), active('banks')[0]?.code)}</select>` : ''}${k === 'deposit' ? '<br><span id="rc-dep">預り金残高: -</span>' : ''}</td></tr>`;
+  modal({ title: '入金消込', wide: true, submit: '登録', body: `${sampleButton}<div class="form-grid">
+    ${field('得意先検索（部分一致）', '<input id="rc-search" placeholder="得意先名・コードの一部">')}${field('得意先', `<select name="customer">${options(masters.customers, '', { blank: '選択してください' })}</select>`, { req: 1 })}
+    ${field('入金日', `<input type="date" name="date" value="${today()}" required>`, { req: 1 })}</div>
+    <h3 style="margin-top:14px">消込画面</h3><div id="rc-open" class="muted small">得意先を選択してください</div>
+    <h3 style="margin-top:14px">仕訳明細入力</h3>
+    <div class="table-wrap"><table class="rc-journal"><thead><tr><th>科目</th><th class="num">金額</th><th>補足</th></tr></thead><tbody>${RC_ROWS.map(rcRow).join('')}
+      <tr class="muted"><th>手形・でんさい</th><td><input name="notes" class="num" value="0" style="width:150px"></td><td class="small">提案書にない項目（受取手形 1120）<br>手形期日 <input type="date" name="noteDue"></td></tr></tbody>
+      <tfoot><tr><th>消込金額</th><td class="num"><b id="rc-sum">0</b></td><td id="rc-diff" class="small"></td></tr></tfoot></table></div>
+    <label class="field wide" style="margin-top:8px"><span>差額の扱い</span><span><input type="checkbox" name="overpayToDeposit"> 今回請求金額を超えた分（過入金）を預り金として受け入れる（貸方 預り金 4170）</span></label>
+    <details id="rc-detail" style="margin-top:8px"><summary>請求No 別の消込内訳（古い順に自動配分。変更もできます）</summary><div id="rc-alloc" class="small muted" style="margin-top:6px">得意先を選択してください</div></details>`,
     onOpen: f => {
-      let ctx = { invoices: [], deposit: 0 };
+      let ctx = { invoices: [], deposit: 0 }, manual = false;
       const all = masters.customers;
-      $('#rc-search').oninput = e => { const t = e.target.value.trim(), cur = f.customer.value; f.customer.innerHTML = options(all.filter(c => !t || c.name.includes(t) || c.code.includes(t)), cur, { blank: '選択してください' }); };
       const total = () => RC_KEYS.reduce((n, [k]) => n + (Number(f[k].value) || 0), 0);
-      const diff = () => {
-        const t = total(), a = $$('.rc-amt').reduce((n, x) => n + (Number(x.value) || 0), 0);
-        $('#rc-total').innerHTML = `入金合計（消込可能額）: <b>${yen(t)}</b> 円 ／ 預り金残高: ${yen(ctx.deposit)} 円${Number(f.deposit.value) > ctx.deposit ? ' <span class="check-ng">残高超過</span>' : ''}`;
-        $('#rc-diff').innerHTML = t === a ? `<span class="check-ok">消込合計 ${yen(a)} 円 — 一致</span>` : `<span class="check-ng">消込合計 ${yen(a)} 円 — 差額 ${yen(t - a)} 円</span>`;
-        $$('.rc-amt').forEach(x => { const left = $(`#rc-left-${x.dataset.id}`); if (left) left.textContent = yen(Number(x.dataset.balance) - (Number(x.value) || 0)); });
+      const invs = () => ctx.invoices, latest = () => invs().length ? invs()[invs().length - 1].month : '';
+      const auto = () => { let rest = total(); for (const x of $$('.rc-amt')) { const b = Number(x.dataset.balance), v = Math.min(b, Math.max(rest, 0)); x.value = v; rest -= v; } };
+      const refresh = () => {
+        if (!manual) auto();
+        const t = total(), a = $$('.rc-amt').reduce((n, x) => n + (Number(x.value) || 0), 0), open = invs().reduce((n, r) => n + r.balance, 0);
+        $('#rc-sum').textContent = yen(t);
+        $('#rc-dep').innerHTML = `預り金残高: ${yen(ctx.deposit)} 円${Number(f.deposit.value) > ctx.deposit ? ' <span class="check-ng">残高超過</span>' : ''}`;
+        $('#rc-diff').innerHTML = !f.customer.value ? '' : t === a ? `<span class="check-ok">消込金額 ${yen(a)} 円を配分済み</span>`
+          : t > a && a >= open ? `<span class="${f.overpayToDeposit.checked ? 'check-ok' : 'check-ng'}">今回請求金額を ${yen(t - a)} 円超えています${f.overpayToDeposit.checked ? '（預り金で受入）' : '（「差額の扱い」を選ぶか金額を見直してください）'}</span>`
+          : t > a ? `<span class="check-ng">未配分 ${yen(t - a)} 円（内訳を見直すか「古い順に自動配分に戻す」を押してください）</span>` : `<span class="check-ng">内訳の合計 ${yen(a)} 円が消込金額を超えています</span>`;
+        const cell = $('#rc-cleared'), left = $('#rc-left'); if (cell) cell.textContent = yen(a); if (left) left.textContent = yen(open - a);
+        $$('.rc-amt').forEach(x => { const l = $(`#rc-left-${x.dataset.id}`); if (l) l.textContent = yen(Number(x.dataset.balance) - (Number(x.value) || 0)); });
       };
-      const auto = () => { let rest = total(); for (const x of $$('.rc-amt')) { const b = Number(x.dataset.balance), v = Math.min(b, Math.max(rest, 0)); x.value = v; rest -= v; } diff(); };
-      f.customer.onchange = async () => {
+      const load = async () => {
+        manual = false;
         ctx = f.customer.value ? await api('/api/receipt-context?customer=' + encodeURIComponent(f.customer.value)) : { invoices: [], deposit: 0 };
-        $('#rc-open').innerHTML = table([{ label: '請求年月', value: r => r.month }, { label: '締日', value: r => r.closing }, { label: '請求No', value: r => r.id }, { label: '当月請求金額', num: 1, value: r => yen(r.total) }, { label: '入金済', num: 1, value: r => yen(r.paid) },
-          { label: '請求残高', num: 1, value: r => yen(r.balance) }, { label: '消込金額', html: r => `<input class="num rc-amt" data-id="${r.id}" data-balance="${r.balance}" value="0" style="width:130px">` }, { label: '消込残高', num: 1, html: r => `<span id="rc-left-${r.id}">${yen(r.balance)}</span>` }],
-          ctx.invoices, { empty: '発行済みで残高のある請求はありません' });
-        $$('.rc-amt').forEach(x => (x.oninput = diff)); diff();
+        const m = latest(), prior = invs().filter(r => r.month !== m), cur = invs().filter(r => r.month === m), sum = (l, k) => l.reduce((n, r) => n + r[k], 0);
+        const partly = sum(cur, 'paid'), cu = all.find(c => c.code === f.customer.value);
+        $('#rc-open').innerHTML = !f.customer.value ? '得意先を選択してください' : !invs().length ? '<span class="muted">発行済みで残高のある請求はありません</span>'
+          : `<div class="table-wrap"><table><thead><tr><th>得意先</th><th>請求年月</th><th class="num">請求残高</th><th class="num">当月請求金額</th><th class="num">今回請求金額</th><th class="num">消込金額</th><th class="num">消込残高</th></tr></thead>
+            <tbody><tr><td>${esc(f.customer.value)} ${esc(cu?.name || '')}</td><td>${esc(m)}</td><td class="num">${yen(sum(prior, 'balance'))}</td><td class="num">${yen(sum(cur, 'balance'))}${partly ? `<br><span class="small muted">（一部入金済 ${yen(partly)}）</span>` : ''}</td>
+            <td class="num"><b>${yen(sum(invs(), 'balance'))}</b></td><td class="num" id="rc-cleared">0</td><td class="num" id="rc-left">${yen(sum(invs(), 'balance'))}</td></tr></tbody></table></div>
+            <p class="small muted">請求残高＝${esc(m)} より前の未入金（${prior.length}件）、当月請求金額＝${esc(m)} の請求（${cur.length}件）、今回請求金額＝請求残高＋当月請求金額。</p>`;
+        $('#rc-alloc').innerHTML = !invs().length ? '' : table([{ label: '請求年月', value: r => r.month }, { label: '締日', value: r => r.closing }, { label: '請求No', value: r => r.id }, { label: '請求金額', num: 1, value: r => yen(r.total) }, { label: '入金済', num: 1, value: r => yen(r.paid) },
+          { label: '請求残高', num: 1, value: r => yen(r.balance) }, { label: '消込金額', html: r => `<input class="num rc-amt" data-id="${r.id}" data-balance="${r.balance}" value="0" style="width:130px">` }, { label: '消込残高', num: 1, html: r => `<span id="rc-left-${r.id}">${yen(r.balance)}</span>` }], invs())
+          + '<p><button type="button" class="mini" id="rc-auto">古い順に自動配分に戻す</button></p>';
+        $$('.rc-amt').forEach(x => (x.oninput = () => { manual = true; refresh(); }));
+        const b = $('#rc-auto'); if (b) b.onclick = () => { manual = false; refresh(); };
+        refresh();
       };
-      RC_KEYS.forEach(([k]) => (f[k].oninput = diff)); $('#rc-auto').onclick = auto;
-      if (preset) { f.customer.value = preset; f.customer.onchange(); }
-      // サンプル入力：発行済みで残高のある請求を1件選び、振込（手数料差引）で全額消込する値を入れる（登録はしない）
+      // 得意先検索で一覧を絞る。選択中の得意先が候補から外れたら消込対象も空にする（未選択のまま登録しない）
+      $('#rc-search').oninput = e => { const t = e.target.value.trim(), cur = f.customer.value; f.customer.innerHTML = options(all.filter(c => !t || c.name.includes(t) || c.code.includes(t)), cur, { blank: '選択してください' }); if (f.customer.value !== cur) load(); };
+      f.customer.onchange = load;
+      RC_KEYS.forEach(([k]) => (f[k].oninput = refresh)); f.overpayToDeposit.onchange = refresh;
+      if (preset) { if (![...f.customer.options].some(o => o.value === preset)) f.customer.insertAdjacentHTML('beforeend', `<option value="${esc(preset)}">${esc(preset)}</option>`); f.customer.value = preset; load(); }
+      // サンプル入力：発行済みで残高のある請求を1件選び、振込（手数料差引）で今回請求金額の全額を消し込む値を入れる（登録はしない）
       f.querySelector('[data-sample]')?.addEventListener('click', async () => {
         const open = (await api('/api/invoices?status=open')).filter(i => i.issues > 0 && i.balance > 0);
         if (!open.length) return toast('発行済みで残高のある請求がありません。先に請求書を発行してください', true);
         const inv = open[Math.floor(Math.random() * open.length)];
         $('#rc-search').value = ''; f.customer.innerHTML = options(all, inv.customer, { blank: '選択してください' }); f.customer.value = inv.customer;
-        await f.customer.onchange();
-        const fee = inv.balance > 10000 ? 660 : 0;
+        await load();
+        const due = invs().reduce((n, r) => n + r.balance, 0), fee = due > 10000 ? 660 : 0;
         for (const [k] of RC_KEYS) f[k].value = 0;
-        f.date.value = today(); f.fee.value = fee; f.bank.value = inv.balance - fee;
-        for (const x of $$('.rc-amt')) x.value = Number(x.dataset.id) === inv.id ? inv.balance : 0;
-        diff();
+        f.date.value = today(); f.fee.value = fee; f.bank.value = due - fee;
+        refresh();
       });
     },
     onSubmit: async v => {
+      if (!v.customer) throw Error('得意先を選択してください');
       const allocations = $$('.rc-amt').map(x => ({ invoiceId: Number(x.dataset.id), amount: Number(x.value) || 0 })).filter(a => a.amount > 0);
       const r = await post('/api/receipts', { ...v, overpayToDeposit: v.overpayToDeposit === 'on', allocations, idempotencyKey: key }); toast(`入金 ${r.no} を登録しました（仕訳 B01）`); render();
     } });
