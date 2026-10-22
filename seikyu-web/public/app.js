@@ -492,8 +492,12 @@ VIEWS.invoices = async q => {
     await render();
   };
   A.detail = d => invoiceDetail(d.id);
-  A.issue = async () => { const ids = $$('.inv-pick:checked').map(x => Number(x.value)); if (!ids.length) return toast('発行する請求を選択してください', true);
-    try { const r = await post('/api/invoices/issue', { ids }); printDocs(r.documents); await render(); } catch (e) { toast(e.message, true); } };
+  // 発行前に確認ポップアップ（件数・得意先・請求額・初回／再発行）を出し、「発行する」で発行・印刷
+  A.issue = () => { const ids = $$('.inv-pick:checked').map(x => Number(x.value)); if (!ids.length) return toast('発行する請求を選択してください', true);
+    const picked = ids.map(id => list.find(r => r.id === id)).filter(Boolean), re = picked.filter(r => r.issues).length;
+    modal({ title: '請求書の発行確認', submit: '発行する', wide: picked.length > 3, body: `<p>選択した <b>${picked.length}件</b>（請求額合計 <b>${yen(picked.reduce((n, r) => n + r.total, 0))}</b> 円）の請求書を発行し、印刷画面を開きます。${re ? `<br><span class="check-ng">うち ${re}件は発行済みのため再発行になります。</span>` : ''}</p>
+      <div style="max-height:300px;overflow:auto;margin-top:8px">${table([{ label: 'No', value: r => r.id }, { label: '締日', value: r => r.closing }, { label: '得意先', value: r => `${r.customer} ${r.customerName}` }, { label: '請求額', num: 1, value: r => yen(r.total) }, { label: '発行', value: r => (r.issues ? `${r.issues}回目済 → 再発行` : '初回') }], picked)}</div>`,
+      onSubmit: async () => { const r = await post('/api/invoices/issue', { ids }); printDocs(r.documents); await render(); } }); };
   A.report = d => billingReport(d.kind, $('#rep-month').value, $('#rep-closing').value);
   A.bulk = async () => {
     // 10/14 打合せ：チェックなし＝表示中の発行済み全件、チェックあり＝選択分
