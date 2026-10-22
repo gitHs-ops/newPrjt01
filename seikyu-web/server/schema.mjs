@@ -106,6 +106,11 @@ export async function prepare(pool, env = process.env) {
   await pool.query(`ALTER TABLE purchase ADD COLUMN IF NOT EXISTS line_kind varchar(1) COLLATE "C" NOT NULL DEFAULT '1'`);
   await pool.query(`ALTER TABLE expense_document ADD COLUMN IF NOT EXISTS bill_no varchar(4) COLLATE "C"`);
   await pool.query(`ALTER TABLE expense_line ADD COLUMN IF NOT EXISTS memo_code varchar(7) COLLATE "C"`);
+  // 2026-10-22 請求No 未設定の定時請求（移行データ・追加前の登録分）に業者ごとの4桁連番を計上日順で振る（10/19：請求No は業者の伝票単位に4桁連番）
+  await pool.query(`UPDATE expense_document d SET bill_no=LPAD(CAST(((x.base + x.rn - 1) % 9999) + 1 AS TEXT), 4, '0')
+    FROM (SELECT e.expense_id, ROW_NUMBER() OVER (PARTITION BY e.vendor_id ORDER BY e.booked_on, e.document_no) rn,
+      COALESCE((SELECT MAX(CAST(b.bill_no AS INTEGER)) FROM expense_document b WHERE b.vendor_id=e.vendor_id AND b.bill_no ~ '^[0-9]+$'), 0) base
+      FROM expense_document e WHERE e.expense_kind='PAYABLE' AND e.bill_no IS NULL AND e.vendor_id IS NOT NULL) x WHERE d.expense_id=x.expense_id`);
   await prepareKb(pool);
   pool.resetMeta?.();
 
