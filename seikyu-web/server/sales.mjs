@@ -579,12 +579,19 @@ export async function arLedger(c, q = {}) {
   return { rows: rowsOut, totals: { current: rowsOut.reduce((n, r) => n + r.current, 0), claim: rowsOut.reduce((n, r) => n + r.claim, 0), cleared: rowsOut.reduce((n, r) => n + r.cleared, 0), remain: rowsOut.filter(r => r.latest).reduce((n, r) => n + r.remain, 0) } };
 }
 // 入金予定一覧（提案書 スライド18）：入金予定月（＝支払期日の月）・得意先（部分一致）で、請求金額・サイト・入金予定日・入金予定金額・入金金額・残高
+// 10/14 打合せ：入金予定月は範囲（過去年月〜現在）で指定でき、入金予定日を過ぎても未入金の請求（得意先・残高・経過日数）を表示する。overdue=1 で経過・未入金のみ
 export async function receiptPlan(c, q = {}) {
   const t = String(q.customer || '').trim(), month = q.month ? isoMonth(q.month, '入金予定月') : '';
-  const list = (await listInvoices(c, {})).filter(i => (!month || i.due.slice(0, 7) === month) && (!t || i.customer.includes(t) || String(i.customerName || '').includes(t)));
+  const from = month || (q.from ? isoMonth(q.from, '入金予定月（から）') : ''), to = month || (q.to ? isoMonth(q.to, '入金予定月（まで）') : '');
+  check(!from || !to || from <= to, '入金予定月の範囲が不正です（から ≦ まで）');
+  const overdueOnly = q.overdue === '1', now = today(), days = due => Math.round((Date.parse(now) - Date.parse(due)) / 86400000);
+  const list = (await listInvoices(c, {})).filter(i => (!from || (i.due && i.due.slice(0, 7) >= from)) && (!to || (i.due && i.due.slice(0, 7) <= to)) && (!overdueOnly || i.overdue)
+    && (!t || i.customer.includes(t) || String(i.customerName || '').includes(t)));
   const label = s => (!s.set ? '翌月末（未設定）' : `${['当月', '翌月', '翌々月'][s.months] || s.months + 'か月後'}${s.day >= 31 ? '末' : s.day + '日'}`);
   const sites = {};
   for (const i of list) if (!sites[i.customer]) sites[i.customer] = label(await customerSite(c, i.customer));
-  const rowsOut = list.sort((a, b) => a.due.localeCompare(b.due) || a.customer.localeCompare(b.customer)).map(i => ({ customer: i.customer, name: i.customerName, closing: i.closing, total: i.total, site: sites[i.customer], due: i.due, planned: i.total, paid: i.paid, balance: i.balance, overdue: i.overdue }));
-  return { month, rows: rowsOut, totals: { planned: rowsOut.reduce((n, r) => n + r.planned, 0), paid: rowsOut.reduce((n, r) => n + r.paid, 0), balance: rowsOut.reduce((n, r) => n + r.balance, 0) } };
+  const rowsOut = list.sort((a, b) => a.due.localeCompare(b.due) || a.customer.localeCompare(b.customer)).map(i => ({ customer: i.customer, name: i.customerName, closing: i.closing, total: i.total, site: sites[i.customer], due: i.due, planned: i.total, paid: i.paid, balance: i.balance, overdue: !!i.overdue, days: i.overdue ? days(i.due) : 0 }));
+  const late = rowsOut.filter(r => r.overdue);
+  return { month, from, to, today: now, overdueOnly, rows: rowsOut, totals: { planned: rowsOut.reduce((n, r) => n + r.planned, 0), paid: rowsOut.reduce((n, r) => n + r.paid, 0), balance: rowsOut.reduce((n, r) => n + r.balance, 0),
+    overdueCount: late.length, overdueCustomers: new Set(late.map(r => r.customer)).size, overdueBalance: late.reduce((n, r) => n + r.balance, 0) } };
 }

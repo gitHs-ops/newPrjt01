@@ -383,3 +383,6 @@ dialog.progress-dialog::backdrop { background: rgba(15,23,42,.35); }
 #nav-pin .nav-pin.active { color: var(--accent-secondary); }
 .sidebar-foot { margin-top: 10px; }
 .nav-fold-body[hidden] { display: none !important; }
+
+/* 入金予定一覧：入金予定日を過ぎた未入金の行 */
+tr.overdue td { background: rgba(254, 226, 226, .55); }
