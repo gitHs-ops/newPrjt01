@@ -3,6 +3,7 @@ import { check, isoDate, isoMonth, toNum, fromNum, today, METHODS } from './doma
 import { rows, one } from './db.mjs';
 import { xlsx } from './xlsx.mjs';
 import { allocate } from './misc-reports.mjs';
+import { customerSite, siteDue } from './sales.mjs';
 
 const num = v => Number(v || 0);
 const H = v => ({ v, s: 'bold' }), S = v => ({ v, s: 'sum' }), T = v => ({ v, s: 'title' });
@@ -80,12 +81,19 @@ export async function salesRegister(c, q) {
 export async function receiptSchedule(c, q) {
   // 10/14 打合せ：入金予定日の範囲（過去年月〜現在）を指定し、予定日を過ぎても未入金の得意先・残高を表示（overdue=1 で超過分のみ）
   const to = q.to ? isoDate(q.to, '入金予定日（まで）') : '', from = q.from ? isoDate(q.from, '入金予定日（から）') : '', overdueOnly = q.overdue === '1';
-  const w = [], args = [];
-  if (from) { w.push('h.claim_processing_period>=?'); args.push(toNum(from)); }
-  if (to) { w.push('h.claim_processing_period<=?'); args.push(toNum(to)); }
-  if (overdueOnly) { w.push('h.claim_processing_period<?'); args.push(toNum(today())); }
-  const heads = await rows(c, `SELECT h.*, c.customers_name, (SELECT COALESCE(SUM(a.amount),0) FROM receipt_allocation a JOIN receipt r ON r.receipt_id=a.receipt_id AND r.status='POSTED' WHERE a.invoice_id=h.invoice_id) paid
-    FROM billing_head h LEFT JOIN client_m c ON c.customers_cd=h.customers_cd WHERE h.invoice_flag<>'0' ${w.map(x => 'AND ' + x).join(' ')} ORDER BY h.customers_cd, h.claim_processing_period`, args);
+  // 発行済み＝請求書の発行履歴（invoice_issue）がある請求（請求一覧・入金消込と同じ判定）。
+  // 支払期日（claim_processing_period）が無い請求（移行データは 0）は、得意先マスタの回収条件（未設定は締日の翌月末）で入金予定日を計算する
+  const sites = new Map(), now = today();
+  const all = await rows(c, `SELECT h.*, c.customers_name, (SELECT COALESCE(SUM(a.amount),0) FROM receipt_allocation a JOIN receipt r ON r.receipt_id=a.receipt_id AND r.status='POSTED' WHERE a.invoice_id=h.invoice_id) paid
+    FROM billing_head h LEFT JOIN client_m c ON c.customers_cd=h.customers_cd WHERE EXISTS (SELECT 1 FROM invoice_issue i WHERE i.invoice_id=h.invoice_id) ORDER BY h.customers_cd, h.closing_date, h.invoice_id`);
+  const heads = [];
+  for (const h of all) {
+    let dueDate = fromNum(h.claim_processing_period), computed = false;
+    if (!dueDate) { if (!sites.has(h.customers_cd)) sites.set(h.customers_cd, await customerSite(c, h.customers_cd)); dueDate = siteDue(fromNum(h.closing_date), sites.get(h.customers_cd)); computed = true; }
+    if ((from && dueDate < from) || (to && dueDate > to) || (overdueOnly && dueDate >= now)) continue;
+    heads.push({ ...h, dueDate, computed });
+  }
+  heads.sort((a, b) => String(a.customers_cd).localeCompare(String(b.customers_cd)) || a.dueDate.localeCompare(b.dueDate));
   const banks = Object.fromEntries((await rows(c, "SELECT code_dtl, code_dtl_nam FROM code_m WHERE code_key='BANK'")).map(r => [r.code_dtl, r.code_dtl_nam]));
   const firstBank = (await one(c, "SELECT code_dtl FROM code_m WHERE code_key='BANK' AND category1<>'0' ORDER BY code_dtl LIMIT 1"))?.code_dtl || '';
   const customers = [];
@@ -102,16 +110,16 @@ export async function receiptSchedule(c, q) {
       customers.push(cu = { customer: h.customers_cd, name: h.customers_name, method: methodName, methodSource: site?.method ? '得意先マスタ' : '入金実績から推定', bank: bk ? `${bk} ${banks[bk] || ''}` : '', rows: [], billed: 0, due: 0 });
     }
     const w = `customers_cd=? AND closing_yymm=? AND claim_processing_period=?${h.field_cd ? ' AND field_cd=? AND field_suffix=?' : ''}`;
-    const sites = await rows(c, `SELECT field_cd, field_suffix, MAX(field_name) name, SUM(money) net FROM billing_detail WHERE ${w} GROUP BY field_cd, field_suffix ORDER BY field_cd, field_suffix`, [h.customers_cd, h.closing_yymm, h.closing_date, ...(h.field_cd ? [h.field_cd, h.field_suffix] : [])]);
-    const net = sites.reduce((n, s) => n + num(s.net), 0) || 1; let left = balance;
-    sites.forEach((s, i) => {
-      const billed = Math.round(total * num(s.net) / net), due = i === sites.length - 1 ? left : Math.round(balance * num(s.net) / net); left -= due;
-      cu.rows.push({ site: `${s.field_cd}-${s.field_suffix}`, siteName: s.name, closing: fromNum(h.closing_date), invoiceId: h.invoice_id, billed, dueDate: fromNum(h.claim_processing_period), due, overdue: fromNum(h.claim_processing_period) < today() });
+    const parts = await rows(c, `SELECT field_cd, field_suffix, MAX(field_name) name, SUM(money) net FROM billing_detail WHERE ${w} GROUP BY field_cd, field_suffix ORDER BY field_cd, field_suffix`, [h.customers_cd, h.closing_yymm, h.closing_date, ...(h.field_cd ? [h.field_cd, h.field_suffix] : [])]);
+    const net = parts.reduce((n, s) => n + num(s.net), 0) || 1; let left = balance;
+    parts.forEach((s, i) => {
+      const billed = Math.round(total * num(s.net) / net), due = i === parts.length - 1 ? left : Math.round(balance * num(s.net) / net); left -= due;
+      cu.rows.push({ site: `${s.field_cd}-${s.field_suffix}`, siteName: s.name, closing: fromNum(h.closing_date), invoiceId: h.invoice_id, billed, dueDate: h.dueDate, computed: h.computed, due, overdue: h.dueDate < now });
       cu.billed += billed; cu.due += due;
     });
   }
   return { title: overdueOnly ? '入金予定チェックリスト（予定日超過・未入金）' : '入金予定チェックリスト', ref: 'NO44 / 添付帳票⑳', from, to, sub: `入金予定日 ${from || '（最初）'} 〜 ${to || '（最後）'}${overdueOnly ? '・超過分のみ' : ''}`, overdue: customers.reduce((n, x) => n + x.rows.filter(r => r.overdue).reduce((m, r) => m + r.due, 0), 0), customers, total: customers.reduce((n, x) => n + x.due, 0),
-    note: '入金予定日は請求の支払期日（得意先マスタの回収条件、未設定は締日の翌月末）。入金予定額は請求残高を現場別売上比で按分。入金方法・入金先は得意先マスタ、未設定なら過去の入金実績から推定。' };
+    note: '対象は請求書を発行済みで残高のある請求。入金予定日は請求の支払期日（得意先マスタの回収条件、未設定は締日の翌月末）。支払期日を持たない移行データは同じ規則で計算（※印）。入金予定額は請求残高を現場別売上比で按分。入金方法・入金先は得意先マスタ、未設定なら過去の入金実績から推定。' };
 }
 
 // ---------- Excel ----------
@@ -148,7 +156,7 @@ export async function extraBook(c, kind, q) {
   if (kind === 'receipt-schedule') {
     const d = await receiptSchedule(c, q), out = head(d, d.sub);
     out.push(['得意先CD', '得意先名', '工事（現場）', '現場名', '請求締日', '請求No', '請求金額', '入金予定日', '入金予定額', '現金・手形', '入金先'].map(H));
-    for (const cu of d.customers) { for (const r of cu.rows) out.push([cu.customer, cu.name, r.site, r.siteName, r.closing, r.invoiceId, r.billed, r.dueDate + (r.overdue ? ' 超過' : ''), r.due, cu.method, cu.bank]); out.push(['', S(`${cu.name} 計`), '', '', '', '', S(cu.billed), '', S(cu.due)]); }
+    for (const cu of d.customers) { for (const r of cu.rows) out.push([cu.customer, cu.name, r.site, r.siteName, r.closing, r.invoiceId, r.billed, r.dueDate + (r.computed ? ' ※' : '') + (r.overdue ? ' 超過' : ''), r.due, cu.method, cu.bank]); out.push(['', S(`${cu.name} 計`), '', '', '', '', S(cu.billed), '', S(cu.due)]); }
     out.push(['', S('総合計'), '', '', '', '', '', '', S(d.total)], [d.note]);
     return { name: `入金予定チェックリスト_${today()}.xlsx`, body: xlsx([{ name: '入金予定チェックリスト', rows: out, widths: [9, 20, 12, 22, 11, 8, 12, 14, 12, 9, 20] }]) };
   }
