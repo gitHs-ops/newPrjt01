@@ -1275,7 +1275,7 @@ VIEWS.migration = async () => {
   const A = actions;
   const [cov, req] = await Promise.all([api('/api/coverage'), fetch('/requirements.json').then(r => r.json())]);
   const used = cov.filter(t => t.use.startsWith('使用')).length;
-  return page('移行・確認事項', 'AS400 業務の Web 移行における本システムの前提と、確認が必要な事項です（2026-10-22 更新）。', '', `
+  return page('移行・確認事項', 'AS400 業務の Web 移行における本システムの前提と、確認が必要な事項です（2026-10-23 更新）。', '', `
     <div class="grid2"><section class="card glass"><div class="card-head"><h2>本システムの前提（仮決定）</h2></div><ol class="list small">
       <li>出荷1件＝1商品＝売上1行（sales_trn.order_suffix=1）。請求明細（billing_detail）は売上No単位で作成し、請求ヘッダとは得意先・請求年月・締日で結び付けます。<b>billing_detail と sales_trn 枝番の正式な関係は確認待ち</b>です。</li><li>出荷伝票訂正（NO11）は<b>赤黒</b>（10/14 打合せ）：元伝票は変更せず、赤＝元伝票の全量マイナス、黒＝訂正後の内容（日付・得意先・現場・商品・数量・単価・運賃すべて変更可）を伝票区分5で起票（sales_no＝元売上No）。次回の請求締めに含めます。</li>
       <li>請求は<b>得意先×締日の単位</b>（NO6：現場単位から得意先単位へ変更、2026-10-15決定）。現場は明細に保持し、請求書では現場ごとに小計します。掛売のみ対象とし、現金・カード売上は請求対象外（Q16/Q17）。値引は請求時点では行わず、入金消込で処理します（Q18 回答済）。</li>
@@ -1299,9 +1299,28 @@ VIEWS.migration = async () => {
       <h3 style="margin-top:12px">2026-10-22 反映（10/21 打合せ・再検証）</h3><ul class="list small"><li>在庫：実在庫登録（調査日の月度に品目ごとの数量）と在庫計上を分離。在庫計上は月度ごとに1回、単価＝(前月末在庫金額＋当月仕入)÷(前月末在庫数＋当月仕入数)で評価し洗い替え仕訳。修正は「在庫計上の取消」（逆仕訳）後に再実行（Q07）。</li><li>定時請求データ入力：現行 HAW050 の並び（組織・締切日・請求No・業者・支払繰延区分・支払予定日・合計金額、明細2段）。合計金額は手入力で、明細合計（対象外＋内税＋外税＋外税消費税）と一致しないと登録不可。外税消費税は自動計算（端数は手修正、仮払消費税 1465）。締切日の初期値は直近の締日。</li><li>処税率の1桁目は 1=内税、2・空白=外税で確定（Q01・Q26）。</li><li>NO30 定時請求入力明細表：部門・区分（1 組織／ブランク 工事）・業者コード From〜To（ブランク＝出力しない、To 9999999＝全業者、From＞To はエラー、英字は大文字にそろえて比較）。月度の初期値は直近の締日。</li><li>NO35・NO36 出資金帳票：締切日で指示。明細表・合計表は支払日別・科目別。入金明細は当座預金への入金（振込・手形）・入金時手数料・現金売上（Q36）。</li><li>NO25 配合計算：材料単価の手入力（マスタ管理 → 材料単価、月別）と原価の照会画面（マスタ管理 → 原価、照会のみ）を追加。配合マスタのサンプルは削除し、配合表の受領待ち（Q34）。</li></ul>
       <h3 style="margin-top:12px">資料未着のため推定で実装した項目（2026-10-15）</h3><ul class="list small"><li>NO20 会計連携: 勘定奉行受入CSV（OBC受入記号・税区分は会計設定で登録）・汎用CSV・弥生形式。処税率は3桁を分解して変換（消費税区分.xlsx）。</li><li>NO25 配合計算: 配合率は配合マスタ、材料単価は材料単価マスタ（手入力・月別）を優先し無ければ移動平均、経費単価は当月経費（電気8242／製造8244・8243／一般管理費系）÷製品出荷数量で自動算出。灯油は材料「灯油」の使用高。結果は原価（genka_m）に保存（Q34）。</li><li>NO30 定時請求入力明細表: 発注残・相殺は0。現比は振込のみのため出力しない（10/19）。</li><li>NO33 小口現金出納簿: 定額資金前渡制（期首受入・支払後残高・次期補充額）を仮定。期間は20日締め（初期値は直近の締日の月度、Q31）。</li><li>NO44 入金予定チェックリスト: 予定日＝支払期日、予定額＝残高の現場別売上比按分、入金方法・入金先は過去実績から推定。</li><li>NO10 一括ダウンロード: Excel（1請求書＝1シート）。NO9 は得意先別残高照会タブで請求残高照会を兼ねる（削減案3）。</li></ul></section>
     <section class="card glass"><div class="card-head"><h2>テーブル使用状況</h2>${badge(`${used} / ${cov.length} 表を使用`, 'green')}</div>${table([{ label: 'テーブル', value: r => r.table }, { label: '内容', value: r => r.label }, { label: '区分', value: r => r.origin }, { label: '本システム', html: r => r.use.startsWith('使用') ? badge(r.use, 'green') : badge(r.use, 'gray') }, { label: '件数', num: 1, value: r => yen(r.rows) }], cov)}</section></div>
-    <section class="card glass"><div class="card-head"><h2>確認事項（${req.questions.length}件・未回答 ${req.questions.filter(r => r.status === '未回答').length}件）</h2></div>${table([{ label: 'No', value: r => r.id }, { label: '状態', html: r => badge(r.status || '未回答', r.status === '回答済' ? 'green' : r.status === '一部回答' ? 'amber' : 'gray') },
-      { label: '確認事項', value: r => r.question }, { label: '回答・根拠', value: r => r.answer || '' }, { label: '影響', value: r => r.impact }], req.questions)}</section>`);
+    ${questionsSection(req)}`);
 };
+// 確認事項（2026-10-23 整理）：回答済みは「解決済み」に分け、同じ論点の質問はグループ（G1〜）にまとめてお客様に1問として確認する
+function questionsSection(req) {
+  const qs = req.questions, byId = Object.fromEntries(qs.map(q => [q.id, q])), groups = req.groups || [];
+  const stBadge = s => badge(s || '未回答', s === '回答済' ? 'green' : s === '一部回答' ? 'amber' : 'gray');
+  const done = qs.filter(q => q.status === '回答済'), grouped = new Set(groups.flatMap(g => g.members));
+  const rank = { '未回答': 0, '一部回答': 1, '回答済': 2 };
+  const ask = [...groups.map(g => { const ms = g.members.map(id => byId[id]).filter(Boolean); return { group: g, ms, status: ms.reduce((s, q) => (rank[q.status] < rank[s] ? q.status : s), '回答済'), key: ms[0]?.id || '' }; }),
+    ...qs.filter(q => q.status !== '回答済' && !grouped.has(q.id)).map(q => ({ q, status: q.status, key: q.id }))];
+  const lines = (ms, f) => ms.map(q => `<div><b>${esc(q.id)}</b> ${esc(f(q) || '—')}</div>`).join('');
+  const askTable = table([
+    { label: 'No', html: r => (r.group ? `<b>${esc(r.group.id)}</b><br><span class="small muted">${r.ms.map(q => esc(q.id)).join('・')}</span>` : esc(r.q.id)) },
+    { label: '状態', html: r => stBadge(r.status) },
+    { label: '確認事項', html: r => (r.group ? `<b>${esc(r.group.title)}</b>：${esc(r.group.point)}<div class="small" style="margin-top:4px">${lines(r.ms, q => q.question)}</div>` : esc(r.q.question)) },
+    { label: '回答・根拠（現状）', html: r => (r.group ? `<div class="small">${lines(r.ms, q => q.answer)}</div>` : esc(r.q.answer || '')) },
+    { label: '影響', html: r => (r.group ? esc([...new Set(r.ms.map(q => q.impact))].join(' ／ ')) : esc(r.q.impact)) }], ask);
+  const doneTable = table([{ label: 'No', value: r => r.id }, { label: '状態', html: r => stBadge(r.status) }, { label: '確認事項', value: r => r.question }, { label: '回答・根拠', value: r => r.answer || '' }, { label: '影響', value: r => r.impact }], done);
+  return `<section class="card glass"><div class="card-head"><h2>確認事項（${qs.length}件：お客様確認 ${qs.length - done.length}件＝${ask.length}問／解決済み ${done.length}件）</h2></div>
+      <p class="muted small">${req.reviewed ? `${esc(req.reviewed)} 整理。` : ''}同じ論点の質問は G1〜G${groups.length} にまとめて1問として確認します。状態はまとめた質問のうち最も進んでいないもの。</p>${askTable}
+      <details style="margin-top:12px"><summary><b>解決済み（${done.length}件）</b> <span class="muted small">お客様確認から外したもの</span></summary>${doneTable}</details></section>`;
+}
 
 // ----- 操作履歴 -----
 VIEWS.audit = async q => {
