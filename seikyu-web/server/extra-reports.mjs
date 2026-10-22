@@ -109,8 +109,13 @@ export async function receiptSchedule(c, q) {
       const bk = site?.bank || bank;
       customers.push(cu = { customer: h.customers_cd, name: h.customers_name, method: methodName, methodSource: site?.method ? '得意先マスタ' : '入金実績から推定', bank: bk ? `${bk} ${banks[bk] || ''}` : '', rows: [], billed: 0, due: 0 });
     }
-    const w = `customers_cd=? AND closing_yymm=? AND claim_processing_period=?${h.field_cd ? ' AND field_cd=? AND field_suffix=?' : ''}`;
-    const parts = await rows(c, `SELECT field_cd, field_suffix, MAX(field_name) name, SUM(money) net FROM billing_detail WHERE ${w} GROUP BY field_cd, field_suffix ORDER BY field_cd, field_suffix`, [h.customers_cd, h.closing_yymm, h.closing_date, ...(h.field_cd ? [h.field_cd, h.field_suffix] : [])]);
+    // 現場別の内訳（billing_detail）。移行データは明細の claim_processing_period が締日と異なる（例 締日 3/20・明細 3/28）ため、
+    // 締日で見つからなければ請求年月＋現場で探し、それでも無ければ請求1件を1行（請求の現場）で出す（得意先見出しだけ出て行が空になるのを防ぐ）
+    const field = h.field_cd ? ' AND field_cd=? AND field_suffix=?' : '', fargs = h.field_cd ? [h.field_cd, h.field_suffix] : [];
+    const partsOf = (cond, args) => rows(c, `SELECT field_cd, field_suffix, MAX(field_name) name, SUM(money) net FROM billing_detail WHERE customers_cd=? AND closing_yymm=?${cond}${field} GROUP BY field_cd, field_suffix ORDER BY field_cd, field_suffix`, [h.customers_cd, h.closing_yymm, ...args, ...fargs]);
+    let parts = await partsOf(' AND claim_processing_period=?', [h.closing_date]);
+    if (!parts.length) parts = await partsOf('', []);
+    if (!parts.length) parts = [{ field_cd: h.field_cd || '', field_suffix: h.field_suffix || '', name: '', net: 1 }];
     const net = parts.reduce((n, s) => n + num(s.net), 0) || 1; let left = balance;
     parts.forEach((s, i) => {
       const billed = Math.round(total * num(s.net) / net), due = i === parts.length - 1 ? left : Math.round(balance * num(s.net) / net); left -= due;
