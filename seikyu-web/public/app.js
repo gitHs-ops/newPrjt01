@@ -1108,12 +1108,12 @@ async function mixDialog() {
   const s0 = d.products.find(p => p.saved)?.saved || { denki: d.suggest.denki, touyu: d.suggest.touyu, seizou: d.suggest.seizou, ippann: d.suggest.ippann };
   const body = `<p class="note warn small">${esc(d.note)}</p>` + (d.products.length ? d.products.map(p => `<h3 style="margin:10px 0 4px">${esc(p.item)} ${esc(p.name)} ${p.missing ? badge('材料単価なし', 'red') : ''} ${p.ratio !== 100 ? badge(`配合率計 ${p.ratio}%`, 'amber') : ''}</h3>`
     + table([{ label: '材料', value: l => `${l.material} ${l.name}` }, { label: '配合率', num: 1, value: l => l.ratio + '%' }, { label: '材料単価', num: 1, value: l => (l.price === null ? '—' : yen(l.price)) }, { label: '単価根拠', value: l => l.source }, { label: '配合金額', num: 1, value: l => (l.cost === null ? '—' : yen(l.cost)) }], p.lines, { foot: ['配合単価', '', '', '', yen(p.haigo)] })
-    + (p.saved ? `<p class="small muted">保存済（原価マスタ genka_m）: 配合 ${yen(p.saved.haigo)} ＋ 電気 ${yen(p.saved.denki)} ＋ 灯油 ${yen(p.saved.touyu)} ＋ 製造 ${yen(p.saved.seizou)} ＋ 一般 ${yen(p.saved.ippann)} ＝ <b>${yen(p.saved.total)}</b> 円/単位</p>` : '')).join('')
+    + (p.saved ? `<p class="small muted">保存済（マスタ管理 → 原価）: 配合 ${yen(p.saved.haigo)} ＋ 電気 ${yen(p.saved.denki)} ＋ 灯油 ${yen(p.saved.touyu)} ＋ 製造 ${yen(p.saved.seizou)} ＋ 一般 ${yen(p.saved.ippann)} ＝ <b>${yen(p.saved.total)}</b> 円/単位</p>` : '')).join('')
     : '<div class="empty">配合マスタが登録されていません（マスタ管理 → 配合）</div>');
-  modal({ title: `NO25 配合計算 ${month}（暫定）`, wide: true, submit: canWrite() && d.products.length ? '原価マスタに保存' : undefined, body: `<div class="filters" style="margin-bottom:10px"><a class="button" href="/api/reports/misc/mix?${qs({ month })}&format=xlsx" download>⇩ Excel</a></div>${body}
+  modal({ title: `NO25 配合計算 ${month}（暫定）`, wide: true, submit: canWrite() && d.products.length ? '原価に保存' : undefined, body: `<div class="filters" style="margin-bottom:10px"><a class="button" href="/api/reports/misc/mix?${qs({ month })}&format=xlsx" download>⇩ Excel</a></div>${body}
     ${d.products.length ? `<h3 style="margin-top:12px">材料使用量の比較（理論＝製品出荷×配合率 ／ 実際＝材料受払）</h3>${table([{ label: '材料', value: u => `${u.material} ${u.name}` }, { label: '理論使用量', num: 1, value: u => u.theoretical }, { label: '実使用量', num: 1, value: u => u.actual ?? '—' }, { label: '差異', num: 1, html: u => u.diff === null ? '—' : `<span class="${Math.abs(u.diff) > Math.max(1, u.theoretical * 0.05) ? 'check-ng' : ''}">${u.diff}</span>` }], d.usage)}
     <h3 style="margin-top:12px">経費単価（推定・手修正可）</h3><p class="small muted">製品出荷数量 ${d.suggest.tons}／推定: 電気 ${yen(d.suggest.denki)}・灯油 ${yen(d.suggest.touyu)}・製造 ${yen(d.suggest.seizou)}・一般 ${yen(d.suggest.ippann)} 円/単位。${esc(d.suggest.basis)}</p><div class="form-grid">${[['denki', '電気'], ['touyu', '灯油'], ['seizou', '製造'], ['ippann', '一般']].map(([k, l]) => field(l + '（円）', `<input name="${k}" class="num" value="${s0[k]}">`)).join('')}</div>` : ''}`,
-    onSubmit: async v => { const r = await post('/api/mix/save', { month, closing, ...v }); toast(`原価マスタに ${r.saved} 製品を保存しました`); } });
+    onSubmit: async v => { const r = await post('/api/mix/save', { month, closing, ...v }); toast(`原価に ${r.saved} 製品を保存しました`); } });
 }
 
 async function pettyFundDialog() {
@@ -1224,26 +1224,29 @@ VIEWS.periods = async () => {
 VIEWS.masters = async q => {
   const A = actions;
   const kind = meta.masters[q.kind] ? q.kind : 'customers', m = meta.masters[kind], all = masters[kind] = await api('/api/masters/' + kind);
-  const term = (q.search || '').trim().toLowerCase(), list = term ? all.filter(r => Object.values(r).some(v => String(v ?? '').toLowerCase().includes(term))) : all;
+  const term = (q.search || '').trim().toLowerCase(), byMonth = m.readOnly && q.month ? all.filter(r => r.month === q.month) : all, list = term ? byMonth.filter(r => Object.values(r).some(v => String(v ?? '').toLowerCase().includes(term))) : byMonth;
+  // 照会のみのマスタ（原価）は年月で絞り込む
+  const months = m.fields.some(f => f.name === 'month') ? [...new Set(all.map(r => r.month))] : [];
   A.tab = d => go('masters', { kind: d.kind });
-  A.search = () => go('masters', { kind, search: $('#m-search').value.trim() });
+  A.search = () => go('masters', { kind, search: $('#m-search').value.trim(), ...(months.length ? { month: $('#m-month').value } : {}) });
   A.new = () => masterForm(kind); A.edit = d => masterForm(kind, list.find(r => r.key === d.key));
   A.import = () => modal({ title: `${m.label} CSV取込`, submit: '取込む', body: `<p class="small">1行目は列名（${m.fields.map(f => f.label).join('、')}）です。<b>1件でもエラーがあれば全件取消</b>します。既存コードは更新、新規コードは登録します。</p>
       <input type="file" name="file" accept=".csv,text/csv" required><p class="muted small">UTF-8 / Shift_JIS のCSVに対応。<a href="/api/export/master-${kind}" download>現在のデータをCSVで出力</a>してテンプレートとして使えます。</p>`,
     onSubmit: async (v, f) => { const file = f.file.files[0]; if (!file) throw Error('ファイルを選択してください'); const buf = await file.arrayBuffer();
       let csv; try { csv = new TextDecoder('utf-8', { fatal: true }).decode(buf); } catch { csv = new TextDecoder('shift_jis').decode(buf); }
       const r = await post(`/api/masters/${kind}/import`, { csv }); toast(`登録 ${r.created}件・更新 ${r.updated}件`); await loadMasters(); render(); } });
-  const show = f => r => f.type === 'bool' ? (r[f.name] ? '有効' : '無効') : f.type === 'ref' ? `${r[f.name]} ${nameOf(f.ref, r[f.name])}` : f.type === 'select' ? (f.options.find(o => o[0] === String(r[f.name]))?.[1] || r[f.name]) : f.type === 'int' ? yen(r[f.name]) : r[f.name];
-  return page('マスタ管理', `${Object.keys(meta.masters).length}種類のマスタを業務テーブルで直接管理します。登録後のコード・所属は変更できません（新規登録して旧マスタを無効化）。使われていないコードは編集画面から削除できます。`, `<input id="m-search" placeholder="コード・名称などで検索" value="${esc(q.search || '')}" style="width:220px"><button data-act="search">検索</button>${csvLink('master-' + kind)}${canWrite() ? '<button data-act="import">⇧ CSV取込</button><button class="primary" data-act="new">＋ 新規登録</button>' : ''}`,
-    `<section class="card glass">${term ? `<p class="muted small">「${esc(q.search)}」の検索結果 ${list.length} / ${all.length} 件</p>` : ''}${table([...m.fields.filter(f => f.type !== 'bool' && f.list !== false).map(f => ({ label: f.label, num: f.type === 'int', value: show(f) })), { label: '状態', html: r => r.active ? badge('有効', 'green') : badge('無効', 'gray') },
-      { label: '', html: r => canWrite() ? `<button class="mini" data-act="edit" data-key="${esc(r.key)}">編集</button>` : '' }], list, { rowClass: r => r.active ? '' : 'muted' })}</section>`);
+  const show = f => r => f.type === 'bool' ? (r[f.name] ? '有効' : '無効') : f.type === 'ref' ? `${r[f.name]} ${nameOf(f.ref, r[f.name])}` : f.type === 'select' ? (f.options.find(o => o[0] === String(r[f.name]))?.[1] || r[f.name]) : f.type === 'int' ? yen(r[f.name]) : f.type === 'dec' ? Number(r[f.name]).toLocaleString('ja-JP', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : r[f.name];
+  return page('マスタ管理', `${Object.keys(meta.masters).length}種類のマスタを業務テーブルで直接管理します。登録後のコード・所属は変更できません（新規登録して旧マスタを無効化）。使われていないコードは編集画面から削除できます。`, `${months.length ? `<select id="m-month" name="month" data-filter><option value="">全年月</option>${months.map(x => `<option ${x === q.month ? 'selected' : ''}>${x}</option>`).join('')}</select>` : ''}<input id="m-search" placeholder="コード・名称などで検索" value="${esc(q.search || '')}" style="width:220px"><button data-act="search">検索</button>${csvLink('master-' + kind)}${canWrite() && !m.readOnly ? '<button data-act="import">⇧ CSV取込</button><button class="primary" data-act="new">＋ 新規登録</button>' : ''}`,
+    `<section class="card glass">${term ? `<p class="muted small">「${esc(q.search)}」の検索結果 ${list.length} / ${all.length} 件</p>` : ''}${table([...m.fields.filter(f => f.type !== 'bool' && f.list !== false).map(f => ({ label: f.label, num: f.type === 'int' || f.type === 'dec', value: show(f) })), { label: '状態', html: r => r.active ? badge('有効', 'green') : badge('無効', 'gray') },
+      { label: '', html: r => canWrite() && !m.readOnly ? `<button class="mini" data-act="edit" data-key="${esc(r.key)}">編集</button>` : '' }], list, { rowClass: r => r.active ? '' : 'muted' })}</section>`);
 };
 function masterInput(f, r, isNew) {
   const v = r?.[f.name] ?? (f.type === 'bool' ? true : ''), dis = f.key && !isNew ? 'disabled' : '';
   if (f.type === 'bool') return `<label class="field"><span>${esc(f.label)}</span><span><input type="checkbox" name="${f.name}" ${v ? 'checked' : ''}> 有効</span></label>`;
   let input;
   if (f.readonly) return field(f.label, `<input value="${esc(v)}" disabled>`, { hint: f.hint });
-  if (f.type === 'ref') input = `<select name="${f.name}" ${dis}>${options(isNew ? active(f.ref) : masters[f.ref], v, { blank: '選択してください' })}</select>`;
+  // 参照先にないコード（商品マスタ差し替え前の登録など）もそのまま表示する
+  if (f.type === 'ref') input = `<select name="${f.name}" ${dis}>${v && !(masters[f.ref] || []).some(x => x.code === v) ? `<option value="${esc(v)}" selected>${esc(v)}（マスタ未登録）</option>` : ''}${options(isNew ? active(f.ref) : masters[f.ref], v, { blank: '選択してください' })}</select>`;
   else if (f.type === 'site') input = `<select name="${f.name}" ${dis}>${siteOptions(r?.customer || '', v, '（得意先共通）')}</select>`;
   else if (f.type === 'select') input = `<select name="${f.name}">${options(f.options.map(([code, name]) => ({ code, name })), v || f.options[0][0], { label: x => x.name })}</select>`;
   else input = `<input name="${f.name}" type="${f.type === 'date' ? 'date' : 'text'}" class="${f.type === 'int' ? 'num' : ''}" value="${esc(v)}" ${f.max ? `maxlength="${f.max}"` : ''} ${dis}>`;

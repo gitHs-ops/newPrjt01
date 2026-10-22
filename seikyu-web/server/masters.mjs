@@ -266,6 +266,16 @@ export const MASTERS = {
       else await c.query("UPDATE code_m SET code_dtl_abr=?,category3=? WHERE code_key='MIX' AND code_dtl=?", [r.active ? '1' : '0', String(Math.round(r.ratio * 100)), key]);
     },
   },
+  // 原価（現行 genka_m）：NO25 配合計算で保存した年月・製品ごとの原価。照会のみ（2026-10-22）
+  genka: {
+    label: '原価（配合計算の結果・照会のみ）', table: 'genka_m', readOnly: true,
+    fields: [F('month', '年月', { key: true }), F('item', '製品', { type: 'ref', ref: 'items', key: true }), F('haigo', '配合単価', { type: 'dec' }), F('denki', '電気', { type: 'dec' }), F('touyu', '灯油', { type: 'dec' }),
+      F('seizou', '製造', { type: 'dec' }), F('ippann', '一般管理', { type: 'dec' }), F('total', '原価計', { type: 'int' }), F('active', '有効', { type: 'bool' })],
+    select: 'SELECT * FROM genka_m', where: 'nengetsu=? AND item_cd=?', keyOf: r => [r.month, r.item],
+    sort: (a, b) => b.month.localeCompare(a.month) || a.item.localeCompare(b.item),
+    decode: r => ({ month: `${String(r.nengetsu).slice(0, 4)}-${String(r.nengetsu).slice(4, 6)}`, item: r.item_cd, haigo: Number(r.haigo_tanka || 0), denki: Number(r.denki || 0), touyu: Number(r.touyu || 0),
+      seizou: Number(r.seizou || 0), ippann: Number(r.ippann || 0), total: Number(r.total || 0), active: live(r) }),
+  },
   // 現行 Java のコードマスタ（code_m）：A0000 納入区分（category1 '2'＝引取＝運賃なし）、A0003 単位、A0007 消費税率（code_dtl＝適用開始日 YYYYMMDD）
   deliveryKinds: {
     label: '納入区分', table: 'code_m',
@@ -356,10 +366,10 @@ export const MASTERS = {
 };
 
 const withVersion = (cfg, row) => { const r = cfg.decode(row); return { ...r, key: cfg.keyOf(r).join('|'), version: hash(r) }; };
-export const meta = () => Object.fromEntries(Object.entries(MASTERS).map(([k, m]) => [k, { label: m.label, fields: m.fields.map(f => ({ ...f, pattern: undefined })) }]));
+export const meta = () => Object.fromEntries(Object.entries(MASTERS).map(([k, m]) => [k, { label: m.label, readOnly: !!m.readOnly, fields: m.fields.map(f => ({ ...f, pattern: undefined })) }]));
 export async function list(c, kind) {
   const cfg = MASTERS[kind]; check(cfg, 'マスタ種別が不正です');
-  return (await rows(c, cfg.select)).map(r => withVersion(cfg, r)).sort((a, b) => a.key.localeCompare(b.key));
+  return (await rows(c, cfg.select)).map(r => withVersion(cfg, r)).sort(cfg.sort || ((a, b) => a.key.localeCompare(b.key)));
 }
 export async function allMasters(c) { const out = {}; for (const k of Object.keys(MASTERS)) out[k] = await list(c, k); return out; }
 
@@ -370,7 +380,7 @@ async function current(c, cfg, key) {
 }
 // mode: 'create' requires the key to be absent; 'update' requires a matching version.
 export async function save(c, ctx, kind, input, mode) {
-  const cfg = MASTERS[kind]; check(cfg, 'マスタ種別が不正です');
+  const cfg = MASTERS[kind]; check(cfg, 'マスタ種別が不正です'); check(!cfg.readOnly, `${cfg.label}は登録・変更できません`);
   const r = cfg.validate(input || {}), key = cfg.keyOf(r);
   const old = await current(c, cfg, key);
   if (mode === 'create') check(!old, `${cfg.label}「${key.filter(Boolean).join('-')}」は登録済みです`);
@@ -431,7 +441,7 @@ const REMOVE = {
 };
 const argsFor = (sql, key) => Array.from({ length: (sql.match(/\?/g) || []).length }, (_, i) => key[i % key.length]);
 export async function remove(c, ctx, kind, input) {
-  const cfg = MASTERS[kind], rm = REMOVE[kind]; check(cfg, 'マスタ種別が不正です'); check(rm, `${cfg?.label || 'このマスタ'}は削除できません`);
+  const cfg = MASTERS[kind], rm = REMOVE[kind]; check(cfg, 'マスタ種別が不正です'); check(!cfg.readOnly, `${cfg.label}は削除できません`); check(rm, `${cfg?.label || 'このマスタ'}は削除できません`);
   const key = cfg.keyOf(input || {}), old = await current(c, cfg, key);
   if (!old) throw new Conflict('対象のマスタが見つかりません。再読込してください');
   if (old.version !== input.version) throw new Conflict('他の利用者が更新しました。再読込してからやり直してください');
@@ -445,7 +455,7 @@ export async function remove(c, ctx, kind, input) {
 }
 // CSV import: header row uses field names or labels. Whole file is rolled back on the first error.
 export async function importCsv(c, ctx, kind, csvText) {
-  const cfg = MASTERS[kind]; check(cfg, 'マスタ種別が不正です');
+  const cfg = MASTERS[kind]; check(cfg, 'マスタ種別が不正です'); check(!cfg.readOnly, `${cfg.label}は取込できません`);
   const table = parseCsv(csvText); check(table.length >= 2 && table.length <= 2001, '取込はヘッダー行＋1〜2000行です');
   const head = table[0].map(h => h.trim()), fields = head.map(h => cfg.fields.find(f => f.name === h || f.label === h)?.name);
   check(cfg.fields.filter(f => !f.optional && f.type !== 'bool').every(f => fields.includes(f.name)), '必須列が不足しています: ' + cfg.fields.filter(f => !f.optional && f.type !== 'bool' && !fields.includes(f.name)).map(f => f.label).join('、'));

@@ -123,7 +123,7 @@ export async function mixCalc(c, q) {
     const e = end[m], actual = e ? r2((prev[m]?.qty || 0) + (pur[m]?.qty || 0) - e.qty) : null;
     return { material: m, name: names[m]?.item_nam || m, theoretical, actual, diff: actual === null ? null : r2(actual - theoretical) };
   });
-  return { title: '配合計算', ref: 'NO25（推定）', month, products, suggest, usage, production: prodQty, note: '配合表・経費配賦基準の資料が未提供のため推定。配合率は「マスタ管理 → 配合」。経費単価は当月の経費÷製品出荷数量で自動算出（推定値・手修正可）。結果は原価マスタ genka_m に保存。' };
+  return { title: '配合計算', ref: 'NO25（推定）', month, products, suggest, usage, production: prodQty, note: '配合表・経費配賦基準の資料が未提供のため推定。配合率は「マスタ管理 → 配合」。経費単価は当月の経費÷製品出荷数量で自動算出（推定値・手修正可）。結果は原価（genka_m）に保存し、「マスタ管理 → 原価」で照会できます。' };
 }
 export async function saveMix(c, ctx, p) {
   const d = await mixCalc(c, { month: p.month, closing: p.closing });
