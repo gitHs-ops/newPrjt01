@@ -317,7 +317,7 @@ export async function ledger(c, q = {}) {
     const dr = l.side === 'D' ? Number(l.amount) : 0, cr = l.side === 'C' ? Number(l.amount) : 0;
     run += (dr - cr) * s;
     const m = F.labelOf(String(l.slip_date).slice(0, 10)); if (!months.has(m)) months.set(m, { month: m, dr: 0, cr: 0 }); months.get(m).dr += dr; months.get(m).cr += cr;
-    lines.push({ slipId: l.slip_id, no: l.slip_no, date: l.slip_date, counter: counter ? `${counter} ${A.get(counter)?.name || ''}` : '諸口', sub: l.sub_code, subName: name(acc, l.sub_code), dept: l.dept_code,
+    lines.push({ slipId: l.slip_id, no: l.slip_no, date: l.slip_date, month: m, counter: counter ? `${counter} ${A.get(counter)?.name || ''}` : '諸口', sub: l.sub_code, subName: name(acc, l.sub_code), dept: l.dept_code,
       tax: l.tax_code, memo: l.memo || l.smemo, dr, cr, taxAmount: Number(l.tax_amount), balance: run, source: l.source });
   }
   return { account: acc.code, accountName: acc.name, side: acc.side, sub: subOnly, subName: subOnly !== null ? name(acc, subOnly) : '', from: p.from, to: p.to, dept,

@@ -238,9 +238,10 @@ export function installKb(h) {
       const d = await api('/api/kb/ledger?' + qs(lq));
       title = d.sub !== null ? `補助元帳 ${d.account} ${d.accountName} ／ ${d.sub} ${d.subName}` : `総勘定元帳 ${d.account} ${d.accountName}`;
       let html = `<tr class="kb-carry"><td>${esc(d.from)}</td><td></td><td></td><td></td><td>前期より繰越</td><td></td><td></td><td class="num">${money(d.opening)}</td></tr>`, last = null;
-      const monthRow = m => { const x = d.months.find(v => v.month === m); return `<tr class="kb-month"><td colspan="5" class="right">${esc(m)} 月計</td><td class="num">${yen(x.dr)}</td><td class="num">${yen(x.cr)}</td><td></td></tr>`; };
+      // 月計は月度（締日基準：10/20締めなら 9/21〜10/20 が 10月度）。サーバの月度ラベルで区切る
+      const monthRow = m => { const x = d.months.find(v => v.month === m) || { dr: 0, cr: 0 }; return `<tr class="kb-month"><td colspan="5" class="right">${esc(m)} 月度計</td><td class="num">${yen(x.dr)}</td><td class="num">${yen(x.cr)}</td><td></td></tr>`; };
       for (const l of d.lines) {
-        const m = String(l.date).slice(0, 7); if (last && m !== last) html += monthRow(last); last = m;
+        const m = l.month || String(l.date).slice(0, 7); if (last && m !== last) html += monthRow(last); last = m;
         html += `<tr><td>${esc(l.date)}</td><td><a href="#kb-entry?id=${l.slipId}">${l.no}</a></td><td class="small">${esc(l.counter)}</td><td class="small">${esc(l.sub ? l.sub + ' ' + l.subName : '')}</td><td class="small">${esc(l.memo)}${l.tax !== '090' ? ` <span class="muted">${esc(TAX(l.tax)?.name || l.tax)}${l.taxAmount ? ' 税' + yen(l.taxAmount) : ''}</span>` : ''}</td>
           <td class="num">${l.dr ? yen(l.dr) : ''}</td><td class="num">${l.cr ? yen(l.cr) : ''}</td><td class="num">${money(l.balance)}</td></tr>`;
       }
