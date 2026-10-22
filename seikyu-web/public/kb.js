@@ -459,7 +459,7 @@ export function installKb(h) {
       const digits = (title, obj, fmt) => `<h3 class="kb-h3">${esc(title)}</h3>` + table([{ label: 'コード', value: r => r[0] }, { label: '意味', value: r => fmt(r[1]) }], Object.entries(obj));
       body = `<p class="small muted">税区分は現行システムの処税率（3桁）をそのまま使います（顧客資料「消費税区分.xlsx」）。1桁目＝税込区分、2桁目＝税区分、3桁目＝税率区分。保存は空白を 0 にした3桁（例「 41」→ 041、「 9 」→ 090）。</p>` +
         table([{ label: '処税率', value: t => t.code }, { label: '現行表記', value: t => t.display }, { label: '内容', value: t => t.name }, { label: '消費税', value: t => (t.taxable ? (t.excl ? '外税（金額×税率）' : '内税（税込金額から計算）') : 'なし') }], K.taxes) +
-        digits('1桁目（税込区分）', { 0: '空白＝非課税・不課税（課税売上は税額を別行計上＝外税）', 1: '税込み', 2: '定義なし（税抜＝外税と推定・Q01 確認待ち）' }, v => v) +
+        digits('1桁目（税込区分）', { 0: '空白＝外税（2 と同じ意味・10/21 打合せ）', 1: '税込み（内税）', 2: '外税（10/21 打合せ）' }, v => v) +
         digits('2桁目（税区分）', K.taxKinds, v => v) + digits('3桁目（税率区分）', K.taxRates, v => (v ? v + '%' : '0%（空白）'));
     }
     return page('会計設定', '勘定科目（区分・補助・既定処税率）、期首残高、会計期間・入力制限、処税率の一覧です。', actions,

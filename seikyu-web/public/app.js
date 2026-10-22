@@ -101,7 +101,7 @@ const SUBMENUS = {
   shipments: [{ k: 'slips', l: '出荷伝票' }, { k: 'plans', l: '出荷予定', q: { tab: 'plans' } }, { k: 'notes', l: '納品書発行' }, { k: 'reports', l: '出荷・売上帳票（NO40〜43）' }],
   invoices: [{ k: 'create', l: '請求データ作成（NO6）', tools: false }, { k: 'list', l: '請求一覧・発行', tools: true }, { k: 'reports', l: '請求帳票（NO12・13）' }, { k: 'balance', l: '得意先別残高照会（NO9・15）', q: { view: 'balance' } }, { k: 'ledger', l: '請求残高照会', q: { view: 'ledger' } }],
   receipts: [{ k: 'list', l: '入金一覧・消込' }, { k: 'targets', l: '消込対象', q: { tab: 'targets' } }, { k: 'plan', l: '入金予定一覧', q: { tab: 'plan' } }, { k: 'schedule', l: '入金予定チェックリスト（NO44）' }],
-  inventory: [{ k: 'list', l: '在庫一覧・計上' }, { k: 'reports', l: '材料受払表・配合計算（NO26・25）' }],
+  inventory: [{ k: 'count', l: '実在庫登録' }, { k: 'list', l: '在庫一覧・在庫計上' }, { k: 'reports', l: '在庫登録リスト・材料受払表・配合計算' }],
   payables: [{ k: 'list', l: '定時請求一覧・入力' }, { k: 'reports', l: '定時請求入力明細表（NO30）' }],
   cash: [{ k: 'list', l: '小口現金一覧・登録' }, { k: 'book', l: '出納簿・定額資金・現金補充（NO33）' }],
   payments: [{ k: 'list', l: '支払一覧・登録' }, { k: 'reports', l: '支払帳票・全銀データ（NO37・45〜48）' }, { k: 'transfer', l: '振込先一覧' }, { k: 'bank', l: '銀行別随時支払一覧表（NO39）' }],
@@ -810,19 +810,40 @@ VIEWS.purchases = async q => {
 };
 
 // ----- 在庫計上 -----
+// 10/21 打合せ：実在庫登録（調査日＝毎月20日、商品マスタの品目ごとに棚卸の在庫数量）→ 配合計算 → 材料受払表 → 在庫計上（月次1回・洗い替え仕訳 C01）
+const lastClosing = () => { const [y, m, d] = today().split('-').map(Number); return new Date(Date.UTC(y, m - 1 + (d >= 20 ? 0 : -1), 20)).toISOString().slice(0, 10); };
 VIEWS.inventory = async q => {
   const A = actions;
   A.misc = d => miscReport(d.kind, d.src).catch(e => toast(e.message, true)); A.mix = () => mixDialog().catch(e => toast(e.message, true));
-  const list = await api('/api/inventory?' + qs({ month: q.month }));
-  A.new = () => modal({ title: '月末在庫の計上', submit: '計上する', body: `<div class="form-grid">${field('計上月', `<input type="month" name="month" value="${addMonths(thisMonth(), -1)}">`, { req: 1 })}${field('商品', `<select name="item">${options(active('items'), '', { blank: '選択してください' })}</select>`, { req: 1 })}
-      ${field('月末在庫数量', '<input name="quantity" class="num">', { req: 1 })}${field('評価単価（円）', '<input name="price" class="num">', { req: 1, hint: '評価方法は確認待ち（Q07）' })}</div>
-      <p class="muted small">前月の在庫評価額を戻し、当月評価額を計上する仕訳（C01: 期末棚卸高 82316 / 材料及び貯蔵品 1360）を作成します。</p>`,
-    onSubmit: async v => { const r = await post('/api/inventory', v); toast(`在庫を計上しました（評価額 ${yen(r.value)}円・前月 ${yen(r.previous)}円）`); render(); } });
-  A.del = d => confirmBox('在庫計上の取消', '最新月の在庫計上を取消し、逆仕訳を計上します。', () => post('/api/inventory/delete', { id: Number(d.id) }).then(() => { toast('取消しました'); render(); }), '取消する');
-  return page('在庫計上', '月末在庫の数量と評価額を記録します（inventory_count）。', `${monthInput('month', q.month || '')}${csvLink('inventory', { month: q.month })}${canWrite() ? '<button class="primary" data-act="new">＋ 在庫計上</button>' : ''}`,
-    `<section class="card glass" data-sub="list">${table([{ label: '計上月', value: r => r.month }, { label: '商品', value: r => `${r.item} ${r.itemName}` }, { label: '数量', num: 1, value: r => `${r.quantity} ${r.unit || ''}` }, { label: '評価単価', num: 1, value: r => yen(r.price) },
-      { label: '評価額', num: 1, value: r => yen(r.value) }, { label: '状態', html: r => status(r.status) }, { label: '', html: r => canWrite() ? `<button class="mini danger" data-act="del" data-id="${r.id}">取消</button>` : '' }], list)}</section><div data-sub="reports">${inventoryReportsCard()}</div><div data-sub="reports">${miscCard('在庫登録リスト（帳票⑰）', '月度の在庫数量・評価額（現行 HAR061）', `<label class="field">対象月<input type="month" id="ir-month" value="${addMonths(thisMonth(), -1)}"></label>`, '<button data-act="misc" data-kind="inventory-register" data-src="ir">表示・印刷・Excel</button>')}</div>`);
+  const [list, cnt] = await Promise.all([api('/api/inventory?' + qs({ month: q.month })), api('/api/inventory/counts?' + qs({ date: q.date || lastClosing() }))]);
+  A.countSave = async () => {
+    const lines = $$('.ic-qty').filter(x => x.value.trim() !== x.dataset.orig).map(x => ({ item: x.dataset.item, quantity: x.value.trim().replace(/,/g, '') }));
+    if (!lines.length) return toast('変更された在庫数量がありません', true);
+    const r = await post('/api/inventory/counts', { date: $('#ic-date').value, lines }); toast(`${r.month} 月度の実在庫を登録しました（${r.saved}件${r.cleared ? `・取消 ${r.cleared}件` : ''}）`); render();
+  };
+  A.post = () => { const month = $('#ip-month').value; confirmBox('在庫計上', `${month} 月度の実在庫を評価し、月末在庫の洗い替え仕訳（C01）を作成します。在庫計上は月度ごとに1回です。`, async () => { const r = await post('/api/inventory/post', { month }); toast(`${r.month} 月度を在庫計上しました（${r.items}品目・評価額 ${yen(r.value)}円）`); render(); }, '在庫計上する'); };
+  A.unpost = () => { const month = $('#ip-month').value; confirmBox('在庫計上の取消', `${month} 月度の在庫計上を取消し、洗い替え仕訳を逆仕訳します。実在庫の数量は残ります。`, async () => { await post('/api/inventory/unpost', { month }); toast('在庫計上を取消しました'); render(); }, '取消する'); };
+  const ro = cnt.posted || !canWrite(), qtyOf = v => (v === null || v === undefined ? '' : String(v));
+  const countCard = `<section class="card glass" data-sub="count"><div class="card-head"><h2>実在庫登録</h2><span class="muted small">調査日（毎月20日）時点の工場の棚卸結果を、商品マスタの品目ごとに入力します</span></div>
+    <div class="filters"><label class="field">調査日<input type="date" id="ic-date" name="date" data-filter value="${esc(cnt.date)}"></label><span>月度 <b>${esc(cnt.month)}</b></span>${cnt.posted ? badge('在庫計上済', 'green') : badge(`登録 ${cnt.registered}品目`, cnt.registered ? '' : 'gray')}
+      <input id="ic-search" placeholder="コード・名称で絞込" style="width:200px"><label class="small"><input type="checkbox" id="ic-only"> 入力済みのみ</label></div>
+    ${cnt.posted ? '<p class="note small">この月度は在庫計上済みのため変更できません。修正するときは「在庫一覧・在庫計上」で在庫計上を取消してください。</p>' : ''}
+    <div class="table-wrap" style="max-height:60vh;overflow:auto"><table id="ic-grid"><thead><tr><th>区分</th><th>コード</th><th>商品名／製品名</th><th>単位</th><th class="num">在庫数量</th></tr></thead><tbody>
+    ${cnt.items.map(r => `<tr data-text="${esc((r.code + ' ' + r.name).toLowerCase())}"><td class="small muted">${esc(r.kind)}</td><td>${esc(r.code)}</td><td>${esc(r.name)}</td><td>${esc(r.unit)}</td><td class="num"><input class="num ic-qty" data-item="${esc(r.code)}" data-orig="${esc(qtyOf(r.quantity))}" value="${esc(qtyOf(r.quantity))}" inputmode="decimal" style="width:130px" ${ro ? 'disabled' : ''}></td></tr>`).join('')}
+    </tbody></table></div>
+    <div class="filters" style="margin-top:10px">${ro ? '' : '<button class="primary" data-act="countSave">登録</button>'}<span class="muted small">空欄は未登録。登録済みの数量を消して登録すると、その品目の実在庫を取り消します。数量は小数2桁まで。</span></div></section>`;
+  const postCard = `<section class="card glass" data-sub="list"><div class="card-head"><h2>在庫計上（月次1回）</h2><span class="muted small">実在庫登録の数量を評価し、月末在庫の洗い替え仕訳（C01：期末棚卸高 82316／材料及び貯蔵品 1360）を作成</span></div>
+    <div class="filters"><label class="field">計上月度<input type="month" id="ip-month" value="${esc(cnt.month)}"></label>${canWrite() ? '<button class="primary" data-act="post">在庫計上</button><button class="danger" data-act="unpost">在庫計上の取消</button>' : ''}</div>
+    <p class="muted small">評価単価＝（前月末在庫金額＋当月仕入高金額）÷（前月末在庫数＋当月仕入数）。前月末在庫・当月仕入がない品目は前回の評価単価。各単価の算定方法は現行プログラムを調査中（10/21 打合せ）。</p></section>`;
+  return page('在庫', '実在庫登録 → 配合計算 → 材料受払表 → 在庫計上（月次1回）の順に処理します（10/21 打合せ）。', `${monthInput('month', q.month || '')}${csvLink('inventory', { month: q.month })}`,
+    `${countCard}${postCard}<section class="card glass" data-sub="list"><h2>在庫一覧</h2>${table([{ label: '月度', value: r => r.month }, { label: '調査日', value: r => String(r.countedOn || '').slice(0, 10) }, { label: '商品', value: r => `${r.item} ${r.itemName}` }, { label: '数量', num: 1, value: r => `${r.quantity} ${r.unit || ''}` },
+      { label: '評価単価', num: 1, value: r => (r.status === 'POSTED' ? yen(r.price) : '') }, { label: '評価額', num: 1, value: r => (r.status === 'POSTED' ? yen(r.value) : '') }, { label: '状態', html: r => (r.status === 'POSTED' ? badge('計上済', 'green') : badge('未計上', 'gray')) }], list, { empty: 'この条件の在庫はありません' })}</section>
+    <div data-sub="reports">${miscCard('在庫登録リスト（帳票⑰）', '実在庫登録のチェックリスト（現行 HAR061）。画面で確認しにくいため一覧・Excel で確認', `<label class="field">月度<input type="month" id="ir-month" value="${esc(cnt.month)}"></label>`, '<button data-act="misc" data-kind="inventory-register" data-src="ir">表示・印刷・Excel</button>')}</div><div data-sub="reports">${inventoryReportsCard()}</div>`);
 };
+// 実在庫登録の絞込（コード・名称、入力済みのみ）
+document.addEventListener('input', e => { if (e.target.id === 'ic-search') icFilter(); });
+document.addEventListener('change', e => { if (e.target.id === 'ic-only') icFilter(); });
+function icFilter() { const t = ($('#ic-search')?.value || '').trim().toLowerCase(), only = $('#ic-only')?.checked; $$('#ic-grid tbody tr').forEach(tr => { const v = tr.querySelector('.ic-qty')?.value.trim(); tr.hidden = (t && !tr.dataset.text.includes(t)) || (only && !v); }); }
 
 // 当月度の締切日（20日締め：21日以降は翌月20日）
 const closingOfToday = () => { const t = today(), [y, m, d] = t.split('-').map(Number); return new Date(Date.UTC(y, m - 1 + (d > 20 ? 1 : 0), 20)).toISOString().slice(0, 10); };
@@ -847,17 +868,26 @@ function expenseView(kind) {
       ...(payable ? [{ name: 'memoCode', label: '摘要コード', cell: () => '<input name="memoCode" maxlength="7" style="width:90px" placeholder="工事コード">' }] : []), { name: 'lmemo', label: '摘要名', cell: () => '<input name="lmemo" maxlength="500">' }];
     A.new = () => modal({ title: payable ? '定時請求データ入力' : '小口現金出納登録', submit: '登録する', wide: true, body: `<div class="form-grid">
       ${field(payable ? '締切日' : '支払日（領収書の日付）', `<input type="date" name="date" value="${payable ? closingOfToday() : today()}">`, { req: 1, hint: payable ? '既定は当月度の締日（20日）' : '' })}${field('組織（部門）', `<select name="dept">${options(active('depts').length ? active('depts') : [{ code: '063', name: '部門063' }], '063')}</select>`)}
-      ${payable ? field('業者', `<select name="vendor">${options(active('vendors'), '', { blank: '選択してください' })}</select>`, { req: 1 }) + field('支払繰延区分', '<output id="ex-defer" class="muted">業者を選択すると業者マスタから表示</output>') + field('支払予定日', '<input type="date" name="due">', { hint: '業者マスタの支払繰延区分から自動計算（変更可）' })
+      ${payable ? field('業者', `<select name="vendor">${options(active('vendors'), '', { blank: '選択してください' })}</select>`, { req: 1 }) + field('合計金額', '<input name="total" class="num" inputmode="numeric">', { req: 1, hint: '現行どおり手入力。明細の合計と一致しないと登録できません' }) + field('支払繰延区分', '<output id="ex-defer" class="muted">業者を選択すると業者マスタから表示</output>') + field('支払予定日', '<input type="date" name="due">', { hint: '業者マスタの支払繰延区分から自動計算（変更可）' })
         : field('支払先（業者）', `<select name="vendor">${options(active('vendors'), '', { blank: '（マスタにない支払先は右に入力）' })}</select>`) + field('支払先（自由入力）', '<input name="payee" maxlength="100" placeholder="例: 文具店">')}
       ${field('伝票摘要', '<input name="memo" maxlength="500">', { wide: 1 })}</div>${lineGrid('ex-lines', cols)}
-      <p class="muted small">${payable ? '請求No は業者ごとの4桁連番で自動採番。合計は明細から自動集計します。摘要コード（7桁）は工事コード（中部舗材で使用）。科目を選ぶと既定の処税率に切り替わります。マイナス金額の行は貸方（戻し）に計上します。' : '支払先はマスタ選択か自由入力。合計は明細から自動集計します。科目を選ぶと既定の処税率に切り替わります。マイナス金額の行は貸方（戻し）に計上します。'}</p>`,
+      <p class="muted small">${payable ? '請求No は業者ごとの4桁連番で自動採番。合計金額は手入力し、明細の合計（下の合計欄）と一致するかチェックします（10/21 打合せ）。摘要コード（7桁）は工事コード（中部舗材で使用）。科目を選ぶと既定の処税率に切り替わります。マイナス金額の行は貸方（戻し）に計上します。' : '支払先はマスタ選択か自由入力。合計は明細から自動集計します。科目を選ぶと既定の処税率に切り替わります。マイナス金額の行は貸方（戻し）に計上します。'}</p>`,
       onOpen: () => { const g = $('#ex-lines');
         if (payable) { const f = $('#modal-body'), due = f.querySelector('[name=due]'); due.addEventListener('input', () => { due.dataset.manual = due.value ? '1' : ''; });
           const terms = () => { const v = (masters.vendors || []).find(x => x.code === f.querySelector('[name=vendor]').value), t = vendorTerms(v, f.querySelector('[name=date]').value);
             $('#ex-defer').textContent = v ? t.label : '業者を選択すると業者マスタから表示'; if (!due.dataset.manual) due.value = v && t.due ? t.due : ''; };
           f.querySelector('[name=vendor]').addEventListener('change', terms); f.querySelector('[name=date]').addEventListener('change', terms); }
         g.addEventListener('change', e => { if (e.target.name === 'account') { const tr = e.target.closest('tr'), acc = masters.accounts.find(a => a.code === e.target.value); tr.querySelector('[name=sub]').innerHTML = '<option value="">（なし）</option>' + options(active('subaccounts').filter(s => s.account === e.target.value), ''); if (acc?.tax && tr.querySelector(`[name=taxCode] option[value="${acc.tax}"]`)) tr.querySelector('[name=taxCode]').value = acc.tax; } lineTotal('ex-lines'); }); g.addEventListener('input', () => lineTotal('ex-lines')); },
-      onSubmit: async v => { const r = await post('/api/expenses', { kind, date: v.date, dept: v.dept, vendor: v.vendor, payee: v.payee, due: v.due, memo: v.memo, lines: readLines('ex-lines').map(l => ({ ...l, memo: l.lmemo })) });
+      onSubmit: async v => {
+        const lines = readLines('ex-lines').map(l => ({ ...l, memo: l.lmemo }));
+        let total;
+        if (payable) {
+          const raw = String(v.total || '').replace(/[,，\s]/g, ''); if (!raw) throw Error('合計金額を入力してください');
+          total = Number(raw); if (!Number.isInteger(total)) throw Error('合計金額は整数で入力してください');
+          const sum = lines.reduce((n, l) => n + (Number(String(l.amount || '').replace(/,/g, '')) || 0), 0);
+          if (total !== sum) throw Error(`合計金額（${yen(total)}円）と明細の合計（${yen(sum)}円）が一致しません`);
+        }
+        const r = await post('/api/expenses', { kind, date: v.date, dept: v.dept, vendor: v.vendor, payee: v.payee, due: v.due, memo: v.memo, total, lines });
         toast(`${r.no}${r.billNo ? '（請求No ' + r.billNo + '）' : ''} を登録しました${r.due ? '・支払予定日 ' + r.due : ''}（仕訳 ${payable ? 'D01' : 'E01'}）`); render(); } });
     A.rev = d => confirmBox('伝票の取消', `${d.no} を取消し、逆仕訳を計上します。`, () => post('/api/expenses/reverse', { id: Number(d.id) }).then(() => { toast('取消しました'); render(); }), '取消する');
     A.lines = d => { const r = list.find(x => x.id === Number(d.id)); modal({ title: `${r.no} の明細`, wide: true, body: table([{ label: '行', value: l => l.no }, { label: '科目', value: l => `${l.account} ${l.accountName}` }, { label: '内訳', value: l => (l.sub ? `${l.sub} ${l.subName}` : '') },
@@ -956,14 +986,14 @@ function miscCard(title, sub, inputs, buttons, note = '') {
 const shipmentReportsCard = () => miscCard('出荷・売上帳票（NO40・41・42・43）', '画面表示・印刷・Excel', rangeInputs('ms', '出荷日'),
   '<button data-act="misc" data-kind="shipment-summary" data-src="ms">NO41 商品・製品別出荷集計表</button><button data-act="misc" data-kind="customer-items" data-src="ms">NO42 得意先別商品別出荷累計表</button><button data-act="misc" data-kind="cash-sales" data-src="ms">NO43 現金売上明細表</button><button data-act="misc" data-kind="sales-register" data-src="ms">NO40 商品売上登録リスト</button>',
   '期間は締日単位（例: 前月21日〜当月20日）で指定できます。<span id="ms-range"></span>');
-const inventoryReportsCard = () => miscCard('材料受払表・配合計算（NO26・NO25）', '月次', `<label class="field">対象月<input type="month" id="mi-month" value="${addMonths(thisMonth(), -1)}"></label><label class="field">締日<select id="mi-closing"><option value="20" selected>20日（現行）</option><option value="10">10日</option><option value="31">月末（暦月）</option></select></label>`,
+const inventoryReportsCard = () => miscCard('配合計算・材料受払表（NO25・NO26）', '月次（実在庫登録と商品仕入登録の後に実行）', `<label class="field">処理年月（計算年月）<input type="month" id="mi-month" value="${lastClosing().slice(0, 7)}"></label><label class="field">締日<select id="mi-closing"><option value="20" selected>20日（現行）</option><option value="10">10日</option><option value="31">月末（暦月）</option></select></label>`,
   '<button data-act="misc" data-kind="material-ledger" data-src="mi">NO26 材料受払表</button><button data-act="mix">NO25 配合計算（暫定）</button>',
   '材料は商品マスタの「製品・材料区分＝材料」と、仕入・在庫のある商品が対象。配合計算は配合表の資料が未提供のため暫定で、配合率は「マスタ管理 → 配合」で登録します。');
 // 10/19 打合せ：出力指示＝締切日・部門コード（組織マスタ）・区分（ブランク＝工事、1＝組織）・業者コード From〜To（ブランク〜9999999＝全業者）
 const payableReportsCard = () => miscCard('定時請求入力明細表（NO30）', '部門（工事）→業者→請求明細（現行 HAR136 形式）', `<label class="field">月度<input type="month" id="pi-month" value="${thisMonth()}"></label><label class="field">締日<select id="pi-closing"><option value="20" selected>20日（現行）</option><option value="31">月末（暦月）</option></select></label>
   <label class="field">部門コード<select id="pi-dept">${options(masters.depts || [], '', { blank: '全部門' })}</select></label><label class="field">区分<select id="pi-kb"><option value="1" selected>1：組織</option><option value="">ブランク：工事</option></select></label>
-  <label class="field">業者コード（From）<input id="pi-vfrom" list="pi-vlist" maxlength="7" style="width:110px" placeholder="ブランク"></label><label class="field">業者コード（To）<input id="pi-vto" list="pi-vlist" maxlength="7" style="width:110px" placeholder="9999999"></label><datalist id="pi-vlist">${(masters.vendors || []).map(v => `<option value="${esc(v.code)}">${esc(v.name)}</option>`).join('')}</datalist>`,
-  '<button data-act="misc" data-kind="payable-input" data-src="pi">NO30 定時請求データ入力明細表（組織別）</button>', '発注残・相殺は未確定（Q03）のため0。削減案6では画面照会で代用可とされていますが、帳票としても出力できます。');
+  <label class="field">業者コード（From）<input id="pi-vfrom" list="pi-vlist" maxlength="7" style="width:110px"></label><label class="field">業者コード（To）<input id="pi-vto" list="pi-vlist" maxlength="7" style="width:110px" value="9999999"></label><datalist id="pi-vlist">${(masters.vendors || []).map(v => `<option value="${esc(v.code)}">${esc(v.name)}</option>`).join('')}</datalist>`,
+  '<button data-act="misc" data-kind="payable-input" data-src="pi">NO30 定時請求データ入力明細表（組織別）</button>', '業者コード：ブランク＝出力しない／From〜To＝範囲の業者／To に 9999999＝全業者（10/21 打合せ）。発注残・相殺は未確定（Q03）のため0。削減案6では画面照会で代用可とされていますが、帳票としても出力できます。');
 const pettyReportsCard = () => miscCard('小口現金出納簿（NO33）', '定額資金前渡制（推定）', rangeInputs('pc'),
   '<button data-act="misc" data-kind="petty-book" data-src="pc">NO33 小口現金出納簿</button>' + (canWrite() ? '<button data-act="fund">定額資金の設定</button><button data-act="refill">現金補充を登録</button>' : ''), '期首に定額資金を受入、支払ごとに残高を表示し、支払合計を次期補充額とします。JV構成員が登録済みなら出資比率で配分列を表示します。');
 const receiptScheduleCard = () => miscCard('入金予定チェックリスト（NO44）', '得意先別・工事（現場）別', `<label class="field">入金予定日（から）<input type="date" id="rs-from" value="${addMonths(thisMonth(), -6)}-01"></label><label class="field">入金予定日（まで）<input type="date" id="rs-to" value="${today()}"></label><label class="field"><span>超過分のみ</span><span><input type="checkbox" id="rs-over"> 予定日を過ぎた未入金</span></label>`,
@@ -978,12 +1008,14 @@ async function accountingDownload(format) {
   el.href = href; el.download = `会計連携_${format === 'yayoi' ? '弥生' : '汎用'}_${$('#ac-from').value}_${$('#ac-to').value}.csv`; el.click(); setTimeout(() => URL.revokeObjectURL(href), 2000);
   toast('会計連携データを出力しました');
 }
-const jvReportsCard = () => miscCard('出資金（JV）帳票（NO35・36）', 'JV構成員・出資比率で配分', rangeInputs('jv'),
-  '<button data-act="misc" data-kind="jv-expenses" data-src="jv">NO35 出資金請求明細表（定時）</button><button data-act="misc" data-kind="jv-receipts" data-src="jv">NO36 入金明細及び配分表</button>',
+const jvReportsCard = () => miscCard('出資金（JV）帳票（NO35・36）', 'JV構成員・出資比率で配分（10/21 打合せ：締切日＝対象月20日で指示）', `<label class="field">締切日<input type="date" id="jv-closing" value="${lastClosing()}"></label>`,
+  '<button data-act="misc" data-kind="jv-expenses" data-src="jv">NO35 出資金請求明細表（定時請求分）</button><button data-act="misc" data-kind="jv-expenses" data-src="jvs">出資金請求合計表（定時請求分）</button><button data-act="misc" data-kind="jv-receipts" data-src="jv">NO36 入金明細及び配分表</button>',
   '構成員と出資比率は「マスタ管理 → JV構成員・出資比率」で登録します（有効な構成員の合計100%）。配分は各社切捨て、端数は第1構成員。');
 function miscParams(kind, src) {
   if (src === 'mi') return { month: $('#mi-month').value, closing: $('#mi-closing').value };
   if (src === 'pi') return { month: $('#pi-month').value, closing: $('#pi-closing').value, dept: $('#pi-dept').value, kb: $('#pi-kb').value, vendorFrom: $('#pi-vfrom').value.trim(), vendorTo: $('#pi-vto').value.trim() };
+  if (src === 'jv') return { closing: $('#jv-closing').value };
+  if (src === 'jvs') return { closing: $('#jv-closing').value, layout: 'summary' };
   if (src === 'pc') return { from: $('#pc-from').value, to: $('#pc-to').value };
   if (src === 'rs') return { from: $('#rs-from').value, to: $('#rs-to').value, overdue: $('#rs-over').checked ? '1' : '' };
   if (src === 'ir') return { month: $('#ir-month').value };
@@ -1004,13 +1036,20 @@ async function miscReport(kind, src) {
     { label: '期首 数量', num: 1, value: r => q(r.opening) }, { label: '期首 金額', num: 1, value: r => q(r.opening, 'v') }, { label: '前月来 数量', num: 1, value: r => q(r.prev) }, { label: '前月来 金額', num: 1, value: r => q(r.prev, 'v') }, { label: '当月仕入 数量', num: 1, value: r => q(r.purchase) }, { label: '当月仕入 金額', num: 1, value: r => q(r.purchase, 'v') },
     { label: '当月使用 数量', num: 1, value: r => q(r.used) }, { label: '当月使用 金額', num: 1, value: r => q(r.used, 'v') }, { label: '当月末 数量', num: 1, value: r => q(r.end) }, { label: '当月末 金額', num: 1, value: r => q(r.end, 'v') }, { label: '単価', num: 1, value: r => (r.price ?? '') === '' ? '' : yen(r.price) }],
     d.items, { empty: '対象の材料がありません', foot: ['【合計】', '', yen(d.totals.opening), '', yen(d.totals.prev), '', yen(d.totals.purchase), '', yen(d.totals.used), '', yen(d.totals.end), ''] }); }
-  if (kind === 'jv-expenses') body = `<p class="muted small">${esc(d.note)}</p>` + (d.accounts.length ? '' : '<div class="empty">期間内の定時請求はありません（定時請求は計上日で抽出）</div>') + d.accounts.map(a => `<h3 style="margin:10px 0 4px">${esc(a.account)} ${esc(a.name)}</h3>` + `<div class="table-wrap"><table><thead><tr><th>支払日</th><th>支払先</th><th>摘要</th><th>税区分</th><th class="num">支払金額</th><th class="num">支払本体</th><th class="num">消費税</th>${d.members.map(m => `<th class="num">${pct(m)}</th>`).join('')}</tr></thead><tbody>`
-    + a.rows.map(r => `<tr><td>${esc(r.date)}</td><td>${esc(r.vendor)}</td><td>${esc(r.memo)}</td><td>${esc(r.taxCode)}</td><td class="num">${yen(r.gross)}</td><td class="num">${yen(r.net)}</td><td class="num">${yen(r.tax)}</td>${r.parts.map(v => `<td class="num">${yen(v)}</td>`).join('')}</tr>`).join('')
-    + `</tbody><tfoot><tr><td colspan="4">＊科目計＊</td><td class="num">${yen(a.gross)}</td><td class="num">${yen(a.net)}</td><td class="num">${yen(a.tax)}</td>${a.parts.map(v => `<td class="num">${yen(v)}</td>`).join('')}</tr></tfoot></table></div>`).join('')
-    + `<p class="right"><b>合計 ${yen(d.totals.gross)} 円</b>（${d.members.map((m, i) => `${esc(m.name)} ${yen(d.totals.parts[i])}`).join(' ／ ')}）</p>`;
-  if (kind === 'jv-receipts') body = !d.lines.length ? '<div class="empty">期間内の入金はありません</div>' : `<div class="table-wrap"><table><thead><tr><th>入金日</th><th>入金科目</th><th>摘要</th><th>入金先</th><th class="num">入金額</th>${d.members.map(m => `<th class="num">${pct(m)}</th>`).join('')}</tr></thead><tbody>`
+  if (kind === 'jv-expenses') {
+    const detail = d.layout === 'detail', mcols = d.members.map(m => `<th class="num">${pct(m)}</th>`).join(''), money = v => `<td class="num">${yen(v)}</td>`;
+    body = `<p class="muted small">${esc(d.note)}</p>` + (!d.accounts.length ? '<div class="empty">この締切日の月度の定時請求はありません</div>' : d.days.map(day => `<h3 style="margin:12px 0 4px">支払日 ${esc(day.due)}</h3><div class="table-wrap"><table><thead><tr>`
+      + (detail ? `<th>科目</th><th>伝票No</th><th>支払先</th><th>摘要</th><th>税区分</th>` : `<th>科目</th><th class="num">件数</th>`) + `<th class="num">支払金額</th><th class="num">支払本体</th><th class="num">消費税</th>${mcols}</tr></thead><tbody>`
+      + d.accounts.filter(a => a.due === day.due).map(a => detail
+        ? a.rows.map((r, k) => `<tr><td>${k ? '' : esc(`${a.account} ${a.name}`)}</td><td>${esc(r.no)}</td><td>${esc(r.vendor)}</td><td>${esc(r.memo)}</td><td>${esc(r.taxCode)}</td>${money(r.gross)}${money(r.net)}${money(r.tax)}${r.parts.map(money).join('')}</tr>`).join('')
+          + `<tr class="subtotal"><td colspan="5" class="right">＊科目計＊</td>${money(a.gross)}${money(a.net)}${money(a.tax)}${a.parts.map(money).join('')}</tr>`
+        : `<tr><td>${esc(`${a.account} ${a.name}`)}</td><td class="num">${a.count}</td>${money(a.gross)}${money(a.net)}${money(a.tax)}${a.parts.map(money).join('')}</tr>`).join('')
+      + `</tbody><tfoot><tr><td colspan="${detail ? 5 : 2}">支払日計</td>${money(day.gross)}<td></td><td></td>${day.parts.map(money).join('')}</tr></tfoot></table></div>`).join('')
+      + `<p class="right"><b>合計 ${yen(d.totals.gross)} 円</b>（${d.members.map((m, k) => `${esc(m.name)} ${yen(d.totals.parts[k])}`).join(' ／ ')}）</p>`);
+  }
+  if (kind === 'jv-receipts') body = `<p class="muted small">${esc(d.note)}</p>` + (!d.lines.length ? '<div class="empty">この締切日の月度の入金・現金売上はありません</div>' : `<div class="table-wrap"><table><thead><tr><th>入金日</th><th>入金科目</th><th>摘要</th><th>入金先</th><th class="num">入金額</th>${d.members.map(m => `<th class="num">${pct(m)}</th>`).join('')}</tr></thead><tbody>`
     + d.lines.map(l => `<tr><td>${esc(l.date)}</td><td>${esc(l.account)}</td><td>${esc(l.memo)}</td><td>${esc(l.customer)}</td><td class="num">${yen(l.amount)}</td>${l.parts.map(v => `<td class="num">${yen(v)}</td>`).join('')}</tr>`).join('')
-    + `</tbody><tfoot><tr><td colspan="4">合計</td><td class="num">${yen(d.totals.amount)}</td>${d.totals.parts.map(v => `<td class="num">${yen(v)}</td>`).join('')}</tr></tfoot></table></div>`;
+    + `</tbody><tfoot><tr><td colspan="4">合計</td><td class="num">${yen(d.totals.amount)}</td>${d.totals.parts.map(v => `<td class="num">${yen(v)}</td>`).join('')}</tr></tfoot></table></div>`);
   if (kind === 'sales-register') body = d.customers.length ? d.customers.map(cu => `<h3 style="margin:10px 0 4px">${esc(cu.customer)} ${esc(cu.name)}</h3>` + table([{ label: '売上日', value: r => r.date }, { label: '区分', value: r => r.kind }, { label: '伝票No', value: r => r.no }, { label: '現場', value: r => r.site }, { label: '商品', value: r => r.item },
     { label: '数量', num: 1, value: r => `${r.qty} ${r.unit}` }, { label: '単価', num: 1, value: r => yen(r.price) }, { label: '金額', num: 1, value: r => yen(r.net) }, { label: '消費税', num: 1, value: r => yen(r.tax) }, { label: '請求', value: r => r.billed }], cu.rows, { foot: ['得意先計', '', '', '', '', '', '', yen(cu.net), yen(cu.tax), ''] })).join('') + `<p class="right"><b>総合計 ${yen(d.total)} 円（税 ${yen(d.tax)}）</b></p>` : '<div class="empty">期間内の売上はありません</div>';
   if (kind === 'payable-input') body = `<p class="small">部門 ${esc(d.dept)} ／ 区分 ${d.kb ? '1 組織' : 'ブランク 工事'} ／ 業者 ${esc(d.vendor)}</p><p class="muted small">${esc(d.note)}</p>` + (d.depts.length ? d.depts.map(dp => `<h3 style="margin:10px 0 4px">${esc(d.groupLabel)} : ${esc(dp.dept)} ${esc(dp.name)}</h3>` + dp.vendors.map(v => `<p class="small"><b>${esc(v.vendor)} ${esc(v.name)}</b></p>` + table([{ label: '請求No', value: r => r.no }, { label: '計上日', value: r => r.date }, { label: '科目', value: r => `${r.account}${r.sub ? '-' + r.sub : ''} ${r.accountName}${r.subName ? ' ' + r.subName : ''}` },

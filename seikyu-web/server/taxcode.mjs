@@ -1,5 +1,5 @@
 // 処税率（現行 AS400 の 3 桁コード）。定義は顧客資料「消費税区分.xlsx」（山田様 2026-07-06）。
-//   1桁目 税込区分: 空白=非課税・不課税 / 1=税込み / 2=定義なし（税抜＝外税と推定, Q01）
+//   1桁目 税込区分: 1=税込み（内税） / 2=外税 / 空白=外税（2 と同じ。10/21 打合せで確認。消費税区分.xlsx の「空白=非課税・不課税」を改める）
 //   2桁目 税区分  : 1 課税売上 / 2 非課税売上 / 3 輸出売上 / 4 課税売上対応仕入 / 5 非課税売上対応仕入 / 6 その他仕入（共通）/ 7 非課税仕入 / 9 対象外
 //   3桁目 税率区分: 空白 0% / 1 10% / 2 3% / 3 6% / 4 2.8% / 5 5% / 8 8%
 // 保存形は空白を 0 にした 3 桁（例 141, 041, 011, 090）。現行の帳票は「 41」「 11」「 9 」のように空白を詰めて表示する。
@@ -21,15 +21,15 @@ export function normalize(v) {
   return s.length === 3 && '012'.includes(s[0]) && TAX_KIND[s[1]] && s[2] in TAX_RATE ? s : null;
 }
 // 税額の計算方法
-//   taxable: 消費税額を持つか（課税売上・課税仕入で税率 > 0。1桁目空白の仕入〔例 041〕は文書どおり非課税・不課税扱い）
-//   excl   : 外税（金額は税抜、税額は別行＝仮受/仮払消費税）か。1桁目 2、または 1桁目空白の課税売上（例 011：売上行＋仮受消費税行）
+//   taxable: 消費税額を持つか（課税売上・課税仕入で税率 > 0）
+//   excl   : 外税（金額は税抜、税額は別行＝仮受/仮払消費税）か。1桁目 2 または空白（10/21 打合せ：「2 は外税。ブランクでも同じ意味」）
 export function decode(v) {
   const code = normalize(v); if (!code) return null;
   const [incl, kind, r] = code, rate = TAX_RATE[r], k = Number(kind);
   const side = k <= 3 ? 'S' : k <= 7 ? 'P' : '';
-  const taxable = rate > 0 && [1, 4, 5, 6].includes(k) && (incl !== '0' || k === 1);
-  const excl = taxable && (incl === '2' || (incl === '0' && k === 1));
-  const how = !taxable ? '' : excl ? (incl === '2' ? '税抜・推定' : '税別記') : '税込';
+  const taxable = rate > 0 && [1, 4, 5, 6].includes(k);
+  const excl = taxable && incl !== '1';
+  const how = !taxable ? '' : excl ? '外税' : '税込';
   const name = k === 9 ? '対象外' : !taxable && [4, 5, 6].includes(k) ? `非課税・不課税（${TAX_KIND[k]}）` : `${TAX_KIND[k]}${rate && [1, 4, 5, 6].includes(k) ? ' ' + rate + '%' : ''}${how ? `（${how}）` : ''}`;
   return { code, display: (incl === '0' ? ' ' : incl) + kind + (r === '0' ? ' ' : r), incl, kind: k, rate, side, taxable, excl, name };
 }

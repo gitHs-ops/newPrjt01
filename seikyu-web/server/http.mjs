@@ -68,6 +68,7 @@ export async function createApp({ pool, publicDir, secureCookies = process.env.N
   route('GET', '/api/receipts', 'read', x => db(c => S.listReceipts(c, x.q)));
   route('GET', '/api/purchases', 'read', x => db(c => P.listPurchases(c, x.q)));
   route('GET', '/api/inventory', 'read', x => db(c => P.listInventory(c, x.q)));
+  route('GET', '/api/inventory/counts', 'read', x => db(c => P.listCounts(c, x.q)));
   route('GET', '/api/expenses', 'read', x => db(c => P.listExpenses(c, { ...x.q, open: x.q.open === '1' })));
   route('GET', '/api/payments', 'read', x => db(c => P.listPayments(c, x.q)));
   route('GET', '/api/journals', 'read', x => db(c => L.listJournals(c, x.q)));
@@ -106,6 +107,9 @@ export async function createApp({ pool, publicDir, secureCookies = process.env.N
   w('/api/purchases/delete', (c, x, b) => P.deletePurchase(c, x, b));
   w('/api/inventory', (c, x, b) => P.saveInventory(c, x, b));
   w('/api/inventory/delete', (c, x, b) => P.deleteInventory(c, x, b));
+  w('/api/inventory/counts', (c, x, b) => P.saveCounts(c, x, b));
+  w('/api/inventory/post', (c, x, b) => P.postInventory(c, x, b));
+  w('/api/inventory/unpost', (c, x, b) => P.unpostInventory(c, x, b));
   w('/api/expenses', (c, x, b) => P.createExpense(c, x, b));
   w('/api/expenses/reverse', (c, x, b) => P.reverseExpense(c, x, b));
   w('/api/payments', (c, x, b) => P.createPayment(c, x, b));

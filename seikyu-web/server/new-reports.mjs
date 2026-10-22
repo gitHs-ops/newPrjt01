@@ -30,7 +30,7 @@ export async function purchaseRegister(c, q) {
 // ⑰ 在庫登録リスト（現行 HAR061）：月度の在庫数量
 export async function inventoryRegister(c, q) {
   const month = isoMonth(q.month, '対象月');
-  const rs = await rows(c, `SELECT n.*, i.item_nam, unit_name(i.unit) unit, i.item_product_kb FROM inventory_count n LEFT JOIN item_m i ON i.item_cd=n.item_cd WHERE n.period_start=? AND n.status='POSTED' ORDER BY i.item_product_kb, n.item_cd`, [month + '-01']);
+  const rs = await rows(c, `SELECT n.*, i.item_nam, unit_name(i.unit) unit, i.item_product_kb FROM inventory_count n LEFT JOIN item_m i ON i.item_cd=n.item_cd WHERE n.period_start=? AND n.status IN ('POSTED','DRAFT') ORDER BY i.item_product_kb, n.item_cd`, [month + '-01']);
   const groups = [['2', '製品'], ['1', '材料・商品']].map(([k, t]) => ({ title: t, rows: rs.filter(r => (k === '2') === (r.item_product_kb === '2')).map(r => ({ code: r.item_cd, name: r.item_nam || '', qty: num(r.quantity), unit: r.unit || '', price: num(r.valuation_price), value: num(r.valuation_amount) })) }))
     .filter(g => g.rows.length);
   for (const g of groups) g.totals = { value: sum(g.rows, 'value') };

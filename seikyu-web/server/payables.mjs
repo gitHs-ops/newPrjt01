@@ -90,6 +90,64 @@ export async function saveInventory(c, ctx, p) {
   await audit(c, ctx, 'inventory_count', r.insertId, 'inventory.create', { month, item: it.item_cd, value, previous });
   return { id: r.insertId, value, previous };
 }
+// 10/21 打合せ：実在庫登録＝調査日（毎月20日）と商品マスタの品目ごとの在庫数量（工場の棚卸結果）。評価はしない（status DRAFT）。
+// 在庫計上＝月次で1回だけ起動し、評価単価（前月末在庫金額＋当月仕入高金額）÷（前月末在庫数＋当月仕入数）で評価して洗い替え仕訳 C01 を作る。
+const isPosted = async (c, month) => !!(await one(c, "SELECT 1 x FROM inventory_count WHERE period_start=? AND location_code='MAIN' AND status='POSTED' LIMIT 1", [month + '-01']));
+export async function listCounts(c, q = {}) {
+  const P = await companyPeriod(c), date = isoDate(q.date || '', '調査日'), month = P.labelOf(date);
+  const counts = Object.fromEntries((await rows(c, "SELECT item_cd, quantity, counted_on, status FROM inventory_count WHERE period_start=? AND location_code='MAIN'", [month + '-01'])).map(r => [r.item_cd, r]));
+  const items = (await rows(c, "SELECT item_cd, item_nam, unit_name(unit) unit, item_product_kb FROM item_m WHERE delete_f<>'1' ORDER BY item_product_kb DESC, item_cd")).map(i => ({
+    code: i.item_cd, name: i.item_nam || '', unit: i.unit || '', kind: i.item_product_kb === '2' ? '製品' : '商品・材料', quantity: counts[i.item_cd] ? Number(counts[i.item_cd].quantity) : null }));
+  for (const code of Object.keys(counts)) if (!items.some(i => i.code === code)) items.push({ code, name: code, unit: '', kind: '', quantity: Number(counts[code].quantity) });
+  const any = Object.values(counts)[0];
+  return { month, date, countedOn: any ? String(any.counted_on).slice(0, 10) : '', posted: await isPosted(c, month), registered: Object.keys(counts).length, items };
+}
+export async function saveCounts(c, ctx, p) {
+  const P = await companyPeriod(c), date = isoDate(p.date, '調査日'), month = P.labelOf(date); await assertOpen(c, date);
+  check(!(await isPosted(c, month)), `${month} 月度は在庫計上済みです。修正するときは在庫計上を取消してください`);
+  check(Array.isArray(p.lines), '在庫数量を入力してください');
+  let saved = 0, cleared = 0;
+  for (const l of p.lines) {
+    const code = String(l.item || ''), raw = String(l.quantity ?? '').trim();
+    const cur = await one(c, "SELECT inventory_id FROM inventory_count WHERE period_start=? AND location_code='MAIN' AND item_cd=?", [month + '-01', code]);
+    if (raw === '') { if (cur) { await c.query('DELETE FROM inventory_count WHERE inventory_id=?', [cur.inventory_id]); cleared++; } continue; }
+    const it = await one(c, 'SELECT item_cd FROM item_m WHERE item_cd=?', [code]); check(it, `商品コード ${code} が商品マスタにありません`);
+    const q = qty(raw, `${code} の在庫数量`, { max: 99999999, positive: false });
+    if (cur) await c.query("UPDATE inventory_count SET quantity=?, counted_on=?, valuation_price=0, valuation_amount=0, status='DRAFT', row_version=row_version+1 WHERE inventory_id=?", [q.text, date, cur.inventory_id]);
+    else await c.query("INSERT INTO inventory_count (period_start,location_code,item_cd,counted_on,quantity,valuation_price,valuation_amount,status) VALUES (?,'MAIN',?,?,?,0,0,'DRAFT')", [month + '-01', code, date, q.text]);
+    saved++;
+  }
+  await audit(c, ctx, 'inventory_count', month.replace('-', ''), 'inventory.count', { month, date, saved, cleared });
+  return { month, saved, cleared };
+}
+export async function postInventory(c, ctx, p) {
+  const P = await companyPeriod(c), month = isoMonth(p.month, '計上月'), end = P.closeOf(+month.slice(0, 4), +month.slice(5, 7)), { from, to } = P.monthRange(month); await assertOpen(c, end);
+  check(!(await isPosted(c, month)), `${month} 月度は在庫計上済みです（在庫計上は月次で1回）`);
+  const list = await rows(c, "SELECT * FROM inventory_count WHERE period_start=? AND location_code='MAIN' AND status='DRAFT' ORDER BY item_cd", [month + '-01']);
+  check(list.length, `${month} 月度の実在庫が登録されていません。先に実在庫登録をしてください`);
+  check(!(await one(c, "SELECT 1 x FROM inventory_count WHERE location_code='MAIN' AND period_start>? AND status='POSTED' LIMIT 1", [month + '-01'])), '後の月度が在庫計上済みです');
+  let total = 0;
+  for (const r of list) {
+    const prior = await one(c, "SELECT quantity, valuation_price, valuation_amount FROM inventory_count WHERE item_cd=? AND location_code='MAIN' AND period_start<? AND status='POSTED' ORDER BY period_start DESC LIMIT 1", [r.item_cd, month + '-01']);
+    const pur = await one(c, 'SELECT COALESCE(SUM(quantity),0) q, COALESCE(SUM(net_amount),0) v FROM purchase WHERE item_cd=? AND purchase_date BETWEEN ? AND ?', [r.item_cd, from, to]);
+    const pq = Number(prior?.quantity || 0) + Number(pur.q), pv = Number(prior?.valuation_amount || 0) + Number(pur.v);
+    const price = pq > 0 ? Math.round(pv / pq * 100) / 100 : Number(prior?.valuation_price || 0), value = Math.round(Number(r.quantity) * price); // 単価は小数2桁まで（移動平均）のため金額は円未満四捨五入
+    await c.query("UPDATE inventory_count SET valuation_price=?, valuation_amount=?, status='POSTED', row_version=row_version+1 WHERE inventory_id=?", [price, value, r.inventory_id]);
+    total += value;
+  }
+  await repostInventoryMonth(c, month, end);
+  await audit(c, ctx, 'inventory_count', month.replace('-', ''), 'inventory.post', { month, items: list.length, value: total });
+  return { month, items: list.length, value: total };
+}
+export async function unpostInventory(c, ctx, p) {
+  const P = await companyPeriod(c), month = isoMonth(p.month, '計上月'), end = P.closeOf(+month.slice(0, 4), +month.slice(5, 7)); await assertOpen(c, end);
+  check(await isPosted(c, month), `${month} 月度は在庫計上されていません`);
+  check(!(await one(c, "SELECT 1 x FROM inventory_count WHERE location_code='MAIN' AND period_start>? AND status='POSTED' LIMIT 1", [month + '-01'])), '後の月度の在庫計上を先に取消してください');
+  await c.query("UPDATE inventory_count SET valuation_price=0, valuation_amount=0, status='DRAFT', row_version=row_version+1 WHERE period_start=? AND location_code='MAIN' AND status='POSTED'", [month + '-01']);
+  await repostInventoryMonth(c, month, end);
+  await audit(c, ctx, 'inventory_count', month.replace('-', ''), 'inventory.unpost', { month });
+  return { month };
+}
 export async function deleteInventory(c, ctx, { id }) {
   const r = await one(c, 'SELECT * FROM inventory_count WHERE inventory_id=? FOR UPDATE', [Number(id)]); if (!r) throw new Conflict('在庫が見つかりません');
   await assertOpen(c, r.counted_on);
@@ -150,6 +208,8 @@ export async function createExpense(c, ctx, p) {
   }
   check(ls.length, '明細を入力してください'); check(ls.length <= 99, '明細は99行以内です');
   const amount = ls.reduce((n, l) => n + l.amount, 0); check(amount > 0, '合計金額がマイナスまたは0です');
+  // 10/21 打合せ：定時請求の合計金額は現行どおり手入力し、明細の合計と一致するかチェックする
+  if (kind === 'PAYABLE' && p.total !== undefined) { const t = yen(p.total, '合計金額', { max: 9999999999, positive: false }); check(t === amount, `合計金額（${t.toLocaleString('ja-JP')}円）と明細の合計（${amount.toLocaleString('ja-JP')}円）が一致しません`); }
   const memo = text(p.memo || ls[0].memo || (kind === 'PAYABLE' ? '定時請求' : '小口現金'), '摘要', 500), no = await nextNo(c, 'expense');
   let billNo = null;
   if (kind === 'PAYABLE') {

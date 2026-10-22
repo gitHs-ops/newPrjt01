@@ -15,12 +15,14 @@ export async function payableInputList(c, q) {
   const month = isoMonth(q.month, '月度'), d = Number(q.closing || 20), prev = new Date(Date.UTC(+month.slice(0, 4), +month.slice(5, 7) - 2, 1)).toISOString().slice(0, 7);
   const from = d >= 31 ? month + '-01' : `${prev}-${String(d + 1).padStart(2, '0')}`, to = d >= 31 ? monthEnd(month) : `${month}-${String(d).padStart(2, '0')}`;
   const deptNames = Object.fromEntries((await rows(c, "SELECT code_dtl, code_dtl_nam FROM code_m WHERE code_key='DEPT'")).map(r => [r.code_dtl, r.code_dtl_nam]));
-  // 10/19 打合せ：出力指示は 締切日・部門コード・区分（ブランク＝工事、1＝組織）・業者コード（From〜To、ブランク〜9999999＝全業者）
+  // 10/19 打合せ：出力指示は 締切日・部門コード・区分（ブランク＝工事、1＝組織）・業者コード
+  // 10/21 打合せ：業者コードはブランクなら出力しない。From〜To で範囲指定、下段（To）に 9999999 で全業者（From 未入力なら先頭から）
   const kb = String(q.kb ?? '1') === '1' ? '1' : '', dept = String(q.dept || '').trim();
-  const vFrom = String(q.vendorFrom ?? q.vendor ?? '').trim(), vTo = String(q.vendorTo ?? q.vendor ?? '').trim(), toAll = !vTo || /^9{7,}$/.test(vTo);
+  const vFrom = String(q.vendorFrom ?? q.vendor ?? '').trim(), vTo0 = String(q.vendorTo ?? q.vendor ?? '').trim(), vTo = vTo0 || vFrom, toAll = /^9{7,}$/.test(vTo);
+  const none = !vFrom && !vTo0;
   const cmp = (a, b) => (/^\d+$/.test(a) && /^\d+$/.test(b) ? Number(a) - Number(b) : a.localeCompare(b));
-  const inRange = code => (!vFrom || /^9{7,}$/.test(vFrom) || cmp(String(code || ''), vFrom) >= 0) && (toAll || cmp(String(code || ''), vTo) <= 0);
-  const all = (!vFrom || /^9{7,}$/.test(vFrom)) && toAll;
+  const inRange = code => !none && (!vFrom || cmp(String(code || ''), vFrom) >= 0) && (toAll || cmp(String(code || ''), vTo) <= 0);
+  const all = !vFrom && toAll;
   const ls = (await rows(c, `SELECT d.document_no, d.bill_no, d.booked_on, d.due_on, d.memo, l.gross_amount, l.memo line_memo, l.memo_code, l.department_code, l.account_code, l.sub_code, l.source_tax_code, a.account_name, s.sub_name, v.vendor_code, v.vendor_name,
       (SELECT COALESCE(SUM(pa.amount),0) FROM payment_allocation pa JOIN payment p ON p.payment_id=pa.payment_id AND p.status='POSTED' WHERE pa.expense_id=d.expense_id) paid
     FROM expense_document d JOIN expense_line l ON l.expense_id=d.expense_id LEFT JOIN account_subject a ON a.account_code=l.account_code LEFT JOIN account_subsubject s ON s.account_code=l.account_code AND s.sub_code=l.sub_code
@@ -36,10 +38,10 @@ export async function payableInputList(c, q) {
     v.rows.push({ no: r.bill_no || '', docNo: r.document_no, date: r.booked_on, due: r.due_on || '', account: r.account_code, sub: r.sub_code || '', accountName: r.account_name, subName: r.sub_name || '', orderRemain: 0, amount, offset: 0, memoCode: r.memo_code || '', memo: r.line_memo || r.memo, tax: r.source_tax_code, paid: num(r.paid) });
     v.total += amount; dp.total += amount;
   }
-  const vendorLabel = all ? '全業者' : `${vFrom || '（最初）'} 〜 ${toAll ? '9999999' : vTo}`;
+  const vendorLabel = none ? '未入力（出力しない）' : all ? '全業者（9999999）' : vFrom === vTo ? vFrom : `${vFrom || '（最初）'} 〜 ${vTo}`;
   return { title: `定時請求データ入力明細表（${kb ? '組織' : '工事'}別）`, ref: 'NO30 / 添付帳票⑩（HAR136）', month, from, to, depts, total: depts.reduce((n, x) => n + x.total, 0),
     kb, groupLabel: kb ? '部門' : '工事', dept: dept ? `${dept} ${deptNames[dept] || ''}`.trim() : '全部門', vendor: vendorLabel,
-    note: '月度は20日締め（現行と同じ）。区分 1＝組織（部門別）、ブランク＝工事（摘要コード＝工事コード別）。業者コードは From〜To（ブランク〜9999999＝全業者）。請求No は業者ごとの4桁連番。発注残金額は発注管理が対象外のため0、相殺金額は定時請求時点では0（支払時に相殺）。現比は振込のみのため削除（10/19）。' };
+    note: '月度は20日締め（現行と同じ）。区分 1＝組織（部門別）、ブランク＝工事（摘要コード＝工事コード別）。業者コードはブランクなら出力しない・From〜To で範囲・To に 9999999 で全業者（10/21）。請求No は業者ごとの4桁連番。発注残金額は発注管理が対象外のため0、相殺金額は定時請求時点では0（支払時に相殺）。現比は振込のみのため削除（10/19）。' };
 }
 // ---------- NO33 小口現金出納簿（定額資金前渡制を仮定） ----------
 export async function pettyCashBook(c, q) {

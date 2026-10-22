@@ -3,6 +3,7 @@ import { check, isoDate, isoMonth, toNum, fromNum, today, addMonths, METHODS } f
 import { taxOf } from './taxcode.mjs';
 import { rows, one, audit } from './db.mjs';
 import { xlsx } from './xlsx.mjs';
+import { companyPeriod } from './period.mjs';
 
 const num = v => Number(v || 0);
 const H = v => ({ v, s: 'bold' }), S = v => ({ v, s: 'sum' }), T = v => ({ v, s: 'title' });
@@ -52,7 +53,7 @@ export async function cashSales(c, q) {
 
 // ---------- NO26 材料受払表（月次：前月末在庫＋当月仕入−当月末在庫＝当月使用） ----------
 async function inv(c, month) {
-  return Object.fromEntries((await rows(c, "SELECT item_cd, quantity, valuation_price, valuation_amount FROM inventory_count WHERE period_start=? AND location_code='MAIN' AND status='POSTED'", [month + '-01'])).map(r => [r.item_cd, { qty: num(r.quantity), price: num(r.valuation_price), value: num(r.valuation_amount) }]));
+  return Object.fromEntries((await rows(c, "SELECT item_cd, quantity, valuation_price, valuation_amount, status FROM inventory_count WHERE period_start=? AND location_code='MAIN' AND status IN ('POSTED','DRAFT')", [month + '-01'])).map(r => [r.item_cd, { posted: r.status === 'POSTED', qty: num(r.quantity), price: num(r.valuation_price), value: num(r.valuation_amount) }]));
 }
 export async function materialLedger(c, q) {
   const month = isoMonth(q.month, '対象月');
@@ -68,9 +69,12 @@ export async function materialLedger(c, q) {
   const names = Object.fromEntries((await rows(c, 'SELECT item_cd, item_nam, unit_name(unit) unit FROM item_m')).map(r => [r.item_cd, r]));
   const z = { qty: 0, value: 0 };
   const items = [...codes].sort().map(code => {
-    const o = open[code] || z, p = prev[code] || z, b = pur[code] || z, e = end[code] || null;
+    const o = open[code] || z, p = prev[code] || z, b = pur[code] || z, e0 = end[code] || null;
+    // 10/21 打合せ：単価＝（前月末在庫金額＋当月仕入高金額）÷（前月末在庫数＋当月仕入数）。在庫計上前（実在庫登録のみ）の当月末金額はこの単価で評価
+    const avg = p.qty + b.qty > 0 ? r2((p.value + b.value) / (p.qty + b.qty)) : (e0?.price || null);
+    const e = e0 ? { ...e0, value: e0.posted ? e0.value : Math.round(e0.qty * (avg || 0)), price: e0.posted ? e0.price : avg } : null;
     const used = e ? { qty: r2(p.qty + b.qty - e.qty), value: p.value + b.value - e.value } : null;
-    return { item: code, name: names[code]?.item_nam || code, unit: names[code]?.unit || '', opening: { qty: o.qty, value: o.value }, prev: { qty: p.qty, value: p.value }, purchase: b, used, end: e ? { qty: e.qty, value: e.value } : null, price: e?.price ?? null };
+    return { item: code, name: names[code]?.item_nam || code, unit: names[code]?.unit || '', opening: { qty: o.qty, value: o.value }, prev: { qty: p.qty, value: p.value }, purchase: b, used, end: e ? { qty: e.qty, value: e.value } : null, price: avg ?? null, posted: e ? !!e0.posted : null };
   });
   const t = (k, f) => items.reduce((n, x) => n + (x[k]?.[f] || 0), 0);
   return { title: '材料受払表', ref: 'NO26 / 添付帳票⑧', month, period: cr, fiscalStart: fs, items, totals: { opening: t('opening', 'value'), prev: t('prev', 'value'), purchase: t('purchase', 'value'), used: t('used', 'value'), end: t('end', 'value') },
@@ -145,30 +149,51 @@ async function members(c) {
 }
 // Each member gets floor(amount × ratio); the remainder goes to the first member (現行帳票と同じ扱い).
 export const allocate = (amount, ms) => { const parts = ms.map(m => Math.floor(Math.abs(amount) * m.ratio * 100 / 10000) * Math.sign(amount)); parts[0] += amount - parts.reduce((a, b) => a + b, 0); return parts; };
-// NO35 出資金請求明細表（定時請求分）
-export async function jvExpenses(c, q) {
-  const { from, to } = range(q), ms = await members(c);
-  const ds = await rows(c, `SELECT d.*, l.account_code, a.account_name, l.source_tax_code, v.vendor_name FROM expense_document d JOIN expense_line l ON l.expense_id=d.expense_id AND l.line_no=1
-    LEFT JOIN account_subject a ON a.account_code=l.account_code LEFT JOIN vendor v ON v.vendor_id=d.vendor_id
-    WHERE d.expense_kind='PAYABLE' AND d.status='POSTED' AND d.booked_on BETWEEN ? AND ? ORDER BY l.account_code, d.due_on, d.document_no`, [from, to]);
-  const accounts = [];
-  for (const d of ds) {
-    let a = accounts.find(x => x.account === d.account_code); if (!a) accounts.push(a = { account: d.account_code, name: d.account_name, rows: [], gross: 0, net: 0, tax: 0, parts: ms.map(() => 0) });
-    const gross = num(d.gross_amount), tax = taxOf(gross, d.source_tax_code), parts = allocate(gross, ms);
-    a.rows.push({ date: d.due_on || d.booked_on, no: d.document_no, vendor: d.vendor_name, memo: d.memo, taxCode: d.source_tax_code, gross, net: gross - tax, tax, parts });
-    a.gross += gross; a.net += gross - tax; a.tax += tax; parts.forEach((v, i) => (a.parts[i] += v));
-  }
-  const totals = { gross: accounts.reduce((n, a) => n + a.gross, 0), net: accounts.reduce((n, a) => n + a.net, 0), tax: accounts.reduce((n, a) => n + a.tax, 0), parts: ms.map((_, i) => accounts.reduce((n, a) => n + a.parts[i], 0)) };
-  return { title: '出資金請求明細表（定時請求分）', ref: 'NO35 / 添付帳票⑫', from, to, members: ms, accounts, totals, note: '定時請求（計上日が期間内）を出資比率で配分。各社切捨て、端数は第1構成員。税額は税区分(10%/8%)から内税計算。' };
+// 10/21 打合せ：指示画面は「締切日（対象月20日）」。締切日の月度（前月21日〜当月20日）を対象にする（従来の期間指定も可）
+async function jvRange(c, q) {
+  if (!q.closing) return { ...range(q), closing: '' };
+  const P = await companyPeriod(c), closing = isoDate(q.closing, '締切日'), month = P.labelOf(closing);
+  return { ...P.monthRange(month), closing, month };
 }
-const PART_ACCOUNT = { BANK: '当座預金', CASH: '現金', NOTE: '受取手形', FEE: '雑費（手数料）', COOP: '雑費（協力会費）', DEPOSIT: '預り金', DISCOUNT: '雑損失' };
-// NO36 入金明細配分表
+// NO35 出資金請求明細表（定時請求分）／出資金請求合計表（定時請求分）
+// 10/21 打合せ：定時請求データをもとに支払日ごと・科目ごとに出力。明細表は入力単位（明細行）、合計表は科目ごとに集計。
+// 支払日が翌月15日と翌々月末のものが混在する。端数調整（データの読込 0/1 と端数調整画面）は要検討のため、按分は各社切捨て・端数は第1構成員。
+export async function jvExpenses(c, q) {
+  const { from, to, closing } = await jvRange(c, q), ms = await members(c), summary = q.layout === 'summary';
+  const ls = await rows(c, `SELECT d.document_no, d.due_on, d.booked_on, d.memo, l.line_no, l.account_code, a.account_name, l.source_tax_code, l.gross_amount, l.tax_amount, l.memo line_memo, v.vendor_name
+    FROM expense_document d JOIN expense_line l ON l.expense_id=d.expense_id LEFT JOIN account_subject a ON a.account_code=l.account_code LEFT JOIN vendor v ON v.vendor_id=d.vendor_id
+    WHERE d.expense_kind='PAYABLE' AND d.status='POSTED' AND d.booked_on BETWEEN ? AND ? ORDER BY COALESCE(d.due_on, d.booked_on), l.account_code, d.document_no, l.line_no`, [from, to]);
+  const accounts = [], zero = () => ms.map(() => 0);
+  for (const l of ls) {
+    const due = String(l.due_on || l.booked_on).slice(0, 10);
+    let a = accounts.find(x => x.due === due && x.account === l.account_code);
+    if (!a) accounts.push(a = { due, account: l.account_code, name: l.account_name || '', rows: [], count: 0, gross: 0, net: 0, tax: 0, parts: zero() });
+    const gross = num(l.gross_amount), tax = num(l.tax_amount), parts = allocate(gross, ms);
+    if (!summary) a.rows.push({ date: due, no: l.document_no, vendor: l.vendor_name, memo: l.line_memo || l.memo, taxCode: l.source_tax_code, gross, net: gross - tax, tax, parts });
+    a.count++; a.gross += gross; a.net += gross - tax; a.tax += tax; parts.forEach((v, k) => (a.parts[k] += v));
+  }
+  // 合計表は科目ごとの合計額を按分（明細ごとの按分の合計とは端数がずれることがある）
+  if (summary) for (const a of accounts) a.parts = allocate(a.gross, ms);
+  const days = [...new Set(accounts.map(a => a.due))].map(due => { const as = accounts.filter(a => a.due === due); return { due, gross: as.reduce((n, a) => n + a.gross, 0), parts: ms.map((_, k) => as.reduce((n, a) => n + a.parts[k], 0)) }; });
+  const totals = { gross: accounts.reduce((n, a) => n + a.gross, 0), net: accounts.reduce((n, a) => n + a.net, 0), tax: accounts.reduce((n, a) => n + a.tax, 0), parts: ms.map((_, k) => accounts.reduce((n, a) => n + a.parts[k], 0)) };
+  return { title: summary ? '出資金請求合計表（定時請求分）' : '出資金請求明細表（定時請求分）', ref: 'NO35 / 添付帳票⑫', layout: summary ? 'summary' : 'detail', closing, from, to, members: ms, accounts, days, totals,
+    note: `締切日 ${closing || to} の月度（${from}〜${to}）の定時請求を、支払日ごと・科目ごとに${summary ? '集計して' : '明細行単位で'}出資比率で按分。各社切捨て、端数は第1構成員。端数調整の入力（現行の「データの読込 0/1」）は要検討。` };
+}
+const PART_ACCOUNT = { BANK: '当座預金（振込）', NOTE: '受取手形', FEE: '雑費（手数料）' };
+// NO36 入金明細及び配分表
+// 10/21 打合せ：対象は当座預金に入金されるもの（振込・受取手形）、入金に付随する手数料（雑費）、現金売上。指示画面は締切日。
 export async function jvReceipts(c, q) {
-  const { from, to } = range(q), ms = await members(c);
+  const { from, to, closing } = await jvRange(c, q), ms = await members(c);
   const rs = await rows(c, `SELECT r.receipt_id, r.receipt_no, r.receipt_date, c.customers_name, k.component_kind, k.amount FROM receipt r JOIN receipt_component k ON k.receipt_id=r.receipt_id LEFT JOIN client_m c ON c.customers_cd=r.customers_cd
-    WHERE r.status='POSTED' AND r.receipt_date BETWEEN ? AND ? ORDER BY r.receipt_date, r.receipt_id, k.component_no`, [from, to]);
-  const lines = rs.map(r => { const amount = num(r.amount); return { date: r.receipt_date, no: r.receipt_no, account: PART_ACCOUNT[r.component_kind] || r.component_kind, memo: '売掛金入金', customer: r.customers_name, amount, parts: allocate(amount, ms) }; });
-  return { title: '入金明細及び配分表', ref: 'NO36 / 添付帳票⑬', from, to, members: ms, lines, totals: { amount: lines.reduce((n, l) => n + l.amount, 0), parts: ms.map((_, i) => lines.reduce((n, l) => n + l.parts[i], 0)) } };
+    WHERE r.status='POSTED' AND r.receipt_date BETWEEN ? AND ? AND k.component_kind IN ('BANK','NOTE','FEE') ORDER BY r.receipt_date, r.receipt_id, k.component_no`, [from, to]);
+  const lines = rs.map(r => { const amount = num(r.amount); return { date: String(r.receipt_date).slice(0, 10), no: r.receipt_no, account: PART_ACCOUNT[r.component_kind] || r.component_kind, memo: r.component_kind === 'FEE' ? '入金時の手数料' : '売掛金入金', customer: r.customers_name, amount, parts: allocate(amount, ms) }; });
+  // 現金売上（決済方法 1＝現金）：売上日・得意先ごとに集計
+  const cash = await rows(c, `SELECT s.sales_date d, s.customers_cd, c.customers_name, COUNT(*) n, SUM(s.money + s.consumption_tax) v FROM sales_trn s LEFT JOIN client_m c ON c.customers_cd=s.customers_cd
+    WHERE s.payment_method_cd=1 AND s.sales_date BETWEEN ? AND ? GROUP BY s.sales_date, s.customers_cd, c.customers_name ORDER BY s.sales_date, s.customers_cd`, [toNum(from), toNum(to)]);
+  for (const r of cash) { const amount = num(r.v); if (amount) lines.push({ date: fromNum(r.d), no: `${num(r.n)}件`, account: '現金売上', memo: '現金売上', customer: r.customers_name || r.customers_cd, amount, parts: allocate(amount, ms) }); }
+  lines.sort((a, b) => a.date.localeCompare(b.date));
+  return { title: '入金明細及び配分表', ref: 'NO36 / 添付帳票⑬', closing, from, to, members: ms, lines, totals: { amount: lines.reduce((n, l) => n + l.amount, 0), parts: ms.map((_, k) => lines.reduce((n, l) => n + l.parts[k], 0)) },
+    note: `締切日 ${closing || to} の月度（${from}〜${to}）。対象は当座預金への入金（振込・受取手形）、入金時の手数料（雑費）、現金売上（10/21 打合せ）。各社切捨て、端数は第1構成員。` };
 }
 
 // ---------- Excel ----------
@@ -218,15 +243,20 @@ export async function miscBook(c, kind, q) {
     const d = kind === 'jv-expenses' ? await jvExpenses(c, q) : await jvReceipts(c, q), out = head(d, `期間 ${d.from} 〜 ${d.to}`);
     const names = d.members.map(m => `${m.name}（${m.ratio}%）`);
     if (kind === 'jv-expenses') {
-      out.push(['支払日', '伝票No', '科目', '支払先', '摘要', '税区分', '支払金額', '支払本体', '消費税', ...names].map(H));
-      for (const a of d.accounts) { for (const r of a.rows) out.push([r.date, r.no, `${a.account} ${a.name}`, r.vendor, r.memo, r.taxCode, r.gross, r.net, r.tax, ...r.parts]); out.push(['', '', S('＊科目計＊'), '', '', '', S(a.gross), S(a.net), S(a.tax), ...a.parts.map(S)]); }
-      out.push(['', '', S('合計'), '', '', '', S(d.totals.gross), S(d.totals.net), S(d.totals.tax), ...d.totals.parts.map(S)], [], [H('出資金請求合計表（科目別）')], ['科目', '支払金額', '支払本体', '消費税', ...names].map(H));
-      for (const a of d.accounts) out.push([`${a.account} ${a.name}`, a.gross, a.net, a.tax, ...a.parts]);
-      out.push([d.note]);
+      const detail = d.layout === 'detail';
+      out.push((detail ? ['支払日', '伝票No', '科目', '支払先', '摘要', '税区分', '支払金額', '支払本体', '消費税', ...names] : ['支払日', '科目', '件数', '', '', '', '支払金額', '支払本体', '消費税', ...names]).map(H));
+      for (const day of d.days) {
+        for (const a of d.accounts.filter(x => x.due === day.due)) {
+          if (detail) { for (const r of a.rows) out.push([r.date, r.no, `${a.account} ${a.name}`, r.vendor, r.memo, r.taxCode, r.gross, r.net, r.tax, ...r.parts]); out.push(['', '', S('＊科目計＊'), '', '', '', S(a.gross), S(a.net), S(a.tax), ...a.parts.map(S)]); }
+          else out.push([a.due, `${a.account} ${a.name}`, a.count, '', '', '', a.gross, a.net, a.tax, ...a.parts]);
+        }
+        out.push([S(`${day.due} 支払日計`), '', '', '', '', '', S(day.gross), '', '', ...day.parts.map(S)]);
+      }
+      out.push(['', '', S('合計'), '', '', '', S(d.totals.gross), S(d.totals.net), S(d.totals.tax), ...d.totals.parts.map(S)], [d.note]);
     } else {
       out.push(['入金日', '入金No', '入金科目', '摘要', '入金先', '入金額', ...names].map(H));
       for (const l of d.lines) out.push([l.date, l.no, l.account, l.memo, l.customer, l.amount, ...l.parts]);
-      out.push(['', '', S('合計'), '', '', S(d.totals.amount), ...d.totals.parts.map(S)]);
+      out.push(['', '', S('合計'), '', '', S(d.totals.amount), ...d.totals.parts.map(S)], [d.note]);
     }
     return { name: `${d.title}_${d.from}_${d.to}.xlsx`, body: xlsx([{ name: d.title.slice(0, 28), rows: out, widths: [11, 12, 18, 22, 20, 12, 12, 12, 12, 16, 16, 16, 16] }]) };
   }

@@ -211,8 +211,10 @@ test('workflow against PostgreSQL business tables', { skip, timeout: 900000 }, a
       const mx = (await a.call('/api/reports/misc/mix?closing=31&month=' + d.slice(0, 7))).data;
       assert.ok(mx.suggest && typeof mx.suggest.tons === 'number' && Array.isArray(mx.usage));
       // NO30 / NO33 / NO40 / NO44
-      const pi = (await a.call('/api/reports/misc/payable-input?closing=31&month=' + d.slice(0, 7))).data;
+      // 10/21：業者コードはブランクなら出力しない、To に 9999999 で全業者
+      const pi = (await a.call('/api/reports/misc/payable-input?closing=31&vendorTo=9999999&month=' + d.slice(0, 7))).data;
       assert.ok(pi.depts.some(dp => dp.vendors.some(v => v.vendor === 'V' + tag)));
+      assert.equal((await a.call('/api/reports/misc/payable-input?closing=31&month=' + d.slice(0, 7))).data.depts.length, 0, 'blank vendor code outputs nothing');
       const pc = (await a.call('/api/reports/misc/petty-book?' + span)).data; assert.equal(pc.closing, pc.opening + pc.received - pc.spent);
       const sr = (await a.call('/api/reports/misc/sales-register?' + span)).data.customers.find(x => x.customer === C); assert.equal(sr.rows.length, 4); // 元・赤・黒＋別現場 assert.equal(sr.net, 12997);
       const rs = (await a.call('/api/reports/misc/receipt-schedule')).data.customers.find(x => x.customer === C);
