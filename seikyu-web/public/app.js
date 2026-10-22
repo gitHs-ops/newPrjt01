@@ -846,7 +846,6 @@ document.addEventListener('change', e => { if (e.target.id === 'ic-only') icFilt
 function icFilter() { const t = ($('#ic-search')?.value || '').trim().toLowerCase(), only = $('#ic-only')?.checked; $$('#ic-grid tbody tr').forEach(tr => { const v = tr.querySelector('.ic-qty')?.value.trim(); tr.hidden = (t && !tr.dataset.text.includes(t)) || (only && !v); }); }
 
 // 当月度の締切日（20日締め：21日以降は翌月20日）
-const closingOfToday = () => { const t = today(), [y, m, d] = t.split('-').map(Number); return new Date(Date.UTC(y, m - 1 + (d > 20 ? 1 : 0), 20)).toISOString().slice(0, 10); };
 // 業者マスタの支払繰延区分（「1 15」＝翌月15日、「3 31」＝3か月後の月末）と支払予定日。サーバの vendorDue と同じ計算
 function vendorTerms(v, date) {
   if (!v || !/^\d{4}-\d{2}-\d{2}$/.test(date || '')) return { label: '', due: '' };
@@ -873,7 +872,7 @@ function expenseView(kind) {
     // 定時請求データ入力は現行 HAW050（10/21 打合せ資料 スライド5）の並び：組織・締切日／請求No／業者／支払繰延区分・合計金額 → 明細（2段）→ 対象外・内税・外税・外税消費税・合計
     const deptSel = `<select name="dept">${options(active('depts').length ? active('depts') : [{ code: '063', name: '部門063' }], '063')}</select>`;
     const head = payable ? `<div class="hw-head">
-        ${field('組織', deptSel)}<div></div>${field('締切日', `<input type="date" name="date" value="${closingOfToday()}">`, { req: 1, hint: '既定は当月度の締日（20日）' })}
+        ${field('組織', deptSel)}<div></div>${field('締切日', `<input type="date" name="date" value="${lastClosing()}">`, { req: 1, hint: '既定は直近の締日（本日以前の20日。締め後に入力）' })}
         ${field('請求No', '<input value="自動採番（業者ごと4桁）" disabled>')}<div class="span2"></div>
         <div class="span2">${field('業者', `<select name="vendor">${options(active('vendors'), '', { blank: '選択してください' })}</select>`, { req: 1 })}</div><div></div>
         ${field('支払繰延区分', '<output id="ex-defer" class="muted">業者を選択すると業者マスタから表示</output>')}${field('支払予定日', '<input type="date" name="due">', { hint: '支払繰延区分から自動計算（変更可）' })}${field('合計金額', '<input name="total" class="num" inputmode="numeric">', { req: 1, hint: '現行どおり手入力（明細と一致チェック）' })}
@@ -1014,7 +1013,9 @@ async function zenginDialog() {
 
 // ④ 出荷集計（NO41〜43）・材料受払表（NO26）・配合計算（NO25）・出資金（NO35・36）
 const monthLastDay = m => new Date(Date.UTC(+m.slice(0, 4), +m.slice(5, 7), 0)).toISOString().slice(0, 10);
-const rangeInputs = (id, label = '期間') => `<label class="field">${label}（開始）<input type="date" id="${id}-from" value="${thisMonth()}-01"></label><label class="field">${label}（終了）<input type="date" id="${id}-to" value="${monthLastDay(thisMonth())}"></label>`;
+const rangeInputs = (id, label = '期間', from = `${thisMonth()}-01`, to = monthLastDay(thisMonth())) => `<label class="field">${label}（開始）<input type="date" id="${id}-from" value="${from}"></label><label class="field">${label}（終了）<input type="date" id="${id}-to" value="${to}"></label>`;
+// 直近の締日の月度（前月21日〜当月20日）
+const closingRange = () => { const to = lastClosing(), [y, m] = to.split('-').map(Number); return [new Date(Date.UTC(y, m - 2, 21)).toISOString().slice(0, 10), to]; };
 function miscCard(title, sub, inputs, buttons, note = '') {
   return `<section class="card glass"><div class="card-head"><h2>${title}</h2><span class="muted small">${sub}</span></div><div class="filters">${inputs}</div><div class="filters" style="margin-top:10px">${buttons}</div>${note ? `<p class="muted small">${note}</p>` : ''}</section>`;
 }
@@ -1025,11 +1026,11 @@ const inventoryReportsCard = () => miscCard('配合計算・材料受払表（NO
   '<button data-act="misc" data-kind="material-ledger" data-src="mi">NO26 材料受払表</button><button data-act="mix">NO25 配合計算（暫定）</button>',
   '材料は商品マスタの「製品・材料区分＝材料」と、仕入・在庫のある商品が対象。配合計算は配合表の資料が未提供のため暫定で、配合率は「マスタ管理 → 配合」で登録します。');
 // 10/19 打合せ：出力指示＝締切日・部門コード（組織マスタ）・区分（ブランク＝工事、1＝組織）・業者コード From〜To（ブランク〜9999999＝全業者）
-const payableReportsCard = () => miscCard('定時請求入力明細表（NO30）', '部門（工事）→業者→請求明細（現行 HAR136 形式）', `<label class="field">月度<input type="month" id="pi-month" value="${thisMonth()}"></label><label class="field">締日<select id="pi-closing"><option value="20" selected>20日（現行）</option><option value="31">月末（暦月）</option></select></label>
+const payableReportsCard = () => miscCard('定時請求入力明細表（NO30）', '部門（工事）→業者→請求明細（現行 HAR136 形式）', `<label class="field">月度<input type="month" id="pi-month" value="${lastClosing().slice(0, 7)}"></label><label class="field">締日<select id="pi-closing"><option value="20" selected>20日（現行）</option><option value="31">月末（暦月）</option></select></label>
   <label class="field">部門コード<select id="pi-dept">${options(masters.depts || [], '', { blank: '全部門' })}</select></label><label class="field">区分<select id="pi-kb"><option value="1" selected>1：組織</option><option value="">ブランク：工事</option></select></label>
   <label class="field">業者コード（From）<input id="pi-vfrom" list="pi-vlist" maxlength="7" style="width:110px"></label><label class="field">業者コード（To）<input id="pi-vto" list="pi-vlist" maxlength="7" style="width:110px" value="9999999"></label><datalist id="pi-vlist">${(masters.vendors || []).map(v => `<option value="${esc(v.code)}">${esc(v.name)}</option>`).join('')}</datalist>`,
   '<button data-act="misc" data-kind="payable-input" data-src="pi">NO30 定時請求データ入力明細表（組織別）</button>', '業者コード：ブランク＝出力しない／From〜To＝範囲の業者／To に 9999999＝全業者（10/21 打合せ）。発注残・相殺は未確定（Q03）のため0。削減案6では画面照会で代用可とされていますが、帳票としても出力できます。');
-const pettyReportsCard = () => miscCard('小口現金出納簿（NO33）', '定額資金前渡制（推定）', rangeInputs('pc'),
+const pettyReportsCard = () => miscCard('小口現金出納簿（NO33）', '定額資金前渡制（推定）', rangeInputs('pc', '期間', ...closingRange()),
   '<button data-act="misc" data-kind="petty-book" data-src="pc">NO33 小口現金出納簿</button>' + (canWrite() ? '<button data-act="fund">定額資金の設定</button><button data-act="refill">現金補充を登録</button>' : ''), '期首に定額資金を受入、支払ごとに残高を表示し、支払合計を次期補充額とします。JV構成員が登録済みなら出資比率で配分列を表示します。');
 const receiptScheduleCard = () => miscCard('入金予定チェックリスト（NO44）', '得意先別・工事（現場）別', `<label class="field">入金予定日（から）<input type="date" id="rs-from" value="${addMonths(thisMonth(), -6)}-01"></label><label class="field">入金予定日（まで）<input type="date" id="rs-to" value="${today()}"></label><label class="field"><span>超過分のみ</span><span><input type="checkbox" id="rs-over"> 予定日を過ぎた未入金</span></label>`,
   '<button data-act="misc" data-kind="receipt-schedule" data-src="rs">NO44 入金予定チェックリスト</button>', '発行済みで残高のある請求が対象。入金方法・入金先は過去の入金実績から推定します。');
@@ -1048,7 +1049,7 @@ const jvReportsCard = () => miscCard('出資金（JV）帳票（NO35・36）', '
   '構成員と出資比率は「マスタ管理 → JV構成員・出資比率」で登録します（有効な構成員の合計100%）。配分は各社切捨て、端数は第1構成員。');
 function miscParams(kind, src) {
   if (src === 'mi') return { month: $('#mi-month').value, closing: $('#mi-closing').value };
-  if (src === 'pi') return { month: $('#pi-month').value, closing: $('#pi-closing').value, dept: $('#pi-dept').value, kb: $('#pi-kb').value, vendorFrom: $('#pi-vfrom').value.trim(), vendorTo: $('#pi-vto').value.trim() };
+  if (src === 'pi') return { month: $('#pi-month').value, closing: $('#pi-closing').value, dept: $('#pi-dept').value, kb: $('#pi-kb').value, vendorFrom: $('#pi-vfrom').value.trim().toUpperCase(), vendorTo: $('#pi-vto').value.trim().toUpperCase() };
   if (src === 'jv') return { closing: $('#jv-closing').value };
   if (src === 'jvs') return { closing: $('#jv-closing').value, layout: 'summary' };
   if (src === 'pc') return { from: $('#pc-from').value, to: $('#pc-to').value };
@@ -1289,7 +1290,7 @@ VIEWS.migration = async () => {
       <li>会計月度は 21日〜20日、決算は 10月20日（期首 10月21日）。財務会計（勘定奉行相当）も同じ月度で集計します。</li>
       <li>請求書は提案書様式（前回残高・今回入金額・今回残高、取引銀行2行）。請求書発行確認表は現行 HAR430 の項目。</li>
       <li>マスタは使用中のコードを削除せず無効化を案内。画面はサイドバーの小メニューで機能ごとに表示します。</li></ul>
-      <h3 style="margin-top:12px">資料未着のため推定で実装した項目（2026-10-15）</h3><ul class="list small"><li>NO20 会計連携: 勘定奉行受入CSV（OBC受入記号・税区分は会計設定で登録）・汎用CSV・弥生形式。処税率は3桁を分解して変換（消費税区分.xlsx）。</li><li>NO25 配合計算: 配合率は配合マスタ、経費単価は当月経費（電気8242／製造8244・8243／一般管理費系）÷製品出荷数量で自動算出。灯油は材料「灯油」の使用高。</li><li>NO30 定時請求入力明細表: 発注残・相殺は0、現比100%。</li><li>NO33 小口現金出納簿: 定額資金前渡制（期首受入・支払後残高・次期補充額）を仮定。</li><li>NO44 入金予定チェックリスト: 予定日＝支払期日、予定額＝残高の現場別売上比按分、入金方法・入金先は過去実績から推定。</li><li>NO10 一括ダウンロード: Excel（1請求書＝1シート）。NO9 は得意先別残高照会タブで請求残高照会を兼ねる（削減案3）。</li></ul></section>
+      <h3 style="margin-top:12px">資料未着のため推定で実装した項目（2026-10-15）</h3><ul class="list small"><li>NO20 会計連携: 勘定奉行受入CSV（OBC受入記号・税区分は会計設定で登録）・汎用CSV・弥生形式。処税率は3桁を分解して変換（消費税区分.xlsx）。</li><li>NO25 配合計算: 配合率は配合マスタ、経費単価は当月経費（電気8242／製造8244・8243／一般管理費系）÷製品出荷数量で自動算出。灯油は材料「灯油」の使用高。</li><li>NO30 定時請求入力明細表: 発注残・相殺は0。現比は振込のみのため出力しない（10/19）。</li><li>NO33 小口現金出納簿: 定額資金前渡制（期首受入・支払後残高・次期補充額）を仮定。</li><li>NO44 入金予定チェックリスト: 予定日＝支払期日、予定額＝残高の現場別売上比按分、入金方法・入金先は過去実績から推定。</li><li>NO10 一括ダウンロード: Excel（1請求書＝1シート）。NO9 は得意先別残高照会タブで請求残高照会を兼ねる（削減案3）。</li></ul></section>
     <section class="card glass"><div class="card-head"><h2>テーブル使用状況</h2>${badge(`${used} / ${cov.length} 表を使用`, 'green')}</div>${table([{ label: 'テーブル', value: r => r.table }, { label: '内容', value: r => r.label }, { label: '区分', value: r => r.origin }, { label: '本システム', html: r => r.use.startsWith('使用') ? badge(r.use, 'green') : badge(r.use, 'gray') }, { label: '件数', num: 1, value: r => yen(r.rows) }], cov)}</section></div>
     <section class="card glass"><div class="card-head"><h2>確認事項（${req.questions.length}件・未回答 ${req.questions.filter(r => r.status === '未回答').length}件）</h2></div>${table([{ label: 'No', value: r => r.id }, { label: '状態', html: r => badge(r.status || '未回答', r.status === '回答済' ? 'green' : r.status === '一部回答' ? 'amber' : 'gray') },
       { label: '確認事項', value: r => r.question }, { label: '回答・根拠', value: r => r.answer || '' }, { label: '影響', value: r => r.impact }], req.questions)}</section>`);

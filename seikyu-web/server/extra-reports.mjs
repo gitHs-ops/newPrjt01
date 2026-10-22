@@ -18,10 +18,13 @@ export async function payableInputList(c, q) {
   // 10/19 打合せ：出力指示は 締切日・部門コード・区分（ブランク＝工事、1＝組織）・業者コード
   // 10/21 打合せ：業者コードはブランクなら出力しない。From〜To で範囲指定、下段（To）に 9999999 で全業者（From 未入力なら先頭から）
   const kb = String(q.kb ?? '1') === '1' ? '1' : '', dept = String(q.dept || '').trim();
-  const vFrom = String(q.vendorFrom ?? q.vendor ?? '').trim(), vTo0 = String(q.vendorTo ?? q.vendor ?? '').trim(), vTo = vTo0 || vFrom, toAll = /^9{7,}$/.test(vTo);
+  // 業者コードは英字を大文字に揃えて比較（v001＝V001）
+  const up = v => String(v ?? '').trim().toUpperCase();
+  const vFrom = up(q.vendorFrom ?? q.vendor), vTo0 = up(q.vendorTo ?? q.vendor), vTo = vTo0 || vFrom, toAll = /^9{7,}$/.test(vTo);
   const none = !vFrom && !vTo0;
   const cmp = (a, b) => (/^\d+$/.test(a) && /^\d+$/.test(b) ? Number(a) - Number(b) : a.localeCompare(b));
-  const inRange = code => !none && (!vFrom || cmp(String(code || ''), vFrom) >= 0) && (toAll || cmp(String(code || ''), vTo) <= 0);
+  check(!vFrom || toAll || cmp(vFrom, vTo) <= 0, `業者コードの範囲が不正です（From ${vFrom} ＞ To ${vTo}）`);
+  const inRange = code => !none && (!vFrom || cmp(up(code), vFrom) >= 0) && (toAll || cmp(up(code), vTo) <= 0);
   const all = !vFrom && toAll;
   const ls = (await rows(c, `SELECT d.document_no, d.bill_no, d.booked_on, d.due_on, d.memo, l.gross_amount, l.memo line_memo, l.memo_code, l.department_code, l.account_code, l.sub_code, l.source_tax_code, a.account_name, s.sub_name, v.vendor_code, v.vendor_name,
       (SELECT COALESCE(SUM(pa.amount),0) FROM payment_allocation pa JOIN payment p ON p.payment_id=pa.payment_id AND p.status='POSTED' WHERE pa.expense_id=d.expense_id) paid
