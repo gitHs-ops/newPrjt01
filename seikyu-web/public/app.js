@@ -101,7 +101,8 @@ const SUBMENUS = {
   shipments: [{ k: 'slips', l: '出荷伝票' }, { k: 'plans', l: '出荷予定', q: { tab: 'plans' } }, { k: 'notes', l: '納品書発行' }, { k: 'reports', l: '出荷・売上帳票（NO40〜43）' }],
   invoices: [{ k: 'create', l: '請求データ作成（NO6）', tools: false }, { k: 'list', l: '請求一覧・発行', tools: true }, { k: 'reports', l: '請求帳票（NO12・13）' }, { k: 'balance', l: '得意先別残高照会（NO9・15）', q: { view: 'balance' } }, { k: 'ledger', l: '請求残高照会', q: { view: 'ledger' } }],
   receipts: [{ k: 'list', l: '入金一覧・消込' }, { k: 'targets', l: '消込対象', q: { tab: 'targets' } }, { k: 'plan', l: '入金予定一覧', q: { tab: 'plan' } }, { k: 'schedule', l: '入金予定チェックリスト（NO44）' }],
-  inventory: [{ k: 'count', l: '実在庫登録' }, { k: 'list', l: '在庫一覧・在庫計上' }, { k: 'reports', l: '在庫登録リスト・材料受払表・配合計算' }],
+  // 10/21 打合せの処理順（実在庫登録 → 配合計算 → 材料受払表 → 在庫計上）に並べる
+  inventory: [{ k: 'count', l: '実在庫登録' }, { k: 'reports', l: '在庫登録リスト・配合計算・材料受払表' }, { k: 'list', l: '在庫一覧・在庫計上' }],
   payables: [{ k: 'list', l: '定時請求一覧・入力' }, { k: 'reports', l: '定時請求入力明細表（NO30）' }],
   cash: [{ k: 'list', l: '小口現金一覧・登録' }, { k: 'book', l: '出納簿・定額資金・現金補充（NO33）' }],
   payments: [{ k: 'list', l: '支払一覧・登録' }, { k: 'reports', l: '支払帳票・全銀データ（NO37・45〜48）' }, { k: 'transfer', l: '振込先一覧' }, { k: 'bank', l: '銀行別随時支払一覧表（NO39）' }],
@@ -1025,7 +1026,7 @@ const shipmentReportsCard = () => miscCard('出荷・売上帳票（NO40・41・
   '<button data-act="misc" data-kind="shipment-summary" data-src="ms">NO41 商品・製品別出荷集計表</button><button data-act="misc" data-kind="customer-items" data-src="ms">NO42 得意先別商品別出荷累計表</button><button data-act="misc" data-kind="cash-sales" data-src="ms">NO43 現金売上明細表</button><button data-act="misc" data-kind="sales-register" data-src="ms">NO40 商品売上登録リスト</button>',
   '期間は締日単位（例: 前月21日〜当月20日）で指定できます。<span id="ms-range"></span>');
 const inventoryReportsCard = () => miscCard('配合計算・材料受払表（NO25・NO26）', '月次（実在庫登録と商品仕入登録の後に実行）', `<label class="field">処理年月（計算年月）<input type="month" id="mi-month" value="${lastClosing().slice(0, 7)}"></label><label class="field">締日<select id="mi-closing"><option value="20" selected>20日（現行）</option><option value="10">10日</option><option value="31">月末（暦月）</option></select></label>`,
-  '<button data-act="misc" data-kind="material-ledger" data-src="mi">NO26 材料受払表</button><button data-act="mix">NO25 配合計算（暫定）</button>',
+  '<button data-act="mix">NO25 配合計算（暫定）</button><button data-act="misc" data-kind="material-ledger" data-src="mi">NO26 材料受払表</button>',
   '材料は商品マスタの「製品・材料区分＝材料」と、仕入・在庫のある商品が対象。配合計算は配合表の資料が未提供のため暫定で、配合率は「マスタ管理 → 配合」で登録します。');
 // 10/19 打合せ：出力指示＝締切日・部門コード（組織マスタ）・区分（ブランク＝工事、1＝組織）・業者コード From〜To（ブランク〜9999999＝全業者）
 const payableReportsCard = () => miscCard('定時請求入力明細表（NO30）', '部門（工事）→業者→請求明細（現行 HAR136 形式）', `<label class="field">月度<input type="month" id="pi-month" value="${lastClosing().slice(0, 7)}"></label><label class="field">締日<select id="pi-closing"><option value="20" selected>20日（現行）</option><option value="31">月末（暦月）</option></select></label>
