@@ -863,31 +863,66 @@ function expenseView(kind) {
     A.misc = d => miscReport(d.kind, d.src).catch(e => toast(e.message, true));
     const month = q.month || '', list = await api('/api/expenses?' + qs({ kind, month, vendor: q.vendor })), payable = kind === 'PAYABLE';
     const accOpts = options(active('accounts').filter(a => !['1111', '1112', '1120', '1131', '4121', '4415'].includes(a.code)), '', { blank: '（科目）' });
+    const hwCols = [{ name: 'account', label: '科目', cell: () => `<select name="account">${accOpts}</select>` },
+      { name: 'sub', label: '内訳／摘要コード', cell: () => '<div class="l2"><select name="sub"><option value="">（なし）</option></select><input name="memoCode" maxlength="7" placeholder="摘要コード（工事・7桁）"></div>' },
+      { label: '科目名・内訳名／摘要', cell: () => '<div class="l2"><span class="hw-names muted small">科目を選択</span><input name="lmemo" maxlength="500" placeholder="摘要（自由入力）"></div>' },
+      { name: 'amount', label: '支払金額／処税率', sum: 1, cell: () => `<div class="l2"><input name="amount" class="num" inputmode="numeric">${taxSelect('taxCode', '141')}</div>` }];
     const cols = [{ name: 'account', label: '科目', cell: () => `<select name="account">${accOpts}</select>` }, { name: 'sub', label: '内訳', cell: () => '<select name="sub"><option value="">（なし）</option></select>' },
       { name: 'taxCode', label: '処税率', cell: () => taxSelect('taxCode', '141') }, { name: 'amount', label: '金額（税込）', sum: 1, cell: () => '<input name="amount" class="num" style="width:120px">' },
       ...(payable ? [{ name: 'memoCode', label: '摘要コード', cell: () => '<input name="memoCode" maxlength="7" style="width:90px" placeholder="工事コード">' }] : []), { name: 'lmemo', label: '摘要名', cell: () => '<input name="lmemo" maxlength="500">' }];
-    A.new = () => modal({ title: payable ? '定時請求データ入力' : '小口現金出納登録', submit: '登録する', wide: true, body: `<div class="form-grid">
-      ${field(payable ? '締切日' : '支払日（領収書の日付）', `<input type="date" name="date" value="${payable ? closingOfToday() : today()}">`, { req: 1, hint: payable ? '既定は当月度の締日（20日）' : '' })}${field('組織（部門）', `<select name="dept">${options(active('depts').length ? active('depts') : [{ code: '063', name: '部門063' }], '063')}</select>`)}
-      ${payable ? field('業者', `<select name="vendor">${options(active('vendors'), '', { blank: '選択してください' })}</select>`, { req: 1 }) + field('合計金額', '<input name="total" class="num" inputmode="numeric">', { req: 1, hint: '現行どおり手入力。明細の合計と一致しないと登録できません' }) + field('支払繰延区分', '<output id="ex-defer" class="muted">業者を選択すると業者マスタから表示</output>') + field('支払予定日', '<input type="date" name="due">', { hint: '業者マスタの支払繰延区分から自動計算（変更可）' })
-        : field('支払先（業者）', `<select name="vendor">${options(active('vendors'), '', { blank: '（マスタにない支払先は右に入力）' })}</select>`) + field('支払先（自由入力）', '<input name="payee" maxlength="100" placeholder="例: 文具店">')}
-      ${field('伝票摘要', '<input name="memo" maxlength="500">', { wide: 1 })}</div>${lineGrid('ex-lines', cols)}
-      <p class="muted small">${payable ? '請求No は業者ごとの4桁連番で自動採番。合計金額は手入力し、明細の合計（下の合計欄）と一致するかチェックします（10/21 打合せ）。摘要コード（7桁）は工事コード（中部舗材で使用）。科目を選ぶと既定の処税率に切り替わります。マイナス金額の行は貸方（戻し）に計上します。' : '支払先はマスタ選択か自由入力。合計は明細から自動集計します。科目を選ぶと既定の処税率に切り替わります。マイナス金額の行は貸方（戻し）に計上します。'}</p>`,
-      onOpen: () => { const g = $('#ex-lines');
-        if (payable) { const f = $('#modal-body'), due = f.querySelector('[name=due]'); due.addEventListener('input', () => { due.dataset.manual = due.value ? '1' : ''; });
+    // 定時請求データ入力は現行 HAW050（10/21 打合せ資料 スライド5）の並び：組織・締切日／請求No／業者／支払繰延区分・合計金額 → 明細（2段）→ 対象外・内税・外税・外税消費税・合計
+    const deptSel = `<select name="dept">${options(active('depts').length ? active('depts') : [{ code: '063', name: '部門063' }], '063')}</select>`;
+    const head = payable ? `<div class="hw-head">
+        ${field('組織', deptSel)}<div></div>${field('締切日', `<input type="date" name="date" value="${closingOfToday()}">`, { req: 1, hint: '既定は当月度の締日（20日）' })}
+        ${field('請求No', '<input value="自動採番（業者ごと4桁）" disabled>')}<div class="span2"></div>
+        <div class="span2">${field('業者', `<select name="vendor">${options(active('vendors'), '', { blank: '選択してください' })}</select>`, { req: 1 })}</div><div></div>
+        ${field('支払繰延区分', '<output id="ex-defer" class="muted">業者を選択すると業者マスタから表示</output>')}${field('支払予定日', '<input type="date" name="due">', { hint: '支払繰延区分から自動計算（変更可）' })}${field('合計金額', '<input name="total" class="num" inputmode="numeric">', { req: 1, hint: '現行どおり手入力（明細と一致チェック）' })}
+      </div>` : `<div class="form-grid">
+      ${field('支払日（領収書の日付）', `<input type="date" name="date" value="${today()}">`, { req: 1 })}${field('組織（部門）', deptSel)}
+      ${field('支払先（業者）', `<select name="vendor">${options(active('vendors'), '', { blank: '（マスタにない支払先は右に入力）' })}</select>`) + field('支払先（自由入力）', '<input name="payee" maxlength="100" placeholder="例: 文具店">')}
+      ${field('伝票摘要', '<input name="memo" maxlength="500">', { wide: 1 })}</div>`;
+    const sumBar = payable ? `<div class="hw-sum"><span>対象外 <b id="hw-out">0</b></span><span>内税 <b id="hw-in">0</b></span><span>外税 <b id="hw-ex">0</b></span>
+      <label>外税消費税 <input name="extTax" class="num" value="0" inputmode="numeric" style="width:110px"></label><span>合計 <b id="hw-total">0</b> 円</span><span id="hw-check" class="small"></span></div>` : '';
+    // 処税率の区分（1桁目 1＝内税、2・空白＝外税、税率0や対象外は対象外）
+    const RATE = { 0: 0, 1: 10, 2: 3, 3: 6, 4: 2.8, 5: 5, 8: 8 }, taxClass = code => { const s3 = String(code || '').padStart(3, '0'), rate = RATE[s3[2]] || 0, taxable = rate > 0 && [1, 4, 5, 6].includes(Number(s3[1])); return { kind: !taxable ? 'out' : s3[0] === '1' ? 'in' : 'ex', rate }; };
+    const num = v => Number(String(v || '').replace(/[,，\s]/g, '')) || 0;
+    A.new = () => modal({ title: payable ? '定時請求データ入力' : '小口現金出納登録', submit: payable ? '登録' : '登録する', wide: true, body: `${head}${lineGrid('ex-lines', payable ? hwCols : cols)}${sumBar}
+      <p class="muted small">${payable ? '請求No は業者ごとの4桁連番で自動採番。合計金額は現行どおり手入力し、明細の合計（対象外＋内税＋外税＋外税消費税）と一致しないと登録できません（10/21 打合せ）。外税消費税は自動計算（端数は手で調整可）。摘要コード（7桁）は工事コード（中部舗材で使用）。科目を選ぶと既定の処税率に切り替わります。マイナス金額の行は貸方（戻し）に計上します。' : '支払先はマスタ選択か自由入力。合計は明細から自動集計します。科目を選ぶと既定の処税率に切り替わります。マイナス金額の行は貸方（戻し）に計上します。'}</p>`,
+      onOpen: () => { const g = $('#ex-lines'), f = $('#modal-body');
+        const recalc = () => {
+          lineTotal('ex-lines'); if (!payable) return;
+          const t = { out: 0, in: 0, ex: 0 }; let calc = 0;
+          $$('#ex-lines tbody tr').forEach(tr => { const a = num(tr.querySelector('[name=amount]')?.value), c = taxClass(tr.querySelector('[name=taxCode]')?.value); t[c.kind] += a; if (c.kind === 'ex') calc += Math.sign(a) * Math.floor(Math.abs(a) * c.rate / 100); });
+          const ext = f.querySelector('[name=extTax]'); if (!ext.dataset.manual) ext.value = calc;
+          const total = t.out + t.in + t.ex + num(ext.value), head = f.querySelector('[name=total]').value.trim();
+          $('#hw-out').textContent = yen(t.out); $('#hw-in').textContent = yen(t.in); $('#hw-ex').textContent = yen(t.ex); $('#hw-total').textContent = yen(total);
+          $('#hw-check').innerHTML = !head ? '<span class="muted">合計金額を入力してください</span>' : num(head) === total ? '<span class="check-ok">合計金額と一致</span>' : `<span class="check-ng">合計金額と ${yen(num(head) - total)} 円の差</span>`;
+          return total;
+        };
+        const names = tr => { const n = tr.querySelector('.hw-names'); if (!n) return; const acc = masters.accounts.find(a => a.code === tr.querySelector('[name=account]').value), sub = active('subaccounts').find(x => x.account === acc?.code && x.code === tr.querySelector('[name=sub]').value); n.textContent = acc ? `${acc.name}${sub ? '　' + sub.name : ''}` : '科目を選択'; };
+        if (payable) {
+          $('#ex-lines-total')?.parentElement && ($('#ex-lines-total').parentElement.hidden = true);
+          const due = f.querySelector('[name=due]'); due.addEventListener('input', () => { due.dataset.manual = due.value ? '1' : ''; });
           const terms = () => { const v = (masters.vendors || []).find(x => x.code === f.querySelector('[name=vendor]').value), t = vendorTerms(v, f.querySelector('[name=date]').value);
             $('#ex-defer').textContent = v ? t.label : '業者を選択すると業者マスタから表示'; if (!due.dataset.manual) due.value = v && t.due ? t.due : ''; };
-          f.querySelector('[name=vendor]').addEventListener('change', terms); f.querySelector('[name=date]').addEventListener('change', terms); }
-        g.addEventListener('change', e => { if (e.target.name === 'account') { const tr = e.target.closest('tr'), acc = masters.accounts.find(a => a.code === e.target.value); tr.querySelector('[name=sub]').innerHTML = '<option value="">（なし）</option>' + options(active('subaccounts').filter(s => s.account === e.target.value), ''); if (acc?.tax && tr.querySelector(`[name=taxCode] option[value="${acc.tax}"]`)) tr.querySelector('[name=taxCode]').value = acc.tax; } lineTotal('ex-lines'); }); g.addEventListener('input', () => lineTotal('ex-lines')); },
+          f.querySelector('[name=vendor]').addEventListener('change', terms); f.querySelector('[name=date]').addEventListener('change', terms);
+          const ext = f.querySelector('[name=extTax]'); ext.addEventListener('input', () => { ext.dataset.manual = ext.value.trim() === '' ? '' : '1'; recalc(); });
+          f.querySelector('[name=total]').addEventListener('input', recalc);
+        }
+        g.addEventListener('change', e => { if (e.target.name === 'account') { const tr = e.target.closest('tr'), acc = masters.accounts.find(a => a.code === e.target.value); tr.querySelector('[name=sub]').innerHTML = '<option value="">（なし）</option>' + options(active('subaccounts').filter(s => s.account === e.target.value), ''); if (acc?.tax && tr.querySelector(`[name=taxCode] option[value="${acc.tax}"]`)) tr.querySelector('[name=taxCode]').value = acc.tax; }
+          if (['account', 'sub'].includes(e.target.name)) names(e.target.closest('tr')); recalc(); });
+        g.addEventListener('input', recalc); g.addEventListener('click', () => setTimeout(recalc)); recalc(); },
       onSubmit: async v => {
         const lines = readLines('ex-lines').map(l => ({ ...l, memo: l.lmemo }));
-        let total;
+        let total, extTax;
         if (payable) {
           const raw = String(v.total || '').replace(/[,，\s]/g, ''); if (!raw) throw Error('合計金額を入力してください');
           total = Number(raw); if (!Number.isInteger(total)) throw Error('合計金額は整数で入力してください');
-          const sum = lines.reduce((n, l) => n + (Number(String(l.amount || '').replace(/,/g, '')) || 0), 0);
-          if (total !== sum) throw Error(`合計金額（${yen(total)}円）と明細の合計（${yen(sum)}円）が一致しません`);
+          extTax = num(v.extTax);
+          const t = lines.reduce((n, l) => n + num(l.amount), 0) + extTax;
+          if (total !== t) throw Error(`合計金額（${yen(total)}円）と明細の合計（対象外＋内税＋外税＋外税消費税 ${yen(t)}円）が一致しません`);
         }
-        const r = await post('/api/expenses', { kind, date: v.date, dept: v.dept, vendor: v.vendor, payee: v.payee, due: v.due, memo: v.memo, total, lines });
+        const r = await post('/api/expenses', { kind, date: v.date, dept: v.dept, vendor: v.vendor, payee: v.payee, due: v.due, memo: v.memo, total, extTax, lines });
         toast(`${r.no}${r.billNo ? '（請求No ' + r.billNo + '）' : ''} を登録しました${r.due ? '・支払予定日 ' + r.due : ''}（仕訳 ${payable ? 'D01' : 'E01'}）`); render(); } });
     A.rev = d => confirmBox('伝票の取消', `${d.no} を取消し、逆仕訳を計上します。`, () => post('/api/expenses/reverse', { id: Number(d.id) }).then(() => { toast('取消しました'); render(); }), '取消する');
     A.lines = d => { const r = list.find(x => x.id === Number(d.id)); modal({ title: `${r.no} の明細`, wide: true, body: table([{ label: '行', value: l => l.no }, { label: '科目', value: l => `${l.account} ${l.accountName}` }, { label: '内訳', value: l => (l.sub ? `${l.sub} ${l.subName}` : '') },

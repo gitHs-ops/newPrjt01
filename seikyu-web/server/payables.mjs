@@ -203,11 +203,19 @@ export async function createExpense(c, ctx, p) {
     const sub = String(l.sub || '') || null;
     if (sub) check(await one(c, 'SELECT 1 x FROM account_subsubject WHERE account_code=? AND sub_code=? AND active', [acc.account_code, sub]), `${label}: 内訳科目が上位科目に登録されていません`);
     const amount = yen(l.amount, `${label}の金額`, { negative: true }); check(amount !== 0, `${label}: 金額を入力してください`); // マイナス行（戻し・値引）は貸方に計上
-    const tax = mustDecode(l.taxCode || '141', `${label}の処税率`).code, taxAmt = Math.sign(amount) * taxOf(Math.abs(amount), tax);
-    ls.push({ account: acc.account_code, sub, tax, amount, taxAmt, memoCode: text(l.memoCode, `${label}の摘要コード`, 7, { required: false, pattern: /^\d{1,7}$/ }), memo: text(l.memo, `${label}の摘要名`, 500, { required: false }) });
+    // 内税（1桁目 1）：金額は税込、消費税は内数。外税（1桁目 2・空白）：金額は税抜、消費税を上乗せ（現行 HAW050 の「外税消費税」）
+    const d = mustDecode(l.taxCode || '141', `${label}の処税率`), tax = d.code, taxAmt = Math.sign(amount) * taxOf(Math.abs(amount), tax), excl = !!d.excl;
+    ls.push({ account: acc.account_code, sub, tax, amount, excl, taxAmt, gross: excl ? amount + taxAmt : amount, memoCode: text(l.memoCode, `${label}の摘要コード`, 7, { required: false, pattern: /^\d{1,7}$/ }), memo: text(l.memo, `${label}の摘要名`, 500, { required: false }) });
   }
   check(ls.length, '明細を入力してください'); check(ls.length <= 99, '明細は99行以内です');
-  const amount = ls.reduce((n, l) => n + l.amount, 0); check(amount > 0, '合計金額がマイナスまたは0です');
+  // 外税消費税は画面で調整できる（端数）。計算値との差は最後の外税明細の消費税で調整
+  const exLines = ls.filter(l => l.excl), exCalc = exLines.reduce((n, l) => n + l.taxAmt, 0);
+  if (p.extTax !== undefined && String(p.extTax).trim() !== '') {
+    const ext = yen(p.extTax, '外税消費税', { negative: true }), diff = ext - exCalc;
+    if (diff) { check(exLines.length, '外税の明細がないため外税消費税は入力できません'); const last = exLines[exLines.length - 1]; last.taxAmt += diff; last.gross += diff; }
+  }
+  const amount = ls.reduce((n, l) => n + l.gross, 0); check(amount > 0, '合計金額がマイナスまたは0です');
+  const extTax = ls.filter(l => l.excl).reduce((n, l) => n + l.taxAmt, 0);
   // 10/21 打合せ：定時請求の合計金額は現行どおり手入力し、明細の合計と一致するかチェックする
   if (kind === 'PAYABLE' && p.total !== undefined) { const t = yen(p.total, '合計金額', { max: 9999999999, positive: false }); check(t === amount, `合計金額（${t.toLocaleString('ja-JP')}円）と明細の合計（${amount.toLocaleString('ja-JP')}円）が一致しません`); }
   const memo = text(p.memo || ls[0].memo || (kind === 'PAYABLE' ? '定時請求' : '小口現金'), '摘要', 500), no = await nextNo(c, 'expense');
@@ -219,9 +227,10 @@ export async function createExpense(c, ctx, p) {
   const [r] = await c.query("INSERT INTO expense_document (document_no,expense_kind,vendor_id,booked_on,due_on,gross_amount,memo,status,bill_no) VALUES (?,?,?,?,?,?,?,'POSTED',?)", [no, kind, v?.vendor_id || null, date, due, amount, memo, billNo]);
   for (const [i, l] of ls.entries())
     await c.query('INSERT INTO expense_line (expense_id,line_no,account_code,sub_code,department_code,source_tax_code,net_amount,tax_amount,gross_amount,memo,memo_code) VALUES (?,?,?,?,?,?,?,?,?,?,?)',
-      [r.insertId, i + 1, l.account, l.sub, dept, l.tax, l.amount - l.taxAmt, l.taxAmt, l.amount, payee && i === 0 ? payee : l.memo || memo, l.memoCode || null]);
+      [r.insertId, i + 1, l.account, l.sub, dept, l.tax, l.gross - l.taxAmt, l.taxAmt, l.gross, payee && i === 0 ? payee : l.memo || memo, l.memoCode || null]);
+  // 外税の明細は科目に税抜金額、消費税は仮払消費税 1465 に計上（推定）。内税・対象外は従来どおり科目に金額
   await postJournal(c, { date, pattern: kind === 'PAYABLE' ? 'D01' : 'E01', sourceType: 'expense_document', sourceId: r.insertId, lines: [
-    ...ls.map(l => line(l.amount < 0 ? 'C' : 'D', l.account, Math.abs(l.amount), { sub: l.sub, dept, tax: l.tax })), kind === 'PAYABLE' ? line('C', '4121', amount, { vendor: v.vendor_id, tax: '9' }) : line('C', '1111', amount, { tax: '9' })] });
+    ...ls.map(l => line(l.amount < 0 ? 'C' : 'D', l.account, Math.abs(l.amount), { sub: l.sub, dept, tax: l.tax })), ...(extTax ? [line(extTax < 0 ? 'C' : 'D', '1465', Math.abs(extTax), { tax: '9' })] : []), kind === 'PAYABLE' ? line('C', '4121', amount, { vendor: v.vendor_id, tax: '9' }) : line('C', '1111', amount, { tax: '9' })] });
   await audit(c, ctx, 'expense_document', r.insertId, kind === 'PAYABLE' ? 'payable.create' : 'pettycash.create', { no, billNo, vendor: v?.vendor_code, lines: ls.length, amount });
   return { id: r.insertId, no, billNo, due };
 }
