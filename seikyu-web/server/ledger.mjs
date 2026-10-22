@@ -121,7 +121,7 @@ export async function auditLog(c, q = {}) {
 }
 export const TABLES = {
   billing_closing_inf: ['請求締状況', '使用'], billing_detail: ['請求明細', '使用'], billing_head: ['請求ヘッダ', '使用'], card_sales: ['カード売上', '未使用（Q16）'], card_sales_dtl: ['カード売上明細', '未使用（Q16）'],
-  client_m: ['得意先', '使用'], code_m: ['コード（銀行・納入区分・単位・税率・天候・設定）', '使用'], company_info_m: ['自社情報', '使用'], delivery_m: ['納入先', '未使用'], field_name_m: ['現場', '使用'], genka_m: ['原価', '使用（NO25 暫定）'],
+  client_m: ['得意先', '使用'], code_m: ['コード（銀行・納入区分・単位・税率・天候・設定）', '使用'], company_info_m: ['自社情報', '使用'], delivery_m: ['納入先', '未使用'], field_name_m: ['現場', '使用'], genka_m: ['原価', '使用（NO25 暫定・原価照会）'],
   item_bunrui_m: ['商品分類', '未使用'], item_m: ['商品', '使用'], menu_role_ts: ['メニュー権限', '使用'], menus: ['メニュー', '使用'], numbering_m: ['採番', '使用'], operator_m: ['担当者', '使用'], roles: ['ロール', '使用'],
   sales_trn: ['売上', '使用'], shipment_edit: ['出荷編集', '未使用'], shipment_plan: ['出荷予定', '使用（推定実装）'], shipment_slip: ['出荷伝票', '使用'], upload_work: ['取込作業', '未使用'], uriage_tanka_m: ['売上単価', '使用'],
   user_role_ts: ['利用者ロール', '使用'], users: ['利用者', '使用'],
