@@ -1224,7 +1224,7 @@ VIEWS.periods = async () => {
 VIEWS.masters = async q => {
   const A = actions;
   const kind = meta.masters[q.kind] ? q.kind : 'customers', m = meta.masters[kind], all = masters[kind] = await api('/api/masters/' + kind);
-  const term = (q.search || '').trim().toLowerCase(), byMonth = m.readOnly && q.month ? all.filter(r => r.month === q.month) : all, list = term ? byMonth.filter(r => Object.values(r).some(v => String(v ?? '').toLowerCase().includes(term))) : byMonth;
+  const term = (q.search || '').trim().toLowerCase(), byMonth = q.month ? all.filter(r => r.month === q.month) : all, list = term ? byMonth.filter(r => Object.values(r).some(v => String(v ?? '').toLowerCase().includes(term))) : byMonth;
   // 照会のみのマスタ（原価）は年月で絞り込む
   const months = m.fields.some(f => f.name === 'month') ? [...new Set(all.map(r => r.month))] : [];
   A.tab = d => go('masters', { kind: d.kind });
@@ -1249,7 +1249,7 @@ function masterInput(f, r, isNew) {
   if (f.type === 'ref') input = `<select name="${f.name}" ${dis}>${v && !(masters[f.ref] || []).some(x => x.code === v) ? `<option value="${esc(v)}" selected>${esc(v)}（マスタ未登録）</option>` : ''}${options(isNew ? active(f.ref) : masters[f.ref], v, { blank: '選択してください' })}</select>`;
   else if (f.type === 'site') input = `<select name="${f.name}" ${dis}>${siteOptions(r?.customer || '', v, '（得意先共通）')}</select>`;
   else if (f.type === 'select') input = `<select name="${f.name}">${options(f.options.map(([code, name]) => ({ code, name })), v || f.options[0][0], { label: x => x.name })}</select>`;
-  else input = `<input name="${f.name}" type="${f.type === 'date' ? 'date' : 'text'}" class="${f.type === 'int' ? 'num' : ''}" value="${esc(v)}" ${f.max ? `maxlength="${f.max}"` : ''} ${dis}>`;
+  else input = `<input name="${f.name}" type="${f.type === 'date' || f.type === 'month' ? f.type : 'text'}" class="${f.type === 'int' || f.type === 'dec' ? 'num' : ''}" value="${esc(v)}" ${f.max ? `maxlength="${f.max}"` : ''} ${dis}>`;
   return field(f.label, input, { req: !f.optional, hint: f.hint });
 }
 function masterForm(kind, r) {

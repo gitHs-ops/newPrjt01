@@ -266,6 +266,28 @@ export const MASTERS = {
       else await c.query("UPDATE code_m SET code_dtl_abr=?,category3=? WHERE code_key='MIX' AND code_dtl=?", [r.active ? '1' : '0', String(Math.round(r.ratio * 100)), key]);
     },
   },
+  // 材料単価（手入力）：NO25 配合計算で使う材料の月別単価。登録があれば移動平均（前月末在庫＋当月仕入）より優先（2026-10-22）
+  // code_m 'MATPR'：code_dtl＝YYYYMM:材料コード（12桁以内）、code_dtl_nam＝単価、code_dtl_abr＝有効('1')/無効('0')
+  matPrices: {
+    label: '材料単価（配合計算用・手入力）', table: 'code_m',
+    fields: [F('month', '年月', { type: 'month', key: true, hint: '配合計算の処理年月' }), F('material', '材料', { type: 'ref', ref: 'items', key: true }),
+      F('price', '単価', { type: 'dec', hint: '材料1単位あたり（小数2桁まで）。登録があれば移動平均より優先' }), F('active', '有効', { type: 'bool' })],
+    select: "SELECT * FROM code_m WHERE code_key='MATPR'", where: 'code_dtl=?', keyOf: r => [`${String(r.month).replace('-', '')}:${r.material}`],
+    sort: (a, b) => b.month.localeCompare(a.month) || a.material.localeCompare(b.material),
+    decode: r => ({ month: `${r.category1.slice(0, 4)}-${r.category1.slice(4, 6)}`, material: r.category2, price: Number(r.code_dtl_nam || 0), active: r.code_dtl_abr !== '0' }),
+    validate: r => {
+      const month = String(r.month ?? '').trim(), price = String(r.price ?? '').trim().replace(/,/g, '');
+      check(/^\d{4}-(0[1-9]|1[0-2])$/.test(month), '年月は YYYY-MM で入力してください');
+      check(/^\d{1,9}(\.\d{1,2})?$/.test(price) && Number(price) > 0, '単価は0より大きい数値（小数2桁まで）で入力してください');
+      return { month, material: text(r.material, '材料', 5), price: Number(price), active: bool(r.active ?? true) };
+    },
+    async write(c, r, old) {
+      check(await one(c, 'SELECT 1 x FROM item_m WHERE item_cd=?', [r.material]), '材料は商品マスタから選択してください');
+      const key = `${r.month.replace('-', '')}:${r.material}`;
+      if (!old) await c.query("INSERT INTO code_m (code_key,code_key_nam,code_dtl,code_dtl_nam,code_dtl_abr,category1,category2,category3) VALUES ('MATPR','材料単価',?,?,?,?,?,'')", [key, String(r.price), r.active ? '1' : '0', r.month.replace('-', ''), r.material]);
+      else await c.query("UPDATE code_m SET code_dtl_nam=?,code_dtl_abr=? WHERE code_key='MATPR' AND code_dtl=?", [String(r.price), r.active ? '1' : '0', key]);
+    },
+  },
   // 原価（現行 genka_m）：NO25 配合計算で保存した年月・製品ごとの原価。照会のみ（2026-10-22）
   genka: {
     label: '原価（配合計算の結果・照会のみ）', table: 'genka_m', readOnly: true,
@@ -422,6 +444,7 @@ const REMOVE = {
     del: ["DELETE FROM code_m WHERE code_key='DEPT' AND code_dtl=?"] },
   jv: { refs: [], del: ["DELETE FROM code_m WHERE code_key='JV' AND code_dtl=?"] },
   mixes: { refs: [], del: ["DELETE FROM code_m WHERE code_key='MIX' AND code_dtl=?"] },
+  matPrices: { refs: [], del: ["DELETE FROM code_m WHERE code_key='MATPR' AND code_dtl=?"] },
   deliveryKinds: { refs: [['出荷伝票', 'SELECT 1 x FROM shipment_slip WHERE CAST(delivery_kbn_cd AS TEXT)=? LIMIT 1'], ['出荷予定', 'SELECT 1 x FROM shipment_plan WHERE CAST(delivery_kbn_cd AS TEXT)=? LIMIT 1']],
     del: ["DELETE FROM code_m WHERE code_key='A0000' AND code_dtl=?"] },
   weathers: { refs: [['出荷伝票', 'SELECT 1 x FROM shipment_slip WHERE CAST(weather_cd AS TEXT)=? LIMIT 1'], ['出荷予定', 'SELECT 1 x FROM shipment_plan WHERE CAST(weather_cd AS TEXT)=? LIMIT 1']],
