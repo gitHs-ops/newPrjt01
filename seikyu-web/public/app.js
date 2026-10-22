@@ -868,7 +868,9 @@ function expenseView(kind) {
       { name: 'amount', label: '支払金額／処税率', sum: 1, cell: () => `<div class="l2"><input name="amount" class="num" inputmode="numeric">${taxSelect('taxCode', '141')}</div>` }];
     const cols = [{ name: 'account', label: '科目', cell: () => `<select name="account">${accOpts}</select>` }, { name: 'sub', label: '内訳', cell: () => '<select name="sub"><option value="">（なし）</option></select>' },
       { name: 'taxCode', label: '処税率', cell: () => taxSelect('taxCode', '141') }, { name: 'amount', label: '金額（税込）', sum: 1, cell: () => '<input name="amount" class="num" style="width:120px">' },
-      ...(payable ? [{ name: 'memoCode', label: '摘要コード', cell: () => '<input name="memoCode" maxlength="7" style="width:90px" placeholder="工事コード">' }] : []), { name: 'lmemo', label: '摘要名', cell: () => '<input name="lmemo" maxlength="500">' }];
+      ...(payable ? [{ name: 'memoCode', label: '摘要コード', cell: () => '<input name="memoCode" maxlength="7" style="width:90px" placeholder="工事コード">' }] : []),
+      // 10/19 打合せ（小口現金出納登録）：科目・内訳を選ぶと科目名／摘要名（内訳名）を表示し、その下に摘要名を手入力
+      { label: '科目名・内訳名／摘要名', cell: () => '<div class="l2"><span class="hw-names muted small">科目を選択</span><input name="lmemo" maxlength="500" placeholder="摘要名（手入力）"></div>' }];
     // 定時請求データ入力は現行 HAW050（10/21 打合せ資料 スライド5）の並び：組織・締切日／請求No／業者／支払繰延区分・合計金額 → 明細（2段）→ 対象外・内税・外税・外税消費税・合計
     const deptSel = `<select name="dept">${options(active('depts').length ? active('depts') : [{ code: '063', name: '部門063' }], '063')}</select>`;
     const head = payable ? `<div class="hw-head">
@@ -886,7 +888,7 @@ function expenseView(kind) {
     const RATE = { 0: 0, 1: 10, 2: 3, 3: 6, 4: 2.8, 5: 5, 8: 8 }, taxClass = code => { const s3 = String(code || '').padStart(3, '0'), rate = RATE[s3[2]] || 0, taxable = rate > 0 && [1, 4, 5, 6].includes(Number(s3[1])); return { kind: !taxable ? 'out' : s3[0] === '1' ? 'in' : 'ex', rate }; };
     const num = v => Number(String(v || '').replace(/[,，\s]/g, '')) || 0;
     A.new = () => modal({ title: payable ? '定時請求データ入力' : '小口現金出納登録', submit: payable ? '登録' : '登録する', wide: true, body: `${head}${lineGrid('ex-lines', payable ? hwCols : cols)}${sumBar}
-      <p class="muted small">${payable ? '請求No は業者ごとの4桁連番で自動採番。合計金額は現行どおり手入力し、明細の合計（対象外＋内税＋外税＋外税消費税）と一致しないと登録できません（10/21 打合せ）。外税消費税は自動計算（端数は手で調整可）。摘要コード（7桁）は工事コード（中部舗材で使用）。科目を選ぶと既定の処税率に切り替わります。マイナス金額の行は貸方（戻し）に計上します。' : '支払先はマスタ選択か自由入力。合計は明細から自動集計します。科目を選ぶと既定の処税率に切り替わります。マイナス金額の行は貸方（戻し）に計上します。'}</p>`,
+      <p class="muted small">${payable ? '請求No は業者ごとの4桁連番で自動採番。合計金額は現行どおり手入力し、明細の合計（対象外＋内税＋外税＋外税消費税）と一致しないと登録できません（10/21 打合せ）。外税消費税は自動計算（端数は手で調整可）。摘要コード（7桁）は工事コード（中部舗材で使用）。科目を選ぶと既定の処税率に切り替わります。マイナス金額の行は貸方（戻し）に計上します。' : '支払先はマスタ選択か自由入力。合計は明細から自動集計します。科目・内訳を選ぶと科目名・内訳名を表示し、その下に摘要名を手入力します（10/19 打合せ）。科目を選ぶと既定の処税率に切り替わります。マイナス金額の行は貸方（戻し）に計上します。'}</p>`,
       onOpen: () => { const g = $('#ex-lines'), f = $('#modal-body');
         const recalc = () => {
           lineTotal('ex-lines'); if (!payable) return;
