@@ -1,3 +1,6 @@
+// ブラウザの必須入力メッセージを日本語にする（ブラウザが韓国語等でも日本語で表示）
+document.addEventListener('invalid', e => { const el = e.target, l = el.closest('label')?.childNodes[0]?.textContent.trim() || ''; el.setCustomValidity(el.validity.valueMissing ? `${l || 'この項目'}を入力してください` : '入力内容を確認してください'); }, true);
+document.addEventListener('input', e => e.target.setCustomValidity?.(''), true);
 document.querySelector('#login-form').addEventListener('submit', async event => {
   event.preventDefault();
   const form = event.currentTarget, button = form.querySelector('button'), error = document.querySelector('#login-error');

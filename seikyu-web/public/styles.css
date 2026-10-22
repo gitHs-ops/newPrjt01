@@ -393,3 +393,13 @@ table.rc-journal td select { margin-top: 4px; max-width: 220px; }
 table.rc-journal tfoot th, table.rc-journal tfoot td { border-top: 2px solid var(--field-border); }
 table.rc-journal .rc-inline { display: flex; align-items: center; gap: 8px; margin-top: 4px; white-space: nowrap; }
 table.rc-journal .rc-inline input { width: auto; flex: 0 0 auto; }
+
+/* 日本語カレンダー（flatpickr）：popover（最上位レイヤー）で入力の直下に表示 */
+.flatpickr-calendar[popover] { position: fixed; inset: auto; margin: 0; padding: 0; border: 0; overflow: visible; z-index: 2147483000; }
+.flatpickr-calendar[popover]::before, .flatpickr-calendar[popover]::after { display: none; }
+input.fp-input { cursor: pointer; }
+input.fp-input[readonly] { background: inherit; }
+input.fp-date { min-width: 9.5em; } input.fp-month { min-width: 7.5em; } input.fp-time { min-width: 5em; }
+/* ファイル選択：標準の表示を隠して「ファイルを選択」ボタン */
+input.file-native { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+.file-pick { display: inline-flex; align-items: center; gap: 8px; }
