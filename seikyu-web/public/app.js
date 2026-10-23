@@ -293,7 +293,7 @@ VIEWS.shipments = async q => {
   A.bizDate = () => modal({ title: '業務日付の変更', submit: '変更する', body: `<div class="form-grid">${field('業務日付', `<input type="date" name="date" value="${bd}">`, { req: 1, hint: '出荷登録の出荷日の初期値。空欄で当日に戻す' })}</div>`,
     onSubmit: async v => { const r = await post('/api/business-date', v); toast(`業務日付を ${r.date} にしました`); render(); } });
   A.new = () => shipmentForm(null, bd);
-  // 提案書 スライド17（出荷伝票照会）：照会・類似登録
+  // 類似登録（提案書 スライド7・17）は 2026-10-23 に画面から外した（A.copy は残す）
   A.copy = d => { const r = list.find(x => x.orderNo === d.id); shipmentForm({ ...r, orderNo: undefined, date: bd, copyOf: r.orderNo }, bd); };
   // 「詳細」：変更できる伝票は修正画面（更新できる）、できない伝票（請求済・訂正伝票・訂正済・参照権限）は照会画面で「更新する」を使えなくする
   A.detail = d => { const r = list.find(x => x.orderNo === d.id), why = slipLock(r); if (why) slipInquiry(r, why); else shipmentForm(r); }; A.correct = d => correctionForm(list.find(r => r.orderNo === d.id));
@@ -308,7 +308,6 @@ VIEWS.shipments = async q => {
     if (!canWrite()) return `<div class="actions">${b.join('')}</div>`;
     if (!red(r) && !r.corrected) b.push(`<button class="mini" data-act="correct" data-id="${esc(r.orderNo)}">赤黒訂正</button>`);
     if (!r.billed && !r.corrected) b.push(`<button class="mini danger" data-act="del" data-id="${esc(r.orderNo)}">取消</button>`);
-    if (r.shipKb !== 5) b.push(`<button class="mini quiet" data-act="copy" data-id="${esc(r.orderNo)}" title="この伝票の内容で新規登録">類似登録</button>`);
     return `<div class="actions">${b.join('')}</div>`;
   };
   return page('出荷・売上', '出荷伝票（shipment_slip）と売上（sales_trn）を同時に登録します。請求済みの伝票は「赤黒訂正」で、元伝票のマイナス（赤）と訂正後（黒）を起票します（NO11、10/14 打合せ）。',
@@ -471,7 +470,7 @@ async function planView(q) {
   A.slipFromPlan = d => { const r = list.find(x => x.orderNo === d.id), now = new Date(Date.now() + 9 * 3600e3).toISOString().slice(11, 16);
     shipmentForm({ customer: r.customer, site: r.site, siteName1: r.siteName1, siteName2: r.siteName2, item: r.item, quantity: r.quantity, deliveryKbn: r.deliveryKbn, vehicle: r.vehicle, shipKb: r.shipKb, otherCustomer: r.otherCustomer, method: r.method, remarks: r.remarks.slice(0, 20), startTime: now, fromPlan: r.orderNo, date: bd }, bd); };
   A.delPlan = d => confirmBox('出荷予定の削除', `予定 ${d.id} を削除します（現行と同じく物理削除）。`, () => post('/api/plans/delete', { orderNo: d.id }).then(() => { toast('削除しました'); render(); }), '削除する');
-  const acts = r => `<div class="actions">${canWrite() ? `<button class="mini primary" data-act="slipFromPlan" data-id="${esc(r.orderNo)}">伝票登録</button><button class="mini" data-act="editPlan" data-id="${esc(r.orderNo)}">修正</button><button class="mini quiet" data-act="copyPlan" data-id="${esc(r.orderNo)}">類似登録</button><button class="mini danger" data-act="delPlan" data-id="${esc(r.orderNo)}">削除</button>` : ''}</div>`;
+  const acts = r => `<div class="actions">${canWrite() ? `<button class="mini primary" data-act="slipFromPlan" data-id="${esc(r.orderNo)}">伝票登録</button><button class="mini" data-act="editPlan" data-id="${esc(r.orderNo)}">修正</button><button class="mini danger" data-act="delPlan" data-id="${esc(r.orderNo)}">削除</button>` : ''}</div>`;
   return page('出荷・売上', '出荷予定（shipment_plan）は1台＝1行の予定伝票です。出荷伝票の「予定数量・予定時間」は、同じ出荷日・得意先・納入場所名・商品・納入区分で累計台数が同じ予定の累計数量・出発時間です。予定から伝票登録もできます。',
     `<input type="date" name="from" value="${esc(from)}" data-filter><span>〜</span><input type="date" name="to" value="${esc(to)}" data-filter>${filterSelect('customer', masters.customers, q.customer, 'すべての得意先')}<input name="site" placeholder="納入場所名" value="${esc(q.site || '')}" data-filter>${canWrite() ? '<button data-act="notes">納品書発行</button><button class="primary" data-act="newPlan">＋ 出荷予定登録</button>' : ''}`,
     `<section class="card glass">${table([{ label: '予定No', html: r => esc(r.orderNo) + (r.shipKb !== 1 ? `<br><span class="small muted">${esc(meta.shipKinds[r.shipKb] || '')}</span>` : '') }, { label: '出荷日', value: r => r.date }, { label: '出発', value: r => r.startTime },
