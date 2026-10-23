@@ -437,3 +437,5 @@ input.file-native { position: absolute; width: 1px; height: 1px; opacity: 0; poi
 .card-head[hidden], .card-head > h2[hidden], section.card > h2[hidden] { display: none !important; }
 .nav-sub.disabled { opacity: .45; cursor: not-allowed; }
 .nav-sub.disabled:hover { background: none; color: var(--text-secondary); }
+.invoice-doc tr.site-head td { background: #f1f5f9; padding-top: 6px; }
+@media print { .invoice-doc tr.site-head td { background: #eef2f7 !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; } }
