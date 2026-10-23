@@ -118,8 +118,8 @@ async function act(fn, msg) { try { const r = await fn(); if (msg) toast(typeof 
 // ---------- navigation ----------
 // 小メニュー（サイドバー）：#画面/小メニュー で直接開ける。q＝従来のタブ等の条件、tools＝上部の検索・登録ボタンを出すか（既定は先頭と q 付きのみ）
 const SUBMENUS = {
-  // 出荷予定は機能一覧の範囲外（推定実装）のため小メニューを外す（2026-10-23、要否は大西さんに確認。画面・API は残す）
-  shipments: [{ k: 'slips', l: '出荷伝票' }, { k: 'notes', l: '納品書発行' }, { k: 'reports', l: '出荷・売上帳票' }],
+  // 出荷予定は機能一覧の範囲外（推定実装）のため小メニューを無効表示（2026-10-23、要否は大西さんに確認。画面・API は残す）
+  shipments: [{ k: 'slips', l: '出荷伝票' }, { k: 'plans', l: '出荷予定', q: { tab: 'plans' }, disabled: true }, { k: 'notes', l: '納品書発行' }, { k: 'reports', l: '出荷・売上帳票' }],
   invoices: [{ k: 'create', l: '請求データ作成', tools: false }, { k: 'list', l: '請求一覧・発行', tools: true }, { k: 'reports', l: '請求帳票' }, { k: 'balance', l: '得意先別残高照会', q: { view: 'balance' } }, { k: 'ledger', l: '請求残高照会', q: { view: 'ledger' } }],
   receipts: [{ k: 'list', l: '入金一覧・消込' }, { k: 'targets', l: '消込対象', q: { tab: 'targets' } }, { k: 'plan', l: '入金予定一覧', q: { tab: 'plan' } }, { k: 'schedule', l: '入金予定チェックリスト' }],
   // 10/21 打合せの処理順（実在庫登録 → 配合計算 → 材料受払表 → 在庫計上）に並べる
@@ -173,7 +173,7 @@ function navSubs() {
   const subs = subsOf(route.name), link = $(`.nav-link[data-nav="${route.name}"]`);
   if (!subs || !link) return;
   link.classList.add('open');
-  link.insertAdjacentHTML('afterend', `<div class="nav-subs">${subs.map(s => `<a class="nav-sub ${s.k === route.sub ? 'active' : ''}" href="#${route.name}/${s.k}">${esc(s.l)}</a>`).join('')}</div>`);
+  link.insertAdjacentHTML('afterend', `<div class="nav-subs">${subs.map(s => (s.disabled ? `<span class="nav-sub disabled" aria-disabled="true" title="現在は使用できません">${esc(s.l)}</span>` : `<a class="nav-sub ${s.k === route.sub ? 'active' : ''}" href="#${route.name}/${s.k}">${esc(s.l)}</a>`)).join('')}</div>`);
 }
 function parseHash() {
   const [path, q] = location.hash.slice(1).split('?'), [name, sub] = (path || '').split('/');
@@ -182,7 +182,7 @@ function parseHash() {
 // 小メニューの決定：明示 → 条件（従来タブのURL）一致 → 先頭。小メニューの q を条件に足す
 function resolveSub(r) {
   const subs = subsOf(r.name); if (!subs) return r;
-  const item = subs.find(s => s.k === r.sub) || (!r.sub && subs.find(s => s.q && Object.entries(s.q).every(([k, v]) => r.q[k] === v))) || subs[0];
+  const usable = subs.filter(s => !s.disabled), item = usable.find(s => s.k === r.sub) || (!r.sub && usable.find(s => s.q && Object.entries(s.q).every(([k, v]) => r.q[k] === v))) || usable[0];
   return { ...r, sub: item.k, subItem: item, subTools: item.tools ?? (item === subs[0] || !!item.q), q: { ...r.q, ...(item.q || {}) } };
 }
 // freshNext：次の描画で DB を読む。画面のボタン（検索・タブ切替など）から go() したときは読み、サイドバーのメニュー・小メニューは読まない
@@ -284,7 +284,7 @@ VIEWS.shipments = async q => {
   const A = actions;
   A.shipTab = d => go('shipments', d.tab === 'plans' ? { tab: 'plans' } : {});
   A.notes = () => deliveryNoteDialog(); A.notesIssue = () => issueDeliveryNotes({ date: $('#dn-date').value }).catch(e => toast(e.message, true));
-  if (q.tab === 'plans' && SUBMENUS.shipments.some(x => x.k === 'plans')) return planView(q);
+  if (q.tab === 'plans' && SUBMENUS.shipments.some(x => x.k === 'plans' && !x.disabled)) return planView(q);
   // 10/23 打合せ：売上日 From〜To・得意先・現場で伝票を特定。既定は当月
   const month = q.month || thisMonth(), from = q.from || `${month}-01`, to = q.to || monthEnd(month), list = await api('/api/shipments?' + qs({ from, to, customer: q.customer, site: q.site, status: q.status, method: q.method }));
   const bd = (await api('/api/business-date')).date;
