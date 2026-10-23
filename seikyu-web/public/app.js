@@ -394,10 +394,11 @@ function shipmentForm(r, bizDate) {
   const opt = (list, v, blank) => options(list, v, { blank });
   const dl = (id, list) => `<datalist id="${id}">${list.map(x => `<option value="${esc(x.code)}">${esc(x.name)}</option>`).join('')}</datalist>`;
   const methodOpts = options(Object.entries(meta.methods).map(([code, name]) => ({ code, name })), r?.method || CREDIT, { label: x => `${x.code} ${x.name}` });
-  const kbOpts = [1, 2, 3, 4].map(k => `<option value="${k}" ${Number(r?.shipKb || 1) === k ? 'selected' : ''}>${esc(meta.shipKinds[k])}</option>`).join('');
+  // 伝票区分 5 訂正は新規登録のみ（元伝票No を指定して赤伝票を起票、2026-10-23）
+  const kbOpts = [1, 2, 3, 4, ...(r?.orderNo ? [] : [5])].map(k => `<option value="${k}" ${Number(r?.shipKb || 1) === k ? 'selected' : ''}>${esc(meta.shipKinds[k])}</option>`).join('');
   const kbnOpts = options(active('deliveryKinds'), r?.deliveryKbn || active('deliveryKinds')[0]?.code, { blank: '選択', label: x => x.name + (x.pickup ? '（運賃なし）' : '') });
   modal({ title: r?.orderNo ? `出荷伝票の修正（${r.orderNo}）` : r?.fromPlan ? `出荷伝票登録（出荷予定 ${r.fromPlan} から）` : r?.copyOf ? `出荷伝票登録（類似登録：元 ${r.copyOf}）` : '出荷伝票登録', submit: r?.orderNo ? '更新する' : '登録する', wide: true, body: `${r?.orderNo ? '' : sampleButton}<div class="slip-sheet">
-    ${SL('伝票番号', RO(r?.orderNo ? esc(r.orderNo) : '<span class="muted">登録時に採番</span>'))}${SL('伝票区分', `<select name="shipKb">${kbOpts}</select>`)}<div class="span4c fill"></div>
+    ${SL('伝票番号', RO(r?.orderNo ? esc(r.orderNo) : '<span class="muted">登録時に採番</span>'))}${SL('伝票区分', `<select name="shipKb">${kbOpts}</select>`)}${r?.orderNo ? '<div class="span4c fill"></div>' : `${SL('元伝票No', '<input name="originalNo" maxlength="12" class="num" placeholder="区分 訂正のとき" autocomplete="off" disabled>')}<div class="span2c sv muted small" id="sf-orig"></div>`}
     ${SL('出荷日', `<input type="date" name="date" value="${esc(r?.date || bizDate || today())}" required>`, { req: 1 })}${SL('天候', `<select name="weather">${opt(active('weathers'), r?.weather || '', '　')}</select>`)}${SEP}
     <div class="sl req">得意先</div>${CODE_NAME(`<input name="customer" list="dl-cust" maxlength="5" value="${esc(cust)}" autocomplete="off" required>`, '<div class="ro" id="sf-cname">&nbsp;</div>')}
     <div class="sl">他社得意先</div>${CODE_NAME(`<input name="otherCustomer" list="dl-cust" maxlength="5" value="${esc(r?.otherCustomer || '')}" autocomplete="off" placeholder="伝票区分 2・4 のとき">`, '<div class="ro" id="sf-oname">&nbsp;</div>')}
@@ -433,7 +434,23 @@ function shipmentForm(r, bizDate) {
       f.item.onchange = () => { show('#sf-iname', 'items', f.item.value); unitOf(); price(); cumulative(); };
       f.siteCode.onchange = f.siteSuffix.onchange = () => { siteNames(); price(); cumulative(); };
       f.date.onchange = () => { price(); cumulative(); };
-      f.deliveryKbn.onchange = () => { if (pickup()) f.freight.value = 0; preview(); cumulative(); }; f.shipKb.onchange = cumulative;
+      f.deliveryKbn.onchange = () => { if (pickup()) f.freight.value = 0; preview(); cumulative(); };
+      // 区分 5 訂正：元伝票No を入れると元伝票の内容を写し、数量を逆符号（全量）にする。数量は元の数量以内で減らせる
+      const origInfo = t => { const e = $('#sf-orig'); if (e) e.innerHTML = t; };
+      f.shipKb.onchange = () => { if (f.originalNo) { const on = f.shipKb.value === '5'; f.originalNo.disabled = !on; if (on) f.originalNo.focus(); else { f.originalNo.value = ''; origInfo(''); } } cumulative(); };
+      if (f.originalNo) f.originalNo.onchange = async () => {
+        const no = f.originalNo.value.trim(); origInfo(''); if (!no) return;
+        const o = (await api('/api/shipments?' + qs({ orderNo: no })))[0];
+        if (!o) return origInfo(`<span class="check-ng">元伝票No ${esc(no)} はありません</span>`);
+        if (o.shipKb === 5 && o.quantity < 0) return origInfo('<span class="check-ng">赤伝票は元伝票にできません</span>');
+        if (o.corrected) return origInfo('<span class="check-ng">この伝票は訂正済みです</span>');
+        const [sc, ss] = (o.site || '|').split('|');
+        Object.assign(f.customer, { value: o.customer }); f.siteCode.value = sc || ''; f.siteSuffix.value = ss || ''; f.siteName1.value = o.siteName1; f.siteName2.value = o.siteName2;
+        f.item.value = o.item; f.deliveryKbn.value = o.deliveryKbn || f.deliveryKbn.value; f.method.value = o.method; f.price.value = o.price; f.freight.value = o.freight; f.quantity.value = -o.quantity; f.taxRate.value = o.taxRate;
+        if (!f.remarks.value) f.remarks.value = `赤 ${o.orderNo}`;
+        show('#sf-cname', 'customers', f.customer.value); show('#sf-iname', 'items', f.item.value); siteList(); siteNames(); unitOf(); preview(); cumulative();
+        origInfo(`元 ${esc(o.date)} ${esc(o.customerName || o.customer)}／${esc(o.itemName)} ${o.quantity}${esc(o.unit)}${o.billed ? '（請求済）' : ''}`);
+      };
       f.siteName1.onchange = f.siteName2.onchange = cumulative;
       for (const n of ['quantity', 'price', 'freight']) f[n].oninput = preview; f.quantity.onchange = cumulative;
       show('#sf-cname', 'customers', f.customer.value); show('#sf-oname', 'customers', f.otherCustomer.value); show('#sf-iname', 'items', f.item.value);

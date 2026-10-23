@@ -288,6 +288,19 @@ test('workflow against PostgreSQL business tables', { skip, timeout: 900000 }, a
       const a01 = ok(await a.call('/api/reports/journal-list?' + new URLSearchParams({ pattern: 'A01', from: pm + '-01', to: d })));
       for (const sl of a01.slips) { const dr = sl.pairs.reduce((n, p) => n + (p.dr?.amount || 0), 0), cr = sl.pairs.reduce((n, p) => n + (p.cr?.amount || 0), 0); assert.equal(dr, cr); }
     });
+    await t.test('shipment entry: 伝票区分 5 訂正 with 元伝票No creates a linked red slip', async () => {
+      const ok = r => { assert.equal(r.status, 200, JSON.stringify(r.data)); return r.data; };
+      const base = { date: pm + '-03', customer: C, site: `S${tag}|000`, item: 'I' + tag, price: 1000, operator: '1', deliveryKbn: '1', method: 2 };
+      const o = ok(await a.call('/api/shipments', { ...base, quantity: '3' }));
+      assert.equal((await a.call('/api/shipments', { ...base, shipKb: '5', quantity: '-3' })).status, 400, 'originalNo required');
+      assert.equal((await a.call('/api/shipments', { ...base, shipKb: '5', originalNo: o.orderNo, quantity: '3' })).status, 400, 'red must be negative');
+      assert.equal((await a.call('/api/shipments', { ...base, shipKb: '5', originalNo: o.orderNo, quantity: '-4' })).status, 400, 'within original quantity');
+      const red = ok(await a.call('/api/shipments', { ...base, shipKb: '5', originalNo: o.orderNo, quantity: '-3' }));
+      const [r0] = ok(await a.call('/api/shipments?orderNo=' + red.orderNo)), [o0] = ok(await a.call('/api/shipments?orderNo=' + o.orderNo));
+      assert.equal(r0.shipKb, 5); assert.equal(r0.originalNo, o.orderNo); assert.equal(r0.remarks, '赤 ' + o.orderNo); assert.ok(o0.corrected, 'original marked corrected');
+      assert.equal((await a.call('/api/shipments', { ...base, shipKb: '5', originalNo: o.orderNo, quantity: '-3' })).status, 400, 'no double correction');
+      ok(await a.call('/api/shipments/delete', { orderNo: red.orderNo })); ok(await a.call('/api/shipments/delete', { orderNo: o.orderNo }));
+    });
     await t.test('Q08: one closing run puts its customers on one A01 slip number', async () => {
       const ok = r => { assert.equal(r.status, 200, JSON.stringify(r.data)); return r.data; };
       const cs = ['M' + tag, 'N' + tag, 'P' + tag];

@@ -75,7 +75,8 @@ async function recalcCumulative(c, sl) {
   await applyPlan(c, sl);
 }
 export async function listShipments(c, q = {}) {
-  const [from, to] = monthRange(q.month); const args = [from, to]; let where = '';
+  const byNo = q.orderNo ? String(q.orderNo) : '', [from, to] = byNo ? [0, 99999999] : monthRange(q.month); const args = [from, to]; let where = '';
+  if (byNo) { where += ' AND s.order_no=?'; args.push(byNo); } // 1件照会（登録画面の元伝票No）
   if (q.customer) { where += ' AND s.customers_cd=?'; args.push(q.customer); }
   if (q.status === 'open') where += " AND s.process_status='0'";
   if (q.status === 'billed') where += " AND s.process_status='1'";
@@ -132,8 +133,8 @@ async function slipValues(c, p, label = '') {
   const kbn = text(p.deliveryKbn, label + '納入区分', 2, { pattern: /^\d{1,2}$/ });
   const dk = await one(c, "SELECT category1 FROM code_m WHERE code_key='A0000' AND code_dtl=?", [kbn]); check(dk, label + '納入区分を選択してください');
   if (dk.category1 === '2') check(freight === 0, '納入区分が引取のため運賃は0です');
-  // 伝票区分（提案書・現行 A0009）：1 出荷売上 / 2 他社納入 / 3 他社顧客購入 / 4 他社納入２。値引（9）は入金時に処理するため対象外（Q18）。区分 2・4 は他社得意先が必須、それ以外は入力不可
-  const shipKb = String(p.shipKb || '1'); check(['1', '2', '3', '4'].includes(shipKb), '伝票区分が不正です');
+  // 伝票区分（提案書・現行 A0009）：1 出荷売上 / 2 他社納入 / 3 他社顧客購入 / 4 他社納入２ / 5 訂正（赤：元伝票No 必須、saveShipment で検査）。値引（9）は入金時に処理するため対象外（Q18）。区分 2・4 は他社得意先が必須、それ以外は入力不可
+  const shipKb = String(p.shipKb || '1'); check(['1', '2', '3', '4', '5'].includes(shipKb), '伝票区分が不正です');
   const other = text(p.otherCustomer, '他社得意先', 5, { required: false });
   if (['2', '4'].includes(shipKb)) { check(other, '伝票区分が他社納入のときは他社得意先を入力してください'); check(await one(c, 'SELECT 1 x FROM client_m WHERE customers_cd=?', [other]), '他社得意先が得意先マスタにありません'); }
   else check(!other, '他社得意先は伝票区分が他社納入（2・4）のときだけ入力できます');
@@ -148,6 +149,7 @@ export async function saveShipment(c, ctx, p) {
     if (!old) throw new Conflict('出荷伝票が見つかりません。再読込してください');
     check(old.process_status === '0', '請求済みの出荷は変更できません（「訂正」で赤黒訂正してください）');
     check(old.ship_kb !== CORRECTION, '訂正伝票は変更できません。取消して再登録してください');
+    check(v.shipKb !== CORRECTION, '登録済みの伝票を訂正（区分 5）に変えることはできません。元伝票No を指定して赤伝票を新規登録してください');
     check(!(await one(c, 'SELECT 1 x FROM sales_trn WHERE sales_no=? AND order_no<>? LIMIT 1', [orderNo, orderNo])), '訂正済みの伝票は変更できません');
     await assertOpen(c, fromNum(old.sales_date));
     await c.query(`UPDATE sales_trn SET sales_date=?,customers_cd=?,field_cd=?,field_suffix=?,field_name1=?,field_name2=?,item_cd=?,item_name=?,quantity=?,unit_price=?,money=?,tax_rate=?,consumption_tax=?,remarks=?,payment_method_cd=?,payment_money=?,update_day=?,update_time=?,update_pgm=?,update_ws=? WHERE order_no=? AND order_suffix=1`,
@@ -161,12 +163,28 @@ export async function saveShipment(c, ctx, p) {
     await recalcCumulative(c, await one(c, 'SELECT * FROM shipment_slip WHERE order_no=?', [orderNo]));
     await audit(c, ctx, 'sales_trn', orderNo, 'shipment.update', { date: v.date, customer: v.cust.customers_cd, item: v.it.item_cd, net: v.net });
   } else {
+    // 伝票区分 5 訂正（2026-10-23）：登録画面から元伝票No を指定して赤伝票を起票。赤黒訂正と同じく sales_no＝元伝票No で結び付ける
+    const link = v.shipKb === CORRECTION ? await redLink(c, p, v) : {};
     orderNo = await nextShipNo(c);
-    await insertSlip(c, { ...v, orderNo, shipKb: v.shipKb });
+    await insertSlip(c, { ...v, orderNo, shipKb: v.shipKb, ...link });
     await recalcCumulative(c, await one(c, 'SELECT * FROM shipment_slip WHERE order_no=?', [orderNo]));
     await audit(c, ctx, 'sales_trn', orderNo, 'shipment.create', { date: v.date, customer: v.cust.customers_cd, item: v.it.item_cd, net: v.net });
   }
   return { orderNo };
+}
+// 登録画面の赤伝票（区分 5）：元伝票と得意先・商品が同じで、数量は元伝票と逆符号・元伝票の数量以内。訂正済み・赤伝票は元にできない
+async function redLink(c, p, v) {
+  const no = String(p.originalNo || '').trim(); check(no, '伝票区分が訂正のときは元伝票No を入力してください');
+  const orig = await one(c, 'SELECT * FROM sales_trn WHERE order_no=? AND order_suffix=1 FOR UPDATE', [no]); check(orig, `元伝票No ${no} の出荷伝票がありません`);
+  check(!(orig.ship_kb === CORRECTION && Number(orig.quantity) < 0), '赤伝票を元伝票にはできません');
+  check(!(await one(c, 'SELECT 1 x FROM sales_trn WHERE sales_no=? AND order_no<>? LIMIT 1', [no, no])), `元伝票No ${no} は訂正済みです`);
+  check(v.cust.customers_cd === orig.customers_cd, `得意先が元伝票（${orig.customers_cd}）と違います`);
+  check(v.it.item_cd === orig.item_cd, `商品が元伝票（${orig.item_cd}）と違います`);
+  check(v.date >= fromNum(orig.sales_date), '出荷日が元伝票の出荷日より前です');
+  const oq = Number(orig.quantity), nq = Number(v.q.text);
+  check(Math.sign(nq) === -Math.sign(oq) && Math.abs(nq) <= Math.abs(oq), `赤伝票の数量は元伝票（${oq}）と逆符号で、元の数量以内です`);
+  if (!v.remarks) v.remarks = `赤 ${no}`;
+  return { salesNo: no, salesSuffix: 2 };
 }
 // NO11 出荷伝票訂正（10/14 打合せ：赤黒）。元伝票は変更せず、赤＝元伝票の全量マイナス、黒＝訂正後の内容（日付・得意先・現場・商品・数量・単価・運賃すべて変更可）を起票。
 // 請求書・明細には 元 / 赤 / 黒 の3行で表示される。黒の数量 0（または未入力）は赤のみ＝取消。訂正伝票は sales_no＝元伝票No で結び付ける（区分 5）。
