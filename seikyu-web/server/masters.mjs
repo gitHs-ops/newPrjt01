@@ -21,13 +21,13 @@ export const MASTERS = {
   customers: {
     label: '得意先', table: 'client_m',
     fields: [F('code', '得意先コード', { max: 5, key: true }), F('name', '得意先名', { max: 42 }), F('kana', 'カナ', { max: 25, optional: true }), F('abbr', '略称', { list: false, max: 26, optional: true }),
-      F('section', '部署', { list: false, max: 26, optional: true }), F('closing', '締日', { type: 'select', options: CLOSING_OPTIONS, hint: '5日・10日・15日・20日・末日（2026-10-23）' }), F('postcode', '郵便番号', { list: false, max: 7, optional: true, hint: '数字7桁' }), F('pref', '都道府県', { list: false, max: 8, optional: true }),
+      F('section', '部署', { list: false, max: 26, optional: true }), F('closing', '締日', { type: 'select', options: CLOSING_OPTIONS, hint: '5日・10日・15日・20日・末日' }), F('postcode', '郵便番号', { list: false, max: 7, optional: true, hint: '数字7桁' }), F('pref', '都道府県', { list: false, max: 8, optional: true }),
       F('address', '住所1', { max: 42, optional: true }), F('address2', '住所2', { list: false, max: 42, optional: true }), F('tel', '電話番号', { max: 14, optional: true }), F('fax', 'FAX番号', { list: false, max: 14, optional: true }),
       F('customerPic', '先方担当者', { list: false, max: 26, optional: true }), F('pic', '自社担当者', { list: false, max: 26, optional: true }), F('creditStart', '取引開始日', { list: false, type: 'date', optional: true }),
-      F('cardMemberId', 'カード会員ID', { list: false, max: 15, optional: true, hint: 'カード決済（Q16確認待ち）' }), F('cardStatus', 'カード状態', { list: false, max: 2, optional: true }),
-      F('siteMonths', '回収サイト（締め後○か月）', { list: false, type: 'int', optional: true, hint: '0〜12。未設定は翌月（推定）' }), F('siteDay', '回収日', { list: false, type: 'int', optional: true, hint: '1〜31（31=月末）' }),
+      F('cardMemberId', 'カード会員ID', { list: false, max: 15, optional: true }), F('cardStatus', 'カード状態', { list: false, max: 2, optional: true }),
+      F('siteMonths', '回収サイト（締め後○か月）', { list: false, type: 'int', optional: true, hint: '0〜12。未設定は翌月' }), F('siteDay', '回収日', { list: false, type: 'int', optional: true, hint: '1〜31（31=月末）' }),
       F('payMethod', '入金方法', { list: false, type: 'select', optional: true, options: [['', '（未設定）'], ['1', '振込'], ['2', '手形'], ['3', 'でんさい'], ['4', '現金']] }), F('payBank', '入金先口座', { list: false, type: 'ref', ref: 'banks', optional: true }), F('remarks', '備考', { list: false, max: 100, optional: true }),
-      F('opening', '開始売掛残高', { type: 'int', optional: true, hint: '請求作成後は変更不可' }), F('deposit', '預り金残高（開始）', { list: false, type: 'int', optional: true, hint: '入金消込で充当できる額（B-06）' }), F('active', '有効', { type: 'bool' })],
+      F('opening', '開始売掛残高', { type: 'int', optional: true, hint: '請求作成後は変更不可' }), F('deposit', '預り金残高（開始）', { list: false, type: 'int', optional: true, hint: '入金消込で充当できる額' }), F('active', '有効', { type: 'bool' })],
     select: "SELECT c.*, o.amount opening, d.amount deposit, st.category1 site_m, st.category2 site_d, st.category3 pay_method, st.code_dtl_abr pay_bank FROM client_m c LEFT JOIN opening_balance o ON o.source_reference=CONCAT('OPEN-AR-',c.customers_cd) LEFT JOIN opening_balance d ON d.source_reference=CONCAT('OPEN-ADV-',c.customers_cd) LEFT JOIN code_m st ON st.code_key='CSITE' AND st.code_dtl=c.customers_cd",
     where: 'c.customers_cd=?', keyOf: r => [r.code],
     decode: r => ({ code: r.customers_cd, name: r.customers_name, kana: r.customers_kana, abbr: r.customers_abr, section: r.customers_sec, closing: Number(r.deadline) || 31, postcode: r.postcode, pref: r.pref, address: r.addr1, address2: r.addr2,
@@ -83,7 +83,7 @@ export const MASTERS = {
   },
   items: {
     label: '商品', table: 'item_m',
-    fields: [F('code', '商品コード', { max: 5, key: true }), F('name', '商品名', { max: 22 }), F('unit', '単位', { type: 'ref', ref: 'units', hint: '単位マスタ（現行 A0003）' }), F('price', '標準単価', { type: 'int' }), F('kind', '製品・材料区分', { type: 'select', options: [['', '共通'], ['2', '製品（自社製品）'], ['1', '材料・仕入品']], optional: true, hint: '現行 Java と同じ 2=製品・1=材料。配合計算・材料受払表・粗利で使用' }), F('active', '有効', { type: 'bool' })],
+    fields: [F('code', '商品コード', { max: 5, key: true }), F('name', '商品名', { max: 22 }), F('unit', '単位', { type: 'ref', ref: 'units' }), F('price', '標準単価', { type: 'int' }), F('kind', '製品・材料区分', { type: 'select', options: [['', '共通'], ['2', '製品（自社製品）'], ['1', '材料・仕入品']], optional: true, hint: '2=製品・1=材料' }), F('active', '有効', { type: 'bool' })],
     select: 'SELECT * FROM item_m', where: 'item_cd=?', keyOf: r => [r.code],
     decode: r => ({ code: r.item_cd, name: r.item_nam, unit: r.unit, price: Number(r.tanka), kind: r.item_product_kb || '', active: live(r) }),
     validate: r => ({ code: text(r.code, '商品コード', 5, { pattern: CODE }), name: text(r.name, '商品名', 22), unit: text(r.unit || '01', '単位', 2, { pattern: /^\d{2}$/ }), price: yen(r.price ?? 0, '標準単価', { max: 9999999 }), kind: ['1', '2'].includes(String(r.kind || '')) ? String(r.kind) : '', active: bool(r.active ?? true) }),
@@ -123,8 +123,8 @@ export const MASTERS = {
   },
   banks: {
     label: '銀行（当座預金内訳）', table: 'code_m',
-    fields: [F('code', '共通コード（内訳）', { max: 12, key: true }), F('name', '銀行名', { max: 40 }), F('branchLabel', '銀行CD-支店CD 名称', { readonly: true, optional: true, hint: '振込元の銀行・支店番号と金融機関マスタの名称' }),
-      F('zgBank', '振込元 銀行番号(4桁)', { max: 4, optional: true, hint: '全銀データ作成用（NO37）' }), F('zgBranch', '振込元 支店番号(3桁)', { list: false, max: 3, optional: true }),
+    fields: [F('code', '共通コード（内訳）', { max: 12, key: true }), F('name', '銀行名', { max: 40 }), F('branchLabel', '銀行CD-支店CD 名称', { readonly: true, optional: true }),
+      F('zgBank', '振込元 銀行番号(4桁)', { max: 4, optional: true, hint: '全銀データ作成用' }), F('zgBranch', '振込元 支店番号(3桁)', { list: false, max: 3, optional: true }),
       F('zgType', '振込元 預金種目', { list: false, type: 'select', options: [['1', '普通'], ['2', '当座'], ['4', '貯蓄']], optional: true }), F('zgAccount', '振込元 口座番号(7桁以内)', { list: false, max: 7, optional: true }),
       F('zgCode', '振込依頼人コード(10桁)', { max: 10, optional: true, hint: '銀行から付与されるコード' }), F('zgName', '振込依頼人名（カナ）', { list: false, max: 40, optional: true, hint: '半角カナに自動変換' }),
       F('active', '有効', { type: 'bool' })],
@@ -155,7 +155,7 @@ export const MASTERS = {
     label: '業者', table: 'vendor',
     fields: [F('code', '業者コード', { max: 20, key: true }), F('name', '業者名', { max: 200 }), F('bank', '振込先銀行(4桁)', { max: 4, optional: true }), F('branch', '支店(3桁)', { max: 3, optional: true }),
       F('accountType', '預金種別', { type: 'select', options: [['1', '普通'], ['2', '当座'], ['4', '貯蓄']], optional: true }), F('account', '口座番号', { max: 16, optional: true }),
-      F('advance', '業者立替金残高（開始）', { list: false, type: 'int', optional: true, hint: '支払時に相殺できる額（F-03）' }), F('holder', '受取人名(カナ)', { list: false, max: 200, optional: true }),
+      F('advance', '業者立替金残高（開始）', { list: false, type: 'int', optional: true, hint: '支払時に相殺できる額' }), F('holder', '受取人名(カナ)', { list: false, max: 200, optional: true }),
       // 10/19 打合せ：支払繰延区分（「1 15」＝翌月15日、「3 31」＝3か月後の月末）・振込日・振込元銀行は業者マスタに持つ（code_m VPAY）
       F('payMonths', '支払繰延（○か月後）', { list: false, type: 'int', optional: true, hint: '0〜12。未設定は翌月末払い' }), F('payDay', '支払日', { list: false, type: 'int', optional: true, hint: '1〜31（31=月末）' }),
       F('payCycle', '振込サイクル', { list: false, type: 'select', optional: true, options: [['', '（未設定）'], ['15', '15日'], ['31', '月末']] }), F('payBank', '振込元口座', { list: false, type: 'ref', ref: 'banks', optional: true }),
@@ -199,9 +199,9 @@ export const MASTERS = {
     label: '自社情報・請求書設定', table: 'company_info_m',
     fields: [F('id', 'ID', { max: 1, key: true, hint: '1固定' }), F('name1', '会社名1', { max: 21 }), F('name2', '会社名2', { max: 30, optional: true }), F('postcode', '郵便番号', { max: 7, optional: true }),
       F('pref', '都道府県', { max: 8, optional: true }), F('addr1', '住所1', { max: 42, optional: true }), F('addr2', '住所2', { max: 42, optional: true }), F('tel', '電話番号', { max: 14, optional: true }), F('fax', 'FAX', { list: false, max: 14, optional: true }),
-      F('plant', '工場名', { list: false, max: 26, optional: true }), F('closingMonth', '決算月', { type: 'int', max: 2, list: false, hint: '1〜12（現行 10）' }), F('closingDay', '月度締日', { type: 'int', max: 2, list: false, hint: '会計月度の締日。20＝21日〜20日（現行）、31＝暦月' }), F('tradingDay', '業務日付', { type: 'date', optional: true, list: false, hint: '出荷日の初期値（現行 MA057 出荷日変更）。空欄は当日' }), F('invoiceNo', '適格請求書発行事業者登録番号', { max: 14, optional: true, hint: 'T＋13桁（例 T4180001002429）' }), F('invoiceBank2', '請求書の取引銀行2', { type: 'ref', ref: 'banks', optional: true, list: false, hint: '提案書様式は取引銀行を2行表示' }),
-      F('invoiceLayout', '請求書様式', { type: 'select', optional: true, list: false, options: [['proposal', '提案書様式（前回残高・今回入金額・今回残高）'], ['legacy', '現行様式（当月御買上額・当月御請求額）']] }),
-      F('invoiceBank', '請求書の振込先口座', { type: 'ref', ref: 'banks', optional: true, hint: '銀行マスタの振込元口座情報を表示' })],
+      F('plant', '工場名', { list: false, max: 26, optional: true }), F('closingMonth', '決算月', { type: 'int', max: 2, list: false, hint: '1〜12' }), F('closingDay', '月度締日', { type: 'int', max: 2, list: false, hint: '20＝21日〜20日、31＝暦月' }), F('tradingDay', '業務日付', { type: 'date', optional: true, list: false, hint: '出荷日の初期値。空欄は当日' }), F('invoiceNo', '適格請求書発行事業者登録番号', { max: 14, optional: true, hint: 'T＋13桁（例 T4180001002429）' }), F('invoiceBank2', '請求書の取引銀行2', { type: 'ref', ref: 'banks', optional: true, list: false }),
+      F('invoiceLayout', '請求書様式', { type: 'select', optional: true, list: false, options: [['proposal', '前回残高・今回入金額・今回残高 形式'], ['legacy', '当月御買上額・当月御請求額 形式']] }),
+      F('invoiceBank', '請求書の振込先口座', { type: 'ref', ref: 'banks', optional: true })],
     select: "SELECT c.*, n.code_dtl_abr inv_no, b.code_dtl_abr inv_bank, b2.code_dtl_abr inv_bank2, lay.code_dtl_abr inv_layout FROM company_info_m c LEFT JOIN code_m n ON n.code_key='SET' AND n.code_dtl='INVNO' LEFT JOIN code_m b ON b.code_key='SET' AND b.code_dtl='INVBANK' LEFT JOIN code_m b2 ON b2.code_key='SET' AND b2.code_dtl='INVBANK2' LEFT JOIN code_m lay ON lay.code_key='SET' AND lay.code_dtl='INVLAYOUT'",
     where: 'c.company_info_id=?', keyOf: r => [String(r.id || '1')],
     decode: r => ({ id: String(r.company_info_id), name1: r.company_name1, name2: r.company_name2, postcode: r.postcode, pref: r.pref, addr1: r.addr1, addr2: r.addr2, tel: r.tel_no, fax: r.fax_no, plant: r.plant_name, closingMonth: String(Number(r.closing_m) || 3), closingDay: String(Number(r.closing_d) || 31), tradingDay: r.trading_day ? String(r.trading_day).slice(0, 10) : '', invoiceNo: r.inv_no || '', invoiceBank: r.inv_bank || '', invoiceBank2: r.inv_bank2 || '', invoiceLayout: r.inv_layout || 'proposal' }),
@@ -246,7 +246,7 @@ export const MASTERS = {
   jv: {
     label: 'JV構成員・出資比率', table: 'code_m',
     // 現行 HMW110「構成員 登録」（出資比率の変更.xlsx 2026-10-14）：構成員コード＝業者コード、最大7社、比率は小数2桁
-    fields: [F('code', '構成員（業者）', { type: 'ref', ref: 'vendors', key: true, hint: '業者マスタのコード（例 4227 中部舗材）' }), F('name', '構成員名', { max: 40, optional: true, hint: '空欄は業者名' }), F('ratio', '出資比率(%)', { hint: '例: 47.5（有効な構成員の合計を100%に）' }), F('seq', '表示順', { type: 'int', optional: true }), F('active', '有効', { type: 'bool' })],
+    fields: [F('code', '構成員（業者）', { type: 'ref', ref: 'vendors', key: true, hint: '業者マスタのコード' }), F('name', '構成員名', { max: 40, optional: true, hint: '空欄は業者名' }), F('ratio', '出資比率(%)', { hint: '例: 47.5（有効な構成員の合計を100%に）' }), F('seq', '表示順', { type: 'int', optional: true }), F('active', '有効', { type: 'bool' })],
     select: "SELECT * FROM code_m WHERE code_key='JV'", where: 'code_dtl=?', keyOf: r => [r.code],
     decode: r => ({ code: r.code_dtl, name: r.code_dtl_nam, ratio: Number(r.category1 || 0) / 100, seq: Number(r.category2 || 0), active: r.code_dtl_abr !== '0' }),
     validate: r => ({ code: text(r.code, '構成員コード', 12, { pattern: CODE }), name: text(r.name, '構成員名', 40, { required: false }), ratio: (() => { const t = String(r.ratio ?? '').trim(); check(/^\d{1,3}(\.\d{1,2})?$/.test(t) && Number(t) > 0 && Number(t) <= 100, '出資比率は0より大きく100以下（小数2桁まで）で入力してください'); return Number(t); })(), seq: yen(r.seq || 0, '表示順', { max: 9999 }), active: bool(r.active ?? true) }),
@@ -260,7 +260,7 @@ export const MASTERS = {
   },
   mixes: {
     label: '配合（製品の材料構成）', table: 'code_m',
-    fields: [F('product', '製品', { type: 'ref', ref: 'items', key: true }), F('material', '材料', { type: 'ref', ref: 'items', key: true }), F('ratio', '配合率(%)', { hint: '製品1単位あたりの材料構成比。暫定（配合表の提供待ち）' }), F('active', '有効', { type: 'bool' })],
+    fields: [F('product', '製品', { type: 'ref', ref: 'items', key: true }), F('material', '材料', { type: 'ref', ref: 'items', key: true }), F('ratio', '配合率(%)', { hint: '製品1単位あたりの材料構成比' }), F('active', '有効', { type: 'bool' })],
     select: "SELECT * FROM code_m WHERE code_key='MIX'", where: 'code_dtl=?', keyOf: r => [`${r.product}:${r.material}`],
     decode: r => ({ product: r.category1, material: r.category2, ratio: Number(r.category3 || 0) / 100, active: r.code_dtl_abr !== '0' }),
     validate: r => { const v = { product: text(r.product, '製品', 5), material: text(r.material, '材料', 5), ratio: (() => { const t = String(r.ratio ?? '').trim(); check(/^\d{1,3}(\.\d{1,2})?$/.test(t) && Number(t) > 0 && Number(t) <= 100, '配合率は0より大きく100以下（小数2桁まで）で入力してください'); return Number(t); })(), active: bool(r.active ?? true) }; check(v.product !== v.material, '製品と材料は別の商品を選択してください'); return v; },
@@ -275,7 +275,7 @@ export const MASTERS = {
   matPrices: {
     label: '材料単価（配合計算用・手入力）', table: 'code_m',
     fields: [F('month', '年月', { type: 'month', key: true, hint: '配合計算の処理年月' }), F('material', '材料', { type: 'ref', ref: 'items', key: true }),
-      F('price', '単価', { type: 'dec', hint: '材料1単位あたり（小数2桁まで）。登録があれば移動平均より優先' }), F('active', '有効', { type: 'bool' })],
+      F('price', '単価', { type: 'dec', hint: '材料1単位あたり（小数2桁まで）' }), F('active', '有効', { type: 'bool' })],
     select: "SELECT * FROM code_m WHERE code_key='MATPR'", where: 'code_dtl=?', keyOf: r => [`${String(r.month).replace('-', '')}:${r.material}`],
     sort: (a, b) => b.month.localeCompare(a.month) || a.material.localeCompare(b.material),
     decode: r => ({ month: `${r.category1.slice(0, 4)}-${r.category1.slice(4, 6)}`, material: r.category2, price: Number(r.code_dtl_nam || 0), active: r.code_dtl_abr !== '0' }),
@@ -305,8 +305,8 @@ export const MASTERS = {
   // 現行 Java のコードマスタ（code_m）：A0000 納入区分（category1 '2'＝引取＝運賃なし）、A0003 単位、A0007 消費税率（code_dtl＝適用開始日 YYYYMMDD）
   deliveryKinds: {
     label: '納入区分', table: 'code_m',
-    fields: [F('code', '納入区分コード', { max: 2, key: true, hint: '数字2桁以内（現行 1 大型現着・3 小型現着・7 引取・9 その他）' }), F('name', '名称', { max: 40 }),
-      F('pickup', '引取（運賃なし）', { type: 'bool', hint: '現行の category1=2。運賃は0のみ' }), F('active', '有効', { type: 'bool' })],
+    fields: [F('code', '納入区分コード', { max: 2, key: true, hint: '数字2桁以内' }), F('name', '名称', { max: 40 }),
+      F('pickup', '引取（運賃なし）', { type: 'bool', hint: '運賃は0のみ' }), F('active', '有効', { type: 'bool' })],
     select: "SELECT * FROM code_m WHERE code_key='A0000'", where: 'code_dtl=?', keyOf: r => [r.code],
     decode: r => ({ code: r.code_dtl, name: r.code_dtl_nam, pickup: r.category1 === '2', active: r.category3 !== '0' }),
     validate: r => ({ code: text(r.code, '納入区分コード', 2, { pattern: /^\d{1,2}$/ }), name: text(r.name, '名称', 40), pickup: bool(r.pickup ?? false), active: bool(r.active ?? true) }),
@@ -329,7 +329,7 @@ export const MASTERS = {
   },
   units: {
     label: '単位', table: 'code_m',
-    fields: [F('code', '単位コード', { max: 2, key: true, hint: '数字2桁（現行 01 t・02 m3 …）' }), F('name', '単位名', { max: 40 }), F('active', '有効', { type: 'bool' })],
+    fields: [F('code', '単位コード', { max: 2, key: true, hint: '数字2桁' }), F('name', '単位名', { max: 40 }), F('active', '有効', { type: 'bool' })],
     select: "SELECT * FROM code_m WHERE code_key='A0003'", where: 'code_dtl=?', keyOf: r => [r.code],
     decode: r => ({ code: r.code_dtl, name: r.code_dtl_nam, active: r.category3 !== '0' }),
     validate: r => ({ code: text(r.code, '単位コード', 2, { pattern: /^\d{2}$/ }), name: text(r.name, '単位名', 40), active: bool(r.active ?? true) }),
@@ -340,7 +340,7 @@ export const MASTERS = {
   },
   taxRates: {
     label: '消費税率', table: 'code_m',
-    fields: [F('code', '適用開始日', { type: 'date', key: true, hint: 'この日以降の出荷に適用（現行 2014-04-01 8%・2019-10-01 10%）' }), F('rate', '税率(%)', { type: 'int' }), F('active', '有効', { type: 'bool' })],
+    fields: [F('code', '適用開始日', { type: 'date', key: true, hint: 'この日以降の出荷に適用' }), F('rate', '税率(%)', { type: 'int' }), F('active', '有効', { type: 'bool' })],
     select: "SELECT * FROM code_m WHERE code_key='A0007'", where: 'code_dtl=?', keyOf: r => [String(r.code || '').replaceAll('-', '')],
     decode: r => ({ code: fromNum(r.code_dtl), rate: Number(r.category1), active: r.category3 !== '0' }),
     validate: r => { const v = { code: isoDate(r.code, '適用開始日'), rate: yen(r.rate, '税率', { max: 100 }), active: bool(r.active ?? true) }; return v; },

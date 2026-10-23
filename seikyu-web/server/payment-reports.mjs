@@ -115,7 +115,7 @@ export async function paymentNotices(c, q) {
 }
 
 // ---------- Excel ----------
-const head = (d, sub) => [[T(d.title)], [`${d.ref}　${sub}　出力日 ${today()}`], []];
+const head = (d, sub) => [[T(d.title)], [`${sub}　出力日 ${today()}`], []];
 const acct = p => (p ? `${p.bank} ${p.bankName} ${p.branch} ${p.branchName} ${p.typeName} ${p.account}`.replace(/ +/g, ' ') : '振込先未登録');
 export async function paymentBook(c, kind, q) {
   if (kind === 'vendor-payments') {

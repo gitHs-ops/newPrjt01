@@ -173,7 +173,7 @@ export function installKb(h) {
       `<section class="card glass"><form id="kb-slip" data-id="${s?.id || ''}" data-version="${s?.version || ''}">
         <div class="kb-slip-head"><label class="field req"><span>伝票日付</span><input type="date" name="date" value="${esc(date)}" required></label>
           <label class="field wide"><span>伝票摘要</span><input name="memo" maxlength="100" value="${esc(s?.memo || '')}" placeholder="例）3月分 事務所家賃"></label><div class="kb-slip-info">${head}</div></div>
-        ${s ? '' : `<div class="filters"><label class="kb-inline">定型仕訳<select id="kb-tpl"><option value="">（選択）</option>${TEMPLATES.map((t, i) => `<option value="${i}">${esc(t[0])}</option>`).join('')}</select></label><button type="button" class="mini" data-act="tpl">明細に展開</button><span class="muted small">金額と業者などの補助を入力してください</span></div>`}
+        ${s ? '' : `<div class="filters"><label class="kb-inline">定型仕訳<select id="kb-tpl"><option value="">（選択）</option>${TEMPLATES.map((t, i) => `<option value="${i}">${esc(t[0])}</option>`).join('')}</select></label><button type="button" class="mini" data-act="tpl">明細に展開</button></div>`}
         <div class="kb-grid-head"><div></div><div>借方（科目・補助・部門／税区分・金額・税額）</div><div>摘要</div><div>貸方（科目・補助・部門／税区分・金額・税額）</div><div></div></div>
         <div id="kb-rows">${list.map(rowHtml).join('')}</div>
         <div class="kb-foot"><div class="filters"><button type="button" data-kbrow="add">＋ 行追加</button><button type="button" data-kbrow="balance" title="借方・貸方の差額を空欄側に入れます">貸借差額を補完</button></div>
@@ -363,7 +363,7 @@ export function installKb(h) {
         <div class="filters"><label class="kb-inline">自<input type="date" id="ki-from" value="${esc(K.fiscal.startDate > p.from ? K.fiscal.startDate : fyRange(fyOf(p.from)).from)}"></label><label class="kb-inline">至<input type="date" id="ki-to" value="${esc(today())}"></label><button data-act="preview">内容を確認</button></div>
         <div id="ki-result"></div></section>
       <section class="card glass"><div class="card-head"><h2>CSV受入（汎用・借貸併記）</h2></div>
-        <p class="small muted">見出し行に「伝票日付・伝票番号・借方科目CD・借方金額・貸方科目CD・貸方金額」が必要です（任意：部門・補助CD・税区分・税額・外税・摘要1/2）。請求システムの「会計連携データ（汎用）」と本画面の「仕訳データ書出」をそのまま取り込めます。1行でも誤りがあれば全件取り込みません。</p>
+        <p class="small muted">見出し行に「伝票日付・伝票番号・借方科目CD・借方金額・貸方科目CD・貸方金額」が必要です。1行でも誤りがあれば全件取り込みません。</p>
         <div class="filters"><input type="file" id="kc-file" accept=".csv,text/csv" style="max-width:260px"><select id="kc-enc" style="width:auto"><option value="utf-8">UTF-8</option><option value="shift_jis">Shift_JIS</option></select><button data-act="csvCheck">チェック</button></div>
         <div id="kc-result"></div></section>
       <section class="card glass"><div class="card-head"><h2>仕訳データ書出</h2></div>
@@ -419,7 +419,7 @@ export function installKb(h) {
       body = K.groups.map(g => { const list = K.accounts.filter(a => a.grp === g.code); return `<h3 class="kb-h3">${esc(g.code)} ${esc(g.name)} <span class="muted small">（${esc(K.sections[g.section])}・正残高 ${g.side === 'D' ? '借方' : '貸方'}）</span></h3>` +
         table([{ label: 'コード', value: a => a.code }, { label: '科目名', value: a => a.name }, { label: '貸借', value: a => (a.side === 'D' ? '借方' : '貸方') }, { label: '補助', value: a => K.subKinds[a.sub] }, { label: '既定処税率', value: a => `${a.tax} ${TAX(a.tax)?.name || ''}` },
           { label: '状態', html: a => (a.active ? badge('有効', 'green') : badge('無効', 'gray')) + (a.guessed ? ' ' + badge('区分推定', 'amber') : '') }, { label: '', html: a => canWrite() ? `<button class="mini" data-act="editAcc" data-code="${esc(a.code)}">編集</button>` : '' }], list, { empty: '科目なし' }); }).join('');
-      body = `<p class="small muted">科目コード・名称は請求システムの勘定科目マスタと共通です。初期値は顧客の「勘定科目マスター一覧」（2026-06-26）から転記しています。</p>${body}`;
+      body = `${body}`;
     } else if (tab === 'opening') {
       const d = await api('/api/kb/opening');
       A.saveOpening = async (_, b) => {
@@ -427,7 +427,7 @@ export function installKb(h) {
         try { const rowsIn = $$('#kb-op .kb-op-row').map(r => ({ account: $('[data-op=account]', r).value, sub: $('[data-op=sub]', r).value, amount: String(num($('[data-op=amount]', r).value)) })); const r = await post('/api/kb/opening', { rows: rowsIn }); toast(`期首残高を保存しました${r.diff ? `（貸借差額 ${yen(r.diff)}）` : ''}`); render(); }
         catch (e) { toast(e.message, true); } finally { b.disabled = false; }
       };
-      body = `<p class="small muted">導入期首 <b>${esc(d.startDate)}</b> 時点の貸借科目の残高を、科目の正残高側でプラス入力します（補助ごとに分けて入力可）。2年度目以降の繰越は自動計算します（損益は前期繰越利益 7350 へ）。</p>
+      body = `<p class="small muted">導入期首 <b>${esc(d.startDate)}</b> 時点の貸借科目の残高を、科目の正残高側でプラス入力します。</p>
         <div class="table-wrap"><table id="kb-op"><thead><tr><th>勘定科目</th><th>補助</th><th>正残高</th><th class="num">金額</th><th></th></tr></thead><tbody>${(d.rows.length ? d.rows : [{}, {}, {}]).map(openingRow).join('')}</tbody></table></div>
         <div class="kb-foot"><div class="filters"><button type="button" data-oprow="add">＋ 行追加</button></div><div class="kb-totals"><span>借方 <b id="op-dr">${yen(d.dr)}</b></span><span>貸方 <b id="op-cr">${yen(d.cr)}</b></span><span>差額 <b id="op-diff" class="${d.diff ? 'check-ng' : 'check-ok'}">${yen(d.diff)}</b></span></div></div>
         ${canWrite() ? '<div class="filters right"><button class="primary" data-act="saveOpening">期首残高を保存</button></div>' : ''}`;
@@ -449,15 +449,15 @@ export function installKb(h) {
         } catch (e) { toast(e.message, true); } finally { btn.disabled = false; }
       };
       const dis = isAdmin() ? '' : 'disabled';
-      body = `<p class="small muted">QA回答（オービック 2026-10-08）：勘定奉行（奉行クラウド, Azure）の受入は CSV／Excel。見出しに「OBC受入記号」を付ければ列順は自由、または奉行側でマッピング。受入記号と税区分コードは「データ受入形式一覧表」（OBC サポートサイト）で確定してから登録してください。未登録の項目は項目名、税区分は処税率のまま出力します。</p>
+      body = `
         <div class="grid2"><div>${table([{ label: '項目', value: r => r[1] }, { label: 'OBC受入記号', html: r => `<input data-sym="${r[0]}" value="${esc(b.symbols[r[0]] || '')}" maxlength="40" ${dis} placeholder="（未登録）">` }], b.items)}</div>
         <div>${table([{ label: '処税率', value: t => `${t.code} ${t.name}` }, { label: '奉行の税区分コード', html: t => `<input data-otax="${t.code}" value="${esc(b.taxMap[t.code] || '')}" maxlength="20" ${dis} placeholder="（処税率のまま）">` }], K.taxes)}
         <label class="field" style="margin-top:10px"><span>文字コード</span><select id="ob-enc" ${dis}><option value="shift_jis" ${b.encoding !== 'utf-8' ? 'selected' : ''}>Shift_JIS</option><option value="utf-8" ${b.encoding === 'utf-8' ? 'selected' : ''}>UTF-8（BOM付）</option></select></label></div></div>
         ${isAdmin() ? '<div class="filters right"><button class="primary" data-act="saveBugyo">保存</button></div>' : '<p class="muted small">変更は管理者のみです。</p>'}
-        <p class="small muted">出力：「会計・管理 → 仕訳・会計連携 → 会計連携データ」の［勘定奉行 受入CSV］（請求システムの自動仕訳）、または「仕訳受入・書出」の［勘定奉行CSV］（本会計モジュールの伝票）。</p>`;
+        `;
     } else {
       const digits = (title, obj, fmt) => `<h3 class="kb-h3">${esc(title)}</h3>` + table([{ label: 'コード', value: r => r[0] }, { label: '意味', value: r => fmt(r[1]) }], Object.entries(obj));
-      body = `<p class="small muted">税区分は現行システムの処税率（3桁）をそのまま使います（顧客資料「消費税区分.xlsx」）。1桁目＝税込区分、2桁目＝税区分、3桁目＝税率区分。保存は空白を 0 にした3桁（例「 41」→ 041、「 9 」→ 090）。</p>` +
+      body = `` +
         table([{ label: '処税率', value: t => t.code }, { label: '現行表記', value: t => t.display }, { label: '内容', value: t => t.name }, { label: '消費税', value: t => (t.taxable ? (t.excl ? '外税（金額×税率）' : '内税（税込金額から計算）') : 'なし') }], K.taxes) +
         digits('1桁目（税込区分）', { 0: '空白＝外税（2 と同じ意味・10/21 打合せ）', 1: '税込み（内税）', 2: '外税（10/21 打合せ）' }, v => v) +
         digits('2桁目（税区分）', K.taxKinds, v => v) + digits('3桁目（税率区分）', K.taxRates, v => (v ? v + '%' : '0%（空白）'));

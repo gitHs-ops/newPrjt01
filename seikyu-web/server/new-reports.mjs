@@ -62,7 +62,7 @@ export async function transferList(c, q) {
 export const NEW_REPORTS = { 'purchase-register': purchaseRegister, 'inventory-register': inventoryRegister, 'transfer-list': transferList };
 export async function genericBook(c, kind, q) {
   const d = await NEW_REPORTS[kind](c, q), H = v => ({ v, s: 'bold' }), S = v => ({ v, s: 'sum' });
-  const out = [[{ v: d.title, s: 'title' }], [`${d.ref}　${d.sub}　出力日 ${today()}`], [], d.columns.map(col => H(col.label))];
+  const out = [[{ v: d.title, s: 'title' }], [`${d.sub}　出力日 ${today()}`], [], d.columns.map(col => H(col.label))];
   const totalRow = (label, t) => d.columns.map((col, i) => (i === 0 ? S(label) : t[col.key] !== undefined ? S(t[col.key]) : ''));
   for (const g of d.groups) { out.push([H(g.title)]); for (const r of g.rows) out.push(d.columns.map(col => r[col.key] ?? '')); out.push(totalRow('計', g.totals)); }
   out.push(totalRow('総合計', d.totals));

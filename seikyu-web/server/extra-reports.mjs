@@ -133,7 +133,7 @@ export async function receiptSchedule(c, q) {
 }
 
 // ---------- Excel ----------
-const head = (d, sub) => [[T(d.title)], [`${d.ref}　${sub}　出力日 ${today()}`], []];
+const head = (d, sub) => [[T(d.title)], [`${sub}　出力日 ${today()}`], []];
 export async function extraBook(c, kind, q) {
   if (kind === 'payable-input') {
     const d = await payableInputList(c, q), out = head(d, `${d.month} 月度　部門 ${d.dept}　区分 ${d.kb ? '1 組織' : 'ブランク 工事'}　業者 ${d.vendor}`);
@@ -146,14 +146,14 @@ export async function extraBook(c, kind, q) {
       }
       out.push(['', '', '', '', S(`${d.groupLabel}計`), '', '', S(dp.total)], []);
     }
-    out.push(['', '', '', '', S('総合計'), '', '', S(d.total)], [d.note]);
+    out.push(['', '', '', '', S('総合計'), '', '', S(d.total)]);
     return { name: `定時請求入力明細表_${d.month}.xlsx`, body: xlsx([{ name: '定時請求入力明細表', rows: out, widths: [12, 11, 7, 6, 14, 14, 11, 12, 10, 22, 7, 7, 11] }]) };
   }
   if (kind === 'petty-book') {
     const d = await pettyCashBook(c, q), out = head(d, `期間 ${d.from} 〜 ${d.to}`), mh = d.members ? d.members.map(m => `${m.name}（${m.ratio}%）`) : [];
     out.push(['支払日', '伝票No', '支払先', '摘要', '科目コード', '科目名', '税率', '受入', '支払額', '残高', ...mh].map(H), [d.from, '', '', '前期繰越', '', '', '', '', '', d.opening]);
     for (const r of d.rows) out.push([r.date, r.no, r.payee, r.memo, `${r.account}${r.sub ? '-' + r.sub : ''}`, r.accountName, r.tax, r.received || '', r.amount || '', r.balance, ...(r.parts || [])]);
-    out.push(['', '', '', S('合計'), '', '', '', S(d.received), S(d.spent), S(d.closing)], ['', '', '', '次期補充額', '', '', '', '', d.replenish], [d.note]);
+    out.push(['', '', '', S('合計'), '', '', '', S(d.received), S(d.spent), S(d.closing)], ['', '', '', '次期補充額', '', '', '', '', d.replenish]);
     return { name: `小口現金出納簿_${d.from}_${d.to}.xlsx`, body: xlsx([{ name: '小口現金出納簿', rows: out, widths: [11, 12, 16, 24, 10, 14, 7, 11, 11, 11, 14, 14, 14] }]) };
   }
   if (kind === 'sales-register') {
@@ -167,7 +167,7 @@ export async function extraBook(c, kind, q) {
     const d = await receiptSchedule(c, q), out = head(d, d.sub);
     out.push(['得意先CD', '得意先名', '工事（現場）', '現場名', '請求締日', '請求No', '発行', '請求金額', '入金予定日', '入金予定額', '現金・手形', '入金先'].map(H));
     for (const cu of d.customers) { for (const r of cu.rows) out.push([cu.customer, cu.name, r.site, r.siteName, r.closing, r.invoiceId, r.issued ? '発行済' : '未発行', r.billed, r.dueDate + (r.computed ? ' ※' : '') + (r.overdue ? ' 超過' : ''), r.due, cu.method, cu.bank]); out.push(['', S(`${cu.name} 計`), '', '', '', '', '', S(cu.billed), '', S(cu.due)]); }
-    out.push(['', S('総合計'), '', '', '', '', '', '', '', S(d.total)], [d.note]);
+    out.push(['', S('総合計'), '', '', '', '', '', '', '', S(d.total)]);
     return { name: `入金予定チェックリスト_${today()}.xlsx`, body: xlsx([{ name: '入金予定チェックリスト', rows: out, widths: [9, 20, 12, 22, 11, 8, 7, 12, 14, 12, 9, 20] }]) };
   }
   check(false, '帳票の種類が不正です');

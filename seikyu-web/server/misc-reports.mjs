@@ -224,7 +224,7 @@ export async function saveJvAllocations(c, ctx, p) {
 }
 
 // ---------- Excel ----------
-const head = (d, sub) => [[T(d.title)], [`${d.ref}　${sub}　出力日 ${today()}`], []];
+const head = (d, sub) => [[T(d.title)], [`${sub}　出力日 ${today()}`], []];
 export async function miscBook(c, kind, q) {
   if (kind === 'shipment-summary') {
     const d = await shipmentSummary(c, q), out = head(d, `期間 ${d.from} 〜 ${d.to}`);
@@ -244,14 +244,14 @@ export async function miscBook(c, kind, q) {
     const d = await cashSales(c, q), out = head(d, `期間 ${d.from} 〜 ${d.to}`);
     out.push(['得意先CD', '得意先名', '売上日', '伝票No', '現場', '商品', '数量', '単価', '金額', '消費税', '合計'].map(H));
     for (const cu of d.customers) { for (const r of cu.rows) out.push([cu.customer, cu.name, r.date, r.no, r.site, r.item, r.qty, r.price, r.net, r.tax, r.total]); out.push(['', S(`${cu.name} 計`), '', '', '', '', '', '', S(cu.net), S(cu.tax), S(cu.total)]); }
-    out.push(['', S('総合計'), '', '', '', '', '', '', '', '', S(d.total)], [d.note]);
+    out.push(['', S('総合計'), '', '', '', '', '', '', '', '', S(d.total)]);
     return { name: `現金売上明細表_${d.from}_${d.to}.xlsx`, body: xlsx([{ name: '現金売上明細表', rows: out, widths: [10, 22, 11, 11, 22, 20, 9, 10, 12, 10, 12] }]) };
   }
   if (kind === 'material-ledger') {
     const d = await materialLedger(c, q), out = head(d, `対象月 ${d.month}（期首 ${d.fiscalStart}）`);
     out.push(['材料CD', '材料名', '期首 数量', '期首 金額', '前月来 数量', '前月来 金額', '当月仕入 数量', '当月仕入 金額', '当月使用 数量', '当月使用 金額', '当月末 数量', '当月末 金額', '単価'].map(H));
     for (const x of d.items) out.push([x.item, x.name, x.opening.qty, x.opening.value, x.prev.qty, x.prev.value, x.purchase.qty, x.purchase.value, x.used?.qty ?? '', x.used?.value ?? '', x.end?.qty ?? '', x.end?.value ?? '', x.price ?? '']);
-    const t = d.totals; out.push([S('【合計】'), '', '', S(t.opening), '', S(t.prev), '', S(t.purchase), '', S(t.used), '', S(t.end), ''], [d.note]);
+    const t = d.totals; out.push([S('【合計】'), '', '', S(t.opening), '', S(t.prev), '', S(t.purchase), '', S(t.used), '', S(t.end), '']);
     return { name: `材料受払表_${d.month}.xlsx`, body: xlsx([{ name: '材料受払表', rows: out, widths: [9, 22, 11, 13, 11, 13, 11, 13, 11, 13, 11, 13, 11] }]) };
   }
   if (kind === 'mix') {
@@ -263,7 +263,7 @@ export async function miscBook(c, kind, q) {
       if (p.saved) out.push(['', '保存済原価', '電気', p.saved.denki, '灯油', p.saved.touyu, '製造', p.saved.seizou, '一般', p.saved.ippann, '合計', p.saved.total]);
     }
     out.push([], [H('経費単価（推定）'), '製品出荷数量', d.suggest.tons, '電気', d.suggest.denki, '灯油', d.suggest.touyu, '製造', d.suggest.seizou, '一般', d.suggest.ippann], [d.suggest.basis], [],
-      [H('材料使用量の比較'), '', '理論使用量', '実使用量', '差異'], ...d.usage.map(u => [u.material, u.name, u.theoretical, u.actual ?? '', u.diff ?? '']), [], [d.note]);
+      [H('材料使用量の比較'), '', '理論使用量', '実使用量', '差異'], ...d.usage.map(u => [u.material, u.name, u.theoretical, u.actual ?? '', u.diff ?? '']), []);
     return { name: `配合計算_${d.month}.xlsx`, body: xlsx([{ name: '配合計算', rows: out, widths: [9, 22, 9, 22, 10, 11, 26, 12, 8, 10, 8, 10] }]) };
   }
   if (kind === 'jv-expenses' || kind === 'jv-receipts') {
@@ -279,11 +279,11 @@ export async function miscBook(c, kind, q) {
         }
         out.push([S(`${day.due} 支払日計`), '', '', '', '', '', S(day.gross), '', '', ...day.parts.map(S)]);
       }
-      out.push(['', '', S('合計'), '', '', '', S(d.totals.gross), S(d.totals.net), S(d.totals.tax), ...d.totals.parts.map(S)], [d.note]);
+      out.push(['', '', S('合計'), '', '', '', S(d.totals.gross), S(d.totals.net), S(d.totals.tax), ...d.totals.parts.map(S)]);
     } else {
       out.push(['入金日', '入金No', '入金科目', '摘要', '入金先', '入金額', ...names].map(H));
       for (const l of d.lines) out.push([l.date, l.no, l.account, l.memo, l.customer, l.amount, ...l.parts]);
-      out.push(['', '', S('合計'), '', '', S(d.totals.amount), ...d.totals.parts.map(S)], [d.note]);
+      out.push(['', '', S('合計'), '', '', S(d.totals.amount), ...d.totals.parts.map(S)]);
     }
     return { name: `${d.title}_${d.from}_${d.to}.xlsx`, body: xlsx([{ name: d.title.slice(0, 28), rows: out, widths: [11, 12, 18, 22, 20, 12, 12, 12, 12, 16, 16, 16, 16] }]) };
   }

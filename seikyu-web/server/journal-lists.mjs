@@ -117,7 +117,7 @@ export const JOURNAL_HEAD = ['日付', '伝票No', '借方 部', '科目', '科�
 const sideCells = s => (s ? [s.dept, s.account, s.accountName, s.sub, s.subName, s.sub2, s.tax, s.amount, s.memo1Code, s.memo1, s.memo2] : ['', '', '', '', '', '', '', '', '', '', '']);
 export async function journalListBook(c, q) {
   const d = await journalList(c, q);
-  const out = [[T(d.title)], [`${d.ref}　期間 ${d.from} 〜 ${d.to}　出力日 ${today()}`], [], JOURNAL_HEAD.map(H)];
+  const out = [[T(d.title)], [`期間 ${d.from} 〜 ${d.to}　出力日 ${today()}`], [], JOURNAL_HEAD.map(H)];
   let lastDate = null;
   for (const s of d.slips) {
     if (lastDate && s.date !== lastDate) out.push(['', S('日付合計'), '', '', '', '', '', '', '', S(d.dates.find(x => x.date === lastDate).total)]);
@@ -132,7 +132,7 @@ export async function journalListBook(c, q) {
 }
 export async function bankPaymentBook(c, q) {
   const d = await bankPaymentList(c, q);
-  const out = [[T(d.title)], [`${d.ref}　期間 ${d.from} 〜 ${d.to}　出力日 ${today()}`], []];
+  const out = [[T(d.title)], [`期間 ${d.from} 〜 ${d.to}　出力日 ${today()}`], []];
   const head = ['業者CD', '業者名', '伝票No', '日付', '請求金額', '相殺金額', '安全協力費', '手数料', '業者計', '支払方法', '支払元口座', '振込先銀行', '支店'].map(H);
   for (const day of d.days) {
     const [y, m, dd] = day.date.split('-');
