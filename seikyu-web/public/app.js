@@ -1046,6 +1046,13 @@ VIEWS.payments = async q => {
 };
 
 // ③ 支払帳票（NO37 全銀データ・NO45〜48）
+// 帳票は一覧を画面に出さない（2026-10-23）：件数と Excel／印刷ボタンだけの確認ポップアップ。0件は「データがありません」。本文は印刷用に隠して持つ
+function reportConfirm(body, id, sub, buttons) {
+  const t = document.createElement('div'); t.innerHTML = body;
+  const docs = t.querySelectorAll('.notice-doc').length, rows = [...t.querySelectorAll('tr')].filter(tr => tr.querySelector('td') && !tr.closest('thead, tfoot') && !tr.matches('.subtotal, .kb-group')).length, n = docs || rows;
+  if (!n) { const e = t.querySelector('.empty'); return `<p><b>データがありません。</b>${sub ? `（${esc(sub)}）` : ''}</p>${e ? `<p class="muted small">${esc(e.textContent)}</p>` : ''}`; }
+  return `<p>対象 <b>${n}</b> ${docs ? '件' : '行'}${sub ? `　<span class="muted small">${esc(sub)}</span>` : ''}</p><div class="filters" style="margin-top:10px">${buttons}</div><div id="${id}" hidden>${body}</div>`;
+}
 function paymentReportsCard() {
   const lastDay = new Date(Date.UTC(+thisMonth().slice(0, 4), +thisMonth().slice(5, 7), 0)).toISOString().slice(0, 10);
   return `<section class="card glass"><div class="card-head"><h2>支払帳票・支払データ（NO37・45〜48）</h2><span class="muted small">画面表示・印刷・Excel出力。全銀データは固定長120バイト・Shift_JIS</span></div>
@@ -1076,8 +1083,8 @@ async function paymentReport(kind) {
       <p class="small"><b>支払繰越（支払後の未払残高）</b></p><table><tr><th>${esc(m.m3)}</th><th>${esc(m.m2)}</th><th>${esc(m.m1)}</th><th>${esc(m.m0)}</th><th>合計</th></tr><tr><td class="num">${yen(n.carry.m3)}</td><td class="num">${yen(n.carry.m2)}</td><td class="num">${yen(n.carry.m1)}</td><td class="num">${yen(n.carry.m0)}</td><td class="num">${yen(n.carry.total)}</td></tr></table></div>`).join('')
     : '<div class="empty">この支払日の支払はありません</div>'; }
   const perPage = kind === 'notices';
-  modal({ title: `${d.title}（${d.ref}）`, wide: true, body: `<div class="filters" style="margin-bottom:10px"><a class="button" href="${url}&format=xlsx" download>⇩ Excel</a><button type="button" id="pr-print">🖨 印刷</button></div><div id="pr-body">${body}</div>`,
-    onOpen: () => $('#pr-print').addEventListener('click', () => {
+  modal({ title: `${d.title}（${d.ref}）`, body: reportConfirm(body, 'pr-body', d.sub || (d.from ? `${d.from} 〜 ${d.to}` : d.date || ''), `<a class="button" href="${url}&format=xlsx" download>⇩ Excel</a><button type="button" id="pr-print">🖨 印刷</button>`),
+    onOpen: () => $('#pr-print')?.addEventListener('click', () => {
       $('#print-area').innerHTML = perPage ? [...$$('#pr-body .notice-doc')].map(x => `<section class="invoice-doc report-doc">${x.innerHTML}</section>`).join('')
         : `<section class="invoice-doc report-doc journal-doc"><h2>${esc(d.title)}</h2><p>${esc(d.ref)} ／ 出力日 ${today()}</p>${$('#pr-body').innerHTML}</section>`;
       setTimeout(() => window.print(), 200);
@@ -1217,8 +1224,8 @@ async function miscReport(kind, src) {
   if (d.columns) { const cell = (col, v) => (col.num && typeof v === 'number' ? yen(v) : esc(v ?? '')); const tot = (label, t) => `<tr class="subtotal">${d.columns.map((col, i) => `<td class="${col.num ? 'num' : ''}">${i === 0 ? esc(label) : t[col.key] !== undefined ? yen(t[col.key]) : ''}</td>`).join('')}</tr>`;
     body = d.groups.length ? `<div class="table-wrap"><table class="jl"><thead><tr>${d.columns.map(col => `<th class="${col.num ? 'num' : ''}">${esc(col.label)}</th>`).join('')}</tr></thead><tbody>${d.groups.map(g => `<tr class="kb-group"><td colspan="${d.columns.length}"><b>${esc(g.title)}</b></td></tr>`
       + g.rows.map(r => `<tr>${d.columns.map(col => `<td class="${col.num ? 'num' : ''}">${cell(col, r[col.key])}</td>`).join('')}</tr>`).join('') + tot('計', g.totals)).join('')}${tot('総合計', d.totals)}</tbody></table></div>` : '<div class="empty">対象データがありません</div>'; }
-  modal({ title: `${d.title}（${d.ref}）`, wide: true, body: `<div class="filters" style="margin-bottom:10px"><a class="button" href="${url}&format=xlsx" download>⇩ Excel</a><button type="button" id="mr-print">🖨 印刷</button><span class="muted small">${esc(d.sub || (d.from ? `${d.from} 〜 ${d.to}` : d.month))}</span></div><div id="mr-body">${body}</div>`,
-    onOpen: () => $('#mr-print').addEventListener('click', () => { $('#print-area').innerHTML = `<section class="invoice-doc report-doc journal-doc"><h2>${esc(d.title)}</h2><p>${esc(d.ref)} ／ ${esc(d.sub || (d.from ? `${d.from} 〜 ${d.to}` : d.month))} ／ 出力日 ${today()}</p>${$('#mr-body').innerHTML}</section>`; setTimeout(() => window.print(), 200); }) });
+  modal({ title: `${d.title}（${d.ref}）`, body: reportConfirm(body, 'mr-body', d.sub || (d.from ? `${d.from} 〜 ${d.to}` : d.month), `<a class="button" href="${url}&format=xlsx" download>⇩ Excel</a><button type="button" id="mr-print">🖨 印刷</button>`),
+    onOpen: () => $('#mr-print')?.addEventListener('click', () => { $('#print-area').innerHTML = `<section class="invoice-doc report-doc journal-doc"><h2>${esc(d.title)}</h2><p>${esc(d.ref)} ／ ${esc(d.sub || (d.from ? `${d.from} 〜 ${d.to}` : d.month))} ／ 出力日 ${today()}</p>${$('#mr-body').innerHTML}</section>`; setTimeout(() => window.print(), 200); }) });
 }
 async function mixDialog() {
   const month = $('#mi-month').value, closing = $('#mi-closing').value, d = await api('/api/reports/misc/mix?' + qs({ month, closing }));
