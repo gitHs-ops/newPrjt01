@@ -673,6 +673,8 @@ async function invoiceDetail(id) {
 }
 // 提案書 スライド14 の請求書様式：請求書番号・取引銀行（2行）・前回残高／今回入金額／今回請求額(税抜)／今回消費税／今回消費税(軽減)／今回請求額(税込)／今回残高、明細（月日・伝票NO・区分・品名・数量・単位・単価・金額）
 const jpDate = d => (d ? `${d.slice(0, 4)}年${d.slice(5, 7)}月${d.slice(8, 10)}日` : '');
+// 請求書の明細を現場ごとにまとめる（現場コード＋現場名。コードの無い自由入力の現場は名称で分ける）。現場が2つ以上なら現場小計を出す
+const siteGroups = lines => { const m = new Map(); for (const l of lines) { const k = `${l.site || ''}|${l.siteName || ''}`; if (!m.has(k)) m.set(k, { name: l.siteName || '（現場なし）', lines: [], net: 0 }); const g = m.get(k); g.lines.push(l); g.net += l.net; } return [...m.values()]; };
 function proposalInvoice(s) {
   const tax10 = s.buckets.filter(b => b.rate !== 8).reduce((n, b) => n + b.tax, 0), tax8 = s.buckets.filter(b => b.rate === 8).reduce((n, b) => n + b.tax, 0);
   const kind = l => (l.shipKb === 5 ? (l.quantity < 0 ? '赤' : '黒') : '売上');
@@ -687,14 +689,16 @@ function proposalInvoice(s) {
     <table class="totals"><tr><th>前回残高</th><th>今回入金額</th><th>今回請求額(税抜)</th><th>今回消費税</th><th>今回消費税(軽減)</th><th>今回請求額(税込)</th><th>今回残高</th></tr>
       <tr><td class="num">${yen(s.prevBalance ?? s.carried)}</td><td class="num">${yen(s.received ?? 0)}</td><td class="num">${yen(s.net)}</td><td class="num">${yen(tax10)}</td><td class="num">${yen(tax8)}</td><td class="num">${yen(s.total)}</td><td class="num"><b>${yen(s.grandTotal)}</b></td></tr></table>
     <table><tr><th>月日</th><th>伝票NO</th><th>区分</th><th>品名</th><th>数量</th><th>単位</th><th>単価</th><th>金額</th></tr>
-      ${s.lines.map(l => `<tr><td>${esc(String(l.date).slice(5).replace('-', '/'))}</td><td>${esc(l.orderNo)}</td><td>${kind(l)}</td><td>${esc(l.itemName)}${l.siteName ? ` <span class="small">（${esc(l.siteName)}）</span>` : ''}</td><td class="num">${l.quantity}</td><td>${esc(l.unit || '')}</td><td class="num">${yen(l.price)}</td><td class="num">${yen(l.net)}</td></tr>`).join('')}</table>
+      ${(gs => gs.map(g => g.lines.map(l => `<tr><td>${esc(String(l.date).slice(5).replace('-', '/'))}</td><td>${esc(l.orderNo)}</td><td>${kind(l)}</td><td>${esc(l.itemName)}${l.siteName ? ` <span class="small">（${esc(l.siteName)}）</span>` : ''}</td><td class="num">${l.quantity}</td><td>${esc(l.unit || '')}</td><td class="num">${yen(l.price)}</td><td class="num">${yen(l.net)}</td></tr>`).join('')
+        + (gs.length > 1 ? `<tr class="subtotal"><td colspan="7" class="right">現場小計　${esc(g.name)}</td><td class="num"><b>${yen(g.net)}</b></td></tr>` : '')).join(''))(siteGroups(s.lines))}</table>
     </section>`;
 }
 function printDocs(docs) {
   // 現行の請求書（帳票一覧③）と同じ構成：当月御買上額・消費税額・当月値引額・当月御請求額、明細（年月日・伝票番号・商品名・数量・単位・単価・金額・備考）、税率別合計
   $('#print-area').innerHTML = docs.map(s => {
     if ((s.company.layout || 'proposal') !== 'legacy') return proposalInvoice(s);
-    const lines = s.lines.map(l => `<tr><td>${esc(l.date)}</td><td>${esc(l.orderNo)}${l.shipKb === 5 ? (l.quantity < 0 ? ' 赤' : ' 黒') : ''}</td><td>${esc(l.itemName)}</td><td class="num">${l.quantity}</td><td>${esc(l.unit || '')}</td><td class="num">${yen(l.price)}</td><td class="num">${yen(l.net)}</td><td>${esc(l.siteName || '')}${l.remarks ? ' ' + esc(l.remarks) : ''}</td></tr>`).join('');
+    const gs = siteGroups(s.lines), lines = gs.map(g => g.lines.map(l => `<tr><td>${esc(l.date)}</td><td>${esc(l.orderNo)}${l.shipKb === 5 ? (l.quantity < 0 ? ' 赤' : ' 黒') : ''}</td><td>${esc(l.itemName)}</td><td class="num">${l.quantity}</td><td>${esc(l.unit || '')}</td><td class="num">${yen(l.price)}</td><td class="num">${yen(l.net)}</td><td>${esc(l.siteName || '')}${l.remarks ? ' ' + esc(l.remarks) : ''}</td></tr>`).join('')
+      + (gs.length > 1 ? `<tr class="subtotal"><td colspan="6" class="right">現場小計　${esc(g.name)}</td><td class="num"><b>${yen(g.net)}</b></td><td></td></tr>` : '')).join('');
     const sites = [...new Set(s.lines.map(l => l.siteName).filter(Boolean))];
     return `<section class="invoice-doc">
     <h1>請 求 書</h1>${s.reissue ? `<p style="text-align:right"><span class="reissue">${esc(s.company.saisyutsu || '再発行')}（${s.issueNo}回目）</span></p>` : ''}

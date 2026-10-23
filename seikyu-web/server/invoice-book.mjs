@@ -17,10 +17,13 @@ export async function invoiceBook(c, q) {
       [s.prevBalance ?? s.carried, s.received ?? 0, s.carried, s.net, s.tax, s.grandTotal].map(S), [],
       ['税率区分', '対象額(税抜)', '消費税'].map(H), ...s.buckets.map(b => [`${b.rate}%対象`, b.net, b.tax]), [],
       ['日付', '伝票No', '現場', '品名', '数量', '単価', '金額', '税率', '備考'].map(H)];
-    let site = null, sub = 0;
-    const flush = () => { if (site !== null) rows.push(['', '', '', S('現場小計'), '', '', S(sub)]); };
-    for (const l of s.lines) { if ((l.site || '') !== site) { flush(); site = l.site || ''; sub = 0; } sub += l.net; rows.push([l.date, l.orderNo + (l.shipKb === 5 ? (l.quantity < 0 ? ' 赤' : ' 黒')  : ''), l.siteName || '', l.itemName, l.quantity, l.price, l.net, `${l.taxRate}%`, l.remarks || '']); }
-    flush();
+    // 現場ごとにまとめて現場小計（現場コードの無い自由入力の現場は名称で分ける）
+    const groups = new Map();
+    for (const l of s.lines) { const k = `${l.site || ''}|${l.siteName || ''}`; if (!groups.has(k)) groups.set(k, []); groups.get(k).push(l); }
+    for (const ls of groups.values()) {
+      for (const l of ls) rows.push([l.date, l.orderNo + (l.shipKb === 5 ? (l.quantity < 0 ? ' 赤' : ' 黒')  : ''), l.siteName || '', l.itemName, l.quantity, l.price, l.net, `${l.taxRate}%`, l.remarks || '']);
+      rows.push(['', '', '', S('現場小計'), '', '', S(ls.reduce((n, l) => n + l.net, 0))]);
+    }
     sheets.push({ name: `${s.invoiceId}_${s.customer.code}`.slice(0, 31), rows, widths: [12, 14, 20, 20, 9, 10, 13, 7, 16] });
   }
   return { name: `請求書_${today()}_${ids.length}件.xlsx`, body: xlsx(sheets) };
