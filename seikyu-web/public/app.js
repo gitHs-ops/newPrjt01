@@ -525,10 +525,10 @@ document.addEventListener('change', e => {
   billFilter(e.target.checked);
 });
 const closingLabel = c => (Number(c) === 31 ? '月末' : c + '日');
-// 締日の選択肢：規定の 5・10・15・20・月末 ＋ 有効な得意先にある規定外の締日（移行データの 21・25 等。「（規定外）」と表示、2026-10-23）
+// 締日の選択肢は規定の 5・10・15・20・月末 だけ（2026-10-23：規定外の締日のデモ得意先は削除済み、得意先マスタも規定値のみ登録可）
 const STD_CLOSINGS = [5, 10, 15, 20, 31];
-const closingList = () => [...new Set([...STD_CLOSINGS, ...active('customers').map(c => Number(c.closing))])].sort((a, b) => a - b);
-const closingName = c => closingLabel(c) + (STD_CLOSINGS.includes(Number(c)) ? '' : '（規定外）');
+const closingList = () => STD_CLOSINGS;
+const closingName = closingLabel;
 VIEWS.invoices = async q => {
   const A = actions;
   A.view = d => go('invoices', { view: d.view });
