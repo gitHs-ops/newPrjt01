@@ -13,26 +13,37 @@ let session, meta, masters = {}, actions = {}, route = { name: 'dashboard', q: {
 const canWrite = () => [1, 2, 3, 4].includes(session?.user.role), isAdmin = () => session?.user.role === 1;
 
 // ---------- API ----------
-// DB の読込は「検索」「表示」ボタン（と登録・更新の後）だけ（2026-10-23）。画面の描画中の GET は apiMode で切り替える：
-//  lazy … 読込済みの結果（apiCache）だけを使い、無ければ NotLoaded（画面に「表示」ボタンを出す）
+// DB の読込は検索系のボタン（検索・対象得意先を表示など）と登録・更新の後だけ（2026-10-23）。画面の描画中の GET は apiMode で切り替える：
+//  lazy … メニュー・小メニューで開いたとき。読込済みの結果（apiCache）を使い、無ければサーバーに「空の画面」（X-Empty-View：DB を読まず0件）を頼む
 //  fresh … DB から読み、結果を apiCache に入れる。登録・更新（GET 以外）の後はキャッシュを捨て、次の描画で読み直す
-const apiCache = new Map();
-let apiMode = null, apiDirty = false;
-class NotLoaded extends Error {}
-async function api(url, { method = 'GET', body } = {}) {
-  if (method === 'GET' && apiMode === 'lazy') { if (apiCache.has(url)) return structuredClone(apiCache.get(url)); throw new NotLoaded(url); }
-  const res = await fetch(url, { method, cache: 'no-store', headers: body ? { 'Content-Type': 'application/json', 'X-CSRF-Token': session?.csrf || '' } : {}, body: body ? JSON.stringify(body) : undefined });
+const apiCache = new Map(), LAZY_FETCH = /^\/api\/(business-date|petty\/settings|kb\/meta|kb\/bugyo|coverage)(\?|$)/;
+let apiMode = null, apiDirty = false, emptyShown = false;
+const fetchJson = async (url, opt) => {
+  const res = await fetch(url, { cache: 'no-store', ...opt });
   if (res.status === 401) { location.replace('/login' + location.hash); throw Error('ログインしてください'); }
-  const data = await res.json().catch(() => ({}));
-  if (method !== 'GET') { apiCache.clear(); apiDirty = true; }
-  if (!res.ok) throw Error(data.error || `処理に失敗しました (${res.status})`);
-  if (method === 'GET' && apiMode === 'fresh') { apiCache.delete(url); apiCache.set(url, structuredClone(data)); if (apiCache.size > 80) apiCache.delete(apiCache.keys().next().value); }
-  return data;
+  return [res, await res.json().catch(() => ({}))];
+};
+async function api(url, { method = 'GET', body } = {}) {
+  if (method === 'GET' && apiMode === 'lazy' && !LAZY_FETCH.test(url)) {
+    if (apiCache.has(url)) return structuredClone(apiCache.get(url));
+    const mk = url.match(/^\/api\/masters\/(\w+)$/); if (mk && masters[mk[1]]) return structuredClone(masters[mk[1]]);
+    const [res, data] = await fetchJson(url, { headers: { 'X-Empty-View': '1' } });
+    if (res.ok) { emptyShown = true; return data; } // 形だけ作れない画面は下で通常どおり読む
+  }
+  const read = method === 'GET' && apiMode !== 'lazy'; if (read) busy(true, 'データを読み込み中…');
+  try {
+    const [res, data] = await fetchJson(url, { method, headers: body ? { 'Content-Type': 'application/json', 'X-CSRF-Token': session?.csrf || '' } : {}, body: body ? JSON.stringify(body) : undefined });
+    if (method !== 'GET') { apiCache.clear(); apiDirty = true; }
+    if (!res.ok) throw Error(data.error || `処理に失敗しました (${res.status})`);
+    if (method === 'GET' && apiMode === 'fresh') { apiCache.delete(url); apiCache.set(url, structuredClone(data)); if (apiCache.size > 80) apiCache.delete(apiCache.keys().next().value); }
+    return data;
+  } finally { if (read) busy(false); }
 }
 // 登録・作成など時間のかかる POST は 0.4 秒を超えたら画面上部に「処理中…」を表示（全画面共通）
 let busyCount = 0, busyTimer = null;
-const busy = on => {
+const busy = (on, label = '処理中…') => {
   const b = $('#busy-bar'); if (!b) return;
+  if (on) { const l = $('#busy-label'); if (l && busyCount === 0) l.textContent = label; }
   busyCount = Math.max(0, busyCount + (on ? 1 : -1));
   if (busyCount && !busyTimer && !(b.showPopover && b.matches(':popover-open'))) busyTimer = setTimeout(() => { busyTimer = null; if (busyCount && !$('#progress-dialog')?.open) { try { b.showPopover ? b.showPopover() : (b.style.display = 'flex'); } catch {} } }, 400);
   if (!busyCount) { clearTimeout(busyTimer); busyTimer = null; try { b.showPopover ? b.hidePopover() : (b.style.display = 'none'); } catch {} }
@@ -173,13 +184,10 @@ function resolveSub(r) {
   const item = subs.find(s => s.k === r.sub) || (!r.sub && subs.find(s => s.q && Object.entries(s.q).every(([k, v]) => r.q[k] === v))) || subs[0];
   return { ...r, sub: item.k, subItem: item, subTools: item.tools ?? (item === subs[0] || !!item.q), q: { ...r.q, ...(item.q || {}) } };
 }
-// freshNext：次の描画で DB を読む（「検索」ボタン）
+// freshNext：次の描画で DB を読む。画面のボタン（検索・タブ切替など）から go() したときは読み、サイドバーのメニュー・小メニューは読まない
 let freshNext = false;
 const takeFresh = () => { const f = freshNext; freshNext = false; return f; };
-const go = (name, q = {}) => { const path = name === route.name && route.sub ? `${name}/${route.sub}` : name, h = '#' + path + (Object.keys(q).length ? '?' + qs(q) : ''); if (location.hash === h) render({ fresh: takeFresh() }); else location.hash = h; };
-// 未読込の画面：DB を読まずに「表示」ボタンだけ出す
-const notLoadedPage = () => page(TITLES[route.name] || '', '', '', `<section class="card glass"><div class="card-head"><h2>${esc(route.subItem?.l || TITLES[route.name] || '')}</h2></div>
-  <p class="muted">「表示」を押すとデータを読み込みます（画面や小メニューを切り替えただけではデータベースを読みません）。</p><div style="margin-top:10px"><button class="primary" data-load>表示</button></div></section>`);
+const go = (name, q = {}) => { freshNext = true; const path = name === route.name && route.sub ? `${name}/${route.sub}` : name, h = '#' + path + (Object.keys(q).length ? '?' + qs(q) : ''); if (location.hash === h) render({ fresh: takeFresh() }); else location.hash = h; };
 async function render({ fresh = false } = {}) {
   route = parseHash();
   if (!TITLES[route.name] || !VIEWS[route.name]) route = { name: home(), sub: '', q: {} };
@@ -191,9 +199,9 @@ async function render({ fresh = false } = {}) {
   let html, pending;
   const mode = fresh || apiDirty ? 'fresh' : 'lazy'; if (mode === 'fresh') apiDirty = false;
   if (mode === 'fresh') $('#content').classList.add('busy');
-  apiMode = mode; actions = own; try { pending = fn(route.q); } finally { actions = prev; } // view captures `own` synchronously; old page stays usable while loading
+  apiMode = mode; emptyShown = false; actions = own; try { pending = fn(route.q); } finally { actions = prev; } // view captures `own` synchronously; old page stays usable while loading
   try { html = await pending; }
-  catch (e) { if (e instanceof NotLoaded) html = notLoadedPage(); else { html = `<div class="card glass"><h2>読み込みエラー</h2><p class="check-ng">${esc(e.message)}</p></div>`; toast(e.message, true); } }
+  catch (e) { html = `<div class="card glass"><h2>読み込みエラー</h2><p class="check-ng">${esc(e.message)}</p></div>`; toast(e.message, true); }
   finally { if (token === renderSeq) apiMode = null; }
   if (token !== renderSeq) return; // a newer navigation finished first
   const content = $('#content');
@@ -203,6 +211,11 @@ async function render({ fresh = false } = {}) {
   // 検索条件（data-filter）の並びの後ろに「検索」ボタン。条件を変えただけでは読み込まない
   for (const g of new Set($$('[data-filter]', content).map(el => el.closest('.filters') || el.parentElement))) {
     const last = $$('[data-filter]', g).pop(); (last.closest('label') && g.contains(last.closest('label')) ? last.closest('label') : last).insertAdjacentHTML('afterend', '<button type="button" class="primary" data-search>検索</button>');
+  }
+  // メニューで開いただけ（DB 未読込）の一覧：検索系ボタンで表示する旨を出す。画面に検索ボタンが無いときはここに置く
+  if (emptyShown) {
+    const visible = el => el.offsetParent !== null, hasSearch = $$('[data-search], [data-act="search"], [data-act="preview"]', content).some(visible);
+    for (const el of $$('.empty', content)) el.innerHTML = `検索条件を指定して「検索」を押すと表示します${hasSearch ? '' : ' <button type="button" class="primary mini" data-search>検索</button>'}`;
   }
   document.dispatchEvent(new CustomEvent('view:rendered', { detail: route.name }));
 }
@@ -216,7 +229,6 @@ document.addEventListener('change', e => { if (e.target.matches('[data-filter]')
 document.addEventListener('keydown', e => { if (e.key === 'Enter' && e.target.matches('input[data-filter]')) { e.preventDefault(); search(); } });
 document.addEventListener('click', e => {
   if (e.target.closest('[data-search]')) { e.preventDefault(); search(); }
-  else if (e.target.closest('[data-load]')) { e.preventDefault(); render({ fresh: true }); }
 });
 
 // ---------- views ----------
@@ -483,6 +495,14 @@ async function issueDeliveryNotes(p) {
 }
 
 // ----- 請求締め・発行 -----
+// 請求データ作成：「選択可能な得意先のみ表示」（作成済・対象なしを隠す）。切替は利用者ごとに記憶
+const billOnly = () => { try { return localStorage.getItem('billOnly') === '1'; } catch { return false; } };
+const billFilter = on => { const r = $('#bill-result'); if (!r) return; r.classList.toggle('only-pick', on); const n = $('#bill-none'); if (n) n.hidden = !(on && !$$('.bill-pick', r).length); };
+document.addEventListener('change', e => {
+  if (e.target.id !== 'bill-only') return;
+  try { localStorage.setItem('billOnly', e.target.checked ? '1' : '0'); } catch {}
+  billFilter(e.target.checked);
+});
 const closingLabel = c => (Number(c) === 31 ? '月末' : c + '日');
 VIEWS.invoices = async q => {
   const A = actions;
@@ -494,11 +514,13 @@ VIEWS.invoices = async q => {
   const closings = [...new Set(active('customers').map(c => c.closing))].sort((a, b) => a - b);
   A.preview = async () => {
     const month = $('#bill-month').value, closing = $('#bill-closing').value, p = await api('/api/billing/preview?' + qs({ month, closing }));
-    $('#bill-result').innerHTML = `<p class="muted small">請求期間 ${p.start} 〜 ${p.end} ／ 支払期日 ${p.due} ／ 請求は<b>得意先単位</b>で作成し、複数現場は明細にまとめます（NO6）</p>` + table([
+    $('#bill-result').innerHTML = `<p class="muted small">請求期間 ${p.start} 〜 ${p.end} ／ 支払期日 ${p.due} ／ 請求は<b>得意先単位</b>で作成し、複数現場は明細にまとめます（NO6）</p>
+      <label class="small" style="display:inline-flex;gap:6px;align-items:center;margin-bottom:6px"><input type="checkbox" id="bill-only" ${billOnly() ? 'checked' : ''}> 選択可能な得意先のみ表示</label>` + table([
       { label: '', html: r => r.count && !r.created ? `<input type="checkbox" class="bill-pick" value="${esc(r.customer)}" checked>` : '' }, { label: '得意先', value: r => `${r.customer} ${r.name}` },
       { label: '未請求(掛売)', num: 1, value: r => `${r.count}件` }, { label: '前回締め以前の追加', num: 1, value: r => r.late ? r.late + '件' : '' }, { label: '現場数', num: 1, value: r => r.sites || '' }, { label: '税抜金額', num: 1, value: r => yen(r.net) }, { label: '消費税', num: 1, value: r => yen(r.tax) },
       { label: '請求対象外', num: 1, value: r => r.excluded ? `${r.excluded}件（現金・カード）` : '' },
-      { label: '状態', html: r => r.created ? badge('作成済', 'green') : r.count ? badge('作成可能') : badge('対象なし', 'gray') }], p.customers, { empty: 'この締日の得意先はありません' });
+      { label: '状態', html: r => r.created ? badge('作成済', 'green') : r.count ? badge('作成可能') : badge('対象なし', 'gray') }], p.customers, { empty: 'この締日の得意先はありません', rowClass: r => (r.count && !r.created ? '' : 'bill-na') });
+    $('#bill-result').insertAdjacentHTML('beforeend', '<div class="empty" id="bill-none" hidden>選択可能な得意先（未請求の掛売があり未作成）はありません</div>'); billFilter(billOnly());
     $('#bill-run').innerHTML = `<button class="primary" data-act="run" data-month="${month}" data-closing="${closing}">選択した得意先の請求を作成</button>`;
   };
   // 請求データ作成：得意先ごとに順番に作成し、進捗（件数・得意先名）を表示。失敗した得意先は最後にまとめて表示し、他の得意先は続行

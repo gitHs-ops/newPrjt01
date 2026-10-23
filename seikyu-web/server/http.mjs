@@ -1,4 +1,5 @@
 import { createServer } from 'node:http';
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { readFile, readdir } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import { DomainError, Conflict, Forbidden, RATES, METHODS, csv, today } from './domain.mjs';
@@ -28,7 +29,9 @@ export async function createApp({ pool, publicDir, secureCookies = process.env.N
   const files = new Set(await readdir(publicDir));
   const routes = [];
   const route = (method, path, perm, fn) => routes.push({ method, perm, fn, re: new RegExp('^' + path.replace(/:(\w+)/g, '(?<$1>[^/]+)') + '$') });
-  const db = fn => tx(pool, fn);
+  // 画面を開いただけのとき（X-Empty-View: 1 の GET）は DB を読まず、全 SELECT を0件として画面の形だけ返す（2026-10-23：DB は検索ボタンで読む）
+  const emptyView = new AsyncLocalStorage(), EMPTY_CONN = { query: async () => [[], []] };
+  const db = fn => (emptyView.getStore() ? fn(EMPTY_CONN) : tx(pool, fn));
   const failures = new Map();
 
   // ----- read -----
@@ -184,7 +187,8 @@ export async function createApp({ pool, publicDir, secureCookies = process.env.N
           const m = r.method === req.method && path.match(r.re); if (!m) continue;
           if (r.perm === 'write' && !U.WRITE_ROLES.includes(user.role)) throw new Forbidden('参照者は登録・変更できません');
           if (r.perm === 'admin' && user.role !== 1) throw new Forbidden('管理者のみ実行できます');
-          const result = await r.fn({ params: Object.fromEntries(Object.entries(m.groups || {}).map(([k, v]) => [k, decodeURIComponent(v)])), q: Object.fromEntries(url.searchParams), body, user, requestId });
+          const x = { params: Object.fromEntries(Object.entries(m.groups || {}).map(([k, v]) => [k, decodeURIComponent(v)])), q: Object.fromEntries(url.searchParams), body, user, requestId };
+          const result = req.method === 'GET' && req.headers['x-empty-view'] === '1' ? await emptyView.run(true, () => r.fn(x)) : await r.fn(x);
           if (result?.file) return send(200, result.file.body, result.file.type || 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', { 'Content-Disposition': `attachment; filename="${result.file.name.endsWith('.txt') ? 'zengin.txt' : result.file.name.endsWith('.csv') ? 'export.csv' : 'report.xlsx'}"; filename*=UTF-8''${encodeURIComponent(result.file.name)}` });
           if (result && typeof result.csv === 'string') return send(200, result.csv, 'text/csv; charset=utf-8', { 'Content-Disposition': `attachment; filename="${result.name.replace(/[^\w.\-]/g, '_')}"` });
           return send(200, result ?? { ok: true });

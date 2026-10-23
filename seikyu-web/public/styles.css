@@ -424,3 +424,8 @@ input.file-native { position: absolute; width: 1px; height: 1px; opacity: 0; poi
 @media (max-width: 760px) { .hw-head { grid-template-columns: 1fr; } .hw-head .span2 { grid-column: auto; } }
 /* 検索条件を変えたが未検索：検索ボタンを目立たせる */
 [data-search].pending { box-shadow: 0 0 0 3px rgba(245, 158, 11, .55); }
+/* 読込・処理中の進行バー（件数がわからないため流れるバー） */
+#busy-bar .busy-track { width: 140px; height: 6px; border-radius: 999px; background: rgba(255, 255, 255, .2); overflow: hidden; position: relative; }
+#busy-bar .busy-track i { position: absolute; inset: 0 auto 0 0; width: 40%; border-radius: inherit; background: linear-gradient(90deg, #818cf8, #22d3ee); animation: busy-slide 1.1s ease-in-out infinite; }
+@keyframes busy-slide { from { left: -40%; } to { left: 100%; } }
+#bill-result.only-pick tr.bill-na { display: none; }
