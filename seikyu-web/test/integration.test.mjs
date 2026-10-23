@@ -300,6 +300,11 @@ test('workflow against PostgreSQL business tables', { skip, timeout: 900000 }, a
       assert.equal(r0.shipKb, 5); assert.equal(r0.originalNo, o.orderNo); assert.equal(r0.remarks, '赤 ' + o.orderNo); assert.ok(o0.corrected, 'original marked corrected');
       assert.equal((await a.call('/api/shipments', { ...base, shipKb: '5', originalNo: o.orderNo, quantity: '-3' })).status, 400, 'no double correction');
       ok(await a.call('/api/shipments/delete', { orderNo: red.orderNo })); ok(await a.call('/api/shipments/delete', { orderNo: o.orderNo }));
+      // 赤黒訂正（赤＋黒）：黒を取消すと赤も組で取消され、元伝票を取消できる
+      const o2 = ok(await a.call('/api/shipments', { ...base, quantity: '3' }));
+      const rb = ok(await a.call('/api/shipments/correct', { orderNo: o2.orderNo, date: pm + '-03', quantity: '2' })); assert.ok(rb.red && rb.black);
+      assert.deepEqual(ok(await a.call('/api/shipments/delete', { orderNo: rb.black })).slips.sort(), [rb.red, rb.black].sort(), 'red and black deleted as a pair');
+      ok(await a.call('/api/shipments/delete', { orderNo: o2.orderNo }));
     });
     await t.test('Q08: one closing run puts its customers on one A01 slip number', async () => {
       const ok = r => { assert.equal(r.status, 200, JSON.stringify(r.data)); return r.data; };

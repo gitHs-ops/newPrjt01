@@ -99,6 +99,10 @@ export async function prepare(pool, env = process.env) {
   // 入金額配賦登録（現行 HJW030）：NO36 入金明細及び配分表の行ごとに、構成員別の配分額を手で調整した値（parts＝{構成員コード: 金額} の JSON）
   await pool.query(`CREATE TABLE IF NOT EXISTS app_jv_alloc (alloc_key varchar(40) COLLATE "C" PRIMARY KEY, parts text NOT NULL, updated_by varchar(256) COLLATE "C" NOT NULL, updated_at timestamp(6) NOT NULL)`);
   await slipNoBackfill(pool);
+  // 赤黒訂正の黒伝票が区分 1 で登録されていた不具合（2026-10-23 修正）の補正：元伝票に結び付いた黒（sales_suffix 3）を区分 5 にそろえる（何度実行しても同じ）
+  const BLACK = "s.sales_suffix=3 AND s.sales_no<>s.order_no AND EXISTS (SELECT 1 FROM sales_trn o WHERE o.order_no=s.sales_no)";
+  await pool.query(`UPDATE shipment_slip sl SET ship_kb=5 FROM sales_trn s WHERE s.order_no=sl.order_no AND sl.ship_kb<>5 AND ${BLACK}`);
+  await pool.query(`UPDATE sales_trn s SET ship_kb='5' WHERE s.ship_kb<>'5' AND ${BLACK}`);
   // 現行データ移行後（出荷 約10万件）でも一覧・訂正判定・帳票が遅くならないよう索引を追加（2026-10-21 Render で1か月の一覧に約25秒）
   for (const sql of ['CREATE INDEX IF NOT EXISTS ix_sales_trn_sales_no ON sales_trn (sales_no)', 'CREATE INDEX IF NOT EXISTS ix_sales_trn_date ON sales_trn (sales_date, customers_cd)',
     'CREATE INDEX IF NOT EXISTS ix_shipment_slip_work ON shipment_slip (shipment_dt, customers_cd, item_cd)', 'CREATE INDEX IF NOT EXISTS ix_shipment_plan_work ON shipment_plan (shipment_dt, customers_cd, item_cd)',

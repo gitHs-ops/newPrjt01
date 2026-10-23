@@ -355,23 +355,9 @@ function slipInquiry(r) {
 }
 const siteFields = (cust, r) => `${field('現場', `<select name="site">${siteOptions(cust, r?.site, '（マスタ外・自由入力）')}</select>`, { hint: '現場マスタから選択、または空欄で現場名を自由入力（現行と同じ）' })}
     ${field('現場名1', `<input name="siteName1" maxlength="20" value="${esc(r?.siteName1 || '')}">`)}${field('現場名2', `<input name="siteName2" maxlength="20" value="${esc(r?.siteName2 || '')}">`)}`;
-function correctionForm(r) {
-  const cust = r.customer;
-  modal({ title: `出荷伝票の赤黒訂正（元 ${r.orderNo}）`, submit: '赤黒伝票を登録', wide: true, body: `
-    <div class="note">元伝票：${esc(r.date)} ${esc(r.customerName)} ／ ${esc(r.siteName)} ／ ${esc(r.itemName)} ${r.quantity} ${esc(r.unit)} × ${yen(r.price)}${r.freight ? '＋運賃' + yen(r.freight) : ''} ＝ ${yen(r.net)} 円（${esc(r.methodName)}）<br>
-      <b>赤</b>＝元伝票の全量マイナス（${-r.quantity} ${esc(r.unit)}）を自動作成。<b>黒</b>＝下の訂正後の内容（数量 0 なら赤のみ＝取消）。請求書には 元／赤／黒 の3行で表示されます。</div>
-    <div class="form-grid" style="margin-top:12px">${field('訂正日（赤・黒の出荷日）', `<input type="date" name="date" value="${today()}">`, { req: 1, hint: '月次確定済みの月は不可' })}
-      ${field('得意先', `<select name="customer">${options(active('customers'), cust)}</select>`)}${siteFields(cust, r)}
-      ${field('商品', `<select name="item">${options(active('items'), r.item)}</select>`)}${field('数量（黒）', `<input name="quantity" class="num" inputmode="decimal" value="${r.quantity}">`, { req: 1 })}
-      ${field('単価', `<input name="price" class="num" value="${r.price}">`)}${field('運賃', `<input name="freight" class="num" value="${r.freight || 0}">`)}
-      ${opFields(r)}${field('備考', `<input name="remarks" maxlength="20" value="黒 ${esc(r.orderNo)}">`, { hint: '税率は訂正日の消費税率マスタで自動' })}<div class="wide note" id="corr-preview"></div></div>`,
-    onOpen: f => {
-      f.customer.onchange = () => (f.site.innerHTML = siteOptions(f.customer.value, '', '（マスタ外・自由入力）'));
-      const pv = () => { const qn = Number(f.quantity.value) || 0, black = Math.round(Math.round(qn * 100) * (Number(f.price.value) + Number(f.freight.value || 0)) / 100); $('#corr-preview').textContent = `赤 ${yen(-r.net)} 円 ＋ 黒 ${yen(black)} 円 ＝ 差額 ${yen(black - r.net)} 円（税抜）`; };
-      for (const n of ['quantity', 'price', 'freight']) f[n].oninput = pv; pv();
-    },
-    onSubmit: async v => { const res = await post('/api/shipments/correct', { ...v, orderNo: r.orderNo }); toast(`赤 ${res.red}${res.black ? '・黒 ' + res.black : ''} を登録しました（差額 ${yen(res.net)}円）`); render(); } });
-}
+// 赤黒訂正（2026-10-23）：入力画面は出荷伝票登録と同じ様式。伝票区分＝訂正・元伝票No を持ち、元伝票の内容を初期値にする。
+// 登録すると 赤（元伝票の全量マイナス）を自動作成し、画面の内容を 黒（訂正後）として起票（数量 0 なら赤のみ＝取消）
+function correctionForm(r) { shipmentForm({ ...r, orderNo: undefined, correctOf: r, date: today(), remarks: `黒 ${r.orderNo}`, shipKb: 5 }); }
 // 確認用：入力欄に架空のサンプル値を入れる（登録はしない）
 const SAMPLE_SITES = ['東名高速 豊田管内舗装補修工事', '市道3号線 舗装工事', '南町 駐車場整備工事', '北区 造成工事'];
 const sampleButton = '<div class="sample-bar"><button type="button" class="sample-btn" data-sample>🎲 サンプル入力</button><span class="muted small">架空の値を入れます（登録は下のボタンで）</span></div>';
@@ -395,10 +381,11 @@ function shipmentForm(r, bizDate) {
   const dl = (id, list) => `<datalist id="${id}">${list.map(x => `<option value="${esc(x.code)}">${esc(x.name)}</option>`).join('')}</datalist>`;
   const methodOpts = options(Object.entries(meta.methods).map(([code, name]) => ({ code, name })), r?.method || CREDIT, { label: x => `${x.code} ${x.name}` });
   // 伝票区分 5 訂正は新規登録のみ（元伝票No を指定して赤伝票を起票、2026-10-23）
-  const kbOpts = [1, 2, 3, 4, ...(r?.orderNo ? [] : [5])].map(k => `<option value="${k}" ${Number(r?.shipKb || 1) === k ? 'selected' : ''}>${esc(meta.shipKinds[k])}</option>`).join('');
+  const co = r?.correctOf, kbOpts = (co ? [5] : [1, 2, 3, 4, ...(r?.orderNo ? [] : [5])]).map(k => `<option value="${k}" ${Number(r?.shipKb || 1) === k ? 'selected' : ''}>${esc(meta.shipKinds[k])}</option>`).join('');
   const kbnOpts = options(active('deliveryKinds'), r?.deliveryKbn || active('deliveryKinds')[0]?.code, { blank: '選択', label: x => x.name + (x.pickup ? '（運賃なし）' : '') });
-  modal({ title: r?.orderNo ? `出荷伝票の修正（${r.orderNo}）` : r?.fromPlan ? `出荷伝票登録（出荷予定 ${r.fromPlan} から）` : r?.copyOf ? `出荷伝票登録（類似登録：元 ${r.copyOf}）` : '出荷伝票登録', submit: r?.orderNo ? '更新する' : '登録する', wide: true, body: `${r?.orderNo ? '' : sampleButton}<div class="slip-sheet">
-    ${SL('伝票番号', RO(r?.orderNo ? esc(r.orderNo) : '<span class="muted">登録時に採番</span>'))}${SL('伝票区分', `<select name="shipKb">${kbOpts}</select>`)}${r?.orderNo ? '<div class="span4c fill"></div>' : `${SL('元伝票No', '<input name="originalNo" maxlength="12" class="num" placeholder="区分 訂正のとき" autocomplete="off" disabled>')}<div class="span2c sv muted small" id="sf-orig"></div>`}
+  modal({ title: co ? `出荷伝票の赤黒訂正（元 ${co.orderNo}）` : r?.orderNo ? `出荷伝票の修正（${r.orderNo}）` : r?.fromPlan ? `出荷伝票登録（出荷予定 ${r.fromPlan} から）` : r?.copyOf ? `出荷伝票登録（類似登録：元 ${r.copyOf}）` : '出荷伝票登録', submit: co ? '赤黒伝票を登録' : r?.orderNo ? '更新する' : '登録する', wide: true, body: `${co ? `<div class="note" style="margin-bottom:10px">元伝票：${esc(co.date)} ${esc(co.customerName)} ／ ${esc(co.siteName)} ／ ${esc(co.itemName)} ${co.quantity} ${esc(co.unit)} × ${yen(co.price)}${co.freight ? '＋運賃' + yen(co.freight) : ''} ＝ ${yen(co.net)} 円（${esc(co.methodName)}）<br>
+      <b>赤</b>＝元伝票の全量マイナス（${-co.quantity} ${esc(co.unit)}）を自動作成。<b>黒</b>＝下の訂正後の内容（数量 0 なら赤のみ＝取消）。出荷日は赤・黒の訂正日。請求書には 元／赤／黒 の3行で表示されます。<span id="corr-preview"></span></div>` : r?.orderNo ? '' : sampleButton}<div class="slip-sheet">
+    ${SL('伝票番号', RO(r?.orderNo ? esc(r.orderNo) : '<span class="muted">登録時に採番</span>'))}${SL('伝票区分', `<select name="shipKb">${kbOpts}</select>`)}${co ? `${SL('元伝票No', RO(esc(co.orderNo)))}<div class="span2c fill"></div>` : r?.orderNo ? '<div class="span4c fill"></div>' : `${SL('元伝票No', '<input name="originalNo" maxlength="12" class="num" placeholder="区分 訂正のとき" autocomplete="off" disabled>')}<div class="span2c sv muted small" id="sf-orig"></div>`}
     ${SL('出荷日', `<input type="date" name="date" value="${esc(r?.date || bizDate || today())}" required>`, { req: 1 })}${SL('天候', `<select name="weather">${opt(active('weathers'), r?.weather || '', '　')}</select>`)}${SEP}
     <div class="sl req">得意先</div>${CODE_NAME(`<input name="customer" list="dl-cust" maxlength="5" value="${esc(cust)}" autocomplete="off" required>`, '<div class="ro" id="sf-cname">&nbsp;</div>')}
     <div class="sl">他社得意先</div>${CODE_NAME(`<input name="otherCustomer" list="dl-cust" maxlength="5" value="${esc(r?.otherCustomer || '')}" autocomplete="off" placeholder="伝票区分 2・4 のとき">`, '<div class="ro" id="sf-oname">&nbsp;</div>')}
@@ -453,11 +440,14 @@ function shipmentForm(r, bizDate) {
       };
       f.siteName1.onchange = f.siteName2.onchange = cumulative;
       for (const n of ['quantity', 'price', 'freight']) f[n].oninput = preview; f.quantity.onchange = cumulative;
+      if (co) { const pv = () => { const qn = Number(f.quantity.value) || 0, black = Math.round(Math.round(qn * 100) * (Number(f.price.value) + Number(f.freight.value || 0)) / 100); $('#corr-preview').innerHTML = `<br>赤 ${yen(-co.net)} 円 ＋ 黒 ${yen(black)} 円 ＝ 差額 <b>${yen(black - co.net)}</b> 円（税抜）`; };
+        for (const n of ['quantity', 'price', 'freight']) f[n].addEventListener('input', pv); pv(); }
       show('#sf-cname', 'customers', f.customer.value); show('#sf-oname', 'customers', f.otherCustomer.value); show('#sf-iname', 'items', f.item.value);
       siteList(); unitOf(); siteNames(); preview(); cumulative(); if (!r || r.fromPlan) price();
       f.querySelector('[data-sample]')?.addEventListener('click', () => { fillSample(f); f.customer.onchange(); f.item.onchange(); });
     },
     onSubmit: async v => { const { siteCode, siteSuffix, ...rest } = v; const site = siteCode.trim() ? `${siteCode.trim()}|${(siteSuffix.trim() || '000')}` : '';
+      if (co) { const res = await post('/api/shipments/correct', { ...rest, site, orderNo: co.orderNo }); toast(`赤 ${res.red}${res.black ? '・黒 ' + res.black : ''} を登録しました（差額 ${yen(res.net)}円）`); render(); return; }
       const res = await post('/api/shipments', { ...rest, site, orderNo: r?.orderNo }); toast(`${r?.orderNo ? '更新' : '登録'}しました（伝票番号 ${res.orderNo}）`); render(); },
   });
 }

@@ -212,7 +212,7 @@ export async function correctShipment(c, ctx, p) {
       item: p.item || orig.item_cd, quantity: p.quantity, price: p.price ?? red.price, freight: p.freight ?? red.freight, method: p.method ?? red.method, operator: p.operator || red.operator, deliveryKbn: p.deliveryKbn || red.kbn,
       shipKb: '1', otherCustomer: '', vehicle: slip?.vehicle_no || '', remarks: p.remarks || `黒 ${orig.order_no}` }, '黒伝票の');
     blackNo = await nextShipNo(c);
-    await insertSlip(c, { orderNo: blackNo, shipKb: CORRECTION, ...black, salesNo: orig.order_no, salesSuffix: 3 });
+    await insertSlip(c, { orderNo: blackNo, ...black, shipKb: CORRECTION, salesNo: orig.order_no, salesSuffix: 3 }); // black（slipValues）の shipKb '1' で上書きしない
     await recalcCumulative(c, await one(c, 'SELECT * FROM shipment_slip WHERE order_no=?', [blackNo]));
   }
   await audit(c, ctx, 'sales_trn', orig.order_no, 'shipment.correct', { original: orig.order_no, red: redNo, black: blackNo, net: red.net + (black?.net || 0) });
