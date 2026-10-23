@@ -801,12 +801,12 @@ function receiptForm(preset = '') {
         ctx = f.customer.value ? await api('/api/receipt-context?customer=' + encodeURIComponent(f.customer.value)) : { invoices: [], deposit: 0 };
         const m = latest(), prior = invs().filter(r => r.month !== m), cur = invs().filter(r => r.month === m), sum = (l, k) => l.reduce((n, r) => n + r[k], 0);
         const partly = sum(cur, 'paid'), cu = all.find(c => c.code === f.customer.value);
-        $('#rc-open').innerHTML = !f.customer.value ? '得意先を選択してください' : !invs().length ? '<span class="muted">発行済みで残高のある請求はありません</span>'
+        $('#rc-open').innerHTML = !f.customer.value ? '得意先を選択してください' : !invs().length ? '<span class="muted">残高のある請求はありません</span>'
           : `<div class="table-wrap"><table><thead><tr><th>得意先</th><th>請求年月</th><th class="num">請求残高</th><th class="num">当月請求金額</th><th class="num">今回請求金額</th><th class="num">消込金額</th><th class="num">消込残高</th></tr></thead>
             <tbody><tr><td>${esc(f.customer.value)} ${esc(cu?.name || '')}</td><td>${esc(m)}</td><td class="num">${yen(sum(prior, 'balance'))}</td><td class="num">${yen(sum(cur, 'balance'))}${partly ? `<br><span class="small muted">（一部入金済 ${yen(partly)}）</span>` : ''}</td>
             <td class="num"><b>${yen(sum(invs(), 'balance'))}</b></td><td class="num" id="rc-cleared">0</td><td class="num" id="rc-left">${yen(sum(invs(), 'balance'))}</td></tr></tbody></table></div>
             <p class="small muted">請求残高＝${esc(m)} より前の未入金（${prior.length}件）、当月請求金額＝${esc(m)} の請求（${cur.length}件）、今回請求金額＝請求残高＋当月請求金額。</p>`;
-        $('#rc-alloc').innerHTML = !invs().length ? '' : table([{ label: '請求年月', value: r => r.month }, { label: '締日', value: r => r.closing }, { label: '請求No', value: r => r.id }, { label: '請求金額', num: 1, value: r => yen(r.total) }, { label: '入金済', num: 1, value: r => yen(r.paid) },
+        $('#rc-alloc').innerHTML = !invs().length ? '' : table([{ label: '請求年月', value: r => r.month }, { label: '締日', value: r => r.closing }, { label: '請求No', value: r => r.id }, { label: '状態', html: r => status(r.status) }, { label: '請求金額', num: 1, value: r => yen(r.total) }, { label: '入金済', num: 1, value: r => yen(r.paid) },
           { label: '請求残高', num: 1, value: r => yen(r.balance) }, { label: '消込金額', html: r => `<input class="num rc-amt" data-id="${r.id}" data-balance="${r.balance}" value="0" style="width:130px">` }, { label: '消込残高', num: 1, html: r => `<span id="rc-left-${r.id}">${yen(r.balance)}</span>` }], invs())
           + '<p><button type="button" class="mini" id="rc-auto">古い順に自動配分に戻す</button></p>';
         $$('.rc-amt').forEach(x => (x.oninput = () => { manual = true; refresh(); }));
@@ -819,12 +819,12 @@ function receiptForm(preset = '') {
       RC_KEYS.forEach(([k]) => (f[k].oninput = refresh)); f.overpayToDeposit.onchange = refresh;
       if (preset) { if (![...f.customer.options].some(o => o.value === preset)) f.customer.insertAdjacentHTML('beforeend', `<option value="${esc(preset)}">${esc(preset)}</option>`); f.customer.value = preset; load(); }
       // サンプル入力：振込（手数料差引）で今回請求金額の全額を消し込む値を入れる（登録はしない）。
-      // 選択中の得意先に発行済みで残高のある請求があればその得意先のまま、無ければその請求がある得意先に切り替えて知らせる
+      // 選択中の得意先に残高のある請求（未発行を含む）があればその得意先のまま、無ければその請求がある得意先に切り替えて知らせる
       f.querySelector('[data-sample]')?.addEventListener('click', async () => {
-        const open = (await api('/api/invoices?status=open')).filter(i => i.issues > 0 && i.balance > 0);
-        if (!open.length) return toast('発行済みで残高のある請求がありません。先に請求書を発行してください', true);
+        const open = (await api('/api/invoices?status=open')).filter(i => i.balance > 0);
+        if (!open.length) return toast('残高のある請求がありません。先に請求データを作成してください', true);
         const cur = f.customer.value, mine = open.filter(i => i.customer === cur), inv = (mine.length ? mine : open)[Math.floor(Math.random() * (mine.length || open.length))];
-        if (cur && !mine.length) toast(`選択中の得意先（${cur}）には発行済みで残高のある請求がないため、${inv.customer} ${inv.customerName || ''} に切り替えました`);
+        if (cur && !mine.length) toast(`選択中の得意先（${cur}）には残高のある請求がないため、${inv.customer} ${inv.customerName || ''} に切り替えました`);
         $('#rc-search').value = ''; f.customer.innerHTML = options(all, inv.customer, { blank: '選択してください' }); f.customer.value = inv.customer;
         await load();
         const due = invs().reduce((n, r) => n + r.balance, 0), fee = due > 10000 ? 660 : 0;
@@ -1122,7 +1122,7 @@ const payableReportsCard = () => miscCard('定時請求入力明細表（NO30）
 const pettyReportsCard = () => miscCard('小口現金出納簿（NO33）', '定額資金前渡制（推定）', rangeInputs('pc', '期間', ...closingRange()),
   '<button data-act="misc" data-kind="petty-book" data-src="pc">NO33 小口現金出納簿</button>' + (canWrite() ? '<button data-act="fund">定額資金の設定</button><button data-act="refill">現金補充を登録</button>' : ''), '期首に定額資金を受入、支払ごとに残高を表示し、支払合計を次期補充額とします。JV構成員が登録済みなら出資比率で配分列を表示します。');
 const receiptScheduleCard = () => miscCard('入金予定チェックリスト（NO44）', '得意先別・工事（現場）別', `<label class="field">入金予定日（から）<input type="date" id="rs-from" value="${addMonths(thisMonth(), -6)}-01"></label><label class="field">入金予定日（まで）<input type="date" id="rs-to" value="${today()}"></label><label class="field"><span>超過分のみ</span><span><input type="checkbox" id="rs-over"> 予定日を過ぎた未入金</span></label>`,
-  '<button data-act="misc" data-kind="receipt-schedule" data-src="rs">NO44 入金予定チェックリスト</button>', '発行済みで残高のある請求が対象。入金方法・入金先は過去の入金実績から推定します。');
+  '<button data-act="misc" data-kind="receipt-schedule" data-src="rs">NO44 入金予定チェックリスト</button>', '残高のある請求が対象（未発行を含み、発行の有無を表示）。入金方法・入金先は過去の入金実績から推定します。');
 const accountingCard = () => miscCard('会計連携データ（NO20）', '会計システムは勘定奉行（奉行クラウド）。受入は CSV／Excel（QA回答 2026-10-08）', rangeInputs('ac', '仕訳日'),
   '<button class="primary" data-act="acct" data-format="bugyo">⇩ 勘定奉行 受入CSV</button><button data-act="acct" data-format="generic">⇩ 汎用CSV（借貸併記・UTF-8）</button><button data-act="acct" data-format="yayoi">⇩ 弥生会計形式（Shift_JIS）</button>',
   '勘定奉行CSVの見出しは「財務会計 → 会計設定 → 勘定奉行連携」で登録した OBC受入記号（未登録は項目名）、税区分は処税率→奉行税区分の対応表で変換します。受入記号・税区分コードは「データ受入形式一覧表」で確定予定（Q14/Q19）。出力は操作履歴に記録されます。');
@@ -1218,8 +1218,8 @@ async function miscReport(kind, src) {
       <tr><td>${esc(d.from)}</td><td></td><td>前期繰越（定額資金）</td><td></td><td></td><td class="num">${yen(d.fund)}</td><td></td><td class="num">${yen(d.fund)}</td>${ms.map(() => '<td></td>').join('')}</tr>`
     + d.rows.map(r => `<tr><td>${esc(r.date)}</td><td>${esc(r.payee)}</td><td>${esc(r.memo)}</td><td>${esc(r.account)}${r.sub ? '-' + esc(r.sub) : ''} ${esc(r.accountName)}</td><td>${esc(r.tax)}</td><td></td><td class="num">${yen(r.amount)}</td><td class="num">${yen(r.balance)}</td>${(r.parts || []).map(v => `<td class="num">${yen(v)}</td>`).join('')}</tr>`).join('')
     + `</tbody><tfoot><tr><td colspan="5">合計（次期補充額 ${yen(d.replenish)}）</td><td class="num">${yen(d.fund)}</td><td class="num">${yen(d.spent)}</td><td class="num">${yen(d.closing)}</td>${ms.map(() => '<td></td>').join('')}</tr></tfoot></table></div>`; }
-  if (kind === 'receipt-schedule') body = `<p class="muted small">${esc(d.note)}</p>` + (d.customers.length ? d.customers.map(cu => `<h3 style="margin:10px 0 4px">${esc(cu.customer)} ${esc(cu.name)} <span class="muted small">入金方法: ${esc(cu.method)} ／ 入金先: ${esc(cu.bank)}</span></h3>` + table([{ label: '工事（現場）', value: r => `${r.site} ${r.siteName}` }, { label: '請求締日', value: r => r.closing }, { label: '請求No', value: r => r.invoiceId },
-    { label: '請求金額', num: 1, value: r => yen(r.billed) }, { label: '入金予定日', html: r => `${r.overdue ? `<span class="check-ng">${esc(r.dueDate)} 超過</span>` : esc(r.dueDate)}${r.computed ? ' <span class="muted small" title="支払期日がないため得意先マスタの回収条件から計算">※</span>' : ''}` }, { label: '入金予定額', num: 1, value: r => yen(r.due) }], cu.rows, { foot: ['得意先計', '', '', yen(cu.billed), '', yen(cu.due)] })).join('') + `<p class="right"><b>入金予定合計 ${yen(d.total)} 円</b></p>` : '<div class="empty">入金予定（発行済み・残高あり）の請求はありません</div>');
+  if (kind === 'receipt-schedule') body = `<p class="muted small">${esc(d.note)}</p>` + (d.customers.length ? d.customers.map(cu => `<h3 style="margin:10px 0 4px">${esc(cu.customer)} ${esc(cu.name)} <span class="muted small">入金方法: ${esc(cu.method)} ／ 入金先: ${esc(cu.bank)}</span></h3>` + table([{ label: '工事（現場）', value: r => `${r.site} ${r.siteName}` }, { label: '請求締日', value: r => r.closing }, { label: '請求No', value: r => r.invoiceId }, { label: '発行', value: r => (r.issued ? '発行済' : '未発行') },
+    { label: '請求金額', num: 1, value: r => yen(r.billed) }, { label: '入金予定日', html: r => `${r.overdue ? `<span class="check-ng">${esc(r.dueDate)} 超過</span>` : esc(r.dueDate)}${r.computed ? ' <span class="muted small" title="支払期日がないため得意先マスタの回収条件から計算">※</span>' : ''}` }, { label: '入金予定額', num: 1, value: r => yen(r.due) }], cu.rows, { foot: ['得意先計', '', '', '', yen(cu.billed), '', yen(cu.due)] })).join('') + `<p class="right"><b>入金予定合計 ${yen(d.total)} 円</b></p>` : '<div class="empty">入金予定（残高あり）の請求はありません</div>');
   // 共通形式（server/new-reports.mjs）：columns＋groups
   if (d.columns) { const cell = (col, v) => (col.num && typeof v === 'number' ? yen(v) : esc(v ?? '')); const tot = (label, t) => `<tr class="subtotal">${d.columns.map((col, i) => `<td class="${col.num ? 'num' : ''}">${i === 0 ? esc(label) : t[col.key] !== undefined ? yen(t[col.key]) : ''}</td>`).join('')}</tr>`;
     body = d.groups.length ? `<div class="table-wrap"><table class="jl"><thead><tr>${d.columns.map(col => `<th class="${col.num ? 'num' : ''}">${esc(col.label)}</th>`).join('')}</tr></thead><tbody>${d.groups.map(g => `<tr class="kb-group"><td colspan="${d.columns.length}"><b>${esc(g.title)}</b></td></tr>`

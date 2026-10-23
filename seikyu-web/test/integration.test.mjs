@@ -73,7 +73,8 @@ test('workflow against PostgreSQL business tables', { skip, timeout: 900000 }, a
       assert.equal((await a.call('/api/billing/run', { month, closing: 31, customers: [C] })).status, 400, 'no double billing');
       assert.equal((await a.call('/api/shipments/delete', { orderNo: s1.data.orderNo })).status, 400, 'billed shipment locked');
       assert.equal((await a.call('/api/shipments/delete', { orderNo: cash.data.orderNo })).status, 200);
-      assert.equal((await a.call('/api/receipts', { idempotencyKey: 'x' + tag, date: d, customer: C, bank: 100, bankCode: 'B' + tag, allocations: [{ invoiceId, amount: 100 }] })).status, 400, 'must be issued first');
+      // 2026-10-23：未発行でも残高があれば消込対象（状態は draft＝未発行）
+      const ctx0 = (await a.call('/api/receipt-context?customer=' + C)).data.invoices.find(i => i.id === invoiceId); assert.equal(ctx0?.status, 'draft', 'unissued invoice is a receipt target');
       const issued = await a.call('/api/invoices/issue', { ids: [invoiceId] }); assert.equal(issued.status, 200);
       const conf = await a.call(`/api/reports/billing-confirm?month=${month}&closing=31`); assert.equal(conf.data.rows.find(r => r.customer === C).lines.length, 4);
       assert.equal(issued.data.documents[0].total, inv.total);

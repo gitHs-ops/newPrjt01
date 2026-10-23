@@ -488,7 +488,8 @@ export async function depositBalance(c, customer) {
 export async function receiptContext(c, customer) {
   // 得意先が空のときは全得意先の請求を返さない（未選択のまま消込対象が表示されて登録エラーになっていた）
   const cu = String(customer || ''); if (!cu) return { invoices: [], deposit: 0 };
-  const invoices = (await listInvoices(c, { customer: cu, status: 'open' })).filter(i => i.issues > 0).sort((a, b) => a.closing.localeCompare(b.closing) || a.id - b.id);
+  // 2026-10-23：未発行の請求も残高があれば消込対象（移行データは発行履歴が無いため）。発行の有無は status（draft＝未発行）で表示
+  const invoices = (await listInvoices(c, { customer: cu, status: 'open' })).sort((a, b) => a.closing.localeCompare(b.closing) || a.id - b.id);
   return { invoices, deposit: cu ? await depositBalance(c, cu) : 0 };
 }
 export const openInvoices = async (c, customer) => (await receiptContext(c, customer)).invoices;
@@ -531,7 +532,7 @@ export async function createReceipt(c, ctx, p) {
     const h = await one(c, 'SELECT h.* FROM billing_head h WHERE h.invoice_id=? FOR UPDATE', [a.id]);
     if (h) h.paid = (await one(c, `SELECT ${PAID} paid FROM billing_head h WHERE h.invoice_id=?`, [a.id])).paid;
     check(h, '請求が見つかりません'); check(h.customers_cd === cust.customers_cd, '異なる得意先の請求には消込できません');
-    check(h.invoice_flag !== '0', '請求書発行後に消込できます'); check(date >= fromNum(h.closing_date), '入金日が請求締日より前です');
+    check(date >= fromNum(h.closing_date), '入金日が請求締日より前です');
     check(a.amount <= num(h.money) + num(h.consumption_tax) - num(h.paid), `請求(${fromNum(h.closing_date)}締)の残高を超えています`);
   }
   const allocated = allocs.reduce((n, a) => n + a.amount, 0), overpay = settlement - allocated;
