@@ -97,6 +97,9 @@ input.num { text-align: right; }
 option { background: #fff; color: var(--text-primary); }
 .filters { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
 .filters input, .filters select { width: auto; min-width: 130px; }
+/* 検索条件は一行に収める：選択肢の長い名称で横に広がらないよう幅を抑える（全文は選択時に表示） */
+.filters select { min-width: 96px; max-width: 160px; text-overflow: ellipsis; }
+.filters input[type=month], .filters input[type=date], .filters input.flatpickr-input, .filters input[name=month] { min-width: 0; width: 124px; }
 .filters input[type=checkbox], .filters input[type=radio] { min-width: 0; width: auto; }
 label.field { display: grid; gap: 4px; font-size: 12px; font-weight: 600; color: #334155; }
 /* 検索条件の行：ラベルは入力欄の左に置き、ボタンと同じ行に並べる */
