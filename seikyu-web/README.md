@@ -114,7 +114,7 @@ AS400 請求・入金業務の Web 移行検証用システム。`seikyu-preview
 DATABASE_URL                                                       … PostgreSQL 接続 URL（Railway は Postgres の参照変数で組み立て）
 DEMO_USER / DEMO_PASSWORD                                          … 初期管理者
 SEED_DEMO=0                                                        … 架空サンプルを作らない（既定は取引表が空のときだけ作成）
-SCHEMA_SQL_DIR                                                     … 空の検証 DB に 44 表 DDL（schema.sql）を適用する場合のみ（DDL はリポジトリ外：seikyuPrjt02/database-design/postgres-draft）
+SCHEMA_SQL_DIR                                                     … 空の検証 DB に 44 表 DDL（schema.sql）を適用する場合のみ（`test/schema`。本番 DB のカタログから `test/dump-schema.mjs` で生成）
 ```
 
 起動時に 44 表の存在を確認し、無ければ停止する（本番 DDL は適用済み）。採番・自動仕訳科目・自社情報・ロール・メニューは不足分だけ追加する。
@@ -128,7 +128,8 @@ SCHEMA_SQL_DIR                                                     … 空の検
 
 ```
 npm test                                   # 単体（金額・期間・CSV）
-PG_TEST_URL=<検証DB> SCHEMA_SQL_DIR=<DDLフォルダ> npm test        # 結合（本番 DB seikyu_web では実行しない）
+PG_TEST_URL=<検証DB> SCHEMA_SQL_DIR=test/schema npm test       # 結合（空の検証 DB に DDL を適用。本番 DB では実行しない）
+DATABASE_URL=<本番DB> node test/dump-schema.mjs                  # 結合テスト用 DDL を本番 DB のカタログから作り直す（読み取りのみ）
 BASE_URL=... LOGIN_ID=... LOGIN_PASSWORD=... PLAYWRIGHT_MODULE=<playwright-core> node scripts/browser-check.cjs
 ```
 

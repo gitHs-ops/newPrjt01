@@ -78,7 +78,7 @@ async function javaCodes(pool, env) {
 }
 // Applies the reviewed DDL only when explicitly pointed at it (empty test databases). Production tables already exist.
 async function applyDdl(pool, dir) {
-  // PostgreSQL 版 DDL（MySQL 版から移行ツールで生成したもの。リポジトリには置かない）
+  // PostgreSQL 版 DDL（test/schema/schema.sql：本番 DB のカタログから test/dump-schema.mjs で生成）
   const sql = (await readFile(join(dir, 'schema.sql'), 'utf8')).split('\n').filter(l => !l.trim().startsWith('--')).join('\n');
   for (const stmt of sql.split(/;\s*\n/).map(s => s.trim()).filter(Boolean)) await pool.query(stmt);
 }
