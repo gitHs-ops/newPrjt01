@@ -96,6 +96,8 @@ export async function prepare(pool, env = process.env) {
   // 伝票番号（現行の系列連番を引継ぎ）。既存仕訳には日付・ID順で一度だけ採番する。
   await pool.query(`CREATE TABLE IF NOT EXISTS app_slip_series (series varchar(4) COLLATE "C" PRIMARY KEY, last_no integer NOT NULL)`);
   await pool.query(`CREATE TABLE IF NOT EXISTS app_slip_no (journal_id bigint PRIMARY KEY, slip_no varchar(12) COLLATE "C" NOT NULL)`);
+  // 入金額配賦登録（現行 HJW030）：NO36 入金明細及び配分表の行ごとに、構成員別の配分額を手で調整した値（parts＝{構成員コード: 金額} の JSON）
+  await pool.query(`CREATE TABLE IF NOT EXISTS app_jv_alloc (alloc_key varchar(40) COLLATE "C" PRIMARY KEY, parts text NOT NULL, updated_by varchar(256) COLLATE "C" NOT NULL, updated_at timestamp(6) NOT NULL)`);
   await slipNoBackfill(pool);
   // 現行データ移行後（出荷 約10万件）でも一覧・訂正判定・帳票が遅くならないよう索引を追加（2026-10-21 Render で1か月の一覧に約25秒）
   for (const sql of ['CREATE INDEX IF NOT EXISTS ix_sales_trn_sales_no ON sales_trn (sales_no)', 'CREATE INDEX IF NOT EXISTS ix_sales_trn_date ON sales_trn (sales_date, customers_cd)',

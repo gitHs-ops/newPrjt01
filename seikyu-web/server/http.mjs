@@ -87,6 +87,7 @@ export async function createApp({ pool, publicDir, secureCookies = process.env.N
   route('GET', '/api/users', 'admin', () => db(c => U.listUsers(c)));
   // ----- write -----
   const w = (path, fn, perm = 'write') => route('POST', path, perm, x => db(c => fn(c, x, x.body)));
+  w('/api/jv/allocations', (c, x, b) => MR.saveJvAllocations(c, x, b));
   w('/api/masters/:kind', (c, x, b) => M.save(c, x, x.params.kind, b.record, b.mode === 'create' ? 'create' : 'update'));
   w('/api/masters/:kind/import', (c, x, b) => M.importCsv(c, x, x.params.kind, b.csv));
   w('/api/masters/:kind/delete', (c, x, b) => M.remove(c, x, x.params.kind, b.record));

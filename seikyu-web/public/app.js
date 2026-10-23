@@ -1127,8 +1127,43 @@ async function accountingDownload(format) {
   toast('会計連携データを出力しました');
 }
 const jvReportsCard = () => miscCard('出資金（JV）帳票（NO35・36）', 'JV構成員・出資比率で配分（10/21 打合せ：締切日＝対象月20日で指示）', `<label class="field">締切日<input type="date" id="jv-closing" value="${lastClosing()}"></label>`,
-  '<button data-act="misc" data-kind="jv-expenses" data-src="jv">NO35 出資金請求明細表（定時請求分）</button><button data-act="misc" data-kind="jv-expenses" data-src="jvs">出資金請求合計表（定時請求分）</button><button data-act="misc" data-kind="jv-receipts" data-src="jv">NO36 入金明細及び配分表</button>',
-  '構成員と出資比率は「マスタ管理 → JV構成員・出資比率」で登録します（有効な構成員の合計100%）。配分は各社切捨て、端数は第1構成員。');
+  '<button data-act="misc" data-kind="jv-expenses" data-src="jv">NO35 出資金請求明細表（定時請求分）</button><button data-act="misc" data-kind="jv-expenses" data-src="jvs">出資金請求合計表（定時請求分）</button><button data-act="misc" data-kind="jv-receipts" data-src="jv">NO36 入金明細及び配分表</button>' + (canWrite() ? '<button data-act="jvAlloc">入金額配賦登録（端数調整）</button>' : ''),
+  '構成員と出資比率は「マスタ管理 → JV構成員・出資比率」で登録します（有効な構成員の合計100%）。配分は各社切捨て、端数は第1構成員。端数を調整するときは「入金額配賦登録」（現行 HJW030）で入金ごとに構成員別の金額を直し、NO36 はその金額で出力します。');
+// 入金額配賦登録（現行 HJW030）：締切日の月度の NO36 対象行ごとに構成員別の配分額（青字欄）を調整。行の合計＝入金額で登録
+async function jvAllocDialog() {
+  const closing = $('#jv-closing').value, d = await api('/api/reports/misc/jv-receipts?' + qs({ closing })), ms = d.members;
+  if (!d.lines.length) return alertBox(`データがありません（締切日 ${closing} の月度 ${d.from}〜${d.to} の入金・現金売上はありません）`);
+  const row = (l, i) => `<tr data-i="${i}"><td>${esc(l.date)}</td><td>${esc(l.account)}<br><span class="small muted">${esc(l.memo)}</span></td><td>${esc(l.customer || '')}</td><td class="num">${yen(l.amount)}</td>
+    ${ms.map((m, k) => `<td><input class="num jv-part" style="width:110px;color:#0369a1" data-k="${k}" value="${l.parts[k]}"></td>`).join('')}<td class="small jv-st">${l.adjusted ? badge('調整済', 'amber') : ''}</td><td><button type="button" class="mini quiet" data-auto="${i}" title="出資比率で自動配分に戻す">自動</button></td></tr>`;
+  const foot = `<tr><td colspan="3"><b>支払計</b></td><td class="num" id="jva-total"></td>${ms.map((_, k) => `<td class="num" id="jva-t${k}"></td>`).join('')}<td colspan="2"></td></tr>`;
+  modal({ title: `入金額配賦登録　締切日 ${closing}（${d.from}〜${d.to}）`, wide: true, submit: '登録',
+    body: `<p class="muted small">出資比率で自動配分した金額を表示しています。端数などを直すときは構成員の金額を書き換えてください（各行の合計＝入金額）。NO36 入金明細及び配分表は登録した金額で出力します。</p>
+      <div class="table-wrap" style="max-height:60vh;overflow:auto"><table id="jva"><thead><tr><th>入金日</th><th>入金科目</th><th>得意先</th><th class="num">入金額</th>${ms.map(m => `<th>${esc(m.name || m.code)}<br><span class="small muted">${m.ratio.toFixed(2)}%</span></th>`).join('')}<th></th><th></th></tr></thead>
+      <tbody>${d.lines.map(row).join('')}</tbody><tfoot>${foot}</tfoot></table></div>`,
+    onOpen: () => {
+      const t = $('#jva'), val = x => Number(String(x.value).replace(/[,\s]/g, ''));
+      const sums = () => {
+        let ok = true;
+        for (const tr of $$('tbody tr', t)) { const l = d.lines[tr.dataset.i], s = $$('.jv-part', tr).reduce((n, x) => n + val(x), 0), bad = s !== l.amount; tr.classList.toggle('check-ng', bad); if (bad) ok = false; }
+        $('#jva-total').textContent = yen(d.lines.reduce((n, l) => n + l.amount, 0));
+        ms.forEach((_, k) => ($(`#jva-t${k}`).textContent = yen($$(`.jv-part[data-k="${k}"]`, t).reduce((n, x) => n + val(x), 0))));
+        return ok;
+      };
+      t.addEventListener('input', sums);
+      t.addEventListener('click', e => { const b = e.target.closest('[data-auto]'); if (!b) return; const l = d.lines[b.dataset.auto]; $$(`tr[data-i="${b.dataset.auto}"] .jv-part`, t).forEach((x, k) => (x.value = l.auto[k])); sums(); });
+      sums();
+    },
+    onSubmit: async () => {
+      const t = $('#jva'), val = x => Number(String(x.value).replace(/[,\s]/g, '')), changed = [];
+      for (const tr of $$('tbody tr', t)) {
+        const l = d.lines[tr.dataset.i], parts = $$('.jv-part', tr).map(val);
+        if (parts.some((v, k) => v !== l.parts[k])) changed.push({ key: l.key, parts: Object.fromEntries(ms.map((m, k) => [m.code, parts[k]])) });
+      }
+      if (!changed.length) { toast('変更はありません'); return; }
+      const r = await post('/api/jv/allocations', { closing, rows: changed });
+      toast(`入金額配賦を登録しました（調整 ${r.saved}行${r.cleared ? `・自動配分に戻した行 ${r.cleared}行` : ''}）`);
+    } });
+}
 function miscParams(kind, src) {
   if (src === 'mi') return { month: $('#mi-month').value, closing: $('#mi-closing').value };
   if (src === 'pi') return { month: $('#pi-month').value, closing: $('#pi-closing').value, dept: $('#pi-dept').value, kb: $('#pi-kb').value, vendorFrom: $('#pi-vfrom').value.trim().toUpperCase(), vendorTo: $('#pi-vto').value.trim().toUpperCase() };
@@ -1269,7 +1304,7 @@ async function journalListsView(q) {
 VIEWS.reports = async q => {
   const A = actions;
   A.acct = d => accountingDownload(d.format).catch(e => toast(e.message, true));
-  A.misc = d => miscReport(d.kind, d.src).catch(e => toast(e.message, true));
+  A.misc = d => miscReport(d.kind, d.src).catch(e => toast(e.message, true)); A.jvAlloc = () => jvAllocDialog().catch(e => toast(e.message, true));
   const month = q.month || thisMonth(), [ar, ap] = await Promise.all([api('/api/reports/ar'), api('/api/reports/ap')]);
   const exp = [['shipments', '売上明細'], ['invoices', '請求一覧'], ['receipts', '入金一覧'], ['journals', '仕訳（会計連携用）'], ['payments', '支払・振込データ'], ['expenses', '定時請求・小口'], ['purchases', '仕入'], ['inventory', '在庫']];
   return page('帳票・データ出力', 'CSVはExcelで開けるUTF-8(BOM付き)形式です。', monthInput('month', month), `
@@ -1376,6 +1411,7 @@ VIEWS.migration = async () => {
       <li>会計月度は 21日〜20日、決算は 10月20日（期首 10月21日）。財務会計（勘定奉行相当）も同じ月度で集計します。</li>
       <li>請求書は提案書様式（前回残高・今回入金額・今回残高、取引銀行2行）。請求書発行確認表は現行 HAR430 の項目。</li>
       <li>マスタは使用中のコードを削除せず無効化を案内。画面はサイドバーの小メニューで機能ごとに表示します。</li></ul>
+      <h3 style="margin-top:12px">2026-10-23 反映（議事メモ 10/22 版・入金配賦登録）</h3><ul class="list small"><li>出資金：現行の端数調整画面「入金額配賦登録」（HJW030）に合わせ、帳票・データ出力 → 出資金（JV）帳票に「入金額配賦登録（端数調整）」を追加。締切日の月度の入金ごとに構成員別の配分額を直して登録し、NO36 入金明細及び配分表はその金額で出力（Q27・Q36）。</li><li>定時請求の締切日：初期値は直近の締日、手入力で変更できる（決算月は更新処理が遅れるため）。</li><li>定時請求入力明細表は請求書登録後のチェック用（月末〜翌月3日頃に出力）。小口現金出納簿は20日締め・翌月1〜3日頃に出力（Q31）。</li><li>現行メニューの「出資金支払日別明細表印刷」は要否を確認（Q37）。</li></ul>
       <h3 style="margin-top:12px">2026-10-22 反映（10/21 打合せ・再検証）</h3><ul class="list small"><li>在庫：実在庫登録（調査日の月度に品目ごとの数量）と在庫計上を分離。在庫計上は月度ごとに1回、単価＝(前月末在庫金額＋当月仕入)÷(前月末在庫数＋当月仕入数)で評価し洗い替え仕訳。修正は「在庫計上の取消」（逆仕訳）後に再実行（Q07）。</li><li>定時請求データ入力：現行 HAW050 の並び（組織・締切日・請求No・業者・支払繰延区分・支払予定日・合計金額、明細2段）。合計金額は手入力で、明細合計（対象外＋内税＋外税＋外税消費税）と一致しないと登録不可。外税消費税は自動計算（端数は手修正、仮払消費税 1465）。締切日の初期値は直近の締日。</li><li>処税率の1桁目は 1=内税、2・空白=外税で確定（Q01・Q26）。</li><li>NO30 定時請求入力明細表：部門・区分（1 組織／ブランク 工事）・業者コード From〜To（ブランク＝出力しない、To 9999999＝全業者、From＞To はエラー、英字は大文字にそろえて比較）。月度の初期値は直近の締日。</li><li>NO35・NO36 出資金帳票：締切日で指示。明細表・合計表は支払日別・科目別。入金明細は当座預金への入金（振込・手形）・入金時手数料・現金売上（Q36）。</li><li>NO25 配合計算：材料単価の手入力（マスタ管理 → 材料単価、月別）と原価の照会画面（マスタ管理 → 原価、照会のみ）を追加。配合マスタのサンプルは削除し、配合表の受領待ち（Q34）。</li></ul>
       <h3 style="margin-top:12px">資料未着のため推定で実装した項目（2026-10-15）</h3><ul class="list small"><li>NO20 会計連携: 勘定奉行受入CSV（OBC受入記号・税区分は会計設定で登録）・汎用CSV・弥生形式。処税率は3桁を分解して変換（消費税区分.xlsx）。</li><li>NO25 配合計算: 配合率は配合マスタ、材料単価は材料単価マスタ（手入力・月別）を優先し無ければ移動平均、経費単価は当月経費（電気8242／製造8244・8243／一般管理費系）÷製品出荷数量で自動算出。灯油は材料「灯油」の使用高。結果は原価（genka_m）に保存（Q34）。</li><li>NO30 定時請求入力明細表: 発注残・相殺は0。現比は振込のみのため出力しない（10/19）。</li><li>NO33 小口現金出納簿: 定額資金前渡制（期首受入・支払後残高・次期補充額）を仮定。期間は20日締め（初期値は直近の締日の月度、Q31）。</li><li>NO44 入金予定チェックリスト: 予定日＝支払期日、予定額＝残高の現場別売上比按分、入金方法・入金先は過去実績から推定。</li><li>NO10 一括ダウンロード: Excel（1請求書＝1シート）。NO9 は得意先別残高照会タブで請求残高照会を兼ねる（削減案3）。</li></ul></section>
     <section class="card glass"><div class="card-head"><h2>テーブル使用状況</h2>${badge(`${used} / ${cov.length} 表を使用`, 'green')}</div>${table([{ label: 'テーブル', value: r => r.table }, { label: '内容', value: r => r.label }, { label: '区分', value: r => r.origin }, { label: '本システム', html: r => r.use.startsWith('使用') ? badge(r.use, 'green') : badge(r.use, 'gray') }, { label: '件数', num: 1, value: r => yen(r.rows) }], cov)}</section></div>
