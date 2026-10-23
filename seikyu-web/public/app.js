@@ -13,7 +13,7 @@ let session, meta, masters = {}, actions = {}, route = { name: 'dashboard', q: {
 const canWrite = () => [1, 2, 3, 4].includes(session?.user.role), isAdmin = () => session?.user.role === 1;
 
 // ---------- API ----------
-// DB の読込は検索系のボタン（検索・対象得意先を表示など）と登録・更新の後だけ（2026-10-23）。画面の描画中の GET は apiMode で切り替える：
+// DB の読込は検索系のボタン（検索・タブ切替など）と登録・更新の後だけ（2026-10-23）。画面の描画中の GET は apiMode で切り替える：
 //  lazy … メニュー・小メニューで開いたとき。読込済みの結果（apiCache）を使い、無ければサーバーに「空の画面」（X-Empty-View：DB を読まず0件）を頼む
 //  fresh … DB から読み、結果を apiCache に入れる。登録・更新（GET 以外）の後はキャッシュを捨て、次の描画で読み直す
 const apiCache = new Map(), LAZY_FETCH = /^\/api\/(business-date|petty\/settings|kb\/meta|kb\/bugyo|coverage)(\?|$)/;
@@ -582,7 +582,7 @@ VIEWS.invoices = async q => {
   return page('請求締め・発行', '得意先単位・締日ごとに請求を作成し、請求書を発行します。発行内容はスナップショットとして保存され、再発行時も同じ内容を出力します。',
     `${monthInput('month', q.month || '')}${filterSelect('customer', masters.customers, q.customer, 'すべての得意先')}<select name="closing" data-filter title="締日">${options(closings.map(x => ({ code: String(x), name: closingLabel(x) })), q.closing, { blank: 'すべての締日', label: x => x.name })}</select><select name="customerFrom" data-filter title="得意先範囲（開始）">${options(masters.customers, q.customerFrom, { blank: '得意先 自' })}</select><select name="customerTo" data-filter title="得意先範囲（終了）">${options(masters.customers, q.customerTo, { blank: '得意先 至' })}</select><select name="status" data-filter>${options(Object.entries({ open: '未入金あり', draft: '未発行', issued: '発行済', partial: '一部入金', paid: '入金済' }).map(([code, name]) => ({ code, name })), q.status, { blank: 'すべて', label: r => r.name })}</select>${csvLink('invoices', { month: q.month })}`,
     `<div>${canWrite() ? `<section class="card glass" data-sub="create"><div class="card-head"><h2>請求データ作成（NO6）</h2><span class="muted small">掛売の未請求売上が対象</span></div>
-      <div class="filters"><label class="field">請求年月<input type="month" id="bill-month" value="${thisMonth()}"></label><label class="field">締日${closeSel('bill-closing')}</label><button data-act="preview">対象得意先を表示</button><label class="small" style="display:inline-flex;gap:6px;align-items:center"><input type="checkbox" id="bill-only" ${billOnly() ? 'checked' : ''}> 選択可能な得意先のみ</label><span id="bill-run" style="margin-left:auto"></span></div>
+      <div class="filters"><label class="field">請求年月<input type="month" id="bill-month" value="${thisMonth()}"></label><label class="field">締日${closeSel('bill-closing')}</label><button class="primary" data-act="preview">検索</button><label class="small" style="display:inline-flex;gap:6px;align-items:center"><input type="checkbox" id="bill-only" ${billOnly() ? 'checked' : ''}> 選択可能な得意先のみ</label><span id="bill-run" style="margin-left:auto"></span></div>
       <div id="bill-result" style="margin-top:10px"></div></section>` : ''}
     <section class="card glass" data-sub="reports"><div class="card-head"><h2>請求帳票（NO12・NO13）</h2><span class="muted small">Excel出力・印刷</span></div>
       <div class="filters"><label class="field">請求年月<input type="month" id="rep-month" value="${q.month || thisMonth()}"></label><label class="field">締日${closeSel('rep-closing')}</label>
