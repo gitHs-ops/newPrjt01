@@ -13,11 +13,20 @@ let session, meta, masters = {}, actions = {}, route = { name: 'dashboard', q: {
 const canWrite = () => [1, 2, 3, 4].includes(session?.user.role), isAdmin = () => session?.user.role === 1;
 
 // ---------- API ----------
+// DB の読込は「検索」「表示」ボタン（と登録・更新の後）だけ（2026-10-23）。画面の描画中の GET は apiMode で切り替える：
+//  lazy … 読込済みの結果（apiCache）だけを使い、無ければ NotLoaded（画面に「表示」ボタンを出す）
+//  fresh … DB から読み、結果を apiCache に入れる。登録・更新（GET 以外）の後はキャッシュを捨て、次の描画で読み直す
+const apiCache = new Map();
+let apiMode = null, apiDirty = false;
+class NotLoaded extends Error {}
 async function api(url, { method = 'GET', body } = {}) {
+  if (method === 'GET' && apiMode === 'lazy') { if (apiCache.has(url)) return structuredClone(apiCache.get(url)); throw new NotLoaded(url); }
   const res = await fetch(url, { method, cache: 'no-store', headers: body ? { 'Content-Type': 'application/json', 'X-CSRF-Token': session?.csrf || '' } : {}, body: body ? JSON.stringify(body) : undefined });
   if (res.status === 401) { location.replace('/login' + location.hash); throw Error('ログインしてください'); }
   const data = await res.json().catch(() => ({}));
+  if (method !== 'GET') { apiCache.clear(); apiDirty = true; }
   if (!res.ok) throw Error(data.error || `処理に失敗しました (${res.status})`);
+  if (method === 'GET' && apiMode === 'fresh') { apiCache.delete(url); apiCache.set(url, structuredClone(data)); if (apiCache.size > 80) apiCache.delete(apiCache.keys().next().value); }
   return data;
 }
 // 登録・作成など時間のかかる POST は 0.4 秒を超えたら画面上部に「処理中…」を表示（全画面共通）
@@ -164,8 +173,14 @@ function resolveSub(r) {
   const item = subs.find(s => s.k === r.sub) || (!r.sub && subs.find(s => s.q && Object.entries(s.q).every(([k, v]) => r.q[k] === v))) || subs[0];
   return { ...r, sub: item.k, subItem: item, subTools: item.tools ?? (item === subs[0] || !!item.q), q: { ...r.q, ...(item.q || {}) } };
 }
-const go = (name, q = {}) => { const path = name === route.name && route.sub ? `${name}/${route.sub}` : name, h = '#' + path + (Object.keys(q).length ? '?' + qs(q) : ''); if (location.hash === h) render(); else location.hash = h; };
-async function render() {
+// freshNext：次の描画で DB を読む（「検索」ボタン）
+let freshNext = false;
+const takeFresh = () => { const f = freshNext; freshNext = false; return f; };
+const go = (name, q = {}) => { const path = name === route.name && route.sub ? `${name}/${route.sub}` : name, h = '#' + path + (Object.keys(q).length ? '?' + qs(q) : ''); if (location.hash === h) render({ fresh: takeFresh() }); else location.hash = h; };
+// 未読込の画面：DB を読まずに「表示」ボタンだけ出す
+const notLoadedPage = () => page(TITLES[route.name] || '', '', '', `<section class="card glass"><div class="card-head"><h2>${esc(route.subItem?.l || TITLES[route.name] || '')}</h2></div>
+  <p class="muted">「表示」を押すとデータを読み込みます（画面や小メニューを切り替えただけではデータベースを読みません）。</p><div style="margin-top:10px"><button class="primary" data-load>表示</button></div></section>`);
+async function render({ fresh = false } = {}) {
   route = parseHash();
   if (!TITLES[route.name] || !VIEWS[route.name]) route = { name: home(), sub: '', q: {} };
   route = resolveSub(route); navSubs(); navFolds();
@@ -174,24 +189,34 @@ async function render() {
   $('#crumb').textContent = (TITLES[route.name] || '') + (route.subItem ? ' › ' + route.subItem.l : ''); document.body.classList.remove('nav-open');
   const token = ++renderSeq, own = { go: d => go(d.to) }, prev = actions;
   let html, pending;
-  $('#content').classList.add('busy');
-  actions = own; try { pending = fn(route.q); } finally { actions = prev; } // view captures `own` synchronously; old page stays usable while loading
+  const mode = fresh || apiDirty ? 'fresh' : 'lazy'; if (mode === 'fresh') apiDirty = false;
+  if (mode === 'fresh') $('#content').classList.add('busy');
+  apiMode = mode; actions = own; try { pending = fn(route.q); } finally { actions = prev; } // view captures `own` synchronously; old page stays usable while loading
   try { html = await pending; }
-  catch (e) { html = `<div class="card glass"><h2>読み込みエラー</h2><p class="check-ng">${esc(e.message)}</p></div>`; toast(e.message, true); }
+  catch (e) { if (e instanceof NotLoaded) html = notLoadedPage(); else { html = `<div class="card glass"><h2>読み込みエラー</h2><p class="check-ng">${esc(e.message)}</p></div>`; toast(e.message, true); } }
+  finally { if (token === renderSeq) apiMode = null; }
   if (token !== renderSeq) return; // a newer navigation finished first
   const content = $('#content');
   actions = own; content.innerHTML = html; content.dataset.view = route.name; content.classList.remove('busy');
   // 小メニュー：該当する区画だけ表示（data-sub はスペース区切りで複数可）。先頭以外では上部の検索・登録を隠す
   if (route.sub) { content.querySelectorAll('[data-sub]').forEach(el => (el.hidden = !el.dataset.sub.split(' ').includes(route.sub))); const tools = content.querySelector('.page-head > .filters'); if (tools) tools.hidden = !route.subTools; }
+  // 検索条件（data-filter）の並びの後ろに「検索」ボタン。条件を変えただけでは読み込まない
+  for (const g of new Set($$('[data-filter]', content).map(el => el.closest('.filters') || el.parentElement))) {
+    const last = $$('[data-filter]', g).pop(); (last.closest('label') && g.contains(last.closest('label')) ? last.closest('label') : last).insertAdjacentHTML('afterend', '<button type="button" class="primary" data-search>検索</button>');
+  }
   document.dispatchEvent(new CustomEvent('view:rendered', { detail: route.name }));
 }
 document.addEventListener('click', e => {
   const b = e.target.closest('[data-act]'); if (!b || !actions[b.dataset.act]) return;
   e.preventDefault(); actions[b.dataset.act](b.dataset, b);
 });
-document.addEventListener('change', e => {
-  if (!e.target.matches('[data-filter]')) return;
-  const q = { ...route.q }; for (const el of $$('[data-filter]')) q[el.name] = el.value; go(route.name, q);
+// 検索条件を変えたら「検索」ボタンを目立たせる。読込は「検索」（入力欄で Enter）を押したとき
+const search = () => { const q = { ...route.q }; for (const el of $$('[data-filter]')) q[el.name] = el.value; freshNext = true; go(route.name, q); };
+document.addEventListener('change', e => { if (e.target.matches('[data-filter]')) $$('[data-search]').forEach(b => b.classList.add('pending')); });
+document.addEventListener('keydown', e => { if (e.key === 'Enter' && e.target.matches('input[data-filter]')) { e.preventDefault(); search(); } });
+document.addEventListener('click', e => {
+  if (e.target.closest('[data-search]')) { e.preventDefault(); search(); }
+  else if (e.target.closest('[data-load]')) { e.preventDefault(); render({ fresh: true }); }
 });
 
 // ---------- views ----------
@@ -1360,11 +1385,11 @@ async function boot() {
   catch (e) { $('#content').innerHTML = `<div class="card glass"><h2>接続できません</h2><p class="check-ng">${esc(e.message)}</p></div>`; return; }
   nav(); $('#user-name').textContent = session.user.name; $('#user-role').textContent = session.user.roleName; $('#avatar').textContent = (session.user.name || 'A').slice(0, 1); $('#app-version').textContent = 'v' + meta.version;
   $('#logout').onclick = async () => { await post('/api/logout', {}).catch(() => {}); location.replace('/login'); };
-  $('#refresh').onclick = async () => { await loadMasters(); await render(); toast('最新の状態を読み込みました'); };
+  $('#refresh').onclick = async () => { await loadMasters(); await render({ fresh: true }); toast('最新の状態を読み込みました'); };
   $('#menu-toggle').onclick = () => document.body.classList.toggle('nav-open');
   $('#change-password').onclick = () => modal({ title: 'パスワード変更', submit: '変更する', body: `<div class="form-grid">${field('現在のパスワード', '<input type="password" name="current" autocomplete="current-password">', { req: 1, wide: 1 })}${field('新しいパスワード', '<input type="password" name="password" autocomplete="new-password">', { req: 1, wide: 1, hint: '12文字以上' })}</div>`,
     onSubmit: async v => { await post('/api/password', v); toast('パスワードを変更しました'); } });
-  window.addEventListener('hashchange', render);
+  window.addEventListener('hashchange', () => render({ fresh: takeFresh() }));
   await render();
 }
 boot();
