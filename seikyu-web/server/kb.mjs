@@ -492,10 +492,11 @@ async function storeImport(c, ctx, F, source, label, slips) {
   await audit(c, ctx, 'kb_import', imp.insertId, 'kb.import', { source, label, slips: slips.length, amount: total });
   return { importId: imp.insertId, slips: slips.length, amount: total };
 }
-// 請求システムの自動仕訳（journal_entry / journal_line）を伝票として受け入れる。1仕訳＝1伝票、受入済み（source_ref=仕訳ID）は対象外。
+// 請求システムの自動仕訳（journal_entry / journal_line）を伝票として受け入れる。1仕訳＝1伝票（source_ref=仕訳ID）。
+// 売掛金計上（A01）は同じ伝票番号（最大45得意先）の仕訳をまとめて1伝票（source_ref=伝票番号）。受入済みは対象外。
 export async function importSeikyu(c, ctx, p) {
   const F = await fiscal(c), A = await accountMap(c), from = isoDate(p.from, '開始日'), to = isoDate(p.to, '終了日'); check(from <= to, '期間が不正です');
-  const es = await rows(c, `SELECT e.*, n.slip_no FROM journal_entry e LEFT JOIN app_slip_no n ON n.journal_id=e.journal_id WHERE e.journal_date BETWEEN ? AND ? AND NOT EXISTS (SELECT 1 FROM kb_slip k WHERE k.source='SEIKYU' AND k.source_ref=CAST(e.journal_id AS CHAR)) ORDER BY e.journal_date, e.journal_id`, [from, to]);
+  const es = await rows(c, `SELECT e.*, n.slip_no FROM journal_entry e LEFT JOIN app_slip_no n ON n.journal_id=e.journal_id WHERE e.journal_date BETWEEN ? AND ? AND NOT EXISTS (SELECT 1 FROM kb_slip k WHERE k.source='SEIKYU' AND (k.source_ref=CAST(e.journal_id AS CHAR) OR (e.pattern_code='A01' AND e.reversal_of IS NULL AND k.source_ref=n.slip_no))) ORDER BY e.journal_date, e.journal_id`, [from, to]);
   const ls = es.length ? await rows(c, `SELECT l.*, v.vendor_code, cu.customers_name, v.vendor_name FROM journal_line l LEFT JOIN vendor v ON v.vendor_id=l.vendor_id LEFT JOIN client_m cu ON cu.customers_cd=l.customers_cd
     WHERE l.journal_id IN (${es.map(() => '?').join(',')}) ORDER BY l.journal_id, l.line_no`, es.map(e => e.journal_id)) : [];
   const errors = [], slips = [];
@@ -515,7 +516,10 @@ export async function importSeikyu(c, ctx, p) {
     if (!sides.length) continue;
     applyVat(sides);
     const memo = `${e.slip_no ? e.slip_no + ' ' : ''}${PATTERNS[e.pattern_code] || e.pattern_code} ${e.source_type}:${e.source_id}${e.reversal_of ? ` 取消(#${e.reversal_of})` : ''}`;
-    slips.push({ date, ref: String(e.journal_id), memo, rows: toRows(sides), pattern: e.pattern_code });
+    const group = e.pattern_code === 'A01' && !e.reversal_of && e.slip_no ? slips.find(s => s.group === `${date}|${e.slip_no}`) : null;
+    if (group) { group.rows.push(...toRows(sides)); group.ids.push(e.source_id); group.memo = `${e.slip_no} ${PATTERNS.A01 || 'A01'} ${e.source_type}:${group.ids[0]}〜${e.source_id}（${group.ids.length}件）`; continue; }
+    slips.push({ date, ref: e.pattern_code === 'A01' && !e.reversal_of && e.slip_no ? e.slip_no : String(e.journal_id), memo, rows: toRows(sides), pattern: e.pattern_code,
+      group: e.pattern_code === 'A01' && !e.reversal_of && e.slip_no ? `${date}|${e.slip_no}` : null, ids: [e.source_id] });
   }
   const summary = { candidates: es.length, slips: slips.length, amount: slips.reduce((n, s) => n + s.rows.reduce((t, r) => t + (r.dr?.amount || 0), 0), 0), errors,
     patterns: Object.entries(slips.reduce((m, s) => ((m[s.pattern] = (m[s.pattern] || 0) + 1), m), {})).map(([code, n]) => ({ code, name: PATTERNS[code] || code, n })) };

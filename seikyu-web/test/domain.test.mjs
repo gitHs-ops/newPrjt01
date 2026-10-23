@@ -36,3 +36,19 @@ test('csv round trip neutralises formulas', () => {
   assert.deepEqual(parseCsv(out), [['a', '=SUM(A1)', 'x"y'], ['1', '', '改行\nあり']]);
   assert.throws(() => parseCsv('"open'), DomainError);
 });
+
+test('A01 slip numbers: one closing run shares a number, split every 45 customers (Q08)', async () => {
+  const { assignSlipNo, AR_SLIP_MAX } = await import('../server/db.mjs');
+  let last = 828; const saved = [];
+  const c = { query: async (sql, args) => {
+    if (sql.startsWith('SELECT last_no')) return [[{ last_no: last }]];
+    if (sql.startsWith('INSERT INTO app_slip_series')) { last = args[1]; return [[]]; }
+    saved.push(args[1]); return [[]];
+  } };
+  const slip = { max: AR_SLIP_MAX };
+  for (let i = 1; i <= 100; i++) await assignSlipNo(c, i, 'A01', slip);
+  assert.equal(AR_SLIP_MAX, 45);
+  assert.deepEqual([...new Set(saved)], ['R00829', 'R00830', 'R00831']);
+  assert.deepEqual(['R00829', 'R00830', 'R00831'].map(n => saved.filter(x => x === n).length), [45, 45, 10]);
+  assert.equal(await assignSlipNo(c, 101, 'A01'), 'R00832', 'without a shared run state each journal gets its own number');
+});

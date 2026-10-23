@@ -287,6 +287,24 @@ test('workflow against PostgreSQL business tables', { skip, timeout: 900000 }, a
       const a01 = ok(await a.call('/api/reports/journal-list?' + new URLSearchParams({ pattern: 'A01', from: pm + '-01', to: d })));
       for (const sl of a01.slips) { const dr = sl.pairs.reduce((n, p) => n + (p.dr?.amount || 0), 0), cr = sl.pairs.reduce((n, p) => n + (p.cr?.amount || 0), 0); assert.equal(dr, cr); }
     });
+    await t.test('Q08: one closing run puts its customers on one A01 slip number', async () => {
+      const ok = r => { assert.equal(r.status, 200, JSON.stringify(r.data)); return r.data; };
+      const cs = ['M' + tag, 'N' + tag];
+      for (const k of cs) {
+        ok(await a.call('/api/masters/customers', { mode: 'create', record: { code: k, name: '分割試験', closing: 15, active: true } }));
+        ok(await a.call('/api/masters/sites', { mode: 'create', record: { customer: k, code: k, suffix: '000', name: '分割現場', active: true } }));
+        ok(await a.call('/api/shipments', { date: pm + '-01', customer: k, site: k + '|000', item: 'I' + tag, quantity: '1', price: 1000, taxRate: 10, operator: '1', deliveryKbn: '1', method: 2 }));
+      }
+      const run = ok(await a.call('/api/billing/run', { month: pm, closing: 15, customers: cs })); assert.equal(run.created, 2);
+      const end = pm + '-15', l = ok(await a.call('/api/reports/journal-list?' + new URLSearchParams({ pattern: 'A01', from: end, to: end })));
+      const mine = l.slips.filter(sl => run.ids.some(id => sl.sourceNo.includes('I' + id)));
+      assert.equal(mine.length, 1, 'both invoices on one slip'); assert.match(mine[0].sourceNo, /（2件）/); assert.equal(mine[0].pairs.length, 4);
+      const each = ok(await a.call('/api/reports/journal-list?' + new URLSearchParams({ pattern: 'A01', from: end, to: end, group: 'none' }))).slips.filter(sl => run.ids.some(id => sl.sourceNo === 'I' + id));
+      assert.equal(each.length, 2); assert.equal(each[0].slipNo, each[1].slipNo);
+      ok(await a.call('/api/kb/settings', { startFy: 2024 }));
+      const kb = ok(await a.call('/api/kb/import/seikyu', { from: end, to: end, dry: true })), ks = kb.sample.filter(x => x.memo.startsWith(each[0].slipNo + ' '));
+      assert.equal(ks.length, 1, '会計の仕訳受入も伝票番号単位で1伝票'); assert.match(ks[0].memo, /（2件）/); assert.equal(ks[0].ref, each[0].slipNo); assert.equal(ks[0].rows.length, 4);
+    });
     const raw = await fetch(base + '/api/export/journals?month=' + month, { headers: { cookie: a.cookie } }); const bytes = new Uint8Array(await raw.arrayBuffer());
     assert.equal(raw.status, 200); assert.deepEqual([...bytes.slice(0, 3)], [0xef, 0xbb, 0xbf], 'CSV has UTF-8 BOM for Excel');
   } finally {

@@ -1172,7 +1172,7 @@ async function journalListsView(q) {
     const dateTotal = dt => `<tr class="subtotal"><td></td><td colspan="3" class="right">日付合計</td><td class="num"><b>${yen(d.dates.find(x => x.date === dt).total)}</b></td><td colspan="7"></td></tr>`;
     for (const sl of d.slips) {
       if (last && sl.date !== last) html += dateTotal(last); last = sl.date;
-      sl.pairs.forEach((p, i) => { html += `<tr class="${sl.status ? 'muted' : ''}"><td>${i ? '' : esc(sl.date)}<br><span class="small">${i ? '' : esc(sl.slipNo)}</span></td>${side(p.dr)}${side(p.cr)}<td class="small">${i ? '' : esc(sl.sourceNo) + (sl.status ? '<br>' + esc(sl.status) : '')}</td></tr>`; });
+      sl.pairs.forEach((p, i) => { html += `<tr class="${sl.status && !sl.status.endsWith('を含む') ? 'muted' : ''}"><td>${i ? '' : esc(sl.date)}<br><span class="small">${i ? '' : esc(sl.slipNo)}</span></td>${side(p.dr)}${side(p.cr)}<td class="small">${i ? '' : esc(sl.sourceNo) + (sl.status ? '<br>' + esc(sl.status) : '')}</td></tr>`; });
       html += `<tr class="subtotal"><td></td><td colspan="2" class="right">伝票合計</td><td></td><td class="num"><b>${yen(sl.total)}</b></td><td></td><td colspan="3"></td><td class="num"><b>${yen(sl.total)}</b></td><td colspan="2"></td></tr>`;
     }
     if (last) html += dateTotal(last);
@@ -1287,6 +1287,7 @@ VIEWS.migration = async () => {
       <li>運用環境は Render（アプリ）＋ Supabase（PostgreSQL）です（2026-10-21、Railway の障害により移行）。データは現行システムのテストデータを移行したもので、2022年の月度分（2021-12-21〜2022-12-31）だけを残し、4年後ろへずらして 2026年として表示しています（出荷 2025-12-21〜2026-10-20、請求 2026-01〜03・締日20日）。実取引のデータではありません。</li></ol><h3 style="margin-top:12px">2026-10-21 再構成（議事メモ 10/14・10/19、QA回答、消費税区分、現行 Java ソース）</h3><ul class="list small">
       <li>現行 Java とコードを統一：決済方法 1 現金／2 掛売／3 カード、伝票区分 2 他社納入（訂正は 5）、製品・材料区分 2 製品／1 材料、ロール 1〜5、採番キー 101〜105。既存データは起動時に一度だけ変換。</li>
       <li>単価は現行と同じ選び方（現場別→得意先共通、出荷日が適用期間内なら適用単価・適用運賃）。金額＝数量×(単価＋運賃) を自社情報の端数処理（金額 四捨五入・税 切捨）で計算。現場はマスタ外の自由入力も可。</li>
+      <li>売掛金計上（A01）は締日単位で一括し、請求締め1回分を得意先コード順に<b>1伝票最大45得意先</b>で分割して同じ伝票番号（R）を振ります（Q08 指定 2026-10-23：R00829→R00830 が45得意先目で分割）。1請求＝1伝票ではありません。自動仕訳リスト・会計連携・会計の仕訳受入も伝票番号単位で1伝票。逆仕訳は別の伝票番号です。</li>
       <li>税区分は処税率（3桁）をそのまま使用。1桁目は 1=内税、2・空白=外税で確定（2026-10-22、Q01・Q26）。</li>
       <li>定時請求・小口現金・商品仕入は伝票＋複数明細。請求No は業者ごと4桁、支払予定日は業者マスタの支払繰延区分。仕入は区分（仕入／他社納入）と運賃行。帳票⑭⑰・振込先一覧を追加。</li>
       <li>JV構成員は業者マスタ参照（最大7社）。按分端数の規則は現行帳票と一致しない行があり確認中（Q27）。</li></ul>

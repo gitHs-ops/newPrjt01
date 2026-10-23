@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { check, Conflict, yen, qty, taxOf, isoDate, isoMonth, toNum, fromNum, period, dueDate, closingDay, text, RATES, METHODS, CREDIT, today } from './domain.mjs';
-import { rows, one, nextNo, assertOpen, audit, stamp, postJournal, reverseJournal, line } from './db.mjs';
+import { rows, one, nextNo, assertOpen, audit, stamp, postJournal, reverseJournal, line, AR_SLIP_MAX } from './db.mjs';
 
 const site = s => { const [code = '', suffix = ''] = String(s || '').split('|'); return { code, suffix }; };
 const monthRange = m => { isoMonth(m); return [toNum(m + '-01'), toNum(m + '-31')]; };
@@ -259,9 +259,9 @@ export async function customerSite(c, customer) {
 }
 export const siteDue = (end, site) => { const [y, m] = end.split('-').map(Number); const last = new Date(Date.UTC(y, m - 1 + site.months + 1, 0)); const d = Math.min(site.day, last.getUTCDate()); return new Date(Date.UTC(y, m - 1 + site.months, d)).toISOString().slice(0, 10); };
 const signed = (side, acc, v, extra) => line(v >= 0 ? side : (side === 'D' ? 'C' : 'D'), acc, Math.abs(v), extra);
-async function postBillingJournal(c, id, end, customer, net, tax) {
+async function postBillingJournal(c, id, end, customer, net, tax, slip) {
   if (net + tax === 0 && net === 0) return;
-  await postJournal(c, { date: end, pattern: 'A01', sourceType: 'billing_head', sourceId: id,
+  await postJournal(c, { date: end, pattern: 'A01', sourceType: 'billing_head', sourceId: id, slip,
     lines: [signed('D', '1131', net + tax, { customer, tax: '9' }), signed('C', '8130', net, { customer, dept: '063', tax: '11' }), signed('C', '4415', tax, { customer, tax: '9' })] });
 }
 // 請求締め（NO6）: 当期締日までの未請求掛売上（前回締め後に入力された過去日付の売上・訂正伝票を含む）を得意先単位で請求。
@@ -272,7 +272,7 @@ export async function runBilling(c, ctx, { month, closing, customers }) {
   let targets = await rows(c, "SELECT * FROM client_m WHERE delete_f<>'1' AND CAST(substring(deadline from '^ *([0-9]+)') AS INTEGER)=? ORDER BY customers_cd", [day]);
   if (Array.isArray(customers) && customers.length) targets = targets.filter(t => customers.includes(t.customers_cd));
   check(targets.length, `締日${day}日の有効な得意先がありません`);
-  const created = [], appended = [], skipped = [], st = stamp(), yymm = Number(month.replace('-', ''));
+  const created = [], appended = [], skipped = [], st = stamp(), yymm = Number(month.replace('-', '')), slip = { max: AR_SLIP_MAX }; // 売掛金計上の伝票（得意先コード順に45得意先で分割）
   for (const cu of targets) {
     const list = await rows(c, "SELECT * FROM sales_trn WHERE customers_cd=? AND process_status='0' AND payment_method_cd=2 AND sales_date<=? ORDER BY field_cd, field_suffix, sales_date, order_no FOR UPDATE", [cu.customers_cd, toNum(end)]);
     if (!list.length) continue;
@@ -298,7 +298,7 @@ export async function runBilling(c, ctx, { month, closing, customers }) {
     const { net, tax } = totals(all);
     await c.query('UPDATE billing_head SET money=?, consumption_tax=?, row_version=row_version+1 WHERE invoice_id=?', [net, tax, h.invoice_id]);
     if (!h.isNew) await reverseJournal(c, { sourceType: 'billing_head', sourceId: h.invoice_id, date: end });
-    await postBillingJournal(c, h.invoice_id, end, cu.customers_cd, net, tax);
+    await postBillingJournal(c, h.invoice_id, end, cu.customers_cd, net, tax, slip);
     (h.isNew ? created : appended).push(h.invoice_id);
     await audit(c, ctx, 'billing_head', h.invoice_id, h.isNew ? 'billing.create' : 'billing.append', { customer: cu.customers_cd, closing: end, net, tax, lines: list.length, lateEntries: list.filter(x => fromNum(x.sales_date) < period(month, closing).start).length, credit: net + tax < 0 });
   }

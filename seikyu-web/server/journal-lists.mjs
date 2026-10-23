@@ -70,16 +70,18 @@ export async function journalList(c, q) {
     const total = dr.reduce((n, l) => n + Number(l.amount), 0);
     return { id: e.journal_id, date: e.journal_date, slipNo: e.slip_no || String(e.journal_id), sourceNo: s.no, status: e.reversal_of ? `逆仕訳（#${e.reversal_of}）` : e.status === 'REVERSED' ? '取消済' : '', pairs, total };
   });
-  // NO8: 現行の売掛金計上は締日単位で一括、1伝票に最大45得意先で分割（Q08・推定：R00829→R00830 が45得意先目で分割）。
+  // NO8: 売掛金計上は締日単位で一括、1伝票に最大45得意先（Q08：R00829→R00830 が45得意先目で分割）。請求締めで同じ伝票番号を振った請求をまとめて1伝票で表示する。
   if (q.pattern === 'A01' && q.group !== 'none') {
-    const merged = [];
-    for (const date of [...new Set(slips.map(s => s.date))]) {
-      const day = slips.filter(s => s.date === date && !s.status), other = slips.filter(s => s.date === date && s.status);
-      for (let i = 0; i < day.length; i += 45) {
-        const chunk = day.slice(i, i + 45);
-        merged.push({ id: chunk[0].id, date, slipNo: chunk[0].slipNo, sourceNo: chunk.length > 1 ? `${chunk[0].sourceNo}〜${chunk[chunk.length - 1].sourceNo}（${chunk.length}件）` : chunk[0].sourceNo, status: '', pairs: chunk.flatMap(s => s.pairs), total: chunk.reduce((n, s) => n + s.total, 0) });
-      }
-      merged.push(...other);
+    const merged = [], bySlip = new Map();
+    for (const s of slips) {
+      // 逆仕訳は自分の伝票番号のまま。後で取り消された請求も計上した伝票の一部として残す。
+      const key = s.status.startsWith('逆仕訳') ? null : `${s.date}|${s.slipNo}`, m = key && bySlip.get(key);
+      if (!m) { const x = { ...s, nos: [s.sourceNo], voided: s.status ? 1 : 0 }; merged.push(x); if (key) bySlip.set(key, x); continue; }
+      m.nos.push(s.sourceNo); m.pairs = m.pairs.concat(s.pairs); m.total += s.total; if (s.status) m.voided++;
+    }
+    for (const m of merged) {
+      if (m.nos.length > 1) { m.sourceNo = `${m.nos[0]}〜${m.nos[m.nos.length - 1]}（${m.nos.length}件）`; m.status = m.voided ? `取消済 ${m.voided}件を含む` : ''; }
+      delete m.nos; delete m.voided;
     }
     slips.splice(0, slips.length, ...merged);
   }

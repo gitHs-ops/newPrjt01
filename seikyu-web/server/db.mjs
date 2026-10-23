@@ -40,18 +40,26 @@ export const line = (side, account, amount, extra = {}) => ({ side, account, amo
 export const SLIP_SERIES = { A01: 'R', B01: 'B', D01: 'S', E01: 'K', F01: 'U', C01: '', G03: '' };
 export const SLIP_SEED = { R: 819, B: 27587, S: 14435, K: 2032, U: 14402, '': 100321 }; // 現行の最終番号（次は R00820・B27588・S14436・K02033・U14403・100322）
 export const formatSlipNo = (series, n) => series + String(n).padStart(series ? 5 : 6, '0');
-export async function assignSlipNo(c, journalId, pattern) {
+// 売掛金計上（A01）は締日単位で一括計上し、1伝票に45得意先（1請求＝1得意先）まで載せて分割する（Q08：現行 R00829・R00830 が借方45行、R00831 が残り）。
+export const AR_SLIP_MAX = 45;
+// slip … 同じ伝票にまとめる仕訳の共有状態 { no, count, max }（請求締め1回分）。省略時は1仕訳＝1伝票。
+export async function assignSlipNo(c, journalId, pattern, slip) {
   const series = SLIP_SERIES[pattern]; if (series === undefined) return '';
-  const r = await one(c, 'SELECT last_no FROM app_slip_series WHERE series=? FOR UPDATE', [series]), n = Number(r?.last_no ?? SLIP_SEED[series]) + 1;
-  await c.query('INSERT INTO app_slip_series (series,last_no) VALUES (?,?) ON DUPLICATE KEY UPDATE last_no=VALUES(last_no)', [series, n]);
-  const no = formatSlipNo(series, n);
+  let no = slip?.no && slip.count < slip.max ? slip.no : '';
+  if (!no) {
+    const r = await one(c, 'SELECT last_no FROM app_slip_series WHERE series=? FOR UPDATE', [series]), n = Number(r?.last_no ?? SLIP_SEED[series]) + 1;
+    await c.query('INSERT INTO app_slip_series (series,last_no) VALUES (?,?) ON DUPLICATE KEY UPDATE last_no=VALUES(last_no)', [series, n]);
+    no = formatSlipNo(series, n);
+    if (slip) Object.assign(slip, { no, count: 0 });
+  }
+  if (slip) slip.count++;
   await c.query('INSERT INTO app_slip_no (journal_id,slip_no) VALUES (?,?)', [journalId, no]);
   return no;
 }
 const insertLine = (c, id, no, l) => c.query('INSERT INTO journal_line (journal_id,line_no,side,account_code,sub_code,department_code,source_tax_code,amount,customers_cd,vendor_id) VALUES (?,?,?,?,?,?,?,?,?,?)',
   [id, no, l.side, l.account, l.sub || null, l.dept || null, l.tax || null, l.amount, l.customer || null, l.vendor || null]);
 
-export async function postJournal(c, { date, pattern, sourceType, sourceId, lines }) {
+export async function postJournal(c, { date, pattern, sourceType, sourceId, lines, slip }) {
   const live = lines.filter(l => l.amount !== 0);
   for (const l of live) { check(Number.isSafeInteger(l.amount) && l.amount > 0, '仕訳金額が不正です'); check(['D', 'C'].includes(l.side), '貸借区分が不正です'); }
   const dr = live.filter(l => l.side === 'D').reduce((n, l) => n + l.amount, 0), cr = live.filter(l => l.side === 'C').reduce((n, l) => n + l.amount, 0);
@@ -61,7 +69,7 @@ export async function postJournal(c, { date, pattern, sourceType, sourceId, line
   const [r] = await c.query("INSERT INTO journal_entry (journal_date,pattern_code,source_type,source_id,posting_revision,status,created_at) VALUES (?,?,?,?,?,'POSTED',UTC_TIMESTAMP(6))", [date, pattern, sourceType, String(sourceId), Number(prev.r) + 1]);
   let no = 0;
   for (const l of live) await insertLine(c, r.insertId, ++no, l);
-  await assignSlipNo(c, r.insertId, pattern);
+  await assignSlipNo(c, r.insertId, pattern, slip);
   return r.insertId;
 }
 // Reversal keeps the original entry, inserts a mirrored entry and marks the original REVERSED.
