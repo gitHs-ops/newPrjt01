@@ -432,3 +432,4 @@ input.file-native { position: absolute; width: 1px; height: 1px; opacity: 0; poi
 #busy-bar .busy-track i { position: absolute; inset: 0 auto 0 0; width: 40%; border-radius: inherit; background: linear-gradient(90deg, #818cf8, #22d3ee); animation: busy-slide 1.1s ease-in-out infinite; }
 @keyframes busy-slide { from { left: -40%; } to { left: 100%; } }
 #bill-result.only-pick tr.bill-na { display: none; }
+.card-head[hidden], .card-head > h2[hidden], section.card > h2[hidden] { display: none !important; }

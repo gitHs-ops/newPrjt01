@@ -210,6 +210,18 @@ async function render({ fresh = false } = {}) {
   if (route.sub) { content.querySelectorAll('[data-sub]').forEach(el => (el.hidden = !el.dataset.sub.split(' ').includes(route.sub))); const tools = content.querySelector('.page-head > .filters'); if (tools) tools.hidden = !route.subTools; }
   // 画面の見出しは開いている小メニュー名（大メニュー名はパンくずに表示）
   const h1 = content.querySelector('.page-head h1'); if (h1 && route.subItem) h1.textContent = route.subItem.l;
+  // カードの見出しが小メニュー名と同じなら出さない（より下位の名称のカードはそのまま）
+  if (route.subItem) {
+    const norm = t => t.replace(/[\s（）()・、,]|NO/g, ''), base = t => t.split(/[（(]/)[0].trim(), sub = norm(route.subItem.l);
+    const heads = $$('.card-head > h2, section.card > h2', content).filter(h => h.offsetParent), one = heads.length === 1;
+    for (const h2 of heads) {
+      const t = norm(h2.textContent), b1 = base(h2.textContent), b2 = base(route.subItem.l);
+      // 複数カードの小メニューでは同じ名称だけ、カード1枚なら前方一致・先頭の語の一致も同じとみなす
+      const same = t === sub || b1 === b2 || (one && (sub.startsWith(t) || t.startsWith(sub) || b1.split('・')[0] === b2.split('・')[0]));
+      if (!t || !same) continue;
+      h2.hidden = true; const head = h2.parentElement; if (head.classList.contains('card-head') && ![...head.children].some(x => !x.hidden)) head.hidden = true;
+    }
+  }
   // 検索条件（data-filter）の並びの後ろに「検索」ボタン。条件を変えただけでは読み込まない
   for (const g of new Set($$('[data-filter]', content).map(el => el.closest('.filters') || el.parentElement))) {
     const last = $$('[data-filter]', g).pop(); (last.closest('label') && g.contains(last.closest('label')) ? last.closest('label') : last).insertAdjacentHTML('afterend', '<button type="button" class="primary" data-search>検索</button>');
