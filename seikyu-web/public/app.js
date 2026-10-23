@@ -208,6 +208,8 @@ async function render({ fresh = false } = {}) {
   actions = own; content.innerHTML = html; content.dataset.view = route.name; content.classList.remove('busy');
   // 小メニュー：該当する区画だけ表示（data-sub はスペース区切りで複数可）。先頭以外では上部の検索・登録を隠す
   if (route.sub) { content.querySelectorAll('[data-sub]').forEach(el => (el.hidden = !el.dataset.sub.split(' ').includes(route.sub))); const tools = content.querySelector('.page-head > .filters'); if (tools) tools.hidden = !route.subTools; }
+  // 画面の見出しは開いている小メニュー名（大メニュー名はパンくずに表示）
+  const h1 = content.querySelector('.page-head h1'); if (h1 && route.subItem) h1.textContent = route.subItem.l;
   // 検索条件（data-filter）の並びの後ろに「検索」ボタン。条件を変えただけでは読み込まない
   for (const g of new Set($$('[data-filter]', content).map(el => el.closest('.filters') || el.parentElement))) {
     const last = $$('[data-filter]', g).pop(); (last.closest('label') && g.contains(last.closest('label')) ? last.closest('label') : last).insertAdjacentHTML('afterend', '<button type="button" class="primary" data-search>検索</button>');
