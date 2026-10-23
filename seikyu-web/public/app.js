@@ -525,6 +525,10 @@ document.addEventListener('change', e => {
   billFilter(e.target.checked);
 });
 const closingLabel = c => (Number(c) === 31 ? '月末' : c + '日');
+// 締日の選択肢：規定の 5・10・15・20・月末 ＋ 有効な得意先にある規定外の締日（移行データの 21・25 等。「（規定外）」と表示、2026-10-23）
+const STD_CLOSINGS = [5, 10, 15, 20, 31];
+const closingList = () => [...new Set([...STD_CLOSINGS, ...active('customers').map(c => Number(c.closing))])].sort((a, b) => a - b);
+const closingName = c => closingLabel(c) + (STD_CLOSINGS.includes(Number(c)) ? '' : '（規定外）');
 VIEWS.invoices = async q => {
   const A = actions;
   A.view = d => go('invoices', { view: d.view });
@@ -532,7 +536,7 @@ VIEWS.invoices = async q => {
   if (q.view === 'ledger') return arLedgerView(q); // await より前に呼ぶ（画面のボタン actions は描画開始時に同期で受け取る）
   const list = await api('/api/invoices?' + qs({ month: q.month, closing: q.closing, customer: q.customer, status: q.status, customerFrom: q.customerFrom, customerTo: q.customerTo }));
   const claimOf = Object.fromEntries((await api('/api/ar-ledger')).rows.map(r => [r.invoiceId, r.claim])); // 今回請求額＝前回残高＋当月請求（提案書 スライド11）
-  const closings = [...new Set(active('customers').map(c => c.closing))].sort((a, b) => a - b);
+  const closings = closingList();
   A.preview = async () => {
     const month = $('#bill-month').value, closing = $('#bill-closing').value, p = await api('/api/billing/preview?' + qs({ month, closing }));
     $('#bill-result').innerHTML = `<p class="muted small">請求期間 ${p.start} 〜 ${p.end} ／ 支払期日 ${p.due} ／ 請求は<b>得意先単位</b>で作成し、複数現場は明細にまとめます（NO6）</p>` + table([
@@ -578,9 +582,9 @@ VIEWS.invoices = async q => {
     toast(`${ids.length}件の請求書をダウンロードしました（1請求書＝1シート）`);
   };
   const sum = k => list.reduce((n, r) => n + r[k], 0);
-  const closeSel = id => `<select id="${id}">${closings.map(c => `<option value="${c}">${closingLabel(c)}</option>`).join('')}</select>`;
+  const closeSel = id => `<select id="${id}">${closings.map(c => `<option value="${c}">${closingName(c)}</option>`).join('')}</select>`;
   return page('請求締め・発行', '得意先単位・締日ごとに請求を作成し、請求書を発行します。発行内容はスナップショットとして保存され、再発行時も同じ内容を出力します。',
-    `${monthInput('month', q.month || '')}${filterSelect('customer', masters.customers, q.customer, 'すべての得意先')}<select name="closing" data-filter title="締日">${options(closings.map(x => ({ code: String(x), name: closingLabel(x) })), q.closing, { blank: 'すべての締日', label: x => x.name })}</select><select name="customerFrom" data-filter title="得意先範囲（開始）">${options(masters.customers, q.customerFrom, { blank: '得意先 自' })}</select><select name="customerTo" data-filter title="得意先範囲（終了）">${options(masters.customers, q.customerTo, { blank: '得意先 至' })}</select><select name="status" data-filter>${options(Object.entries({ open: '未入金あり', draft: '未発行', issued: '発行済', partial: '一部入金', paid: '入金済' }).map(([code, name]) => ({ code, name })), q.status, { blank: 'すべて', label: r => r.name })}</select>${csvLink('invoices', { month: q.month })}`,
+    `${monthInput('month', q.month || '')}${filterSelect('customer', masters.customers, q.customer, 'すべての得意先')}<select name="closing" data-filter title="締日">${options(closings.map(x => ({ code: String(x), name: closingName(x) })), q.closing, { blank: 'すべての締日', label: x => x.name })}</select><select name="customerFrom" data-filter title="得意先範囲（開始）">${options(masters.customers, q.customerFrom, { blank: '得意先 自' })}</select><select name="customerTo" data-filter title="得意先範囲（終了）">${options(masters.customers, q.customerTo, { blank: '得意先 至' })}</select><select name="status" data-filter>${options(Object.entries({ open: '未入金あり', draft: '未発行', issued: '発行済', partial: '一部入金', paid: '入金済' }).map(([code, name]) => ({ code, name })), q.status, { blank: 'すべて', label: r => r.name })}</select>${csvLink('invoices', { month: q.month })}`,
     `<div>${canWrite() ? `<section class="card glass" data-sub="create"><div class="card-head"><h2>請求データ作成（NO6）</h2><span class="muted small">掛売の未請求売上が対象</span></div>
       <div class="filters"><label class="field">請求年月<input type="month" id="bill-month" value="${thisMonth()}"></label><label class="field">締日${closeSel('bill-closing')}</label><button class="primary" data-act="preview">検索</button><label class="small" style="display:inline-flex;gap:6px;align-items:center"><input type="checkbox" id="bill-only" ${billOnly() ? 'checked' : ''}> 選択可能な得意先のみ</label><span id="bill-run" style="margin-left:auto"></span></div>
       <div id="bill-result" style="margin-top:10px"></div></section>` : ''}
@@ -599,11 +603,11 @@ async function invoiceBalanceView(q) {
   const A = actions;
   A.view = d => go('invoices', { view: d.view });
   A.detail = d => invoiceDetail(d.id);
-  const closings = [...new Set(active('customers').map(c => c.closing))].sort((x, y) => x - y);
+  const closings = closingList();
   const month = q.bmonth || thisMonth(), closing = q.bclosing || closings[0] || 31;
   const d = await api('/api/reports/billing-list?' + qs({ month, closing }));
   const s = k => d.rows.reduce((n, r) => n + r[k], 0);
-  return page('請求締め・発行', '得意先ごとの前回請求額・入金・繰越・今回請求額を締日単位で照会します（請求一覧表と同じ計算）。', `<input type="month" name="bmonth" value="${month}" data-filter><select name="bclosing" data-filter>${closings.map(c => `<option value="${c}" ${String(c) === String(closing) ? 'selected' : ''}>${closingLabel(c)}</option>`).join('')}</select><input type="hidden" name="view" value="balance" data-filter>
+  return page('請求締め・発行', '得意先ごとの前回請求額・入金・繰越・今回請求額を締日単位で照会します（請求一覧表と同じ計算）。', `<input type="month" name="bmonth" value="${month}" data-filter><select name="bclosing" data-filter>${closings.map(c => `<option value="${c}" ${String(c) === String(closing) ? 'selected' : ''}>${closingName(c)}</option>`).join('')}</select><input type="hidden" name="view" value="balance" data-filter>
     <a class="button" href="/api/reports/billing-list?${qs({ month, closing, format: 'xlsx' })}" download>⇩ Excel</a>`,
     `<section class="card glass"><div class="card-head"><h2>${esc(month)} ${closingLabel(closing)}締（${esc(d.end)}）</h2></div>${table([{ label: '得意先', value: r => `${r.customer} ${r.name}` }, { label: '前回請求額', num: 1, value: r => yen(r.prevBalance) }, { label: '御入金額', num: 1, value: r => yen(r.received) },
       { label: '差引繰越額', num: 1, value: r => yen(r.carried) }, { label: '今回お買上額', num: 1, value: r => yen(r.net) }, { label: '消費税', num: 1, value: r => yen(r.tax) }, { label: '今回請求額', num: 1, value: r => yen(r.total) }, { label: '支払期日', value: r => r.due },
