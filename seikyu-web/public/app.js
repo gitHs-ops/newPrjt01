@@ -610,7 +610,7 @@ async function invoiceBalanceView(q) {
   const d = await api('/api/reports/billing-list?' + qs({ month, closing }));
   const s = k => d.rows.reduce((n, r) => n + r[k], 0);
   return page('請求締め・発行', '得意先ごとの前回請求額・入金・繰越・今回請求額を締日単位で照会します（請求一覧表と同じ計算）。', `<input type="month" name="bmonth" value="${month}" data-filter><select name="bclosing" data-filter>${closings.map(c => `<option value="${c}" ${String(c) === String(closing) ? 'selected' : ''}>${closingName(c)}</option>`).join('')}</select><input type="hidden" name="view" value="balance" data-filter>
-    <a class="button" href="/api/reports/billing-list?${qs({ month, closing, format: 'xlsx' })}" download>⇩ Excel</a>`,
+    <a class="button" href="/api/reports/billing-list?${qs({ month, closing, format: 'xlsx', layout: 'balance' })}" download>⇩ Excel</a>`,
     `<section class="card glass"><div class="card-head"><h2>${esc(month)} ${closingLabel(closing)}締（${esc(d.end)}）</h2></div>${table([{ label: '得意先', value: r => `${r.customer} ${r.name}` }, { label: '前回請求額', num: 1, value: r => yen(r.prevBalance) }, { label: '御入金額', num: 1, value: r => yen(r.received) },
       { label: '差引繰越額', num: 1, value: r => yen(r.carried) }, { label: '今回お買上額', num: 1, value: r => yen(r.net) }, { label: '消費税', num: 1, value: r => yen(r.tax) }, { label: '今回請求額', num: 1, value: r => yen(r.total) }, { label: '支払期日', value: r => r.due },
       { label: '請求書状況', html: r => badge(r.stateName, r.state === 'issued' ? 'green' : r.state === 'draft' ? '' : 'gray') }, { label: '', html: r => r.invoiceIds.map(id => `<button class="mini" data-act="detail" data-id="${id}">詳細</button>`).join('') }],

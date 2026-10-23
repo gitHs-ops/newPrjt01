@@ -66,7 +66,7 @@ export async function createApp({ pool, publicDir, secureCookies = process.env.N
   route('GET', '/api/ar-ledger', 'read', x => db(c => S.arLedger(c, x.q)));
   route('GET', '/api/receipt-plan', 'read', x => x.q.format === 'xlsx' ? db(c => X.receiptPlanBook(c, x.q)).then(b => ({ file: b })) : db(c => S.receiptPlan(c, x.q)));
   route('GET', '/api/receipt-context', 'read', x => db(c => S.receiptContext(c, x.q.customer)));
-  route('GET', '/api/reports/billing-list', 'read', x => x.q.format === 'xlsx' ? db(c => X.billingListBook(c, x.q)).then(b => ({ file: b })) : db(c => S.billingList(c, x.q)));
+  route('GET', '/api/reports/billing-list', 'read', x => x.q.format === 'xlsx' ? db(c => (x.q.layout === 'balance' ? X.billingBalanceBook : X.billingListBook)(c, x.q)).then(b => ({ file: b })) : db(c => S.billingList(c, x.q)));
   route('GET', '/api/reports/billing-confirm', 'read', x => x.q.format === 'xlsx' ? db(c => X.billingConfirmBook(c, x.q)).then(b => ({ file: b })) : db(c => S.billingConfirm(c, x.q)));
   route('GET', '/api/receipts', 'read', x => db(c => S.listReceipts(c, x.q)));
   route('GET', '/api/purchases', 'read', x => db(c => P.listPurchases(c, x.q)));

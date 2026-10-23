@@ -10,9 +10,9 @@ const shipKb = k => (Number(k) === 5 ? '訂正' : '売上');
 export async function billingListBook(c, q) {
   const d = await billingList(c, q), out = [[T('請求一覧表（確認用）')], [`締日 ${d.closing === 31 ? '月末' : d.closing + '日'}　請求日 ${d.end}　出力日 ${today()}`], [],
     ['得意先CD', '得意先名', '現場名', '売上額', '税額', '値引額', '請求額', '状態'].map(H)];
-  for (const x of d.rows) { x.sites.forEach((s, i) => out.push([i ? '' : x.customer, i ? '' : x.name, s.siteName, s.net, s.tax, 0, s.total, i ? '' : x.stateName])); out.push(['', S('得意先計'), '', S(x.net), S(x.tax), S(0), S(x.current), '']); }
+  for (const x of d.rows) { if (!x.sites.length) continue; x.sites.forEach((s, i) => out.push([i ? '' : x.customer, i ? '' : x.name, s.siteName, s.net, s.tax, 0, s.total, i ? '' : x.stateName])); out.push(['', S('得意先計'), '', S(x.net), S(x.tax), S(0), S(x.current), '']); }
   const sum = k => d.rows.reduce((n, x) => n + x[k], 0);
-  out.push([S('会社合計'), '', '', S(sum('net')), S(sum('tax')), S(0), S(sum('current')), '']);
+  out.push([S('会社合計'), '', '', S(sum('net')), S(sum('tax')), S(0), S(sum('current')), '']); // 今回の請求が無い得意先（繰越・入金だけ）は行を出さない
   return { name: `請求一覧表_${d.month}_${d.closing}日締.xlsx`, body: xlsx([{ name: '請求一覧表', rows: out, widths: [10, 26, 24, 13, 12, 10, 13, 9] }]) };
 }
 // NO13 請求書発行確認表 — 現行 HAR430 の項目
@@ -39,4 +39,15 @@ export async function receiptPlanBook(c, q) {
   for (const r of d.rows) out.push([r.customer, r.name, r.closing, r.total, r.site, r.due, r.days || '', r.planned, r.paid, r.balance, r.overdue ? '予定日経過・未入金' : '']);
   out.push([S('合計'), `${d.rows.length}件`, '', '', '', '', '', S(t.planned), S(t.paid), S(t.balance), t.overdueCount ? `経過 ${t.overdueCount}件` : '']);
   return { name: `入金予定一覧_${d.from || '過去'}_${d.to || '指定なし'}.xlsx`, body: xlsx([{ name: '入金予定一覧', rows: out, widths: [10, 30, 13, 13, 16, 12, 9, 14, 13, 13, 18] }]) };
+}
+
+// 得意先別残高照会（画面と同じ項目）：前回請求額・御入金額・差引繰越額・今回お買上額・消費税・今回請求額・支払期日・請求書状況
+export async function billingBalanceBook(c, q) {
+  const d = await billingList(c, q), cl = d.closing === 31 ? '月末' : d.closing + '日';
+  const out = [[T('得意先別残高照会')], [`${d.month} ${cl}締（${d.end}）　出力日 ${today()}`], [],
+    ['得意先CD', '得意先名', '前回請求額', '御入金額', '差引繰越額', '今回お買上額', '消費税', '今回請求額', '支払期日', '請求書状況'].map(H)];
+  for (const r of d.rows) out.push([r.customer, r.name, r.prevBalance, r.received, r.carried, r.net, r.tax, r.total, r.due || '', r.stateName]);
+  const sum = k => d.rows.reduce((n, r) => n + (r[k] || 0), 0);
+  out.push([S('合計'), '', S(sum('prevBalance')), S(sum('received')), S(sum('carried')), S(sum('net')), S(sum('tax')), S(sum('total')), '', '']);
+  return { name: `得意先別残高照会_${d.month}_${cl}締.xlsx`, body: xlsx([{ name: '得意先別残高照会', rows: out, widths: [10, 30, 14, 14, 14, 14, 12, 14, 12, 10] }]) };
 }
