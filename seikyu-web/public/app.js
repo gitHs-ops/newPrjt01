@@ -525,6 +525,8 @@ async function issueDeliveryNotes(p) {
 
 // 請求一覧・発行：請求書発行状況の絞込（検索済みの結果を使い、DB は読まない）
 document.addEventListener('change', e => { if (e.target.id !== 'inv-state') return; freshNext = false; location.hash = '#invoices/list?' + qs({ ...route.q, istate: e.target.value }); });
+// 請求残高照会：請求書状況の絞込（検索済みの結果を使い、DB は読まない）
+document.addEventListener('change', e => { if (e.target.id !== 'lg-state') return; freshNext = false; location.hash = '#invoices/ledger?' + qs({ ...route.q, lstate: e.target.value }); });
 // 得意先別残高照会：請求書状況の絞込（検索済みの結果を使い、DB は読まない）
 document.addEventListener('change', e => { if (e.target.id !== 'bal-state') return; freshNext = false; location.hash = '#invoices/balance?' + qs({ ...route.q, bstate: e.target.value }); });
 // 出荷伝票一覧：訂正前・赤を出すか（利用者ごとに記憶）。切り替えはその場で再描画（DB は読まない）
@@ -730,10 +732,13 @@ const ledgerTable = (d, { clear = false } = {}) => table([{ label: '得意先', 
   { empty: '該当する請求はありません', rowClass: r => (r.latest ? '' : 'muted'), foot: ['合計', '', '', yen(d.totals.current), '', yen(d.totals.cleared), yen(d.totals.remain), ...(clear ? [''] : [])] });
 async function arLedgerView(q) {
   const A = actions; A.view = d => go('invoices', { view: d.view });
-  const d = await api('/api/ar-ledger?' + qs({ customer: q.ledgerCustomer, month: q.ledgerMonth }));
-  A.search = () => go('invoices', { view: 'ledger', ledgerCustomer: $('#lg-cust').value, ledgerMonth: $('#lg-month').value });
+  // 請求書状況で絞込（検索結果を絞るだけで DB は読まない）。合計は絞込後の行で計算
+  const LG_STATES = ['draft', 'issued', 'partial', 'paid', 'credit'], st = LG_STATES.includes(q.lstate) ? q.lstate : '';
+  const all = await api('/api/ar-ledger?' + qs({ customer: q.ledgerCustomer, month: q.ledgerMonth })), rows = all.rows.filter(r => !st || r.status === st);
+  const d = { rows, totals: { current: rows.reduce((n, r) => n + r.current, 0), cleared: rows.reduce((n, r) => n + r.cleared, 0), remain: rows.filter(r => r.latest).reduce((n, r) => n + r.remain, 0) } };
+  A.search = () => go('invoices', { view: 'ledger', ledgerCustomer: $('#lg-cust').value, ledgerMonth: $('#lg-month').value, lstate: st });
   return page('請求締め・発行', '請求残高照会：得意先×請求年月で 前回残高 → 当月請求金額 → 今回請求金額 → 消込金額（締日翌日〜次の締日の入金）→ 今回残高。',
-    `<input id="lg-cust" placeholder="得意先（部分一致）" value="${esc(q.ledgerCustomer || '')}" style="width:200px"><input type="month" id="lg-month" value="${esc(q.ledgerMonth || '')}"><button data-act="search">検索</button>`,
+    `<input id="lg-cust" placeholder="得意先（部分一致）" value="${esc(q.ledgerCustomer || '')}" style="width:200px"><input type="month" id="lg-month" value="${esc(q.ledgerMonth || '')}"><button class="primary" data-act="search">検索</button><select id="lg-state" title="請求書状況">${options(LG_STATES.map(code => ({ code, name: STATUS[code][0] })), st, { blank: 'すべての請求書状況', label: x => x.name })}</select><a class="button" href="/api/ar-ledger?${qs({ customer: q.ledgerCustomer, month: q.ledgerMonth, state: st, format: 'xlsx' })}" download>⇩ Excel</a>`,
     `<section class="card glass">${ledgerTable(d)}</section>`);
 }
 VIEWS.receipts = async q => {

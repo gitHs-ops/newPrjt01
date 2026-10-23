@@ -1,6 +1,6 @@
 // 帳票の Excel(.xlsx) 出力。画面の印刷表示と同じデータ（sales.mjs の statement）を使う。
 import { xlsx } from './xlsx.mjs';
-import { billingList, billingConfirm, receiptPlan } from './sales.mjs';
+import { billingList, billingConfirm, receiptPlan, arLedger } from './sales.mjs';
 import { today, jst } from './domain.mjs';
 
 const H = v => ({ v, s: 'bold' }), S = v => ({ v, s: 'sum' }), T = v => ({ v, s: 'title' });
@@ -51,4 +51,17 @@ export async function billingBalanceBook(c, q) {
   const sum = k => d.rows.reduce((n, r) => n + (r[k] || 0), 0);
   out.push([S('合計'), '', S(sum('prevBalance')), S(sum('received')), S(sum('carried')), S(sum('net')), S(sum('tax')), S(sum('total')), '', '']);
   return { name: `得意先別残高照会_${d.month}_${cl}締.xlsx`, body: xlsx([{ name: '得意先別残高照会', rows: out, widths: [10, 30, 14, 14, 14, 14, 12, 14, 12, 10] }]) };
+}
+
+// 請求残高照会（得意先×請求年月）：画面と同じ項目・同じ絞込（得意先・請求年月・請求書状況）
+export async function arLedgerBook(c, q) {
+  const STATES = { draft: '未発行', issued: '発行済', partial: '一部入金', paid: '入金済', credit: 'クレジット' };
+  const d = await arLedger(c, q), rows = STATES[q.state] ? d.rows.filter(r => r.status === q.state) : d.rows;
+  const cond = [q.customer ? `得意先 ${q.customer}` : '', q.month ? `請求年月 ${q.month}` : '', STATES[q.state] ? `請求書状況 ${STATES[q.state]}` : ''].filter(Boolean).join('　');
+  const out = [[T('請求残高照会')], [`${cond ? cond + '　' : ''}出力日 ${today()}`], [],
+    ['得意先CD', '得意先名', '請求年月', '締日', '前回残高', '当月請求金額', '今回請求金額', '消込金額', '今回残高', '請求書状況'].map(H)];
+  for (const r of rows) out.push([r.customer, r.name, r.month, r.closing, r.prev, r.current, r.claim, r.cleared, r.remain, STATES[r.status] || '']);
+  const sum = k => rows.reduce((n, r) => n + r[k], 0);
+  out.push([S('合計'), '', '', '', '', S(sum('current')), '', S(sum('cleared')), S(rows.filter(r => r.latest).reduce((n, r) => n + r.remain, 0)), '']);
+  return { name: `請求残高照会_${today()}.xlsx`, body: xlsx([{ name: '請求残高照会', rows: out, widths: [10, 30, 10, 12, 14, 14, 14, 14, 14, 10] }]) };
 }
