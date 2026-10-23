@@ -522,8 +522,8 @@ VIEWS.invoices = async q => {
   const A = actions;
   A.view = d => go('invoices', { view: d.view });
   if (q.view === 'balance') return invoiceBalanceView(q);
+  if (q.view === 'ledger') return arLedgerView(q); // await より前に呼ぶ（画面のボタン actions は描画開始時に同期で受け取る）
   const list = await api('/api/invoices?' + qs({ month: q.month, closing: q.closing, customer: q.customer, status: q.status, customerFrom: q.customerFrom, customerTo: q.customerTo }));
-  if (q.view === 'ledger') return arLedgerView(q);
   const claimOf = Object.fromEntries((await api('/api/ar-ledger')).rows.map(r => [r.invoiceId, r.claim])); // 今回請求額＝前回残高＋当月請求（提案書 スライド11）
   const closings = [...new Set(active('customers').map(c => c.closing))].sort((a, b) => a - b);
   A.preview = async () => {
