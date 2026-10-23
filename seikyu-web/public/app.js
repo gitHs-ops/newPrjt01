@@ -293,7 +293,7 @@ VIEWS.shipments = async q => {
       { label: '', html: acts }],
       list, { empty: 'この条件の出荷はありません', rowClass: r => (r.corrected ? 'reversed' : ''), foot: ['合計', '', '', '', '', '', '', '', '', yen(net), '', `税 ${yen(tax)}`, ''] })}</section><div data-sub="reports">${shipmentReportsCard()}</div>
      <section class="card glass" data-sub="notes"><div class="card-head"><h2>納品書発行（現行 NI0060）</h2><span class="muted small">出荷日の伝票をまとめて発行（1伝票＝1ページ、単価・金額なし）</span></div>
-       <div class="filters"><label class="field">出荷日<input type="date" id="dn-date" value="${esc(bd)}"></label>${canWrite() ? '<button class="primary" data-act="notesIssue" style="align-self:flex-end">伝票発行</button>' : ''}</div>
+       <div class="filters"><label class="field">出荷日<input type="date" id="dn-date" value="${esc(bd)}"></label>${canWrite() ? '<button class="primary" data-act="notesIssue">伝票発行</button>' : ''}</div>
        <p class="muted small">発行済みの伝票には「再」が付きます。1伝票だけは出荷伝票の「照会」→「伝票発行（納品書）」から。</p></section>`);
 };
 const myOperator = () => active('operators').find(o => Number(o.userId) === Number(session.user.id))?.code || active('operators')[0]?.code || '';
@@ -538,12 +538,12 @@ VIEWS.invoices = async q => {
   const closeSel = id => `<select id="${id}">${closings.map(c => `<option value="${c}">${closingLabel(c)}</option>`).join('')}</select>`;
   return page('請求締め・発行', '得意先単位・締日ごとに請求を作成し、請求書を発行します。発行内容はスナップショットとして保存され、再発行時も同じ内容を出力します。',
     `${monthInput('month', q.month || '')}${filterSelect('customer', masters.customers, q.customer, 'すべての得意先')}<select name="closing" data-filter title="締日">${options(closings.map(x => ({ code: String(x), name: closingLabel(x) })), q.closing, { blank: 'すべての締日', label: x => x.name })}</select><select name="customerFrom" data-filter title="得意先範囲（開始）">${options(masters.customers, q.customerFrom, { blank: '得意先 自' })}</select><select name="customerTo" data-filter title="得意先範囲（終了）">${options(masters.customers, q.customerTo, { blank: '得意先 至' })}</select><select name="status" data-filter>${options(Object.entries({ open: '未入金あり', draft: '未発行', issued: '発行済', partial: '一部入金', paid: '入金済' }).map(([code, name]) => ({ code, name })), q.status, { blank: 'すべて', label: r => r.name })}</select>${csvLink('invoices', { month: q.month })}`,
-    `<div>${canWrite() ? `<section class="card glass" data-sub="create"><div class="card-head"><h2>請求データ作成（NO6）</h2><div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-left:auto"><span class="muted small">掛売の未請求売上が対象</span><span id="bill-run"></span></div></div>
-      <div class="filters"><label class="field">請求年月<input type="month" id="bill-month" value="${thisMonth()}"></label><label class="field">締日${closeSel('bill-closing')}</label><button data-act="preview" style="align-self:flex-end">対象得意先を表示</button></div>
+    `<div>${canWrite() ? `<section class="card glass" data-sub="create"><div class="card-head"><h2>請求データ作成（NO6）</h2></div>
+      <div class="filters"><label class="field">請求年月<input type="month" id="bill-month" value="${thisMonth()}"></label><label class="field">締日${closeSel('bill-closing')}</label><button data-act="preview">対象得意先を表示</button><span style="display:flex;gap:10px;align-items:center;margin-left:auto"><span class="muted small">掛売の未請求売上が対象</span><span id="bill-run"></span></span></div>
       <div id="bill-result" style="margin-top:10px"></div></section>` : ''}
     <section class="card glass" data-sub="reports"><div class="card-head"><h2>請求帳票（NO12・NO13）</h2><span class="muted small">画面表示・印刷・Excel出力</span></div>
       <div class="filters"><label class="field">請求年月<input type="month" id="rep-month" value="${q.month || thisMonth()}"></label><label class="field">締日${closeSel('rep-closing')}</label>
-      <button data-act="report" data-kind="list" style="align-self:flex-end">請求一覧表（確認用）</button><button data-act="report" data-kind="confirm" style="align-self:flex-end">請求書発行確認表</button></div>
+      <button data-act="report" data-kind="list">請求一覧表（確認用）</button><button data-act="report" data-kind="confirm">請求書発行確認表</button></div>
       <p class="muted small">請求一覧表は発行前の確認用（得意先ごとの集計）、発行確認表は発行後の請求内容（明細付き）です。同じ計算ロジックで出力形式だけを変えています。</p></section></div>
     <section class="card glass" data-sub="list"><div class="card-head"><h2>請求一覧</h2><div class="filters"><button data-act="bulk" title="チェックなしは表示中の発行済み全件">⇩ 発行済み請求書を一括ダウンロード（Excel）</button>${canWrite() ? '<button class="primary" data-act="issue">☑ 選択した請求書を発行・印刷</button>' : ''}</div></div>
     ${table([{ label: '', html: r => `<input type="checkbox" class="inv-pick" value="${r.id}">` }, { label: 'No', value: r => r.id }, { label: '締日', value: r => r.closing }, { label: '得意先コード', value: r => r.customer }, { label: '得意先', value: r => r.customerName }, { label: '現場名', html: r => r.siteNames ? `<span class="small">${r.siteNames.map(esc).join('<br>')}</span>` : '<span class="muted small">（現場なし）</span>' },
