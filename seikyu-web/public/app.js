@@ -732,12 +732,23 @@ VIEWS.receipts = async q => {
     A.search = () => go('receipts', { tab, r: '1', from: $('#rp-from').value, to: $('#rp-to').value, customer: $('#rp-cust').value, overdue: $('#rp-over').checked ? '1' : '' });
     A.late = () => go('receipts', { tab, r: '1', from: '', to: cur, customer: $('#rp-cust').value, overdue: '1' });
     A.thisMonth = () => go('receipts', { tab, r: '1', from: cur, to: cur, customer: $('#rp-cust').value });
+    // 画面に入っている検索条件のまま Excel を出力
+    A.planXlsx = async (_, btn) => {
+      btn.disabled = true; busy(true, '入金予定一覧を作成中…');
+      try {
+        const res = await fetch('/api/receipt-plan?' + qs({ from: $('#rp-from').value, to: $('#rp-to').value, customer: $('#rp-cust').value, overdue: $('#rp-over').checked ? '1' : '', format: 'xlsx' }), { cache: 'no-store' });
+        if (!res.ok) return toast((await res.json().catch(() => ({}))).error || '出力できません', true);
+        const href = URL.createObjectURL(await res.blob()), el = document.createElement('a');
+        el.href = href; el.download = `入金予定一覧_${$('#rp-from').value || '過去'}_${$('#rp-to').value || '指定なし'}.xlsx`; el.click(); setTimeout(() => URL.revokeObjectURL(href), 2000);
+        toast('入金予定一覧を出力しました');
+      } finally { busy(false); btn.disabled = false; }
+    };
     const tt = d.totals, range = `${d.from || '過去すべて'} 〜 ${d.to || '指定なし'}`;
     const summary = `<div class="filters small" style="margin-bottom:8px"><span>入金予定月 <b>${esc(range)}</b>${d.overdueOnly ? '（予定日経過・未入金のみ）' : ''}</span><span>${d.rows.length}件</span>
       ${tt.overdueCount ? `<span class="check-ng">予定日経過・未入金 ${tt.overdueCustomers}社 ${tt.overdueCount}件 残高 ${yen(tt.overdueBalance)}円（基準日 ${esc(d.today)}）</span>` : `<span class="check-ok">予定日を過ぎた未入金はありません（基準日 ${esc(d.today)}）</span>`}</div>`;
     return page('入金・消込', '入金予定一覧（提案書 スライド18・10/14 打合せ）：支払期日（得意先の回収サイト）が入金予定月の範囲に入る請求。入金予定日を過ぎても未入金の請求は赤で表示します。',
       `<label class="field">入金予定月（から）<input type="month" id="rp-from" value="${esc(from)}"></label><label class="field">（まで）<input type="month" id="rp-to" value="${esc(to)}"></label><input id="rp-cust" placeholder="得意先（部分一致）" value="${esc(q.customer || '')}" style="width:200px">
-       <label class="small"><input type="checkbox" id="rp-over" ${overdue ? 'checked' : ''}> 予定日経過・未入金のみ</label><button data-act="search">検索</button><button class="quiet" data-act="thisMonth">今月</button><button class="quiet" data-act="late" title="入金予定月：過去すべて〜今月">予定日経過・未入金（過去〜現在）</button>`,
+       <label class="small"><input type="checkbox" id="rp-over" ${overdue ? 'checked' : ''}> 予定日経過・未入金のみ</label><button data-act="search">検索</button><button class="quiet" data-act="thisMonth">今月</button><button class="quiet" data-act="late" title="入金予定月：過去すべて〜今月">予定日経過・未入金（過去〜現在）</button><button data-act="planXlsx" title="画面の検索条件のまま出力">⇩ Excel</button>`,
       `<section class="card glass">${summary}${table([{ label: '得意先', value: r => `${r.customer} ${r.name}` }, { label: '請求年月（締日）', value: r => r.closing }, { label: '請求金額', num: 1, value: r => yen(r.total) }, { label: 'サイト', value: r => r.site },
         { label: '入金予定日', html: r => (r.overdue ? `<span class="check-ng">${esc(r.due)} 超過</span>` : esc(r.due)) }, { label: '経過日数', num: 1, html: r => (r.overdue ? `<span class="check-ng">${r.days}日</span>` : '') }, { label: '入金予定金額', num: 1, value: r => yen(r.planned) }, { label: '入金金額', num: 1, value: r => yen(r.paid) }, { label: '残高', num: 1, value: r => yen(r.balance) }],
         d.rows, { empty: 'この条件で入金予定の請求はありません', rowClass: r => (r.overdue ? 'overdue' : ''), foot: ['入金予定合計', '', '', '', '', '', yen(tt.planned), yen(tt.paid), yen(tt.balance)] })}</section>`);
