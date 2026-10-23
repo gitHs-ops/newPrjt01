@@ -523,6 +523,8 @@ async function issueDeliveryNotes(p) {
   if (route.name === 'shipments') render();
 }
 
+// 得意先別残高照会：請求書状況の絞込（検索済みの結果を使い、DB は読まない）
+document.addEventListener('change', e => { if (e.target.id !== 'bal-state') return; freshNext = false; location.hash = '#invoices/balance?' + qs({ ...route.q, bstate: e.target.value }); });
 // 出荷伝票一覧：訂正前・赤を出すか（利用者ごとに記憶）。切り替えはその場で再描画（DB は読まない）
 const monthEnd = m => { const [y, mo] = m.split('-').map(Number); return new Date(Date.UTC(y, mo, 0)).toISOString().slice(0, 10); };
 const shipAll = () => { try { return localStorage.getItem('shipAll') === '1'; } catch { return false; } };
@@ -607,14 +609,16 @@ async function invoiceBalanceView(q) {
   A.detail = d => invoiceDetail(d.id);
   const closings = closingList();
   const month = q.bmonth || thisMonth(), closing = q.bclosing || closings[0] || 31;
-  const d = await api('/api/reports/billing-list?' + qs({ month, closing }));
+  // 請求書状況で絞込（検索結果をそのまま絞るので DB は読み直さない）
+  const st = ['none', 'draft', 'issued'].includes(q.bstate) ? q.bstate : '', all = await api('/api/reports/billing-list?' + qs({ month, closing })), d = { ...all, rows: all.rows.filter(r => !st || r.state === st) };
   const s = k => d.rows.reduce((n, r) => n + r[k], 0);
   return page('請求締め・発行', '得意先ごとの前回請求額・入金・繰越・今回請求額を締日単位で照会します（請求一覧表と同じ計算）。', `<input type="month" name="bmonth" value="${month}" data-filter><select name="bclosing" data-filter>${closings.map(c => `<option value="${c}" ${String(c) === String(closing) ? 'selected' : ''}>${closingName(c)}</option>`).join('')}</select><input type="hidden" name="view" value="balance" data-filter>
-    <a class="button" href="/api/reports/billing-list?${qs({ month, closing, format: 'xlsx', layout: 'balance' })}" download>⇩ Excel</a>`,
+    <select id="bal-state" title="請求書状況">${options([{ code: 'none', name: '未作成' }, { code: 'draft', name: '未発行' }, { code: 'issued', name: '発行済' }], st, { blank: 'すべての請求書状況', label: x => x.name })}</select>
+    <a class="button" href="/api/reports/billing-list?${qs({ month, closing, state: st, format: 'xlsx', layout: 'balance' })}" download>⇩ Excel</a>`,
     `<section class="card glass"><div class="card-head"><h2>${esc(month)} ${closingLabel(closing)}締（${esc(d.end)}）</h2></div>${table([{ label: '得意先', value: r => `${r.customer} ${r.name}` }, { label: '前回請求額', num: 1, value: r => yen(r.prevBalance) }, { label: '御入金額', num: 1, value: r => yen(r.received) },
       { label: '差引繰越額', num: 1, value: r => yen(r.carried) }, { label: '今回お買上額', num: 1, value: r => yen(r.net) }, { label: '消費税', num: 1, value: r => yen(r.tax) }, { label: '今回請求額', num: 1, value: r => yen(r.total) }, { label: '支払期日', value: r => r.due },
       { label: '請求書状況', html: r => badge(r.stateName, r.state === 'issued' ? 'green' : r.state === 'draft' ? '' : 'gray') }, { label: '', html: r => r.invoiceIds.map(id => `<button class="mini" data-act="detail" data-id="${id}">詳細</button>`).join('') }],
-      d.rows, { empty: 'この締日の得意先はありません', foot: ['合計', yen(s('prevBalance')), yen(s('received')), yen(s('carried')), yen(s('net')), yen(s('tax')), yen(s('total')), '', '', ''] })}</section>`);
+      d.rows, { empty: st ? 'この請求書状況の得意先はありません' : 'この締日の得意先はありません', foot: ['合計', yen(s('prevBalance')), yen(s('received')), yen(s('carried')), yen(s('net')), yen(s('tax')), yen(s('total')), '', '', ''] })}</section>`);
 }
 // NO12 / NO13 report viewer with print and Excel download.
 async function billingReport(kind, month, closing) {

@@ -43,8 +43,9 @@ export async function receiptPlanBook(c, q) {
 
 // 得意先別残高照会（画面と同じ項目）：前回請求額・御入金額・差引繰越額・今回お買上額・消費税・今回請求額・支払期日・請求書状況
 export async function billingBalanceBook(c, q) {
-  const d = await billingList(c, q), cl = d.closing === 31 ? '月末' : d.closing + '日';
-  const out = [[T('得意先別残高照会')], [`${d.month} ${cl}締（${d.end}）　出力日 ${today()}`], [],
+  const d = await billingList(c, q), cl = d.closing === 31 ? '月末' : d.closing + '日', STATES = { none: '未作成', draft: '未発行', issued: '発行済' };
+  if (STATES[q.state]) d.rows = d.rows.filter(r => r.state === q.state); // 請求書状況で絞込
+  const out = [[T('得意先別残高照会')], [`${d.month} ${cl}締（${d.end}）${STATES[q.state] ? '　請求書状況 ' + STATES[q.state] : ''}　出力日 ${today()}`], [],
     ['得意先CD', '得意先名', '前回請求額', '御入金額', '差引繰越額', '今回お買上額', '消費税', '今回請求額', '支払期日', '請求書状況'].map(H)];
   for (const r of d.rows) out.push([r.customer, r.name, r.prevBalance, r.received, r.carried, r.net, r.tax, r.total, r.due || '', r.stateName]);
   const sum = k => d.rows.reduce((n, r) => n + (r[k] || 0), 0);
