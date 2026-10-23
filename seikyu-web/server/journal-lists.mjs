@@ -70,7 +70,7 @@ export async function journalList(c, q) {
     const total = dr.reduce((n, l) => n + Number(l.amount), 0);
     return { id: e.journal_id, date: e.journal_date, slipNo: e.slip_no || String(e.journal_id), sourceNo: s.no, status: e.reversal_of ? `逆仕訳（#${e.reversal_of}）` : e.status === 'REVERSED' ? '取消済' : '', pairs, total };
   });
-  // NO8: 現行の売掛金計上は締日単位で一括、1伝票に最大45得意先程度で分割（Q08・推定）。
+  // NO8: 現行の売掛金計上は締日単位で一括、1伝票に最大45得意先で分割（Q08・推定：R00829→R00830 が45得意先目で分割）。
   if (q.pattern === 'A01' && q.group !== 'none') {
     const merged = [];
     for (const date of [...new Set(slips.map(s => s.date))]) {
