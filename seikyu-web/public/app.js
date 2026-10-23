@@ -546,18 +546,8 @@ VIEWS.invoices = async q => {
     modal({ title: '請求書の発行確認', submit: '発行する', wide: picked.length > 3, body: `<p>選択した <b>${picked.length}件</b>（請求額合計 <b>${yen(picked.reduce((n, r) => n + r.total, 0))}</b> 円）の請求書を発行し、印刷画面を開きます。${re ? `<br><span class="check-ng">うち ${re}件は発行済みのため再発行になります。</span>` : ''}</p>
       <div style="max-height:300px;overflow:auto;margin-top:8px">${table([{ label: 'No', value: r => r.id }, { label: '締日', value: r => r.closing }, { label: '得意先', value: r => `${r.customer} ${r.customerName}` }, { label: '請求額', num: 1, value: r => yen(r.total) }, { label: '発行', value: r => (r.issues ? `${r.issues}回目済 → 再発行` : '初回') }], picked)}</div>`,
       onSubmit: async () => { const r = await post('/api/invoices/issue', { ids }); printDocs(r.documents); await render(); } }); };
-  // 帳票なので一覧画面を出さず、Excel を直接ダウンロード（読込中は進行バー）
-  A.report = async (d, btn) => {
-    const month = $('#rep-month').value, closing = $('#rep-closing').value, title = d.kind === 'list' ? '請求一覧表（確認用）' : '請求書発行確認表';
-    btn.disabled = true; busy(true, `${title}を作成中…`);
-    try {
-      const res = await fetch(`/api/reports/${d.kind === 'list' ? 'billing-list' : 'billing-confirm'}?${qs({ month, closing, format: 'xlsx' })}`, { cache: 'no-store' });
-      if (!res.ok) return toast((await res.json().catch(() => ({}))).error || '出力できません', true);
-      const href = URL.createObjectURL(await res.blob()), el = document.createElement('a');
-      el.href = href; el.download = `${title}_${month}_${closingLabel(closing)}締.xlsx`; el.click(); setTimeout(() => URL.revokeObjectURL(href), 2000);
-      toast(`${title}を出力しました`);
-    } finally { busy(false); btn.disabled = false; }
-  };
+  // 帳票は一覧を画面に出さない：0件ならその旨、あれば件数と「Excel」「印刷」だけのポップアップ
+  A.report = async (d, btn) => { btn.disabled = true; try { await billingReport(d.kind, $('#rep-month').value, $('#rep-closing').value); } catch (e) { toast(e.message, true); } finally { btn.disabled = false; } };
   A.bulk = async () => {
     // 10/14 打合せ：チェックなし＝表示中の発行済み全件、チェックあり＝選択分
     const picked = $$('.inv-pick:checked').map(x => x.value), ids = picked.length ? picked : list.filter(r => r.issues).map(r => String(r.id)); if (!ids.length) return toast('発行済みの請求書がありません', true);
@@ -573,9 +563,9 @@ VIEWS.invoices = async q => {
     `<div>${canWrite() ? `<section class="card glass" data-sub="create"><div class="card-head"><h2>請求データ作成（NO6）</h2><span class="muted small">掛売の未請求売上が対象</span></div>
       <div class="filters"><label class="field">請求年月<input type="month" id="bill-month" value="${thisMonth()}"></label><label class="field">締日${closeSel('bill-closing')}</label><button data-act="preview">対象得意先を表示</button><label class="small" style="display:inline-flex;gap:6px;align-items:center"><input type="checkbox" id="bill-only" ${billOnly() ? 'checked' : ''}> 選択可能な得意先のみ</label><span id="bill-run" style="margin-left:auto"></span></div>
       <div id="bill-result" style="margin-top:10px"></div></section>` : ''}
-    <section class="card glass" data-sub="reports"><div class="card-head"><h2>請求帳票（NO12・NO13）</h2><span class="muted small">Excel出力</span></div>
+    <section class="card glass" data-sub="reports"><div class="card-head"><h2>請求帳票（NO12・NO13）</h2><span class="muted small">Excel出力・印刷</span></div>
       <div class="filters"><label class="field">請求年月<input type="month" id="rep-month" value="${q.month || thisMonth()}"></label><label class="field">締日${closeSel('rep-closing')}</label>
-      <button data-act="report" data-kind="list">⇩ 請求一覧表（確認用）</button><button data-act="report" data-kind="confirm">⇩ 請求書発行確認表</button></div>
+      <button data-act="report" data-kind="list">請求一覧表（確認用）</button><button data-act="report" data-kind="confirm">請求書発行確認表</button></div>
       <p class="muted small">請求一覧表は発行前の確認用（得意先ごとの集計）、発行確認表は発行後の請求内容（明細付き）です。同じ計算ロジックで出力形式だけを変えています。</p></section></div>
     <section class="card glass" data-sub="list"><div class="card-head"><h2>請求一覧</h2><div class="filters"><button data-act="bulk" title="チェックなしは表示中の発行済み全件">⇩ 発行済み請求書を一括ダウンロード（Excel）</button>${canWrite() ? '<button class="primary" data-act="issue">☑ 選択した請求書を発行・印刷</button>' : ''}</div></div>
     ${table([{ label: '', html: r => `<input type="checkbox" class="inv-pick" value="${r.id}">` }, { label: 'No', value: r => r.id }, { label: '締日', value: r => r.closing }, { label: '得意先コード', value: r => r.customer }, { label: '得意先', value: r => r.customerName }, { label: '現場名', html: r => r.siteNames ? `<span class="small">${r.siteNames.map(esc).join('<br>')}</span>` : '<span class="muted small">（現場なし）</span>' },
@@ -625,9 +615,13 @@ async function billingReport(kind, month, closing) {
       ${(r.byRate || []).map(x => `<p class="small har430-rate"><span>${x.rate} %</span><span>${yen(x.net)}</span><span>${yen(x.tax)}</span></p>`).join('')}</div>`).join('') + '<p class="muted small">運送：納入区分が引取なら「2 先方」、それ以外は「1 当方」（現行の運送区分の推定）。値引額は伝票区分9（値引）を入金時に処理するため0（Q18）。</p>'
       : `<div class="empty">この請求年月・締日の発行済み請求書はありません</div>${d.available?.length ? `<p class="small">発行済みの請求がある年月・締日：${d.available.map(a => `<button type="button" class="mini" data-period="${a.month}|${a.closing}">${a.month} ${closingLabel(a.closing)}締</button>`).join(' ')}</p>` : '<p class="muted small">発行済みの請求書がまだありません。「請求データ作成」→ 請求一覧で選択して「発行」すると表示されます。</p>'}`;
   }
-  modal({ title: `${title} ${month} ${closingLabel(closing)}締`, wide: true, body: `<div class="filters" style="margin-bottom:10px"><a class="button" href="${url}&format=xlsx" download>⇩ Excel</a><button type="button" id="rep-print">🖨 印刷</button></div><div id="rep-body">${body}</div>`,
+  // 一覧は表示せず（印刷用に隠して持つ）、件数・合計と出力ボタンだけ
+  const n = d.rows.length, total = d.rows.reduce((t, r) => t + (r.current || 0), 0);
+  const head = n ? `<p>対象 <b>${n}</b> 得意先／今回請求額 合計 <b>${yen(total)}</b> 円</p><div class="filters" style="margin-top:10px"><a class="button primary" href="${url}&format=xlsx" download>⇩ Excel</a><button type="button" id="rep-print">🖨 印刷</button></div>`
+    : `<p><b>データがありません。</b>（${esc(month)} ${esc(closingLabel(closing))}締）</p>`;
+  modal({ title: `${title} ${month} ${closingLabel(closing)}締`, body: `${head}<div id="rep-body"${n ? ' hidden' : ''}>${n ? body : body.replace(/<div class="empty">[^<]*<\/div>/, '')}</div>`,
     onOpen: () => {
-      $('#rep-print').addEventListener('click', () => { $('#print-area').innerHTML = `<section class="invoice-doc report-doc"><h2>${esc(title)}</h2><p>締日 ${closingLabel(closing)} ／ 請求日 ${esc(d.end)} ／ 出力日 ${today()}</p>${$('#rep-body').innerHTML}</section>`; setTimeout(() => window.print(), 200); });
+      $('#rep-print')?.addEventListener('click', () => { $('#print-area').innerHTML = `<section class="invoice-doc report-doc"><h2>${esc(title)}</h2><p>締日 ${closingLabel(closing)} ／ 請求日 ${esc(d.end)} ／ 出力日 ${today()}</p>${$('#rep-body').innerHTML}</section>`; setTimeout(() => window.print(), 200); });
       // 該当なしのとき：発行済みがある年月・締日を押すとその条件で出し直す
       $$('#rep-body [data-period]').forEach(b => (b.onclick = () => { const [m, cl] = b.dataset.period.split('|'), sel = $('#rep-closing');
         if ($('#rep-month')) $('#rep-month').value = m; if (sel && ![...sel.options].some(o => o.value === cl)) sel.insertAdjacentHTML('beforeend', `<option value="${cl}">${closingLabel(cl)}</option>`); if (sel) sel.value = cl;
