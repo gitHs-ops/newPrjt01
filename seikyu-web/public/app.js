@@ -473,18 +473,19 @@ VIEWS.invoices = async q => {
       { label: '', html: r => r.count && !r.created ? `<input type="checkbox" class="bill-pick" value="${esc(r.customer)}" checked>` : '' }, { label: '得意先', value: r => `${r.customer} ${r.name}` },
       { label: '未請求(掛売)', num: 1, value: r => `${r.count}件` }, { label: '前回締め以前の追加', num: 1, value: r => r.late ? r.late + '件' : '' }, { label: '現場数', num: 1, value: r => r.sites || '' }, { label: '税抜金額', num: 1, value: r => yen(r.net) }, { label: '消費税', num: 1, value: r => yen(r.tax) },
       { label: '請求対象外', num: 1, value: r => r.excluded ? `${r.excluded}件（現金・カード）` : '' },
-      { label: '状態', html: r => r.created ? badge('作成済', 'green') : r.count ? badge('作成可能') : badge('対象なし', 'gray') }], p.customers, { empty: 'この締日の得意先はありません' }) +
-      (canWrite() ? `<div style="margin-top:10px;display:flex;justify-content:flex-end"><button class="primary" data-act="run" data-month="${month}" data-closing="${closing}">選択した得意先の請求を作成</button></div>` : '');
+      { label: '状態', html: r => r.created ? badge('作成済', 'green') : r.count ? badge('作成可能') : badge('対象なし', 'gray') }], p.customers, { empty: 'この締日の得意先はありません' });
+    $('#bill-run').innerHTML = `<button class="primary" data-act="run" data-month="${month}" data-closing="${closing}">選択した得意先の請求を作成</button>`;
   };
   // 請求データ作成：得意先ごとに順番に作成し、進捗（件数・得意先名）を表示。失敗した得意先は最後にまとめて表示し、他の得意先は続行
   A.run = async (d, btn) => {
     const picks = $$('.bill-pick:checked'), customers = picks.map(x => x.value); if (!customers.length) return toast('得意先を選択してください', true);
     const nameOf = code => (masters.customers || []).find(c => c.code === code)?.name || code, sum = { created: 0, appended: 0, skipped: [], failed: [] };
+    let slip = ''; // 売掛金計上の伝票番号（得意先ごとに呼び出しても1伝票45得意先まで同じ番号にまとめる、Q08）
     if (btn) btn.disabled = true;
     progress.open(`請求データ作成（${d.month} ${closingLabel(d.closing)}締）`, customers.length);
     for (const [i, c] of customers.entries()) {
       progress.step(i, `${c} ${nameOf(c)} を作成中…`);
-      try { const r = await post('/api/billing/run', { month: d.month, closing: d.closing, customers: [c] }); sum.created += r.created || 0; sum.appended += r.appended || 0; sum.skipped.push(...(r.skipped || [])); }
+      try { const r = await post('/api/billing/run', { month: d.month, closing: d.closing, customers: [c], slip }); slip = r.slip || slip; sum.created += r.created || 0; sum.appended += r.appended || 0; sum.skipped.push(...(r.skipped || [])); }
       catch (e) { sum.failed.push(`${c} ${nameOf(c)}：${e.message}`); }
     }
     progress.step(customers.length, '完了'); progress.close(); if (btn) btn.disabled = false;
@@ -512,7 +513,7 @@ VIEWS.invoices = async q => {
   const closeSel = id => `<select id="${id}">${closings.map(c => `<option value="${c}">${closingLabel(c)}</option>`).join('')}</select>`;
   return page('請求締め・発行', '得意先単位・締日ごとに請求を作成し、請求書を発行します。発行内容はスナップショットとして保存され、再発行時も同じ内容を出力します。',
     `${monthInput('month', q.month || '')}${filterSelect('customer', masters.customers, q.customer, 'すべての得意先')}<select name="closing" data-filter title="締日">${options(closings.map(x => ({ code: String(x), name: closingLabel(x) })), q.closing, { blank: 'すべての締日', label: x => x.name })}</select><select name="customerFrom" data-filter title="得意先範囲（開始）">${options(masters.customers, q.customerFrom, { blank: '得意先 自' })}</select><select name="customerTo" data-filter title="得意先範囲（終了）">${options(masters.customers, q.customerTo, { blank: '得意先 至' })}</select><select name="status" data-filter>${options(Object.entries({ open: '未入金あり', draft: '未発行', issued: '発行済', partial: '一部入金', paid: '入金済' }).map(([code, name]) => ({ code, name })), q.status, { blank: 'すべて', label: r => r.name })}</select>${csvLink('invoices', { month: q.month })}`,
-    `<div>${canWrite() ? `<section class="card glass" data-sub="create"><div class="card-head"><h2>請求データ作成（NO6）</h2><span class="muted small">掛売の未請求売上が対象</span></div>
+    `<div>${canWrite() ? `<section class="card glass" data-sub="create"><div class="card-head"><h2>請求データ作成（NO6）</h2><div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-left:auto"><span class="muted small">掛売の未請求売上が対象</span><span id="bill-run"></span></div></div>
       <div class="filters"><label class="field">請求年月<input type="month" id="bill-month" value="${thisMonth()}"></label><label class="field">締日${closeSel('bill-closing')}</label><button data-act="preview" style="align-self:flex-end">対象得意先を表示</button></div>
       <div id="bill-result" style="margin-top:10px"></div></section>` : ''}
     <section class="card glass" data-sub="reports"><div class="card-head"><h2>請求帳票（NO12・NO13）</h2><span class="muted small">画面表示・印刷・Excel出力</span></div>

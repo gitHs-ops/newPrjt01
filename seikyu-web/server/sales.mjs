@@ -266,13 +266,18 @@ async function postBillingJournal(c, id, end, customer, net, tax, slip) {
 }
 // 請求締め（NO6）: 当期締日までの未請求掛売上（前回締め後に入力された過去日付の売上・訂正伝票を含む）を得意先単位で請求。
 // 同じ締日の請求が未発行・未消込なら追加分を加算、発行済みなら次回締めで請求。マイナス（訂正のみ）はクレジット請求として作成。
-export async function runBilling(c, ctx, { month, closing, customers }) {
+export async function runBilling(c, ctx, { month, closing, customers, slip: cont }) {
   const { end } = period(month, closing), day = closingDay(closing); await assertOpen(c, end);
   check(end <= today(), `締日（${end}）が到来していないため請求締めはできません`);
   let targets = await rows(c, "SELECT * FROM client_m WHERE delete_f<>'1' AND CAST(substring(deadline from '^ *([0-9]+)') AS INTEGER)=? ORDER BY customers_cd", [day]);
   if (Array.isArray(customers) && customers.length) targets = targets.filter(t => customers.includes(t.customers_cd));
   check(targets.length, `締日${day}日の有効な得意先がありません`);
   const created = [], appended = [], skipped = [], st = stamp(), yymm = Number(month.replace('-', '')), slip = { max: AR_SLIP_MAX }; // 売掛金計上の伝票（得意先コード順に45得意先で分割）
+  // 画面は得意先ごとに呼び出すため、同じ締日の A01 伝票番号を受け取り、45得意先未満なら続けて使う
+  if (typeof cont === 'string' && /^R\d{5}$/.test(cont)) {
+    const n = Number((await one(c, "SELECT COUNT(*) n FROM app_slip_no s JOIN journal_entry e ON e.journal_id=s.journal_id WHERE s.slip_no=? AND e.pattern_code='A01' AND e.reversal_of IS NULL AND e.journal_date=?", [cont, end])).n);
+    if (n && n < AR_SLIP_MAX) Object.assign(slip, { no: cont, count: n });
+  }
   for (const cu of targets) {
     const list = await rows(c, "SELECT * FROM sales_trn WHERE customers_cd=? AND process_status='0' AND payment_method_cd=2 AND sales_date<=? ORDER BY field_cd, field_suffix, sales_date, order_no FOR UPDATE", [cu.customers_cd, toNum(end)]);
     if (!list.length) continue;
@@ -305,7 +310,7 @@ export async function runBilling(c, ctx, { month, closing, customers }) {
   check(created.length + appended.length, skipped.length ? '請求を作成できません: ' + skipped.join(' / ') : '対象の未請求掛売上がありません');
   await c.query("INSERT INTO billing_closing_inf (closing_yymm,closingdd,invoice_proc_flag,update_day,update_time,update_pgm,update_ws) VALUES (?,?,'1',?,?,?,?) ON DUPLICATE KEY UPDATE invoice_proc_flag='1',update_day=VALUES(update_day),update_time=VALUES(update_time)",
     [yymm, day, st.update_day, st.update_time, st.update_pgm, st.update_ws]);
-  return { created: created.length, appended: appended.length, ids: [...created, ...appended], skipped };
+  return { created: created.length, appended: appended.length, ids: [...created, ...appended], skipped, slip: slip.no || '' };
 }
 const invoiceSql = `SELECT h.*, c.customers_name, f.field_name1, f.field_name2, ${PAID} paid, (SELECT MAX(issue_no) FROM invoice_issue i WHERE i.invoice_id=h.invoice_id) issues
   FROM billing_head h LEFT JOIN client_m c ON c.customers_cd=h.customers_cd LEFT JOIN field_name_m f ON f.customers_cd=h.customers_cd AND f.field_cd=h.field_cd AND f.field_suffix=h.field_suffix`;
