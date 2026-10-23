@@ -818,11 +818,13 @@ function receiptForm(preset = '') {
       f.customer.onchange = load;
       RC_KEYS.forEach(([k]) => (f[k].oninput = refresh)); f.overpayToDeposit.onchange = refresh;
       if (preset) { if (![...f.customer.options].some(o => o.value === preset)) f.customer.insertAdjacentHTML('beforeend', `<option value="${esc(preset)}">${esc(preset)}</option>`); f.customer.value = preset; load(); }
-      // サンプル入力：発行済みで残高のある請求を1件選び、振込（手数料差引）で今回請求金額の全額を消し込む値を入れる（登録はしない）
+      // サンプル入力：振込（手数料差引）で今回請求金額の全額を消し込む値を入れる（登録はしない）。
+      // 選択中の得意先に発行済みで残高のある請求があればその得意先のまま、無ければその請求がある得意先に切り替えて知らせる
       f.querySelector('[data-sample]')?.addEventListener('click', async () => {
         const open = (await api('/api/invoices?status=open')).filter(i => i.issues > 0 && i.balance > 0);
         if (!open.length) return toast('発行済みで残高のある請求がありません。先に請求書を発行してください', true);
-        const inv = open[Math.floor(Math.random() * open.length)];
+        const cur = f.customer.value, mine = open.filter(i => i.customer === cur), inv = (mine.length ? mine : open)[Math.floor(Math.random() * (mine.length || open.length))];
+        if (cur && !mine.length) toast(`選択中の得意先（${cur}）には発行済みで残高のある請求がないため、${inv.customer} ${inv.customerName || ''} に切り替えました`);
         $('#rc-search').value = ''; f.customer.innerHTML = options(all, inv.customer, { blank: '選択してください' }); f.customer.value = inv.customer;
         await load();
         const due = invs().reduce((n, r) => n + r.balance, 0), fee = due > 10000 ? 660 : 0;
