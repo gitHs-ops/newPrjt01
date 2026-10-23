@@ -75,8 +75,10 @@ async function recalcCumulative(c, sl) {
   await applyPlan(c, sl);
 }
 export async function listShipments(c, q = {}) {
-  const byNo = q.orderNo ? String(q.orderNo) : '', [from, to] = byNo ? [0, 99999999] : monthRange(q.month); const args = [from, to]; let where = '';
+  // 10/23 打合せ：売上日 From〜To・現場（コード・名称の部分一致）で絞込。日付が無ければ月
+  const byNo = q.orderNo ? String(q.orderNo) : '', [from, to] = byNo ? [0, 99999999] : q.from || q.to ? [q.from ? toNum(isoDate(q.from, '売上日（から）')) : 0, q.to ? toNum(isoDate(q.to, '売上日（まで）')) : 99999999] : monthRange(q.month); const args = [from, to]; let where = '';
   if (byNo) { where += ' AND s.order_no=?'; args.push(byNo); } // 1件照会（登録画面の元伝票No）
+  if (q.site) { const like = `%${String(q.site).trim()}%`; where += ' AND (s.field_cd LIKE ? OR s.field_name1 LIKE ? OR s.field_name2 LIKE ?)'; args.push(like, like, like); }
   if (q.customer) { where += ' AND s.customers_cd=?'; args.push(q.customer); }
   if (q.status === 'open') where += " AND s.process_status='0'";
   if (q.status === 'billed') where += " AND s.process_status='1'";
@@ -87,7 +89,7 @@ export async function listShipments(c, q = {}) {
     LEFT JOIN client_m oc ON oc.customers_cd=NULLIF(sl.other_company_customers_cd,'') LEFT JOIN operator_m op ON op.tanto_cd=CAST(NULLIF(sl.person_in_charge_cd,'') AS INTEGER) LEFT JOIN code_m dk ON dk.code_key='A0000' AND dk.code_dtl=CAST(sl.delivery_kbn_cd AS TEXT)
     LEFT JOIN billing_detail d ON d.order_no=s.order_no LEFT JOIN billing_head h ON ${DETAIL_JOIN}
     WHERE s.sales_date BETWEEN ? AND ?${where} ORDER BY s.sales_date DESC, s.order_no DESC LIMIT 1000`, args);
-  return rs.map(r => ({ orderNo: r.order_no, date: fromNum(r.sales_date), customer: r.customers_cd, customerName: r.customers_name, site: r.field_cd ? `${r.field_cd}|${r.field_suffix}` : '', siteName: [r.field_name1, r.field_name2].filter(Boolean).join(' '),
+  return rs.map(r => ({ orderNo: r.order_no, slipNo: slipNoOf(r), date: fromNum(r.sales_date), customer: r.customers_cd, customerName: r.customers_name, site: r.field_cd ? `${r.field_cd}|${r.field_suffix}` : '', siteName: [r.field_name1, r.field_name2].filter(Boolean).join(' '),
     siteName1: r.field_name1 || '', siteName2: r.field_name2 || '', item: r.item_cd, itemName: r.item_name, quantity: Number(r.quantity), unit: r.unit || '', price: num(r.slip_price ?? r.unit_price), freight: num(r.slip_freight), unitPrice: num(r.unit_price),
     net: Number(r.money), taxRate: Number(r.tax_rate), tax: Number(r.consumption_tax), method: Number(r.payment_method_cd), methodName: METHODS[r.payment_method_cd] || '', billed: r.process_status === '1', invoiceId: r.invoice_id || null,
     vehicle: r.vehicle_no || '', remarks: r.remarks || '', operator: r.person_in_charge_cd || '', operatorName: r.tanto_nm || '', deliveryKbn: r.delivery_kbn_cd ? String(r.delivery_kbn_cd) : '', deliveryKbnName: r.delivery_kbn_name || '',
@@ -172,6 +174,8 @@ export async function saveShipment(c, ctx, p) {
   }
   return { orderNo };
 }
+// 赤伝票の備考：「M/D 分削除」（元伝票の売上日、10/23 打合せ）
+const redMemo = orig => { const d = fromNum(orig.sales_date); return `${Number(d.slice(5, 7))}/${Number(d.slice(8, 10))} 分削除`; };
 // 登録画面の赤伝票（区分 5）：元伝票と得意先・商品が同じで、数量は元伝票と逆符号・元伝票の数量以内。訂正済み・赤伝票は元にできない
 async function redLink(c, p, v) {
   const no = String(p.originalNo || '').trim(); check(no, '伝票区分が訂正のときは元伝票No を入力してください');
@@ -183,7 +187,7 @@ async function redLink(c, p, v) {
   check(v.date >= fromNum(orig.sales_date), '出荷日が元伝票の出荷日より前です');
   const oq = Number(orig.quantity), nq = Number(v.q.text);
   check(Math.sign(nq) === -Math.sign(oq) && Math.abs(nq) <= Math.abs(oq), `赤伝票の数量は元伝票（${oq}）と逆符号で、元の数量以内です`);
-  if (!v.remarks) v.remarks = `赤 ${no}`;
+  if (!v.remarks) v.remarks = redMemo(orig);
   return { salesNo: no, salesSuffix: 2 };
 }
 // NO11 出荷伝票訂正（10/14 打合せ：赤黒）。元伝票は変更せず、赤＝元伝票の全量マイナス、黒＝訂正後の内容（日付・得意先・現場・商品・数量・単価・運賃すべて変更可）を起票。
@@ -200,7 +204,7 @@ export async function correctShipment(c, ctx, p) {
   const it = await one(c, 'SELECT * FROM item_m WHERE item_cd=?', [orig.item_cd]);
   const f = { field_cd: orig.field_cd || '', field_suffix: orig.field_suffix || '', field_name1: orig.field_name1 || '', field_name2: orig.field_name2 || '' };
   const red = { date, cust, f, it, q: qty('-' + String(orig.quantity).replace(/^-/, ''), '数量', { positive: false, allowNegative: true }), price: num(slip?.unit_price ?? orig.unit_price), freight: num(slip?.freight),
-    net: -num(orig.money), rate: Math.round(num(orig.tax_rate)), tax: -num(orig.consumption_tax), method: Number(orig.payment_method_cd), vehicle: '', remarks: `赤 ${orig.order_no}`,
+    net: -num(orig.money), rate: Math.round(num(orig.tax_rate)), tax: -num(orig.consumption_tax), method: Number(orig.payment_method_cd), vehicle: '', remarks: redMemo(orig),
     operator: slip?.person_in_charge_cd || '', kbn: String(slip?.delivery_kbn_cd ?? orig.shipping_kb ?? 1) };
   if (Number(orig.quantity) < 0) red.q = qty(String(-Number(orig.quantity)), '数量'); // 元がマイナス伝票なら赤はプラス
   const redNo = await nextShipNo(c);
@@ -352,6 +356,15 @@ export async function listInvoices(c, q = {}) {
     const sites = await rows(c, `SELECT DISTINCT d.customers_cd, d.closing_yymm, d.claim_processing_period, d.field_name FROM billing_detail d JOIN billing_head h ON h.customers_cd=d.customers_cd AND h.closing_yymm=d.closing_yymm AND h.closing_date=d.claim_processing_period
       WHERE h.invoice_id IN (${list.map(() => '?').join(',')}) AND d.field_name<>''`, list.map(i => i.id));
     for (const i of list) { const n = sites.filter(s => s.customers_cd === i.customer && toNum(i.closing) === Number(s.claim_processing_period) && String(s.closing_yymm) === i.month.replace('-', '')).map(s => s.field_name); if (n.length) i.siteNames = n; }
+    // 10/23 打合せ（大西さん）：請求一覧照会は 得意先×現場 の行。現場ごとの売上額・消費税（税率別に端数処理）・決済区分
+    const parts = await rows(c, `SELECT h.invoice_id, d.field_cd, d.field_suffix, d.field_name, d.payment_method_cd, d.tax_rate, SUM(d.money) money FROM billing_detail d JOIN billing_head h ON h.customers_cd=d.customers_cd AND h.closing_yymm=d.closing_yymm AND h.closing_date=d.claim_processing_period
+      WHERE h.invoice_id IN (${list.map(() => '?').join(',')}) GROUP BY h.invoice_id, d.field_cd, d.field_suffix, d.field_name, d.payment_method_cd, d.tax_rate ORDER BY h.invoice_id, d.field_cd, d.field_suffix, d.field_name`, list.map(i => i.id));
+    for (const i of list) {
+      const mine = parts.filter(x => Number(x.invoice_id) === i.id), keyOf = x => `${x.field_cd || ''}|${x.field_suffix || ''}|${x.field_name || ''}`, keys = [...new Set(mine.map(keyOf))]; // 現場コードの無い自由入力の現場は名称で分ける
+      i.sites = keys.map(k => { const ls = mine.filter(x => keyOf(x) === k), net = ls.reduce((n, x) => n + num(x.money), 0);
+        const tax = RATES.reduce((n, r) => n + bucketTax(ls.filter(x => Math.round(num(x.tax_rate)) === r).reduce((a, x) => a + num(x.money), 0), r), 0);
+        return { site: ls[0].field_cd ? `${ls[0].field_cd}|${ls[0].field_suffix}` : '', siteName: ls[0].field_name || '', method: [...new Set(ls.map(x => METHODS[x.payment_method_cd] || ''))].filter(Boolean).join('・'), net, tax, total: net + tax }; });
+    }
   }
   if (q.status === 'open') list = list.filter(i => i.balance > 0);
   else if (q.status) list = list.filter(i => i.status === q.status);
@@ -359,9 +372,14 @@ export async function listInvoices(c, q = {}) {
 }
 // 運送（現行 HAR430「1 当方／2 先方」）：納入区分が引取（category1=2）なら先方、それ以外は当方（推定）
 const CARRY = cat => (cat === '2' ? '2 先方' : '1 当方');
-const decodeLine = l => ({ carry: CARRY(l.kbn_cat), unit: l.unit || '', orderNo: l.order_no, date: fromNum(l.sales_date), site: `${l.field_cd}|${l.field_suffix}`, siteName: l.field_name || '', item: l.item_cd, itemName: l.item_name, quantity: num(l.quantity), price: num(l.unit_price),
+// 赤黒（区分 5）の伝票No は 元伝票No－枝番（2 赤・3 黒）で表示（10/23 打合せ：帳票②´ と同じ番号で元伝票の下に並べる）
+export const slipNoOf = l => (String(l.ship_kb) === '5' && l.sales_no && l.sales_no !== l.order_no ? `${l.sales_no}-${Number(l.sales_suffix)}` : l.order_no);
+const decodeLine = l => ({ carry: CARRY(l.kbn_cat), unit: l.unit || '', orderNo: slipNoOf(l), ownNo: l.order_no, date: fromNum(l.sales_date), site: `${l.field_cd}|${l.field_suffix}`, siteName: l.field_name || '', item: l.item_cd, itemName: l.item_name, quantity: num(l.quantity), price: num(l.unit_price),
   net: num(l.money), taxRate: num(l.tax_rate), remarks: l.remarks || '', shipKb: Number(l.ship_kb || 1) });
-async function headLines(c, h) { const w = detailWhere(h); return (await rows(c, `SELECT d.*, unit_name(i.unit) unit, (SELECT k.category1 FROM code_m k WHERE k.code_key='A0000' AND k.code_dtl=CAST(d.shipping_kb AS TEXT)) kbn_cat FROM billing_detail d LEFT JOIN item_m i ON i.item_cd=d.item_cd WHERE ${w.sql.replace(/(^|AND )(\w+)=/g, '$1d.$2=')} ORDER BY d.field_cd, d.field_suffix, d.sales_date, d.order_no`, w.args)).map(decodeLine); }
+// 赤・黒は元伝票の直後に並べる（元伝票の売上日・番号で並べ、枝番 2 赤・3 黒の順）
+async function headLines(c, h) { const w = detailWhere(h); return (await rows(c, `SELECT d.*, st.sales_no, st.sales_suffix, unit_name(i.unit) unit, (SELECT k.category1 FROM code_m k WHERE k.code_key='A0000' AND k.code_dtl=CAST(d.shipping_kb AS TEXT)) kbn_cat FROM billing_detail d LEFT JOIN item_m i ON i.item_cd=d.item_cd
+    LEFT JOIN sales_trn st ON st.order_no=d.order_no AND st.order_suffix=1 LEFT JOIN sales_trn o ON st.ship_kb='5' AND o.order_no=st.sales_no AND o.order_suffix=1
+    WHERE ${w.sql.replace(/(^|AND )(\w+)=/g, '$1d.$2=')} ORDER BY d.field_cd, d.field_suffix, COALESCE(o.sales_date, d.sales_date), COALESCE(o.order_no, d.order_no), COALESCE(st.sales_suffix, 1)`, w.args)).map(decodeLine); }
 export async function invoiceDetail(c, id) {
   const h = await one(c, `${invoiceSql} WHERE h.invoice_id=?`, [Number(id)]); check(h, '請求が見つかりません');
   const issues = await rows(c, 'SELECT issue_no, issued_at, issued_by, document_sha256 FROM invoice_issue WHERE invoice_id=? ORDER BY issue_no', [h.invoice_id]);
