@@ -286,7 +286,7 @@ VIEWS.shipments = async q => {
   A.notes = () => deliveryNoteDialog(); A.notesIssue = () => issueDeliveryNotes({ date: $('#dn-date').value }).catch(e => toast(e.message, true));
   if (q.tab === 'plans' && SUBMENUS.shipments.some(x => x.k === 'plans' && !x.disabled)) return planView(q);
   // 10/23 打合せ：売上日 From〜To・得意先・現場で伝票を特定。既定は当月
-  const month = q.month || thisMonth(), from = q.from || `${month}-01`, to = q.to || monthEnd(month), list = await api('/api/shipments?' + qs({ from, to, customer: q.customer, site: q.site, status: q.status, method: q.method }));
+  const month = q.month || thisMonth(), from = q.from || `${month}-01`, to = q.to || monthEnd(month), kind = SHIP_KINDS[q.kind] ? q.kind : '', list = await api('/api/shipments?' + qs({ from, to, customer: q.customer, site: q.site, ...(SHIP_KINDS[kind]?.q || {}) }));
   const bd = (await api('/api/business-date')).date;
   A.misc = d => miscReport(d.kind, d.src).catch(e => toast(e.message, true));
   // 業務日付（現行 MA057 出荷日変更）：出荷日の初期値。日付をまたぐ出荷（深夜）でも前日の業務日付で登録できる
@@ -311,8 +311,7 @@ VIEWS.shipments = async q => {
     return `<div class="actions">${b.join('')}</div>`;
   };
   return page('出荷・売上', '出荷伝票（shipment_slip）と売上（sales_trn）を同時に登録します。請求済みの伝票は「赤黒訂正」で、元伝票のマイナス（赤）と訂正後（黒）を起票します（NO11、10/14 打合せ）。',
-    `<input type="date" name="from" value="${esc(from)}" data-filter title="売上日（から）"><span>〜</span><input type="date" name="to" value="${esc(to)}" data-filter title="売上日（まで）">${filterSelect('customer', masters.customers, q.customer, 'すべての得意先')}<input name="site" value="${esc(q.site || '')}" placeholder="現場（コード・名称）" data-filter style="width:160px"><select name="status" data-filter>${options([{ code: 'open', name: '未請求' }, { code: 'billed', name: '請求済' }], q.status, { blank: 'すべて', label: r => r.name })}</select>
-     <select name="method" data-filter>${options(Object.entries(meta.methods).map(([code, name]) => ({ code, name })), q.method, { blank: 'すべての決済', label: r => r.name })}</select><label class="small" style="display:inline-flex;gap:4px;align-items:center"><input type="checkbox" id="ship-all" ${shipAll() ? 'checked' : ''}> 訂正前・赤も表示</label>${csvLink('shipments', { month: from.slice(0, 7) })}
+    `<input type="date" name="from" value="${esc(from)}" data-filter title="売上日（から）"><span>〜</span><input type="date" name="to" value="${esc(to)}" data-filter title="売上日（まで）">${filterSelect('customer', masters.customers, q.customer, 'すべての得意先')}<input name="site" value="${esc(q.site || '')}" placeholder="現場（コード・名称）" data-filter style="width:160px"><select name="kind" data-filter title="請求・決済">${options(Object.entries(SHIP_KINDS).map(([code, x]) => ({ code, name: x.name })), kind, { blank: 'すべて', label: r => r.name })}</select><label class="small" style="display:inline-flex;gap:4px;align-items:center"><input type="checkbox" id="ship-all" ${shipAll() ? 'checked' : ''}> 訂正前・赤も表示</label>${csvLink('shipments', { month: from.slice(0, 7) })}
      <span class="badge ${bd !== today() ? 'amber' : ''}" title="出荷日の初期値">業務日付 ${esc(bd)}</span>${canWrite() ? '<button class="mini" data-act="bizDate">変更</button><button class="primary" data-act="new">＋ 出荷登録</button>' : ''}`,
     `<section class="card glass" data-sub="slips">${table([{ label: '売上No', html: r => (r.shipKb === 5 ? `${esc(r.slipNo)}<br><span class="small muted">${esc(r.orderNo)}</span>` : esc(r.orderNo)) }, { label: '出荷日', value: r => r.date }, { label: '得意先', value: r => r.customerName }, { label: '現場', value: r => r.siteName }, { label: '商品', value: r => r.itemName },
       { label: '数量', num: 1, html: r => `${r.quantity < 0 ? `<span class="check-ng">${r.quantity}</span>` : r.quantity} ${esc(r.unit)}${r.cumulativeCount ? `<br><span class="small muted" title="同日・同現場・同商品・同納入区分の累計">累計 ${r.cumulativeQty}／${r.cumulativeCount}台</span>` : ''}` },
@@ -529,6 +528,8 @@ document.addEventListener('change', e => { if (e.target.id !== 'inv-state') retu
 document.addEventListener('change', e => { if (e.target.id !== 'lg-state') return; freshNext = false; location.hash = '#invoices/ledger?' + qs({ ...route.q, lstate: e.target.value }); });
 // 得意先別残高照会：請求書状況の絞込（検索済みの結果を使い、DB は読まない）
 document.addEventListener('change', e => { if (e.target.id !== 'bal-state') return; freshNext = false; location.hash = '#invoices/balance?' + qs({ ...route.q, bstate: e.target.value }); });
+// 出荷伝票一覧の請求・決済の絞込（請求の有無は掛売だけに意味があるため、決済方法と1つにまとめる。2026-10-24）
+const SHIP_KINDS = { 'credit-open': { name: '掛売・未請求', q: { method: 2, status: 'open' } }, 'credit-billed': { name: '掛売・請求済', q: { method: 2, status: 'billed' } }, cash: { name: '現金', q: { method: 1 } }, card: { name: 'カード', q: { method: 3 } } };
 // 出荷伝票一覧：訂正前・赤を出すか（利用者ごとに記憶）。切り替えはその場で再描画（DB は読まない）
 const monthEnd = m => { const [y, mo] = m.split('-').map(Number); return new Date(Date.UTC(y, mo, 0)).toISOString().slice(0, 10); };
 const shipAll = () => { try { return localStorage.getItem('shipAll') === '1'; } catch { return false; } };
