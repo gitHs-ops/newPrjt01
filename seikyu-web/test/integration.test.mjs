@@ -43,6 +43,7 @@ test('workflow against PostgreSQL business tables', { skip, timeout: 900000 }, a
       ok(await a.call('/api/masters/vendors', { mode: 'create', record: { code: 'V' + tag, name: '試験業者', bank: '0001', branch: '001', accountType: '1', account: '1234567', holder: 'ｼｹﾝ', active: true } }));
       ok(await a.call('/api/masters/banks', { mode: 'create', record: { code: 'B' + tag, name: '試験銀行', active: true } }));
       assert.equal((await a.call('/api/masters/customers', { mode: 'create', record: { code: C, name: 'dup', closing: 31 } })).status, 400);
+      assert.equal((await a.call('/api/masters/customers', { mode: 'create', record: { code: 'Z' + tag, name: '締日不正', closing: 23 } })).status, 400, '締日は 5・10・15・20・末日のみ');
       const cust = (await a.call('/api/masters/customers')).data.find(x => x.code === C);
       ok(await a.call('/api/masters/customers', { mode: 'update', record: { ...cust, name: '結合試験(更新)' } }));
       assert.equal((await a.call('/api/masters/customers', { mode: 'update', record: { ...cust, name: 'stale' } })).status, 409);
@@ -225,7 +226,8 @@ test('workflow against PostgreSQL business tables', { skip, timeout: 900000 }, a
     });
     await t.test('re-audit fixes: late entries, credit invoices, append, site due date, fee/offset, overpay, petty refill, bank directory', async () => {
       const ok = r => { assert.equal(r.status, 200, JSON.stringify(r.data)); return r.data; };
-      const cl = Math.max(1, Math.min(28, Number(d.slice(8)))), K = 'K' + tag, curMonth = d.slice(0, 7);
+      // 締日は 5・10・15・20・末日（当月の締日が到来済みのものを使う。1〜4日に実行すると当月分の請求は作れない）
+      const cl = [20, 15, 10, 5].find(x => x <= Number(d.slice(8))) || 5, K = 'K' + tag, curMonth = d.slice(0, 7);
       ok(await a.call('/api/masters/customers', { mode: 'create', record: { code: K, name: '締日試験', closing: cl, siteMonths: '2', siteDay: '10', payMethod: '2', payBank: 'B' + tag, active: true } }));
       ok(await a.call('/api/masters/sites', { mode: 'create', record: { customer: K, code: 'K' + tag, suffix: '000', name: 'K現場', active: true } }));
       const s1 = ok(await a.call('/api/shipments', { date: pm + '-01', customer: K, site: 'K' + tag + '|000', item: 'I' + tag, quantity: '2', price: 1000, taxRate: 10, operator: '1', deliveryKbn: '1', method: 2 }));

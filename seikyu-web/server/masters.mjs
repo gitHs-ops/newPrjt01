@@ -15,11 +15,13 @@ const hash = o => createHash('sha1').update(JSON.stringify(o)).digest('hex').sli
 const siteKey = (code, suffix) => `${code}|${suffix}`;
 
 const F = (name, label, extra = {}) => ({ name, label, type: 'text', ...extra });
+// 得意先の締日（2026-10-23 指定：5・10・15・20・末日）
+const CLOSINGS = [5, 10, 15, 20, 31], CLOSING_OPTIONS = CLOSINGS.map(d => [String(d), d === 31 ? '末日' : `${d}日`]);
 export const MASTERS = {
   customers: {
     label: '得意先', table: 'client_m',
     fields: [F('code', '得意先コード', { max: 5, key: true }), F('name', '得意先名', { max: 42 }), F('kana', 'カナ', { max: 25, optional: true }), F('abbr', '略称', { list: false, max: 26, optional: true }),
-      F('section', '部署', { list: false, max: 26, optional: true }), F('closing', '締日', { type: 'int', hint: '1〜28、月末は31' }), F('postcode', '郵便番号', { list: false, max: 7, optional: true, hint: '数字7桁' }), F('pref', '都道府県', { list: false, max: 8, optional: true }),
+      F('section', '部署', { list: false, max: 26, optional: true }), F('closing', '締日', { type: 'select', options: CLOSING_OPTIONS, hint: '5日・10日・15日・20日・末日（2026-10-23）' }), F('postcode', '郵便番号', { list: false, max: 7, optional: true, hint: '数字7桁' }), F('pref', '都道府県', { list: false, max: 8, optional: true }),
       F('address', '住所1', { max: 42, optional: true }), F('address2', '住所2', { list: false, max: 42, optional: true }), F('tel', '電話番号', { max: 14, optional: true }), F('fax', 'FAX番号', { list: false, max: 14, optional: true }),
       F('customerPic', '先方担当者', { list: false, max: 26, optional: true }), F('pic', '自社担当者', { list: false, max: 26, optional: true }), F('creditStart', '取引開始日', { list: false, type: 'date', optional: true }),
       F('cardMemberId', 'カード会員ID', { list: false, max: 15, optional: true, hint: 'カード決済（Q16確認待ち）' }), F('cardStatus', 'カード状態', { list: false, max: 2, optional: true }),
@@ -30,6 +32,8 @@ export const MASTERS = {
     where: 'c.customers_cd=?', keyOf: r => [r.code],
     decode: r => ({ code: r.customers_cd, name: r.customers_name, kana: r.customers_kana, abbr: r.customers_abr, section: r.customers_sec, closing: Number(r.deadline) || 31, postcode: r.postcode, pref: r.pref, address: r.addr1, address2: r.addr2,
       tel: r.tel_no, fax: r.fax_no, customerPic: r.customers_pic, pic: r.pic, creditStart: r.credit_str || '', cardMemberId: r.card_member_id, cardStatus: r.card_status || '', siteMonths: r.site_m ?? '', siteDay: r.site_d ?? '', payMethod: r.pay_method || '', payBank: r.pay_bank || '', remarks: r.remarks, opening: Number(r.opening || 0), deposit: Number(r.deposit || 0), active: live(r) }),
+    // 締日は 5・10・15・20・末日（31）から選ぶ。移行データの規定外の締日（25 等）は変えない限りそのまま保存できる
+    check: (r, old) => check(CLOSINGS.includes(r.closing) || (old && Number(old.closing) === r.closing), '締日は 5日・10日・15日・20日・末日 から選択してください'),
     validate: r => ({ code: text(r.code, '得意先コード', 5, { pattern: CODE }), name: text(r.name, '得意先名', 42), kana: text(r.kana, 'カナ', 25, { required: false }), abbr: text(r.abbr, '略称', 26, { required: false }),
       section: text(r.section, '部署', 26, { required: false }), closing: closingDay(r.closing ?? 31), postcode: text(String(r.postcode || '').replace('-', ''), '郵便番号', 7, { required: false, pattern: /^\d{7}$/ }),
       pref: text(r.pref, '都道府県', 8, { required: false }), address: text(r.address, '住所1', 42, { required: false }), address2: text(r.address2, '住所2', 42, { required: false }),
@@ -405,6 +409,7 @@ export async function save(c, ctx, kind, input, mode) {
   const cfg = MASTERS[kind]; check(cfg, 'マスタ種別が不正です'); check(!cfg.readOnly, `${cfg.label}は登録・変更できません`);
   const r = cfg.validate(input || {}), key = cfg.keyOf(r);
   const old = await current(c, cfg, key);
+  if (cfg.check) cfg.check(r, old);
   if (mode === 'create') check(!old, `${cfg.label}「${key.filter(Boolean).join('-')}」は登録済みです`);
   else {
     if (!old) throw new Conflict('対象のマスタが見つかりません。再読込してください');
