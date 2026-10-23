@@ -523,6 +523,8 @@ async function issueDeliveryNotes(p) {
   if (route.name === 'shipments') render();
 }
 
+// 請求一覧・発行：請求書発行状況の絞込（検索済みの結果を使い、DB は読まない）
+document.addEventListener('change', e => { if (e.target.id !== 'inv-state') return; freshNext = false; location.hash = '#invoices/list?' + qs({ ...route.q, istate: e.target.value }); });
 // 得意先別残高照会：請求書状況の絞込（検索済みの結果を使い、DB は読まない）
 document.addEventListener('change', e => { if (e.target.id !== 'bal-state') return; freshNext = false; location.hash = '#invoices/balance?' + qs({ ...route.q, bstate: e.target.value }); });
 // 出荷伝票一覧：訂正前・赤を出すか（利用者ごとに記憶）。切り替えはその場で再描画（DB は読まない）
@@ -540,7 +542,9 @@ VIEWS.invoices = async q => {
   A.view = d => go('invoices', { view: d.view });
   if (q.view === 'balance') return invoiceBalanceView(q);
   if (q.view === 'ledger') return arLedgerView(q); // await より前に呼ぶ（画面のボタン actions は描画開始時に同期で受け取る）
-  const list = await api('/api/invoices?' + qs({ month: q.month, closing: q.closing, customer: q.customer }));
+  // 請求書発行状況で絞込（検索結果を絞るだけで DB は読み直さない）
+  const INV_STATES = ['draft', 'issued', 'partial', 'paid', 'credit'], ist = INV_STATES.includes(q.istate) ? q.istate : '';
+  const list = (await api('/api/invoices?' + qs({ month: q.month, closing: q.closing, customer: q.customer }))).filter(r => !ist || r.status === ist);
   const closings = closingList();
   // 請求データ作成（10/23 打合せ：年月・締日だけ指定し「請求データ作成」。得意先の選択一覧は出さない）。
   // 対象＝その締日の得意先のうち未請求の掛売があり未作成のもの。得意先ごとに作成して進捗を表示し、終わったら請求一覧照会へ
@@ -587,7 +591,7 @@ VIEWS.invoices = async q => {
   const sum = k => lines.reduce((n, r) => n + r[k], 0);
   const closeSel = id => `<select id="${id}">${closings.map(c => `<option value="${c}">${closingName(c)}</option>`).join('')}</select>`;
   return page('請求締め・発行', '得意先単位・締日ごとに請求を作成し、請求書を発行します。発行内容はスナップショットとして保存され、再発行時も同じ内容を出力します。',
-    `${monthInput('month', q.month || '')}<select name="closing" data-filter title="締日">${options(closings.map(x => ({ code: String(x), name: closingName(x) })), q.closing, { blank: 'すべての締日', label: x => x.name })}</select>${filterSelect('customer', masters.customers, q.customer, 'すべての得意先')}<button data-act="bulk" title="チェックなしは表示中の発行済み全件">⇩ 発行済み請求書を一括ダウンロード（Excel）</button>${canWrite() ? '<button class="primary" data-act="issue">☑ 選択した請求書を発行・印刷</button>' : ''}`,
+    `${monthInput('month', q.month || '')}<select name="closing" data-filter title="締日">${options(closings.map(x => ({ code: String(x), name: closingName(x) })), q.closing, { blank: 'すべての締日', label: x => x.name })}</select>${filterSelect('customer', masters.customers, q.customer, 'すべての得意先')}<select id="inv-state" title="請求書発行状況">${options(INV_STATES.map(code => ({ code, name: STATUS[code][0] })), ist, { blank: 'すべての発行状況', label: x => x.name })}</select><button data-act="bulk" title="チェックなしは表示中の発行済み全件">⇩ 発行済み請求書を一括ダウンロード（Excel）</button>${canWrite() ? '<button class="primary" data-act="issue">☑ 選択した請求書を発行・印刷</button>' : ''}`,
     `<div>${canWrite() ? `<section class="card glass" data-sub="create"><div class="card-head"><h2>請求データ作成</h2></div>
       <div class="filters"><label class="field">請求年月<input type="month" id="bill-month" value="${thisMonth()}"></label><label class="field">締日${closeSel('bill-closing')}</label><button class="primary" data-act="run">請求データ作成</button></div>
       <p class="muted small" style="margin-top:8px">今回は売掛の得意先のみ請求対象とする（今後カード会社への請求もある）。</p></section>` : ''}
@@ -600,7 +604,7 @@ VIEWS.invoices = async q => {
       { label: '現場名', html: r => (r.siteName ? esc(r.siteName) : '<span class="muted small">（現場なし）</span>') }, { label: '決済区分', value: r => r.method || '' },
       { label: '売上額', num: 1, value: r => yen(r.net) }, { label: '消費税', num: 1, value: r => yen(r.tax) }, { label: '今回請求額', num: 1, value: r => yen(r.total) },
       { label: '請求書発行状況', html: r => (r.first ? status(r.inv.status) + (r.inv.issues ? ` <span class="small muted">${r.inv.issues}回</span>` : '') : '') },
-      { label: '', html: r => (r.first ? `<button class="mini" data-act="detail" data-id="${r.inv.id}">詳細</button>` : '') }], lines, { empty: '請求がありません', foot: ['', '合計', '', '', '', '', yen(sum('net')), yen(sum('tax')), yen(sum('total')), '', ''] })}</section>`);
+      { label: '', html: r => (r.first ? `<button class="mini" data-act="detail" data-id="${r.inv.id}">詳細</button>` : '') }], lines, { empty: ist ? 'この発行状況の請求はありません' : '請求がありません', foot: ['', '合計', '', '', '', '', yen(sum('net')), yen(sum('tax')), yen(sum('total')), '', ''] })}</section>`);
 };
 // NO9・NO15 得意先別残高照会（請求一覧照会で請求残高照会を兼ねる：削減案3）
 async function invoiceBalanceView(q) {
