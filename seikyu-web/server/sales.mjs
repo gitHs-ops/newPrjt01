@@ -284,8 +284,7 @@ async function postBillingJournal(c, id, end, customer, net, tax, slip) {
 // 同じ締日の請求が未発行・未消込なら追加分を加算、発行済みなら次回締めで請求。マイナス（訂正のみ）はクレジット請求として作成。
 export async function runBilling(c, ctx, { month, closing, customers, slip: cont }) {
   const { end } = period(month, closing), day = closingDay(closing); await assertOpen(c, end);
-  // 【一時解除 2026-10-24】デモデータの発行テスト用に締日到来チェックを外している。確認後に元へ戻す（ロールバック指示待ち）
-  // check(end <= today(), `締日（${end}）が到来していないため請求締めはできません`);
+  check(end <= today(), `締日（${end}）が到来していないため請求締めはできません`);
   let targets = await rows(c, "SELECT * FROM client_m WHERE delete_f<>'1' AND CAST(substring(deadline from '^ *([0-9]+)') AS INTEGER)=? ORDER BY customers_cd", [day]);
   if (Array.isArray(customers) && customers.length) targets = targets.filter(t => customers.includes(t.customers_cd));
   check(targets.length, `締日${day}日の有効な得意先がありません`);
