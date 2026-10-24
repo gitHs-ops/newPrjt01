@@ -41,11 +41,11 @@ async function api(url, { method = 'GET', body } = {}) {
 }
 // 登録・作成など時間のかかる POST は 0.4 秒を超えたら画面上部に「処理中…」を表示（全画面共通）
 let busyCount = 0, busyTimer = null;
-const busy = (on, label = '処理中…') => {
+const busy = (on, label = '処理中…', now = false) => {
   const b = $('#busy-bar'); if (!b) return;
   if (on) { const l = $('#busy-label'); if (l && busyCount === 0) l.textContent = label; }
   busyCount = Math.max(0, busyCount + (on ? 1 : -1));
-  if (busyCount && !busyTimer && !(b.showPopover && b.matches(':popover-open'))) busyTimer = setTimeout(() => { busyTimer = null; if (busyCount && !$('#progress-dialog')?.open) { try { b.showPopover ? b.showPopover() : (b.style.display = 'flex'); } catch {} } }, 400);
+  if (busyCount && !busyTimer && !(b.showPopover && b.matches(':popover-open'))) busyTimer = setTimeout(() => { busyTimer = null; if (busyCount && !$('#progress-dialog')?.open) { try { b.showPopover ? b.showPopover() : (b.style.display = 'flex'); } catch {} } }, now ? 0 : 400);
   if (!busyCount) { clearTimeout(busyTimer); busyTimer = null; try { b.showPopover ? b.hidePopover() : (b.style.display = 'none'); } catch {} }
 };
 const post = async (url, body) => { busy(true); try { return await api(url, { method: 'POST', body }); } finally { busy(false); } };
@@ -204,40 +204,43 @@ async function render({ fresh = false } = {}) {
   const token = ++renderSeq, own = { go: d => go(d.to) }, prev = actions;
   let html, pending;
   const mode = fresh || apiDirty ? 'fresh' : 'lazy'; if (mode === 'fresh') apiDirty = false;
-  if (mode === 'fresh') $('#content').classList.add('busy');
+  // DB から読む描画（検索など）は、読込から一覧の表示が終わるまで「データを読み込み中…」のバーを出す（出荷伝票など件数の多い一覧）
+  const reading = mode === 'fresh'; if (reading) { $('#content').classList.add('busy'); busy(true, 'データを読み込み中…', true); }
   apiMode = mode; emptyShown = false; actions = own; try { pending = fn(route.q); } finally { actions = prev; } // view captures `own` synchronously; old page stays usable while loading
-  try { html = await pending; }
+  try { html = await pending; if (reading && token === renderSeq) await new Promise(r => requestAnimationFrame(() => setTimeout(r))); } // バーを描いてから一覧を組み立てる
   catch (e) { html = `<div class="card glass"><h2>読み込みエラー</h2><p class="check-ng">${esc(e.message)}</p></div>`; toast(e.message, true); }
   finally { if (token === renderSeq) apiMode = null; }
-  if (token !== renderSeq) return; // a newer navigation finished first
-  const content = $('#content');
-  actions = own; content.innerHTML = html; content.dataset.view = route.name; content.classList.remove('busy');
-  // 小メニュー：該当する区画だけ表示（data-sub はスペース区切りで複数可）。先頭以外では上部の検索・登録を隠す
-  if (route.sub) { content.querySelectorAll('[data-sub]').forEach(el => (el.hidden = !el.dataset.sub.split(' ').includes(route.sub))); const tools = content.querySelector('.page-head > .filters'); if (tools) tools.hidden = !route.subTools; }
-  // 画面の見出しは開いている小メニュー名（大メニュー名はパンくずに表示）
-  const h1 = content.querySelector('.page-head h1'); if (h1 && route.subItem) h1.textContent = route.subItem.l;
-  // カードの見出しが小メニュー名と同じなら出さない（より下位の名称のカードはそのまま）
-  if (route.subItem) {
-    const norm = t => t.replace(/[\s（）()・、,]|NO/g, ''), base = t => t.split(/[（(]/)[0].trim(), sub = norm(route.subItem.l);
-    const heads = $$('.card-head > h2, section.card > h2', content).filter(h => h.offsetParent), one = heads.length === 1;
-    for (const h2 of heads) {
-      const t = norm(h2.textContent), b1 = base(h2.textContent), b2 = base(route.subItem.l);
-      // 複数カードの小メニューでは同じ名称だけ、カード1枚なら前方一致・先頭の語の一致も同じとみなす
-      const same = t === sub || b1 === b2 || (one && (sub.startsWith(t) || t.startsWith(sub) || b1.split('・')[0] === b2.split('・')[0]));
-      if (!t || !same) continue;
-      h2.hidden = true; const head = h2.parentElement; if (head.classList.contains('card-head') && ![...head.children].some(x => !x.hidden)) head.hidden = true;
+  if (token !== renderSeq) { if (reading) busy(false); return; } // a newer navigation finished first
+  try {
+    const content = $('#content');
+    actions = own; content.innerHTML = html; content.dataset.view = route.name; content.classList.remove('busy');
+    // 小メニュー：該当する区画だけ表示（data-sub はスペース区切りで複数可）。先頭以外では上部の検索・登録を隠す
+    if (route.sub) { content.querySelectorAll('[data-sub]').forEach(el => (el.hidden = !el.dataset.sub.split(' ').includes(route.sub))); const tools = content.querySelector('.page-head > .filters'); if (tools) tools.hidden = !route.subTools; }
+    // 画面の見出しは開いている小メニュー名（大メニュー名はパンくずに表示）
+    const h1 = content.querySelector('.page-head h1'); if (h1 && route.subItem) h1.textContent = route.subItem.l;
+    // カードの見出しが小メニュー名と同じなら出さない（より下位の名称のカードはそのまま）
+    if (route.subItem) {
+      const norm = t => t.replace(/[\s（）()・、,]|NO/g, ''), base = t => t.split(/[（(]/)[0].trim(), sub = norm(route.subItem.l);
+      const heads = $$('.card-head > h2, section.card > h2', content).filter(h => h.offsetParent), one = heads.length === 1;
+      for (const h2 of heads) {
+        const t = norm(h2.textContent), b1 = base(h2.textContent), b2 = base(route.subItem.l);
+        // 複数カードの小メニューでは同じ名称だけ、カード1枚なら前方一致・先頭の語の一致も同じとみなす
+        const same = t === sub || b1 === b2 || (one && (sub.startsWith(t) || t.startsWith(sub) || b1.split('・')[0] === b2.split('・')[0]));
+        if (!t || !same) continue;
+        h2.hidden = true; const head = h2.parentElement; if (head.classList.contains('card-head') && ![...head.children].some(x => !x.hidden)) head.hidden = true;
+      }
     }
-  }
-  // 検索条件（data-filter）の並びの後ろに「検索」ボタン。条件を変えただけでは読み込まない
-  for (const g of new Set($$('[data-filter]', content).map(el => el.closest('.filters') || el.parentElement))) {
-    const last = $$('[data-filter]', g).pop(); (last.closest('label') && g.contains(last.closest('label')) ? last.closest('label') : last).insertAdjacentHTML('afterend', '<button type="button" class="primary" data-search>検索</button>');
-  }
-  // メニューで開いただけ（DB 未読込）の一覧：検索系ボタンで表示する旨を出す。画面に検索ボタンが無いときはここに置く
-  if (emptyShown) {
-    const visible = el => el.offsetParent !== null, hasSearch = $$('[data-search], [data-act="search"], [data-act="preview"]', content).some(visible);
-    for (const el of $$('.empty', content)) el.innerHTML = `検索条件を指定して「検索」を押すと表示します${hasSearch ? '' : ' <button type="button" class="primary mini" data-search>検索</button>'}`;
-  }
-  document.dispatchEvent(new CustomEvent('view:rendered', { detail: route.name }));
+    // 検索条件（data-filter）の並びの後ろに「検索」ボタン。条件を変えただけでは読み込まない
+    for (const g of new Set($$('[data-filter]', content).map(el => el.closest('.filters') || el.parentElement))) {
+      const last = $$('[data-filter]', g).pop(); (last.closest('label') && g.contains(last.closest('label')) ? last.closest('label') : last).insertAdjacentHTML('afterend', '<button type="button" class="primary" data-search>検索</button>');
+    }
+    // メニューで開いただけ（DB 未読込）の一覧：検索系ボタンで表示する旨を出す。画面に検索ボタンが無いときはここに置く
+    if (emptyShown) {
+      const visible = el => el.offsetParent !== null, hasSearch = $$('[data-search], [data-act="search"], [data-act="preview"]', content).some(visible);
+      for (const el of $$('.empty', content)) el.innerHTML = `検索条件を指定して「検索」を押すと表示します${hasSearch ? '' : ' <button type="button" class="primary mini" data-search>検索</button>'}`;
+    }
+    document.dispatchEvent(new CustomEvent('view:rendered', { detail: route.name }));
+  } finally { if (reading) busy(false); }
 }
 document.addEventListener('click', e => {
   const b = e.target.closest('[data-act]'); if (!b || !actions[b.dataset.act]) return;
