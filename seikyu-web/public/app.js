@@ -642,8 +642,7 @@ VIEWS.invoices = async q => {
   return page('請求締め・発行', '得意先単位・締日ごとに請求を作成し、請求書を発行します。発行内容はスナップショットとして保存され、再発行時も同じ内容を出力します。',
     `${monthInput('month', q.month || '')}<select name="closing" data-filter title="締日">${options(closings.map(x => ({ code: String(x), name: closingName(x) })), q.closing, { blank: 'すべての締日', label: x => x.name })}</select>${filterSelect('customer', masters.customers, q.customer, 'すべての得意先')}<select id="inv-state" title="請求書発行状況">${options(INV_STATES.map(code => ({ code, name: STATUS[code][0] })), ist, { blank: 'すべての発行状況', label: x => x.name })}</select><button data-act="bulk" title="チェックなしは表示中の発行済み全件">⇩ 発行済み請求書を一括ダウンロード（Excel）</button>${canWrite() ? '<button class="primary" data-act="issue">☑ 選択した請求書を発行・印刷</button>' : ''}`,
     `<div>${canWrite() ? `<section class="card glass" data-sub="create"><div class="card-head"><h2>請求データ作成</h2></div>
-      <div class="filters"><label class="field">請求年月<input type="month" id="bill-month" value="${thisMonth()}"></label><label class="field">締日${closeSel('bill-closing')}</label><button class="primary" data-act="run">請求データ作成</button></div>
-      <p class="muted small" style="margin-top:8px">今回は売掛の得意先のみ請求対象とする（今後カード会社への請求もある）。</p></section>` : ''}
+      <div class="filters"><label class="field">請求年月<input type="month" id="bill-month" value="${thisMonth()}"></label><label class="field">締日${closeSel('bill-closing')}</label><button class="primary" data-act="run">請求データ作成</button></div></section>` : ''}
     <section class="card glass" data-sub="reports"><div class="card-head"><h2>請求帳票</h2></div>
       <div class="filters"><label class="field">請求年月<input type="month" id="rep-month" value="${q.month || thisMonth()}"></label><label class="field">締日${closeSel('rep-closing')}</label>
       <label class="small" title="発行前に全得意先の明細を確認するときに使う（現行 HAR430 は請求書発行の前に出力）"><input type="checkbox" id="rep-unissued"> 未発行を含む</label>
