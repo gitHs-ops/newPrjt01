@@ -625,7 +625,7 @@ VIEWS.invoices = async q => {
       <div style="max-height:300px;overflow:auto;margin-top:8px">${table([{ label: 'No', value: r => r.id }, { label: '締日', value: r => r.closing }, { label: '得意先', value: r => `${r.customer} ${r.customerName}` }, { label: '請求額', num: 1, value: r => yen(r.total) }, { label: '発行', value: r => (r.issues ? `${r.issues}回目済 → 再発行` : '初回') }], picked)}</div>`,
       onSubmit: async () => { const r = await post('/api/invoices/issue', { ids }); printDocs(r.documents); await render(); } }); };
   // 帳票は一覧を画面に出さない：0件ならその旨、あれば件数と「Excel」「印刷」だけのポップアップ
-  A.report = async (d, btn) => { btn.disabled = true; try { await billingReport(d.kind, $('#rep-month').value, $('#rep-closing').value); } catch (e) { toast(e.message, true); } finally { btn.disabled = false; } };
+  A.report = async (d, btn) => { btn.disabled = true; try { await billingReport(d.kind, $('#rep-month').value, $('#rep-closing').value, $('#rep-unissued')?.checked); } catch (e) { toast(e.message, true); } finally { btn.disabled = false; } };
   A.bulk = async () => {
     // 10/14 打合せ：チェックなし＝表示中の発行済み全件、チェックあり＝選択分
     const picked = $$('.inv-pick:checked').map(x => x.value), ids = picked.length ? picked : list.filter(r => r.issues).map(r => String(r.id)); if (!ids.length) return toast('発行済みの請求書がありません', true);
@@ -645,6 +645,7 @@ VIEWS.invoices = async q => {
       <p class="muted small" style="margin-top:8px">今回は売掛の得意先のみ請求対象とする（今後カード会社への請求もある）。</p></section>` : ''}
     <section class="card glass" data-sub="reports"><div class="card-head"><h2>請求帳票</h2></div>
       <div class="filters"><label class="field">請求年月<input type="month" id="rep-month" value="${q.month || thisMonth()}"></label><label class="field">締日${closeSel('rep-closing')}</label>
+      <label class="small" title="発行前に全得意先の明細を確認するときに使う（現行 HAR430 は請求書発行の前に出力）"><input type="checkbox" id="rep-unissued"> 未発行を含む</label>
       <button data-act="report" data-kind="confirm">請求書発行確認表</button></div>
       </section></div>
     <section class="card glass" data-sub="list">
@@ -673,9 +674,9 @@ async function invoiceBalanceView(q) {
       d.rows, { empty: st ? 'この請求書状況の得意先はありません' : 'この締日の得意先はありません', foot: ['合計', yen(s('prevBalance')), yen(s('received')), yen(s('carried')), yen(s('net')), yen(s('tax')), yen(s('total')), '', '', ''] })}</section>`);
 }
 // NO12 / NO13 report viewer with print and Excel download.
-async function billingReport(kind, month, closing) {
-  const url = `/api/reports/${kind === 'list' ? 'billing-list' : 'billing-confirm'}?${qs({ month, closing })}`, d = await api(url);
-  const title = kind === 'list' ? '請求一覧表（確認用）' : '請求書発行確認表';
+async function billingReport(kind, month, closing, unissued = false) {
+  const url = `/api/reports/${kind === 'list' ? 'billing-list' : 'billing-confirm'}?${qs({ month, closing, ...(kind !== 'list' && unissued ? { unissued: '1' } : {}) })}`, d = await api(url);
+  const title = kind === 'list' ? '請求一覧表（確認用）' : unissued ? '請求書発行確認表（未発行を含む）' : '請求書発行確認表';
   let body;
   if (kind === 'list') {
     // 現行 HAR431：得意先・現場名・売上額・税額・値引額・請求額、得意先計・会社合計
@@ -691,12 +692,12 @@ async function billingReport(kind, month, closing) {
   } else {
     // 現行 HAR430（提案書 帳票②）：締日・請求日付・売上締切日、売上日・伝票No・区分・商品名・数量・単位・単価・金額・税率・運送・備考、（売上額）（消費税額）（値引額）（今回請求額）と税率別
     const ymd = iso => String(iso).slice(2).replaceAll('-', '/'), kb = l => (l.shipKb === 5 ? (l.quantity < 0 ? '赤' : '黒') : '売上');
-    body = d.rows.length ? `<div class="har430-head"><span>締日 <b>${esc(closingLabel(closing))}</b></span><span>請求日付 <b>${ymd(d.end)}</b></span><span>売上締切日 <b>${ymd(d.end)}</b></span><span>作成日 <b>${ymd(today())}</b></span><span class="right">${esc(d.company)}</span></div>` + d.rows.map(r => `<div class="har430-cust"><div class="filters"><b>${esc(r.customer)} ${esc(r.name)}</b><span class="muted small">${r.lastIssue ? `${r.lastIssue.no}回目発行 ${String(r.lastIssue.at).slice(0, 16)} ${esc(r.lastIssue.by)}` : ''}</span></div>
+    body = d.rows.length ? `<div class="har430-head"><span>締日 <b>${esc(closingLabel(closing))}</b></span><span>請求日付 <b>${ymd(d.end)}</b></span><span>売上締切日 <b>${ymd(d.end)}</b></span><span>作成日 <b>${ymd(today())}</b></span><span class="right">${esc(d.company)}</span></div>` + d.rows.map(r => `<div class="har430-cust"><div class="filters"><b>${esc(r.customer)} ${esc(r.name)}</b><span class="muted small">${r.lastIssue ? `${r.lastIssue.no}回目発行 ${String(r.lastIssue.at).slice(0, 16)} ${esc(r.lastIssue.by)}` : badge('未発行', 'amber')}</span></div>
       ${table([{ label: '売上日', value: l => ymd(l.date) }, { label: '伝票No', value: l => l.orderNo }, { label: '区分', value: kb }, { label: '商品名', value: l => `${l.item} ${l.itemName}` }, { label: '数量', num: 1, value: l => Number(l.quantity).toFixed(2) }, { label: '単位', value: l => l.unit },
         { label: '単価', num: 1, value: l => yen(l.price) }, { label: '金額', num: 1, value: l => yen(l.net) }, { label: '税率', num: 1, value: l => l.taxRate + '%' }, { label: '運送', value: l => l.carry }, { label: '備考', value: l => l.siteName }], r.lines)}
       <p class="small har430-sum">（売上額 <b>${yen(r.net)}</b>）（消費税額 <b>${yen(r.tax)}</b>）（値引額 <b>0</b>）（今回請求額 <b>${yen(r.current)}</b>）</p>
       ${(r.byRate || []).map(x => `<p class="small har430-rate"><span>${x.rate} %</span><span>${yen(x.net)}</span><span>${yen(x.tax)}</span></p>`).join('')}</div>`).join('') + ''
-      : `<div class="empty">この請求年月・締日の発行済み請求書はありません</div>${d.available?.length ? `<p class="small">発行済みの請求がある年月・締日：${d.available.map(a => `<button type="button" class="mini" data-period="${a.month}|${a.closing}">${a.month} ${closingLabel(a.closing)}締</button>`).join(' ')}</p>` : ''}`;
+      : `<div class="empty">${unissued ? 'この請求年月・締日の請求はありません' : 'この請求年月・締日の発行済み請求書はありません'}</div>${d.available?.length ? `<p class="small">発行済みの請求がある年月・締日：${d.available.map(a => `<button type="button" class="mini" data-period="${a.month}|${a.closing}">${a.month} ${closingLabel(a.closing)}締</button>`).join(' ')}</p>` : ''}`;
   }
   // 一覧は表示せず（印刷用に隠して持つ）、件数・合計と出力ボタンだけ
   const n = d.rows.length, total = d.rows.reduce((t, r) => t + (r.current || 0), 0);
@@ -708,7 +709,7 @@ async function billingReport(kind, month, closing) {
       // 該当なしのとき：発行済みがある年月・締日を押すとその条件で出し直す
       $$('#rep-body [data-period]').forEach(b => (b.onclick = () => { const [m, cl] = b.dataset.period.split('|'), sel = $('#rep-closing');
         if ($('#rep-month')) $('#rep-month').value = m; if (sel && ![...sel.options].some(o => o.value === cl)) sel.insertAdjacentHTML('beforeend', `<option value="${cl}">${closingLabel(cl)}</option>`); if (sel) sel.value = cl;
-        billingReport(kind, m, cl).catch(e => toast(e.message, true)); }));
+        billingReport(kind, m, cl, unissued).catch(e => toast(e.message, true)); }));
     } });
 }
 async function invoiceDetail(id) {
