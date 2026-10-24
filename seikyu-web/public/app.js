@@ -158,7 +158,8 @@ async function act(fn, msg) { try { const r = await fn(); if (msg) toast(typeof 
 const SUBMENUS = {
   // 出荷予定・納品書発行は機能一覧の範囲外（推定実装）のため小メニューを無効表示（納品書発行は 2026-10-24）（2026-10-23、要否は大西さんに確認。画面・API は残す）
   shipments: [{ k: 'slips', l: '出荷伝票' }, { k: 'plans', l: '出荷予定', q: { tab: 'plans' }, disabled: true }, { k: 'notes', l: '納品書発行', disabled: true }, { k: 'reports', l: '出荷・売上帳票' }],
-  invoices: [{ k: 'precheck', l: '発行前確認一覧', q: { view: 'precheck' } }, { k: 'create', l: '請求データ作成', tools: false }, { k: 'list', l: '請求一覧・発行', tools: true }, { k: 'reports', l: '請求帳票' }, { k: 'balance', l: '得意先別残高照会', q: { view: 'balance' } }, { k: 'ledger', l: '請求残高照会', q: { view: 'ledger' } }],
+  // 発行前確認一覧は 2026-10-25 非表示（請求データ作成は締日単位の一括のため不要。機能は #invoices/precheck で残す）
+  invoices: [{ k: 'create', l: '請求データ作成', tools: false }, { k: 'list', l: '請求一覧・発行', tools: true }, { k: 'reports', l: '請求帳票' }, { k: 'balance', l: '得意先別残高照会', q: { view: 'balance' } }, { k: 'ledger', l: '請求残高照会', q: { view: 'ledger' } }, { k: 'precheck', l: '発行前確認一覧', q: { view: 'precheck' }, hidden: true }],
   receipts: [{ k: 'targets', l: '入金消込', q: { tab: 'targets' } }, { k: 'list', l: '入金一覧', tools: true }, { k: 'plan', l: '入金予定一覧', q: { tab: 'plan' } }, { k: 'schedule', l: '入金予定チェックリスト' }],
   // 10/21 打合せの処理順（実在庫登録 → 配合計算 → 材料受払表 → 在庫計上）に並べる
   inventory: [{ k: 'count', l: '実在庫登録' }, { k: 'reports', l: '在庫登録リスト・配合計算・材料受払表' }, { k: 'list', l: '在庫一覧・在庫計上' }],
@@ -211,7 +212,7 @@ function navSubs() {
   const subs = subsOf(route.name), link = $(`.nav-link[data-nav="${route.name}"]`);
   if (!subs || !link) return;
   link.classList.add('open');
-  link.insertAdjacentHTML('afterend', `<div class="nav-subs">${subs.map(s => (s.disabled ? `<span class="nav-sub disabled" aria-disabled="true" title="現在は使用できません">${esc(s.l)}</span>` : `<a class="nav-sub ${s.k === route.sub ? 'active' : ''}" href="#${route.name}/${s.k}">${esc(s.l)}</a>`)).join('')}</div>`);
+  link.insertAdjacentHTML('afterend', `<div class="nav-subs">${subs.filter(s => !s.hidden).map(s => (s.disabled ? `<span class="nav-sub disabled" aria-disabled="true" title="現在は使用できません">${esc(s.l)}</span>` : `<a class="nav-sub ${s.k === route.sub ? 'active' : ''}" href="#${route.name}/${s.k}">${esc(s.l)}</a>`)).join('')}</div>`);
 }
 function parseHash() {
   const [path, q] = location.hash.slice(1).split('?'), [name, sub] = (path || '').split('/');
@@ -220,7 +221,7 @@ function parseHash() {
 // 小メニューの決定：明示 → 条件（従来タブのURL）一致 → 先頭。小メニューの q を条件に足す
 function resolveSub(r) {
   const subs = subsOf(r.name); if (!subs) return r;
-  const usable = subs.filter(s => !s.disabled), item = usable.find(s => s.k === r.sub) || (!r.sub && usable.find(s => s.q && Object.entries(s.q).every(([k, v]) => r.q[k] === v))) || usable[0];
+  const usable = subs.filter(s => !s.disabled), item = usable.find(s => s.k === r.sub) || (!r.sub && usable.find(s => s.q && Object.entries(s.q).every(([k, v]) => r.q[k] === v))) || usable.find(s => !s.hidden);
   return { ...r, sub: item.k, subItem: item, subTools: item.tools ?? (item === subs[0] || !!item.q), q: { ...r.q, ...(item.q || {}) } };
 }
 // freshNext：次の描画で DB を読む。画面のボタン（検索・タブ切替など）から go() したときは読み、サイドバーのメニュー・小メニューは読まない
