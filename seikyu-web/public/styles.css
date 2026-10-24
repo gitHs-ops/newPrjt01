@@ -333,8 +333,8 @@ dialog.modal.wide:has(.slip-sheet) { width: min(1320px, calc(100vw - 24px)); } /
 [data-sub][hidden], .page-head > .filters[hidden] { display: none !important; }
 
 /* サンプル入力ボタン（登録画面の上部） */
-.sample-bar { display: flex; align-items: center; justify-content: flex-end; gap: 10px; margin-bottom: 10px; flex-wrap: wrap; }
-.sample-btn { border: 1px dashed #6366f1; color: #4f46e5; background: rgba(99,102,241,.08); border-radius: 999px; padding: 6px 14px; font-weight: 600; font-size: 13px; cursor: pointer; }
+.sample-bar { position: absolute; top: 12px; right: 52px; z-index: 2; margin: 0; }
+.sample-btn { width: 32px; height: 32px; padding: 0; display: inline-flex; align-items: center; justify-content: center; border: 1px dashed #6366f1; color: #4f46e5; background: rgba(99,102,241,.08); border-radius: 50%; cursor: pointer; }
 .sample-btn:hover { background: rgba(99,102,241,.16); }
 /* 出荷伝票：狭い画面はラベル＋値の2列。空きセルは隠し、名称・納入場所は値の列に置く */
 @media (max-width: 900px) {

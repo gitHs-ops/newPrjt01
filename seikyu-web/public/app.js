@@ -102,9 +102,10 @@ const page = (title, sub, actionsHtml, body) => `<div class="page"><div class="p
 const csvLink = (kind, q = {}) => `<a class="button" href="/api/export/${kind}?${qs(q)}" download>⇩ CSV</a>`;
 
 // Modal with top-right X and bottom close/cancel button. onSubmit returns truthy to close.
-function modal({ title, body, submit, onSubmit, wide = false, onOpen, danger = false }) {
+// sample：新規の入力画面に「サンプル入力」アイコンを付け、空欄に見本の値を入れる（関数なら汎用の入力の後に呼ぶ。画面独自のサンプル入力がある画面は sampleButton を直接置く）
+function modal({ title, body, submit, onSubmit, wide = false, onOpen, danger = false, sample = false }) {
   const d = $('#dialog'), form = $('#modal-form');
-  d.classList.toggle('wide', wide); $('#modal-title').textContent = title; $('#modal-body').innerHTML = body + '<p class="form-error" id="form-error"></p>';
+  d.classList.toggle('wide', wide); $('#modal-title').textContent = title; $('#modal-body').innerHTML = (sample ? sampleButton : '') + body + '<p class="form-error" id="form-error"></p>';
   $('#modal-foot').innerHTML = `<button type="button" id="modal-cancel">${submit ? 'キャンセル' : '閉じる'}</button>${submit ? `<button type="submit" class="${danger ? 'danger' : 'primary'}" id="modal-submit">${esc(submit)}</button>` : ''}`;
   const close = () => { d.close(); form.onsubmit = null; };
   $('#modal-cancel').onclick = close; $('#modal-x').onclick = close;
@@ -116,6 +117,38 @@ function modal({ title, body, submit, onSubmit, wide = false, onOpen, danger = f
     finally { btn.disabled = false; }
   };
   d.showModal(); onOpen?.(form);
+  if (sample) form.querySelector('[data-sample]')?.addEventListener('click', () => { fillSampleForm(form); if (typeof sample === 'function') sample(form); });
+}
+// 汎用のサンプル入力：空欄だけを埋める（入力済み・0 の金額・パスワード・ファイル・チェックは変えない）。明細の表は先頭行だけ
+function fillSampleForm(f) {
+  const rnd = (a, b) => a + Math.floor(Math.random() * (b - a + 1));
+  for (const el of f.elements) {
+    if (!el.name || el.disabled || el.readOnly || ['hidden', 'password', 'file', 'checkbox', 'radio'].includes(el.type) || el.offsetParent === null) continue;
+    const tr = el.closest('tbody tr'); if (tr && tr !== tr.parentElement.firstElementChild) continue;
+    const label = el.closest('label')?.querySelector('span')?.textContent || el.closest('td')?.dataset.label || '', key = `${el.name} ${label}`.toLowerCase(), max = el.maxLength > 0 ? el.maxLength : 20;
+    if (el.tagName === 'SELECT') { if (el.value) continue; const o = [...el.options].filter(x => x.value); if (!o.length) continue; el.value = o[rnd(0, o.length - 1)].value; }
+    else if (el.value) continue;
+    else if ((el.dataset.fp || el.type) === 'date') el._flatpickr ? el._flatpickr.setDate(today(), true) : (el.value = today()); // カレンダー（datepick.js）に置き換えた入力も
+    else if ((el.dataset.fp || el.type) === 'month') el._flatpickr ? el._flatpickr.setDate(thisMonth(), true) : (el.value = thisMonth());
+    else if ((el.dataset.fp || el.type) === 'time') continue;
+    else if (/税率/.test(key)) el.value = [8, 10][rnd(0, 1)];
+    else if (/率|ratio/.test(key)) el.value = rnd(1, 50);
+    else if (/表示順|seq|sort/.test(key)) el.value = rnd(1, 99);
+    else if (el.type === 'number' || el.classList.contains('num')) {
+      const range = (el.closest('label')?.querySelector('small')?.textContent || '').match(/(\d+)\s*[〜~～]\s*(\d+)/); // 入力欄の補足「1〜31」などの範囲
+      el.value = range ? rnd(+range[1], +range[2]) : /数量|quantity|qty/.test(key) ? rnd(1, 20) : /単価|price/.test(key) ? rnd(10, 300) * 10 : Math.min(rnd(1, 99) * 1000, 10 ** max - 1);
+    }
+    else if (el.tagName === 'TEXTAREA') el.value = 'サンプル入力';
+    else if (/(\d+)桁/.test(label)) { const n = +label.match(/(\d+)桁/)[1]; el.value = String(rnd(1, 10 ** n - 1)).padStart(n, '0'); } // 「銀行(4桁)」など
+    else if (/kana|カナ/.test(key)) el.value = 'サンプル'.slice(0, max);
+    else if (/tel|fax|電話/.test(key)) el.value = `052-000-${rnd(1000, 9999)}`.slice(0, max);
+    else if (/post|郵便/.test(key)) el.value = '4600000'.slice(0, max);
+    else if (/mail/.test(key)) el.value = 'sample@example.com'.slice(0, max);
+    else if (/code|コード|番号|枝番|suffix/.test(key)) el.value = String(rnd(1, 10 ** Math.min(max, 4) - 1)).padStart(Math.min(max, 4), '0');
+    else el.value = `サンプル${rnd(10, 99)}`.slice(0, max);
+    el.dispatchEvent(new Event('input', { bubbles: true })); el.dispatchEvent(new Event('change', { bubbles: true }));
+  }
+  toast('サンプルの値を入れました（登録はまだです）');
 }
 const confirmBox = (title, message, run, label = '実行') => modal({ title, body: `<p>${esc(message)}</p>`, submit: label, danger: true, onSubmit: async () => { await run(); } });
 async function act(fn, msg) { try { const r = await fn(); if (msg) toast(typeof msg === 'function' ? msg(r) : msg); await render(); return r; } catch (e) { toast(e.message, true); } }
@@ -371,7 +404,9 @@ const siteFields = (cust, r) => `${field('現場', `<select name="site">${siteOp
 function correctionForm(r) { shipmentForm({ ...r, orderNo: undefined, correctOf: r, date: today(), remarks: `黒 ${r.orderNo}`, shipKb: 5 }); }
 // 確認用：入力欄に架空のサンプル値を入れる（登録はしない）
 const SAMPLE_SITES = ['東名高速 豊田管内舗装補修工事', '市道3号線 舗装工事', '南町 駐車場整備工事', '北区 造成工事'];
-const sampleButton = '<div class="sample-bar"><button type="button" class="sample-btn" data-sample>🎲 サンプル入力</button></div>';
+// サンプル入力：ダイアログ右上（× の左）の小さなアイコン（2026-10-24）
+const SAMPLE_ICON = '<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="4" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="8" cy="8" r="1.6" fill="currentColor"/><circle cx="16" cy="8" r="1.6" fill="currentColor"/><circle cx="12" cy="12" r="1.6" fill="currentColor"/><circle cx="8" cy="16" r="1.6" fill="currentColor"/><circle cx="16" cy="16" r="1.6" fill="currentColor"/></svg>';
+const sampleButton = `<div class="sample-bar"><button type="button" class="sample-btn" data-sample title="サンプル入力" aria-label="サンプル入力">${SAMPLE_ICON}</button></div>`;
 function fillSample(f, { plan = false } = {}) {
   const pick = list => list[Math.floor(Math.random() * list.length)], cus = active('customers'), items = active('items');
   if (cus.length) { f.customer.value = pick(cus).code; if (!f.siteCode) f.customer.dispatchEvent(new Event('change')); }
@@ -936,7 +971,7 @@ VIEWS.purchases = async q => {
       tr.querySelector('[data-unit]').textContent = it?.unit || ''; f('amount').value = qn && pr ? Math.floor(qn * pr) : ''; f('amount').readOnly = true; f('quantity').disabled = false; f('price').disabled = false; }
     else { f('amount').readOnly = false; f('quantity').disabled = true; f('price').disabled = true; tr.querySelector('[data-unit]').textContent = ''; }
     return Number(f('amount').value || 0); };
-  A.new = () => modal({ title: '商品仕入の登録', submit: '登録する', wide: true, body: `<div class="form-grid">${field('仕入日（納入日）', `<input type="date" name="date" value="${today()}">`, { req: 1 })}${field('仕入先（業者）', `<select name="vendor">${options(active('vendors'), '', { blank: '選択してください' })}</select>`, { req: 1 })}
+  A.new = () => modal({ title: '商品仕入の登録', submit: '登録する', wide: true, sample: true, body: `<div class="form-grid">${field('仕入日（納入日）', `<input type="date" name="date" value="${today()}">`, { req: 1 })}${field('仕入先（業者）', `<select name="vendor">${options(active('vendors'), '', { blank: '選択してください' })}</select>`, { req: 1 })}
       ${field('区分', `<select name="kind">${Object.entries(meta.purchaseKinds).map(([k, v]) => `<option value="${k}">${k} ${esc(v)}</option>`).join('')}</select>`)}${field('伝票摘要', '<input name="memo" maxlength="500">')}</div>
       ${lineGrid('pu-lines', cols)}`,
     onOpen: f => { const g = $('#pu-lines'); g.addEventListener('input', () => lineTotal('pu-lines', 'amount', calc)); g.addEventListener('change', () => lineTotal('pu-lines', 'amount', calc)); },
@@ -1028,7 +1063,7 @@ function expenseView(kind) {
     // 処税率の区分（1桁目 1＝内税、2・空白＝外税、税率0や対象外は対象外）
     const RATE = { 0: 0, 1: 10, 2: 3, 3: 6, 4: 2.8, 5: 5, 8: 8 }, taxClass = code => { const s3 = String(code || '').padStart(3, '0'), rate = RATE[s3[2]] || 0, taxable = rate > 0 && [1, 4, 5, 6].includes(Number(s3[1])); return { kind: !taxable ? 'out' : s3[0] === '1' ? 'in' : 'ex', rate }; };
     const num = v => Number(String(v || '').replace(/[,，\s]/g, '')) || 0;
-    A.new = () => modal({ title: payable ? '定時請求データ入力' : '小口現金出納登録', submit: payable ? '登録' : '登録する', wide: true, body: `${head}${lineGrid('ex-lines', payable ? hwCols : cols)}${sumBar}
+    A.new = () => modal({ title: payable ? '定時請求データ入力' : '小口現金出納登録', submit: payable ? '登録' : '登録する', wide: true, sample: payable ? f => { f.total.value = $('#hw-total').textContent.replace(/[^\d-]/g, ''); f.total.dispatchEvent(new Event('input', { bubbles: true })); } : true, body: `${head}${lineGrid('ex-lines', payable ? hwCols : cols)}${sumBar}
       `,
       onOpen: () => { const g = $('#ex-lines'), f = $('#modal-body');
         const recalc = () => {
@@ -1087,7 +1122,7 @@ VIEWS.payments = async q => {
   A.bankList = () => { location.hash = '#journals/lists?' + qs({ tab: 'lists', list: 'BANK', from: $('#bp-from').value, to: $('#bp-to').value }); };
   A.misc = d => miscReport(d.kind, d.src).catch(e => toast(e.message, true));
   const month = q.month || '', list = await api('/api/payments?' + qs({ month }));
-  A.new = () => { const key = uuid(); modal({ title: '支払の登録', wide: true, submit: '支払を登録', body: `<div class="form-grid">${field('業者', `<select name="vendor">${options(active('vendors'), '', { blank: '選択してください' })}</select>`, { req: 1 })}
+  A.new = () => { const key = uuid(); modal({ title: '支払の登録', wide: true, submit: '支払を登録', sample: true, body: `<div class="form-grid">${field('業者', `<select name="vendor">${options(active('vendors'), '', { blank: '選択してください' })}</select>`, { req: 1 })}
       ${field('支払日', `<input type="date" name="date" value="${today()}">`, { req: 1 })}${field('支払元口座', `<select name="bankCode">${options(active('banks'), active('banks')[0]?.code)}</select>`, { req: 1 })}${field('振込手数料（先方負担・差引）', '<input name="fee" class="num" value="0">')}${field('相殺額（業者立替金）', '<input name="offset" class="num" value="0">')}${field('安全協力費（差引）', '<input name="safety" class="num" value="0">')}<div class="note" id="py-payee">振込先: -</div></div>
       <h3 style="margin-top:12px">支払対象の定時請求</h3><div id="py-open" class="muted small">業者を選択してください</div>`,
     onOpen: f => { f.vendor.onchange = async () => {
@@ -1308,7 +1343,7 @@ async function pettyFundDialog() {
 }
 async function pettyRefillDialog() {
   const s = await api('/api/petty/settings');
-  modal({ title: '小口現金の補充（受入）', submit: '補充を登録', body: `<div class="form-grid">${field('補充日', `<input type="date" name="date" value="${today()}">`, { req: 1 })}${field('補充額（円）', '<input name="amount" class="num">', { req: 1 })}
+  modal({ title: '小口現金の補充（受入）', submit: '補充を登録', sample: true, body: `<div class="form-grid">${field('補充日', `<input type="date" name="date" value="${today()}">`, { req: 1 })}${field('補充額（円）', '<input name="amount" class="num">', { req: 1 })}
     ${field('引出口座', `<select name="bankCode">${options(active('banks'), (active('banks').find(b => b.code === '041') || active('banks')[0])?.code)}</select>`, { req: 1 })}</div>
     ${table([{ label: '補充日', value: r => r.date }, { label: '補充額', num: 1, value: r => yen(r.amount) }, { label: '引出口座', value: r => r.bank }], s.refills, { empty: '補充の履歴はありません' })}`,
     onSubmit: async v => { await post('/api/petty/refill', v); toast('現金補充を登録しました'); } });
@@ -1440,7 +1475,7 @@ function masterInput(f, r, isNew) {
 }
 function masterForm(kind, r) {
   const m = meta.masters[kind];
-  modal({ title: `${m.label}の${r ? '編集' : '新規登録'}`, submit: r ? '更新する' : '登録する', body: `<div class="form-grid">${m.fields.map(f => masterInput(f, r, !r)).join('')}</div>${r?.system ? '<p class="note small">自動仕訳で使用する科目のため無効化できません。</p>' : ''}`,
+  modal({ title: `${m.label}の${r ? '編集' : '新規登録'}`, submit: r ? '更新する' : '登録する', sample: !r && kind !== 'company', body: `<div class="form-grid">${m.fields.map(f => masterInput(f, r, !r)).join('')}</div>${r?.system ? '<p class="note small">自動仕訳で使用する科目のため無効化できません。</p>' : ''}`,
     onOpen: f => {
       if (f.site && f.customer) f.customer.onchange = () => (f.site.innerHTML = siteOptions(f.customer.value, '', '（得意先共通）'));
       // 削除：使用中のコードはサーバーが拒否し、無効化を案内する
@@ -1534,7 +1569,7 @@ VIEWS.users = async () => {
 };
 
 // 財務会計（勘定奉行相当）の画面は kb.js
-installKb({ VIEWS, api, post, page, table, esc, yen, badge, modal, confirmBox, toast, today, addMonths, qs, go, $, $$, canWrite, isAdmin, jst, loadMasters, render,
+installKb({ VIEWS, api, post, page, table, esc, yen, badge, modal, confirmBox, toast, today, addMonths, qs, go, $, $$, canWrite, isAdmin, jst, loadMasters, render, SAMPLE_ICON,
   acts: () => actions, route: () => route, masters: () => masters });
 
 // ---------- boot ----------

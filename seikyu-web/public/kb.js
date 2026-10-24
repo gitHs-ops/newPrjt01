@@ -1,7 +1,7 @@
 // 財務会計（勘定奉行相当）の画面。app.js の共通部品を受け取り VIEWS に登録する。
 // 仕訳入力（振替伝票）／仕訳帳・伝票検索／元帳／残高試算表・月次推移表／決算書・消費税集計表／仕訳受入・書出／会計設定
 export function installKb(h) {
-  const { VIEWS, api, post, page, table, esc, yen, badge, modal, confirmBox, toast, today, addMonths, qs, go, $, $$, canWrite, isAdmin, acts, route, masters, render } = h;
+  const { VIEWS, api, post, page, table, esc, yen, badge, modal, confirmBox, toast, today, addMonths, qs, go, $, $$, canWrite, isAdmin, acts, route, masters, render, SAMPLE_ICON } = h;
   let K = null;
   const kb = async (force = false) => (K && !force ? K : (K = await api('/api/kb/meta')));
   const ACC = code => K.accounts.find(a => a.code === code);
@@ -165,11 +165,17 @@ export function installKb(h) {
       if (!$('#kb-slip').memo.value) $('#kb-slip').memo.value = t[0];
       slipTotals(); $('#kb-rows [data-kb=amount]')?.focus();
     };
+    // サンプル入力：定型仕訳を1つ選んで展開し、各行の借方・貸方に同じ金額を入れる（貸借一致。登録はしない）
+    A.sample = () => {
+      const k = Math.floor(Math.random() * TEMPLATES.length); $('#kb-tpl').value = String(k); A.tpl();
+      for (const row of $$('#kb-rows .kb-row')) { const v = (1 + Math.floor(Math.random() * 99)) * 1000; $$('[data-kb=amount]', row).forEach(x => { x.value = v; x.dispatchEvent(new Event('input', { bubbles: true })); }); }
+      slipTotals(); toast(`サンプル：定型仕訳「${TEMPLATES[k][0]}」を入れました（登録はまだです）`);
+    };
     A.del = () => confirmBox('伝票の削除', `伝票No ${s.no}（${s.date}）を削除します。操作履歴には残ります。`, () => post('/api/kb/slips/delete', { id: s.id, version: s.version }).then(() => { toast('削除しました'); go('kb-journal', {}); }), '削除する');
     A.back = () => history.back();
     const head = s ? `伝票No <b>${s.no}</b> ／ ${badge(s.sourceName, s.source === 'MANUAL' ? '' : 'amber')} ${s.sourceRef ? `<span class="muted small">元仕訳 #${esc(s.sourceRef)}</span>` : ''} <span class="muted small">更新 ${esc(s.updatedBy)}</span>` : '<span class="muted">新規伝票（伝票No は登録時に年度内連番で採番）</span>';
     return page(s ? '仕訳入力（伝票修正）' : '仕訳入力（振替伝票）', '借方・貸方を同じ行に入力します。科目を選ぶと補助・既定税区分が切り替わり、消費税額は税込金額から自動計算します（手入力で上書き可）。',
-      `${s ? '<button data-act="back">← 戻る</button>' : ''}<a class="button" href="#kb-journal">仕訳帳へ</a>`,
+      `${s ? '<button data-act="back">← 戻る</button>' : `<button type="button" class="sample-btn" data-act="sample" title="サンプル入力" aria-label="サンプル入力">${SAMPLE_ICON}</button>`}<a class="button" href="#kb-journal">仕訳帳へ</a>`,
       `<section class="card glass"><form id="kb-slip" data-id="${s?.id || ''}" data-version="${s?.version || ''}">
         <div class="kb-slip-head"><label class="field req"><span>伝票日付</span><input type="date" name="date" value="${esc(date)}" required></label>
           <label class="field wide"><span>伝票摘要</span><input name="memo" maxlength="100" value="${esc(s?.memo || '')}" placeholder="例）3月分 事務所家賃"></label><div class="kb-slip-info">${head}</div></div>
@@ -378,7 +384,7 @@ export function installKb(h) {
   // ================= 会計設定 =================
   function accountForm(a) {
     const isNew = !a; a = a || { code: '', name: '', grp: 'P3', side: '', sub: '', tax: '090', active: true, sort: '' };
-    modal({ title: isNew ? '勘定科目の追加' : `勘定科目の編集（${a.code}）`, submit: '保存', body: `<div class="form-grid">
+    modal({ title: isNew ? '勘定科目の追加' : `勘定科目の編集（${a.code}）`, submit: '保存', sample: isNew, body: `<div class="form-grid">
       <label class="field req"><span>科目コード</span><input name="code" value="${esc(a.code)}" ${isNew ? '' : 'readonly'} maxlength="20"></label>
       <label class="field req"><span>科目名</span><input name="name" value="${esc(a.name)}" maxlength="100"></label>
       <label class="field req"><span>区分（決算書の表示位置）</span><select name="grp">${K.groups.map(g => `<option value="${g.code}" ${g.code === a.grp ? 'selected' : ''}>${esc(g.code + ' ' + g.name)}</option>`).join('')}</select></label>
