@@ -289,9 +289,7 @@ VIEWS.shipments = async q => {
   const month = q.month || thisMonth(), from = q.from || `${month}-01`, to = q.to || monthEnd(month), kind = SHIP_KINDS[q.kind] ? q.kind : '', list = await api('/api/shipments?' + qs({ from, to, customer: q.customer, site: q.site, ...(SHIP_KINDS[kind]?.q || {}) }));
   const bd = (await api('/api/business-date')).date;
   A.misc = d => miscReport(d.kind, d.src).catch(e => toast(e.message, true));
-  // 業務日付（現行 MA057 出荷日変更）：出荷日の初期値。日付をまたぐ出荷（深夜）でも前日の業務日付で登録できる
-  A.bizDate = () => modal({ title: '業務日付の変更', submit: '変更する', body: `<div class="form-grid">${field('業務日付', `<input type="date" name="date" value="${bd}">`, { req: 1, hint: '出荷登録の出荷日の初期値。空欄で当日に戻す' })}</div>`,
-    onSubmit: async v => { const r = await post('/api/business-date', v); toast(`業務日付を ${r.date} にしました`); render(); } });
+  // 業務日付（現行 MA057 出荷日変更・自社情報の取引日）：出荷日の初期値。変更は自社情報で行う（現行どおり出荷伝票画面には出さない）
   A.new = () => shipmentForm(null, bd);
   // 類似登録（提案書 スライド7・17）は 2026-10-23 に画面から外した（A.copy は残す）
   A.copy = d => { const r = list.find(x => x.orderNo === d.id); shipmentForm({ ...r, orderNo: undefined, date: bd, copyOf: r.orderNo }, bd); };
@@ -312,7 +310,7 @@ VIEWS.shipments = async q => {
   };
   return page('出荷・売上', '出荷伝票（shipment_slip）と売上（sales_trn）を同時に登録します。請求済みの伝票は「赤黒訂正」で、元伝票のマイナス（赤）と訂正後（黒）を起票します（NO11、10/14 打合せ）。',
     `<input type="date" name="from" value="${esc(from)}" data-filter title="売上日（から）"><span>〜</span><input type="date" name="to" value="${esc(to)}" data-filter title="売上日（まで）">${filterSelect('customer', masters.customers, q.customer, 'すべての得意先')}<input name="site" value="${esc(q.site || '')}" placeholder="現場（コード・名称）" data-filter style="width:160px"><select name="kind" data-filter title="請求・決済">${options(Object.entries(SHIP_KINDS).map(([code, x]) => ({ code, name: x.name })), kind, { blank: 'すべて', label: r => r.name })}</select><label class="small" style="display:inline-flex;gap:4px;align-items:center"><input type="checkbox" id="ship-all" ${shipAll() ? 'checked' : ''}> 訂正前・赤も表示</label>${csvLink('shipments', { month: from.slice(0, 7) })}
-     <span class="badge ${bd !== today() ? 'amber' : ''}" title="出荷日の初期値">業務日付 ${esc(bd)}</span>${canWrite() ? '<button class="mini" data-act="bizDate">変更</button><button class="primary" data-act="new">＋ 出荷登録</button>' : ''}`,
+     ${canWrite() ? '<button class="primary" data-act="new">＋ 出荷登録</button>' : ''}`,
     `<section class="card glass" data-sub="slips">${table([{ label: '売上No', html: r => (r.shipKb === 5 ? `${esc(r.slipNo)}<br><span class="small muted">${esc(r.orderNo)}</span>` : esc(r.orderNo)) }, { label: '出荷日', value: r => r.date }, { label: '得意先', value: r => r.customerName }, { label: '現場', value: r => r.siteName }, { label: '商品', value: r => r.itemName },
       { label: '数量', num: 1, html: r => `${r.quantity < 0 ? `<span class="check-ng">${r.quantity}</span>` : r.quantity} ${esc(r.unit)}${r.cumulativeCount ? `<br><span class="small muted" title="同日・同現場・同商品・同納入区分の累計">累計 ${r.cumulativeQty}／${r.cumulativeCount}台</span>` : ''}` },
       { label: '担当・納入', html: r => `<span class="small">${esc(r.operatorName || r.operator)}<br>${esc(r.deliveryKbnName)}</span>` },

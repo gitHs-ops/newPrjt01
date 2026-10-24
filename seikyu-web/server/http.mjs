@@ -101,7 +101,6 @@ export async function createApp({ pool, publicDir, secureCookies = process.env.N
   w('/api/petty/refill', (c, x, b) => P.pettyRefill(c, x, b));
   w('/api/mix/save', (c, x, b) => MR.saveMix(c, x, b));
   w('/api/shipments/correct', (c, x, b) => S.correctShipment(c, x, b));
-  w('/api/business-date', (c, x, b) => S.setBusinessDate(c, x, b));
   w('/api/billing/run', (c, x, b) => S.runBilling(c, x, b));
   w('/api/invoices/issue', (c, x, b) => S.issueInvoices(c, x, b));
   w('/api/invoices/cancel', (c, x, b) => S.cancelInvoice(c, x, b));

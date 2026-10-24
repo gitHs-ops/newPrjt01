@@ -24,12 +24,6 @@ export async function taxRateOn(c, date) {
 }
 // 業務日付（現行 Java company_info_m.trading_day・MA057 出荷日変更）。未設定は当日
 export async function businessDate(c) { const r = await one(c, 'SELECT trading_day FROM company_info_m WHERE company_info_id=1'); return r?.trading_day ? String(r.trading_day).slice(0, 10) : today(); }
-export async function setBusinessDate(c, ctx, { date }) {
-  const d = date ? isoDate(date, '業務日付') : null;
-  await c.query('UPDATE company_info_m SET trading_day=? WHERE company_info_id=1', [d]);
-  await audit(c, ctx, 'company_info_m', 1, 'business.date', { date: d });
-  return { date: d || today() };
-}
 // 伝票番号（提案書 出荷伝票画面・現行 Java NumberingMEntity）：業務日付の YYMM＋5桁、月が変わると 00001 から
 async function nextShipNo(c) {
   const bd = await businessDate(c), p = bd.slice(2, 4) + bd.slice(5, 7);
