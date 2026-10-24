@@ -815,12 +815,15 @@ VIEWS.receipts = async q => {
 const RC_ROWS = [['bank', '当座預金（振込）', '当座預金 1112・入金口座の内訳'], ['fee', '振込手数料', '先方差引・雑費 8330-101（B-02）'], ['coop', '協力金', '協力会費・災防協会費の差引・雑費 8330-107（B-03）'],
   ['deposit', '預り金', '預り金 4170 から充当（B-06）'], ['loss', '雑損失', '端数等・8850・対象外'], ['discount', '値引き', '8850（B-04）'], ['cash', '現金', '現金 1111']];
 // 入金消込の入力（「入金消込」一覧の「消込」から得意先を決めて開く。得意先の選び直しはしない）
+// 「登録して続ける」：同じ得意先の入金（B伝票）を続けて登録する。登録後は残高を読み直し、金額だけ空にする（入金日・口座は残す）
 function receiptForm(customer) {
-  const key = uuid(), cu = masters.customers.find(c => c.code === customer);
+  const cu = masters.customers.find(c => c.code === customer);
+  let key = uuid(), added = 0;
   const rcRow = ([k, l, h]) => `<tr><th>${esc(l)}</th><td><input name="${k}" class="num" value="0" style="width:150px"></td><td class="small muted">${esc(h)}${k === 'bank' ? `<br><select name="bankCode" aria-label="入金口座">${options(active('banks'), active('banks')[0]?.code)}</select>` : ''}${k === 'deposit' ? '<br><span id="rc-dep">預り金残高: -</span>' : ''}</td></tr>`;
   modal({ title: '入金消込', wide: true, submit: '登録', body: `${sampleButton}<div class="form-grid">
     ${field('得意先', `<input value="${esc(customer)} ${esc(cu?.name || '')}" readonly><input type="hidden" name="customer" value="${esc(customer)}">`)}
     ${field('入金日', `<input type="date" name="date" value="${lastClosing()}" required>`, { req: 1 })}</div>
+    <h3 style="margin-top:14px">この得意先の入金</h3><div id="rc-hist" class="small muted">読み込み中…</div>
     <h3 style="margin-top:14px">消込画面</h3><div id="rc-open" class="muted small">読み込み中…</div>
     <h3 style="margin-top:14px">仕訳明細入力</h3>
     <div class="table-wrap"><table class="rc-journal"><thead><tr><th>科目</th><th class="num">金額</th><th>補足</th></tr></thead><tbody>${RC_ROWS.map(rcRow).join('')}
@@ -862,7 +865,26 @@ function receiptForm(customer) {
         refresh();
       };
       RC_KEYS.forEach(([k]) => (f[k].oninput = refresh)); f.overpayToDeposit.onchange = refresh;
-      load();
+      // この得意先の入金（新しい順に10件。続けて登録した分もここに出る）
+      const hist = async () => {
+        const l = (await api('/api/receipts?' + qs({ customer }))).sort((a, b) => String(b.date).localeCompare(String(a.date)) || b.id - a.id).slice(0, 10);
+        $('#rc-hist').innerHTML = !l.length ? 'まだ入金はありません' : `<div class="table-wrap" style="max-height:180px;overflow:auto">${table([{ label: '入金No', value: r => r.no }, { label: '入金日', value: r => String(r.date).slice(0, 10) },
+          { label: '消込額', num: 1, value: r => yen(r.settlement) }, { label: '消込先(請求No)', value: r => r.allocations.map(a => a.invoiceId).join(', ') }, { label: '状態', html: r => status(r.status) }], l, { rowClass: r => (r.status === 'REVERSED' ? 'reversed' : '') })}</div>`;
+      };
+      hist(); load();
+      // 「登録して続ける」：登録後も閉じずに次の入金を受ける。閉じたときに一覧を読み直す
+      $('#modal-submit').insertAdjacentHTML('beforebegin', '<button type="button" id="rc-next">登録して続ける</button>');
+      $('#rc-next').onclick = async e => {
+        if (!f.reportValidity()) return;
+        const btn = e.currentTarget; btn.disabled = true; $('#form-error').textContent = '';
+        try {
+          const r = await register(Object.fromEntries(new FormData(f))); added++; key = uuid();
+          for (const [k] of RC_KEYS) f[k].value = 0; f.noteDue.value = ''; f.overpayToDeposit.checked = false;
+          await Promise.all([hist(), load()]); toast(`入金 ${r.no} を登録しました（続けて入力できます）`);
+        } catch (err) { $('#form-error').textContent = err.message; toast(err.message, true); }
+        finally { btn.disabled = false; }
+      };
+      $('#dialog').addEventListener('close', () => { if (added) render(); }, { once: true });
       // サンプル入力：振込（手数料差引）で今回請求金額の全額を消し込む値を入れる（登録はしない）
       f.querySelector('[data-sample]')?.addEventListener('click', () => {
         if (!invs().length) return toast('この得意先には残高のある請求がありません', true);
@@ -872,10 +894,11 @@ function receiptForm(customer) {
         refresh();
       });
     },
-    onSubmit: async v => {
-      const allocations = $$('.rc-amt').map(x => ({ invoiceId: Number(x.dataset.id), amount: Number(x.value) || 0 })).filter(a => a.amount > 0);
-      const r = await post('/api/receipts', { ...v, overpayToDeposit: v.overpayToDeposit === 'on', allocations, idempotencyKey: key }); toast(`入金 ${r.no} を登録しました（仕訳 B01）`); render();
-    } });
+    onSubmit: async v => { const r = await register(v); added = 0; toast(`入金 ${r.no} を登録しました（仕訳 B01）`); render(); } });
+  function register(v) {
+    const allocations = $$('.rc-amt').map(x => ({ invoiceId: Number(x.dataset.id), amount: Number(x.value) || 0 })).filter(a => a.amount > 0);
+    return post('/api/receipts', { ...v, overpayToDeposit: v.overpayToDeposit === 'on', allocations, idempotencyKey: key });
+  }
 }
 
 // ----- 明細行の入力表（仕入・定時請求・小口現金で共用） -----
