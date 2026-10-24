@@ -422,6 +422,30 @@ export async function billingList(c, { month, closing }) {
   }
   return { month, closing: day, end, rows: out };
 }
+// 発行前確認一覧（2026-10-25）：請求データ作成の前に、その締日で請求される未請求の掛売上（出荷伝票）を得意先ごとに明細で確認する。
+// 現行 HAR430（メニュー 11）は請求書印刷及び更新（12）の前に出力していたため、請求データを作らずに出荷伝票から直接作る。
+// 対象・条件は請求データ作成（runBilling）と同じ：締日の得意先、process_status=0・掛売・売上日≦締日。
+export async function billingPrecheck(c, { month, closing, customer }) {
+  const { start, end } = period(month, closing), day = closingDay(closing);
+  const args = [day]; let cw = '';
+  if (customer) { cw = ' AND (customers_cd=? OR customers_name LIKE ?)'; args.push(String(customer), '%' + String(customer) + '%'); }
+  const custs = await rows(c, `SELECT customers_cd, customers_name FROM client_m WHERE delete_f<>'1' AND CAST(substring(deadline from '^ *([0-9]+)') AS INTEGER)=?${cw} ORDER BY customers_cd`, args);
+  const out = [];
+  for (const cu of custs) {
+    const sales = await rows(c, "SELECT s.*, unit_name(i.unit) unit, (SELECT k.category1 FROM code_m k WHERE k.code_key='A0000' AND k.code_dtl=CAST(s.shipping_kb AS TEXT)) kbn_cat FROM sales_trn s LEFT JOIN item_m i ON i.item_cd=s.item_cd WHERE s.customers_cd=? AND s.process_status='0' AND s.payment_method_cd=2 AND s.sales_date<=? ORDER BY s.field_cd, s.field_suffix, s.sales_date, s.order_no", [cu.customers_cd, toNum(end)]);
+    if (!sales.length) continue;
+    const { net, tax } = totals(sales), lines = sales.map(s => decodeLine({ ...s, field_name: s.field_name1 }));
+    const h = await one(c, 'SELECT invoice_id, invoice_flag FROM billing_head WHERE customers_cd=? AND closing_date=?', [cu.customers_cd, toNum(end)]);
+    const locked = h && (h.invoice_flag !== '0' || await one(c, 'SELECT 1 x FROM receipt_allocation WHERE invoice_id=? LIMIT 1', [h.invoice_id]));
+    const byRate = RATES.map(rate => { const n = lines.filter(l => Math.round(l.taxRate) === rate).reduce((a, l) => a + l.net, 0); return { rate, net: n, tax: bucketTax(n, rate) }; }).filter(x => x.net);
+    out.push({ customer: cu.customers_cd, name: cu.customers_name, plan: !h ? 'new' : locked ? 'next' : 'append', invoiceId: h?.invoice_id || null,
+      count: lines.length, corrections: lines.filter(l => Number(l.shipKb) === CORRECTION).length, late: sales.filter(s => fromNum(s.sales_date) < start).length,
+      sites: new Set(lines.map(l => l.site)).size, net, tax, current: net + tax, byRate, lines });
+  }
+  const co = await one(c, 'SELECT company_name1 FROM company_info_m WHERE company_info_id=1');
+  return { month, start, end, closing: day, company: co?.company_name1 || '', rows: out };
+}
+export const PRECHECK_PLAN = { new: '新規作成', append: '作成済みの請求に追加', next: '発行済みのため次回締めで請求' };
 // NO13 請求書発行確認表: issued customers with lines, same calculation as NO12.
 // 該当なしのとき案内する「請求がある年月・締日」（新しい順）。issued=true は発行済みのみ
 async function billingPeriods(c, issued) {

@@ -1,10 +1,25 @@
 // 帳票の Excel(.xlsx) 出力。画面の印刷表示と同じデータ（sales.mjs の statement）を使う。
 import { xlsx } from './xlsx.mjs';
-import { billingList, billingConfirm, receiptPlan, arLedger } from './sales.mjs';
+import { billingList, billingConfirm, billingPrecheck, PRECHECK_PLAN, receiptPlan, arLedger } from './sales.mjs';
 import { today, jst } from './domain.mjs';
 
 const H = v => ({ v, s: 'bold' }), S = v => ({ v, s: 'sum' }), T = v => ({ v, s: 'title' });
 const shipKb = k => (Number(k) === 5 ? '訂正' : '売上');
+
+// 発行前確認一覧（請求データ作成前の未請求掛売上。現行 HAR430 と同じ明細項目）
+export async function billingPrecheckBook(c, q) {
+  const d = await billingPrecheck(c, q), cl = d.closing === 31 ? '月末' : d.closing + '日', ymd = iso => iso.slice(2).replaceAll('-', '/');
+  const out = [[T('発行前確認一覧'), '', '', '', '', '', '', '', '', '', '', d.company], [`締日 ${cl}　請求期間 ${ymd(d.start)}〜${ymd(d.end)}　売上締切日 ${ymd(d.end)}　作成日 ${ymd(today())}`], []];
+  for (const x of d.rows) {
+    out.push([H(`${x.customer} ${x.name}`), '', '', H(PRECHECK_PLAN[x.plan])], ['売上日', '伝票No', '区分', '商品CD', '商品名', '数量', '単位', '単価', '金額', '税率', '運送', '現場名']);
+    for (const l of x.lines) out.push([ymd(l.date), l.orderNo, shipKb(l.shipKb), l.item, l.itemName, l.quantity, l.unit, l.price, l.net, `${l.taxRate}%`, l.carry, l.siteName]);
+    out.push(['', S('（売上額）'), S(x.net), '', S('（消費税額）'), S(x.tax), '', S('（値引額）'), S(0), '', S('（今回請求額）'), S(x.current)]);
+    for (const r of x.byRate || []) out.push(['', `${r.rate} %`, r.net, '', '', r.tax]);
+    out.push([]);
+  }
+  if (!d.rows.length) out.push(['請求データ作成の対象となる未請求の掛売上はありません']);
+  return { name: `発行前確認一覧_${d.month}_${cl}締.xlsx`, body: xlsx([{ name: '発行前確認一覧', rows: out, widths: [10, 13, 6, 8, 24, 9, 5, 10, 12, 6, 8, 24] }]) };
+}
 
 // NO12 請求一覧表（確認用）— 現行 HAR431 の項目
 export async function billingListBook(c, q) {
