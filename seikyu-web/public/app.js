@@ -536,6 +536,8 @@ document.addEventListener('change', e => { if (e.target.id !== 'lg-state') retur
 document.addEventListener('change', e => { if (e.target.id !== 'bal-state') return; freshNext = false; location.hash = '#invoices/balance?' + qs({ ...route.q, bstate: e.target.value }); });
 // 入金一覧・消込：「計上済のみ」（既定は取消も含めてすべて。検索済みの結果を使い、DB は読まない）
 document.addEventListener('change', e => { if (e.target.id !== 'rec-posted') return; freshNext = false; location.hash = '#receipts/list?' + qs({ ...route.q, posted: e.target.checked ? '1' : '' }); });
+// 入金消込：「消込対象のみ」・締日の絞込（検索済みの結果を使い、DB は読まない）
+document.addEventListener('change', e => { if (!['rt-only', 'rt-cl'].includes(e.target.id)) return; freshNext = false; location.hash = '#receipts/targets?' + qs({ ...route.q, all: $('#rt-only').checked ? '' : '1', cl: $('#rt-cl').value }); });
 // 出荷伝票一覧の請求・決済の絞込（請求の有無は掛売だけに意味があるため、決済方法と1つにまとめる。2026-10-24）
 const SHIP_KINDS = { 'credit-open': { name: '掛売・未請求', q: { method: 2, status: 'open' } }, 'credit-billed': { name: '掛売・請求済', q: { method: 2, status: 'billed' } }, cash: { name: '現金', q: { method: 1 } }, card: { name: 'カード', q: { method: 3 } } };
 // 出荷伝票一覧：訂正前・赤を出すか（利用者ごとに記憶）。切り替えはその場で再描画（DB は読まない）
@@ -758,9 +760,15 @@ VIEWS.receipts = async q => {
   A.clear = d => receiptForm(d.customer);
   if (tab === 'targets') {
     // 提案書 スライド19：得意先（部分一致）で検索し、残高のある請求年月の行から「消込」へ
-    const d = await api('/api/ar-ledger?' + qs({ customer: q.customer }));
-    A.search = () => go('receipts', { tab, customer: $('#rt-cust').value });
-    return page('入金・消込', '消込対象の選択：今回残高のある最新の請求年月から「消込」を押すと、その得意先の入金消込画面を開きます。', `<input id="rt-cust" placeholder="得意先（部分一致）" value="${esc(q.customer || '')}" style="width:200px"><button data-act="search">検索</button>`,
+    const all = await api('/api/ar-ledger?' + qs({ customer: q.customer }));
+    // 絞込（検索結果を絞るだけで DB は読まない）：「消込対象のみ」（既定オン）＝得意先ごとの最新の請求年月で残高のある行、締日（5・10・15・20・月末）
+    const only = q.all !== '1', cl = STD_CLOSINGS.includes(Number(q.cl)) ? Number(q.cl) : 0;
+    const dayOf = c => (c === monthEnd(c.slice(0, 7)) ? 31 : Number(c.slice(8, 10)));
+    const rows = all.rows.filter(r => (!only || (r.latest && r.remain > 0)) && (!cl || dayOf(r.closing) === cl)), sum = k => rows.reduce((n, r) => n + r[k], 0);
+    const d = { rows, totals: { current: sum('current'), cleared: sum('cleared'), remain: rows.filter(r => r.latest).reduce((n, r) => n + r.remain, 0) } };
+    A.search = () => go('receipts', { tab, customer: $('#rt-cust').value, all: q.all, cl: q.cl });
+    return page('入金・消込', '消込対象の選択：今回残高のある最新の請求年月から「消込」を押すと、その得意先の入金消込画面を開きます。', `<input id="rt-cust" placeholder="得意先（部分一致）" value="${esc(q.customer || '')}" style="width:200px"><button data-act="search">検索</button>
+       <select id="rt-cl" title="締日">${options(STD_CLOSINGS.map(x => ({ code: String(x), name: closingLabel(x) })), cl ? String(cl) : '', { blank: 'すべての締日', label: x => x.name })}</select><label class="small"><input type="checkbox" id="rt-only" ${only ? 'checked' : ''}> 消込対象のみ</label>`,
       `<section class="card glass">${ledgerTable(d, { clear: true })}</section>`);
   }
   if (tab === 'plan') {
