@@ -84,7 +84,7 @@ function toast(msg, error = false) {
   t.onclick = () => { clearTimeout(toast.t); top ? t.hidePopover() : (t.style.display = 'none'); };
 }
 const badge = (label, cls = '') => `<span class="badge ${cls}">${esc(label)}</span>`;
-const STATUS = { draft: ['未発行', 'gray'], issued: ['発行済', ''], partial: ['一部入金', 'amber'], credit: ['クレジット', 'amber'], paid: ['入金済', 'green'], POSTED: ['計上済', 'green'], REVERSED: ['取消', 'gray'], DRAFT: ['下書き', 'gray'] };
+const STATUS = { draft: ['未発行', 'gray'], issued: ['発行済', ''], partial: ['一部入金', 'amber'], credit: ['クレジット', 'amber'], paid: ['入金済', 'green'], POSTED: ['計上済', 'green'], REVERSED: ['取消済', 'gray'], DRAFT: ['下書き', 'gray'] };
 const status = s => badge(...(STATUS[s] || [s, 'gray']));
 const nameOf = (kind, code) => masters[kind]?.find(r => r.code === code)?.name || code || '';
 const active = kind => (masters[kind] || []).filter(r => r.active);
