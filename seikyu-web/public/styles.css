@@ -360,7 +360,8 @@ dialog.alert-dialog::backdrop { background: rgba(15,23,42,.35); }
 .alert-dialog .alert-body { display: flex; gap: 14px; padding: 26px 24px 8px; }
 .alert-dialog .alert-icon { flex: 0 0 36px; height: 36px; border-radius: 50%; background: #fee2e2; color: #b91c1c; display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 20px; }
 .alert-dialog h2 { font-size: 15px; margin: 4px 0 6px; }
-.alert-dialog #alert-msg { margin: 0; font-size: 14px; line-height: 1.6; white-space: pre-wrap; color: #7f1d1d; font-weight: 600; }
+.alert-dialog #alert-msg { margin: 0; font-size: 14px; line-height: 1.6; white-space: pre-wrap; color: #7f1d1d; font-weight: 600; max-height: calc(100vh - 220px); overflow-y: auto; padding-right: 6px; overscroll-behavior: contain; }
+.alert-dialog .alert-body > div:last-child { min-width: 0; flex: 1; }
 .alert-dialog .alert-foot { display: flex; justify-content: flex-end; padding: 14px 20px 18px; }
 .alert-dialog .alert-foot button { min-width: 96px; }
 @keyframes alertIn { from { opacity: 0; transform: scale(.96); } to { opacity: 1; transform: none; } }
