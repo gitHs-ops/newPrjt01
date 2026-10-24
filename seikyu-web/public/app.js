@@ -63,6 +63,11 @@ const qs = o => new URLSearchParams(Object.entries(o).filter(([, v]) => v !== un
 // 全画面共通のポップアップ通知。popover（最前面レイヤー）で出すので、開いているダイアログの上にも表示される。エラーは画面上部中央・赤・長めに表示、クリックで閉じる
 // エラーは小さな確認ポップアップ（「確認」で閉じる。右上の×・Esc でも閉じる）。開いている入力ダイアログの上に重ねて表示し、入力内容は残す
 document.addEventListener('click', e => { if (e.target.closest('#alert-ok, #alert-x')) $('#alert-dialog').close(); });
+// 一覧ヘッダの「すべて選択」（data-pick-all＝行のチェックボックスのクラス）。行を個別に切り替えたらヘッダも合わせる
+document.addEventListener('change', e => {
+  const all = e.target.dataset?.pickAll; if (all) return $$('.' + all).forEach(x => { x.checked = e.target.checked; });
+  const h = [...e.target.classList].map(k => $(`[data-pick-all="${k}"]`)).find(Boolean); if (h) { const xs = $$('.' + h.dataset.pickAll); h.checked = xs.every(x => x.checked); h.indeterminate = !h.checked && xs.some(x => x.checked); }
+});
 function alertBox(msg) {
   const d = $('#alert-dialog');
   if (!d?.showModal) return window.alert(msg);
@@ -88,7 +93,7 @@ const options = (list, value, { blank, label = r => `${r.code} ${r.name}`, val =
 const siteOptions = (customer, value, blank) => options((masters.sites || []).filter(s => s.customer === customer && (s.active || `${s.code}|${s.suffix}` === value)), value, { blank, val: s => `${s.code}|${s.suffix}`, label: s => `${s.code}-${s.suffix} ${s.name}` });
 function table(cols, rows, { empty = 'データがありません', foot, rowClass } = {}) {
   if (!rows.length) return `<div class="empty">${esc(empty)}</div>`;
-  return `<div class="table-wrap"><table><thead><tr>${cols.map(c => `<th class="${c.num ? 'num' : ''}">${esc(c.label)}</th>`).join('')}</tr></thead><tbody>${rows.map(r => `<tr class="${rowClass ? rowClass(r) : ''}">${cols.map(c => `<td class="${c.num ? 'num' : ''} ${c.cls || ''}">${c.html ? c.html(r) : esc(c.value(r))}</td>`).join('')}</tr>`).join('')}</tbody>${foot ? `<tfoot><tr>${foot.map(f => `<td class="num">${f ?? ''}</td>`).join('')}</tr></tfoot>` : ''}</table></div>`;
+  return `<div class="table-wrap"><table><thead><tr>${cols.map(c => `<th class="${c.num ? 'num' : ''}">${c.head ?? esc(c.label)}</th>`).join('')}</tr></thead><tbody>${rows.map(r => `<tr class="${rowClass ? rowClass(r) : ''}">${cols.map(c => `<td class="${c.num ? 'num' : ''} ${c.cls || ''}">${c.html ? c.html(r) : esc(c.value(r))}</td>`).join('')}</tr>`).join('')}</tbody>${foot ? `<tfoot><tr>${foot.map(f => `<td class="num">${f ?? ''}</td>`).join('')}</tr></tfoot>` : ''}</table></div>`;
 }
 const field = (label, input, { req, hint, wide } = {}) => `<label class="field ${req ? 'req' : ''} ${wide ? 'wide' : ''}"><span>${esc(label)}</span>${input}${hint ? `<small>${esc(hint)}</small>` : ''}</label>`;
 const monthInput = (name, value) => `<input type="month" name="${name}" value="${esc(value)}" data-filter>`;
@@ -601,7 +606,7 @@ VIEWS.invoices = async q => {
       <button data-act="report" data-kind="confirm">請求書発行確認表</button></div>
       </section></div>
     <section class="card glass" data-sub="list">
-    ${table([{ label: '', html: r => (r.first ? `<input type="checkbox" class="inv-pick" value="${r.inv.id}">` : '') }, { label: '締日', value: r => (r.first ? r.inv.closing : '') }, { label: '得意先コード', value: r => (r.first ? r.inv.customer : '') }, { label: '得意先名', value: r => (r.first ? r.inv.customerName : '') },
+    ${table([{ label: '', head: '<input type="checkbox" data-pick-all="inv-pick" title="すべて選択／解除">', html: r => (r.first ? `<input type="checkbox" class="inv-pick" value="${r.inv.id}">` : '') }, { label: '締日', value: r => (r.first ? r.inv.closing : '') }, { label: '得意先コード', value: r => (r.first ? r.inv.customer : '') }, { label: '得意先名', value: r => (r.first ? r.inv.customerName : '') },
       { label: '現場名', html: r => (r.siteName ? esc(r.siteName) : '<span class="muted small">（現場なし）</span>') }, { label: '決済区分', value: r => r.method || '' },
       { label: '売上額', num: 1, value: r => yen(r.net) }, { label: '消費税', num: 1, value: r => yen(r.tax) }, { label: '今回請求額', num: 1, value: r => yen(r.total) },
       { label: '請求書発行状況', html: r => (r.first ? status(r.inv.status) + (r.inv.issues ? ` <span class="small muted">${r.inv.issues}回</span>` : '') : '') },
