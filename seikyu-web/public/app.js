@@ -534,6 +534,8 @@ document.addEventListener('change', e => { if (e.target.id !== 'inv-state') retu
 document.addEventListener('change', e => { if (e.target.id !== 'lg-state') return; freshNext = false; location.hash = '#invoices/ledger?' + qs({ ...route.q, lstate: e.target.value }); });
 // 得意先別残高照会：請求書状況の絞込（検索済みの結果を使い、DB は読まない）
 document.addEventListener('change', e => { if (e.target.id !== 'bal-state') return; freshNext = false; location.hash = '#invoices/balance?' + qs({ ...route.q, bstate: e.target.value }); });
+// 入金一覧・消込：状態の絞込（検索済みの結果を使い、DB は読まない）
+document.addEventListener('change', e => { if (e.target.id !== 'rec-state') return; freshNext = false; location.hash = '#receipts/list?' + qs({ ...route.q, rstate: e.target.value }); });
 // 出荷伝票一覧の請求・決済の絞込（請求の有無は掛売だけに意味があるため、決済方法と1つにまとめる。2026-10-24）
 const SHIP_KINDS = { 'credit-open': { name: '掛売・未請求', q: { method: 2, status: 'open' } }, 'credit-billed': { name: '掛売・請求済', q: { method: 2, status: 'billed' } }, cash: { name: '現金', q: { method: 1 } }, card: { name: 'カード', q: { method: 3 } } };
 // 出荷伝票一覧：訂正前・赤を出すか（利用者ごとに記憶）。切り替えはその場で再描画（DB は読まない）
@@ -790,10 +792,11 @@ VIEWS.receipts = async q => {
         { label: '入金予定日', html: r => (r.overdue ? `<span class="check-ng">${esc(r.due)} 超過</span>` : esc(r.due)) }, { label: '経過日数', num: 1, html: r => (r.overdue ? `<span class="check-ng">${r.days}日</span>` : '') }, { label: '入金予定金額', num: 1, value: r => yen(r.planned) }, { label: '入金金額', num: 1, value: r => yen(r.paid) }, { label: '残高', num: 1, value: r => yen(r.balance) }],
         d.rows, { empty: 'この条件で入金予定の請求はありません', rowClass: r => (r.overdue ? 'overdue' : ''), foot: ['入金予定合計', '', '', '', '', '', yen(tt.planned), yen(tt.paid), yen(tt.balance)] })}</section>`);
   }
-  const month = q.month || thisMonth(), list = await api('/api/receipts?' + qs({ month, customer: q.customer }));
+  const month = q.month || thisMonth(), all = await api('/api/receipts?' + qs({ month, customer: q.customer }));
+  const rs = ['POSTED', 'REVERSED'].includes(q.rstate) ? q.rstate : '', list = rs ? all.filter(r => r.status === rs) : all;
   A.rev = d => confirmBox('入金の取消', `入金No ${d.no} を取消します。消込が解除され、逆仕訳を計上します。`, () => post('/api/receipts/reverse', { id: Number(d.id) }).then(() => { toast('取消しました'); render(); }), '取消する');
   return page('入金・消込', '得意先ごとに、請求（得意先×請求年月）に対する入金を消し込みます。当座預金・現金・手形・振込手数料・協力会費・預り金充当・値引を処理します（receipt / receipt_component / receipt_allocation）。',
-    `${monthInput('month', month)}${filterSelect('customer', masters.customers, q.customer, 'すべての得意先')}${csvLink('receipts', { month })}${canWrite() ? '<button class="primary" data-act="new">＋ 入金消込</button>' : ''}`,
+    `${monthInput('month', month)}${filterSelect('customer', masters.customers, q.customer, 'すべての得意先')}<select id="rec-state" title="状態">${options([{ code: 'POSTED', name: '計上済' }, { code: 'REVERSED', name: '取消' }], rs, { blank: 'すべての状態', label: x => x.name })}</select>${csvLink('receipts', { month })}${canWrite() ? '<button class="primary" data-act="new">＋ 入金消込</button>' : ''}`,
     `<section class="card glass" data-sub="list">${table([{ label: '入金No', value: r => r.no }, { label: '入金日', value: r => r.date }, { label: '得意先', value: r => r.customerName }, { label: '振込', num: 1, value: r => yen(r.bank) }, { label: '銀行', value: r => nameOf('banks', r.bankCode) },
       { label: '現金', num: 1, value: r => yen(r.cash) }, { label: '手形', num: 1, value: r => yen(r.notes) }, { label: '手数料', num: 1, value: r => yen(r.fee) }, { label: '協力会費', num: 1, value: r => yen(r.coop) }, { label: '預り金', num: 1, value: r => yen(r.deposit) }, { label: '値引', num: 1, value: r => yen(r.discount) }, { label: '雑損失', num: 1, value: r => yen(r.loss) }, { label: '消込額', num: 1, value: r => yen(r.settlement) },
       { label: '消込先(請求No)', value: r => r.allocations.map(a => `${a.invoiceId}`).join(', ') }, { label: '状態', html: r => status(r.status) },
