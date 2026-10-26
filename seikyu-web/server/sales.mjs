@@ -418,7 +418,9 @@ export async function invoiceDetail(c, id) {
   const h = await one(c, `${invoiceSql} WHERE h.invoice_id=?`, [Number(id)]); check(h, '請求が見つかりません');
   const issues = await rows(c, 'SELECT issue_no, issued_at, issued_by, document_sha256 FROM invoice_issue WHERE invoice_id=? ORDER BY issue_no', [h.invoice_id]);
   const allocations = await rows(c, 'SELECT r.receipt_no, r.receipt_date, r.status, a.amount FROM receipt_allocation a JOIN receipt r ON r.receipt_id=a.receipt_id WHERE a.invoice_id=? ORDER BY r.receipt_date', [h.invoice_id]);
-  return { ...decodeInvoice(h), lines: await headLines(c, h),
+  const lines = await headLines(c, h);
+  // summary：請求書・発行確認表と同じ 得意先×現場×出荷日×商品 でまとめた明細（請求詳細の「出荷日×商品でまとめる」）
+  return { ...decodeInvoice(h), lines, summary: await summaryLines(c, [h.invoice_id], lines),
     issueLog: issues.map(i => ({ no: i.issue_no, at: i.issued_at, by: i.issued_by, sha256: i.document_sha256 })), allocations: allocations.map(a => ({ receiptNo: a.receipt_no, date: a.receipt_date, status: a.status, amount: num(a.amount) })) };
 }
 
