@@ -208,7 +208,7 @@ export async function correctShipment(c, ctx, p) {
   if (p.quantity !== undefined && p.quantity !== '' && Number(p.quantity) !== 0) {
     black = await slipValues(c, { date, customer: p.customer || orig.customers_cd, site: p.site ?? (orig.field_cd ? `${orig.field_cd}|${orig.field_suffix}` : ''), siteName1: p.siteName1 ?? orig.field_name1, siteName2: p.siteName2 ?? orig.field_name2,
       item: p.item || orig.item_cd, quantity: p.quantity, price: p.price ?? red.price, freight: p.freight ?? red.freight, method: p.method ?? red.method, operator: p.operator || red.operator, deliveryKbn: p.deliveryKbn || red.kbn,
-      shipKb: '1', otherCustomer: '', vehicle: slip?.vehicle_no || '', remarks: p.remarks || `黒 ${orig.order_no}` }, '黒伝票の');
+      shipKb: '1', otherCustomer: '', vehicle: slip?.vehicle_no || '', remarks: p.remarks ?? orig.remarks ?? '' }, '黒伝票の'); // 黒の備考は元伝票の備考を引き継ぐ（指摘 No.26）
     blackNo = await nextShipNo(c);
     await insertSlip(c, { orderNo: blackNo, ...black, shipKb: CORRECTION, salesNo: orig.order_no, salesSuffix: 3 }); // black（slipValues）の shipKb '1' で上書きしない
     await recalcCumulative(c, await one(c, 'SELECT * FROM shipment_slip WHERE order_no=?', [blackNo]));
@@ -370,6 +370,18 @@ const CARRY = cat => (cat === '2' ? '2 先方' : '1 当方');
 export const slipNoOf = l => (String(l.ship_kb) === '5' && l.sales_no && l.sales_no !== l.order_no ? `${l.sales_no}-${Number(l.sales_suffix)}` : l.order_no);
 const decodeLine = l => ({ carry: CARRY(l.kbn_cat), unit: l.unit || '', orderNo: slipNoOf(l), ownNo: l.order_no, date: fromNum(l.sales_date), site: `${l.field_cd}|${l.field_suffix}`, siteName: l.field_name || l.st_site || '', item: l.item_cd, itemName: l.item_name, quantity: num(l.quantity), price: num(l.unit_price),
   net: num(l.money), taxRate: num(l.tax_rate), remarks: l.remarks || '', shipKb: Number(l.ship_kb || 1) });
+// 請求書・発行確認表の明細は 得意先×現場×出荷日×商品（単価・税率・単位・運送が同じもの）でまとめる（指摘 No.9）。
+// 赤黒（区分5）とその元伝票はまとめずに、そのまま並べる。まとめた行の伝票No は「先頭の伝票No 他n件」。請求データ（billing_detail）は伝票単位のまま
+export function summarizeLines(lines) {
+  const out = [], at = new Map(), corrected = new Set(lines.filter(l => l.shipKb === 5).map(l => String(l.orderNo).split('-')[0])); // 赤黒のある元伝票もまとめない
+  for (const l of lines) {
+    if (l.shipKb === 5 || corrected.has(String(l.orderNo))) { out.push(l); continue; }
+    const k = [l.site, l.siteName, l.date, l.item, l.price, l.taxRate, l.unit, l.carry].join('|'), g = at.get(k);
+    if (!g) { const row = { ...l, slips: [l.orderNo] }; at.set(k, row); out.push(row); continue; }
+    g.slips.push(l.orderNo); g.quantity = Math.round((g.quantity + l.quantity) * 1000) / 1000; g.net += l.net; g.orderNo = `${g.slips[0]} 他${g.slips.length - 1}件`;
+  }
+  return out.map(({ slips, ...l }) => (slips?.length > 1 ? { ...l, slipCount: slips.length } : l));
+}
 // 赤・黒は元伝票の直後に並べる（元伝票の売上日・番号で並べ、枝番 2 赤・3 黒の順）
 async function headLines(c, h) { const w = detailWhere(h); return (await rows(c, `SELECT d.*, st.sales_no, st.sales_suffix, NULLIF(TRIM(CONCAT_WS(' ', st.field_name1, st.field_name2)), '') st_site, unit_name(i.unit) unit, (SELECT k.category1 FROM code_m k WHERE k.code_key='A0000' AND k.code_dtl=CAST(d.shipping_kb AS TEXT)) kbn_cat FROM billing_detail d LEFT JOIN item_m i ON i.item_cd=d.item_cd
     LEFT JOIN sales_trn st ON st.order_no=d.order_no AND st.order_suffix=1 LEFT JOIN sales_trn o ON st.ship_kb='5' AND o.order_no=st.sales_no AND o.order_suffix=1
@@ -453,14 +465,14 @@ async function billingPeriods(c, issued) {
     .map(r => ({ month: String(r.closing_yymm).replace(/^(\d{4})(\d{2})$/, '$1-$2'), closing: Number(r.closingdd) }));
 }
 // unissued='1'：未発行の請求も含める（発行前に全得意先の明細を確認する用途。現行 HAR430 はメニュー 11＝請求書印刷及び更新の前に出力）
-export async function billingConfirm(c, { month, closing, unissued }) {
+export async function billingConfirm(c, { month, closing, unissued, customer }) {
   const { end } = period(month, closing), withDraft = String(unissued || '') === '1';
-  const heads = await rows(c, `SELECT DISTINCT h.customers_cd, c.customers_name FROM billing_head h JOIN client_m c ON c.customers_cd=h.customers_cd WHERE h.closing_date=?${withDraft ? '' : ' AND EXISTS (SELECT 1 FROM invoice_issue i WHERE i.invoice_id=h.invoice_id)'} ORDER BY h.customers_cd`, [toNum(end)]);
+  const heads = await rows(c, `SELECT DISTINCT h.customers_cd, c.customers_name FROM billing_head h JOIN client_m c ON c.customers_cd=h.customers_cd WHERE h.closing_date=?${customer ? ' AND h.customers_cd=?' : ''}${withDraft ? '' : ' AND EXISTS (SELECT 1 FROM invoice_issue i WHERE i.invoice_id=h.invoice_id)'} ORDER BY h.customers_cd`, [toNum(end), ...(customer ? [String(customer)] : [])]);
   const out = [];
   for (const h of heads) {
     const s = await statement(c, h.customers_cd, month, closing);
     const last = s.invoiceIds.length ? await one(c, `SELECT i.issue_no, i.issued_at, i.issued_by FROM invoice_issue i WHERE i.invoice_id IN (${s.invoiceIds.map(() => '?').join(',')}) ORDER BY i.issued_at DESC LIMIT 1`, s.invoiceIds) : null;
-    out.push({ ...s, name: h.customers_name, lastIssue: last ? { no: last.issue_no, at: last.issued_at, by: last.issued_by } : null });
+    out.push({ ...s, lines: summarizeLines(s.lines), name: h.customers_name, lastIssue: last ? { no: last.issue_no, at: last.issued_at, by: last.issued_by } : null });
   }
   // 税率別（現行 HAR430 の合計下段「10 %  売上額  消費税額」）
   for (const r of out) r.byRate = RATES.map(rate => { const n = r.lines.filter(l => Math.round(l.taxRate) === rate).reduce((a, l) => a + l.net, 0); return { rate, net: n, tax: bucketTax(n, rate) }; }).filter(x => x.net);
@@ -492,7 +504,7 @@ async function snapshot(c, inv) {
     company: await companyProfile(c), discount: 0, invoiceNo: 'K' + String(inv.closing).slice(0, 7).replace('-', '') + String(inv.id).padStart(5, '0'),
     customer: { code: inv.customer, name: cu?.customers_name || inv.customerName, address: cu?.addr1 || '', tel: cu?.tel_no || '' },
     site: { key: inv.site, name: inv.siteName }, invoiceId: inv.id, periodStart: s.start, closing: inv.closing, due: inv.due,
-    demo: process.env.SHOW_DEMO_NOTICE !== '0', prevBalance: s.prevBalance, received: s.received, carried: s.carried, net: inv.net, tax: inv.tax, total: inv.total, grandTotal: s.carried + inv.total, buckets, lines: inv.lines,
+    demo: process.env.SHOW_DEMO_NOTICE !== '0', prevBalance: s.prevBalance, received: s.received, carried: s.carried, net: inv.net, tax: inv.tax, total: inv.total, grandTotal: s.carried + inv.total, buckets, lines: summarizeLines(inv.lines),
   };
 }
 export async function issueInvoices(c, ctx, { ids }) {
