@@ -76,7 +76,17 @@ test('workflow against PostgreSQL business tables', { skip, timeout: 900000 }, a
       assert.equal((await a.call('/api/shipments/delete', { orderNo: cash.data.orderNo })).status, 200);
       // 2026-10-23：未発行でも残高があれば消込対象（状態は draft＝未発行）
       const ctx0 = (await a.call('/api/receipt-context?customer=' + C)).data.invoices.find(i => i.id === invoiceId); assert.equal(ctx0?.status, 'draft', 'unissued invoice is a receipt target');
+      // 2026-10-27 現場別発行：選んだ現場だけ発行し、発行状況・控えは現場ごと
+      const sitesOf = async () => Object.fromEntries((await a.call(`/api/invoices?month=${month}&customer=${C}`)).data.find(i => i.id === invoiceId).sites.map(x => [x.siteName, x.issues]));
+      const names = Object.keys(await sitesOf()); assert.equal(names.length, 2);
+      const part = await a.call('/api/invoices/issue', { ids: [invoiceId], sites: { [invoiceId]: [names[1]] } }); assert.equal(part.status, 200, JSON.stringify(part.data));
+      assert.deepEqual(part.data.documents[0].sites, [names[1]]);
+      assert.deepEqual(await sitesOf(), { [names[0]]: 0, [names[1]]: 1 });
+      assert.equal((await a.call(`/api/invoices/${invoiceId}/document?site=${encodeURIComponent(names[0])}`)).status, 400, 'unissued site has no copy');
+      assert.equal((await a.call('/api/invoices/issue', { ids: [invoiceId], sites: { [invoiceId]: ['存在しない現場'] } })).status, 400);
       const issued = await a.call('/api/invoices/issue', { ids: [invoiceId] }); assert.equal(issued.status, 200);
+      assert.deepEqual(await sitesOf(), { [names[0]]: 1, [names[1]]: 2 });
+      const copy0 = (await a.call(`/api/invoices/${invoiceId}/document?site=${encodeURIComponent(names[0])}`)).data; assert.equal(copy0.siteIssueNo[names[0]], 1); assert.deepEqual(copy0.sites, [names[0]]);
       const conf = await a.call(`/api/reports/billing-confirm?month=${month}&closing=31`); assert.equal(conf.data.rows.find(r => r.customer === C).lines.length, 4);
       assert.equal(issued.data.documents[0].total, inv.total);
       // Two concurrent receipts that together exceed the balance: exactly one succeeds.

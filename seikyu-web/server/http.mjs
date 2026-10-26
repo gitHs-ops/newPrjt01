@@ -49,7 +49,7 @@ export async function createApp({ pool, publicDir, secureCookies = process.env.N
   route('GET', '/api/accounting/export', 'read', x => db(c => accountingExport(c, x, x.q)));
   route('GET', '/api/invoices/book', 'read', x => db(c => invoiceBook(c, x.q)).then(b => ({ file: b })));
   route('GET', '/api/invoices/:id', 'read', x => db(c => S.invoiceDetail(c, x.params.id)));
-  route('GET', '/api/invoices/:id/document', 'read', x => db(c => S.issuedDocument(c, x.params.id)));
+  route('GET', '/api/invoices/:id/document', 'read', x => db(c => S.issuedDocument(c, x.params.id, x.q.site || null)));
   route('GET', '/api/open-invoices', 'read', x => db(c => S.openInvoices(c, x.q.customer)));
   route('GET', '/api/reports/journal-list', 'read', x => x.q.format === 'xlsx' ? db(c => J.journalListBook(c, x.q)).then(b => ({ file: b })) : db(c => J.journalList(c, x.q)));
   route('GET', '/api/reports/bank-payments', 'read', x => x.q.format === 'xlsx' ? db(c => J.bankPaymentBook(c, x.q)).then(b => ({ file: b })) : db(c => J.bankPaymentList(c, x.q)));

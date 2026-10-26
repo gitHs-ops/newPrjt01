@@ -355,11 +355,13 @@ export async function listInvoices(c, q = {}) {
     // 10/23 打合せ（大西さん）：請求一覧照会は 得意先×現場 の行。現場ごとの売上額・消費税（税率別に端数処理）・決済区分
     const parts = await rows(c, `SELECT h.invoice_id, d.field_cd, d.field_suffix, COALESCE(NULLIF(d.field_name,''), NULLIF(TRIM(CONCAT_WS(' ', st.field_name1, st.field_name2)),''), '') field_name, d.payment_method_cd, d.tax_rate, SUM(d.money) money FROM billing_detail d JOIN billing_head h ON h.customers_cd=d.customers_cd AND h.closing_yymm=d.closing_yymm AND h.closing_date=d.claim_processing_period LEFT JOIN sales_trn st ON st.order_no=d.order_no AND st.order_suffix=1
       WHERE h.invoice_id IN (${list.map(() => '?').join(',')}) GROUP BY h.invoice_id, d.field_cd, d.field_suffix, COALESCE(NULLIF(d.field_name,''), NULLIF(TRIM(CONCAT_WS(' ', st.field_name1, st.field_name2)),''), ''), d.payment_method_cd, d.tax_rate ORDER BY h.invoice_id, d.field_cd, d.field_suffix, 4`, list.map(i => i.id));
+    const iss = await siteIssues(c, list.map(i => i.id));
     for (const i of list) {
       const mine = parts.filter(x => Number(x.invoice_id) === i.id), keyOf = x => `${x.field_cd || ''}|${x.field_suffix || ''}|${x.field_name || ''}`, keys = [...new Set(mine.map(keyOf))]; // 現場コードの無い自由入力の現場は名称で分ける
       i.sites = keys.map(k => { const ls = mine.filter(x => keyOf(x) === k), net = ls.reduce((n, x) => n + num(x.money), 0);
         const tax = RATES.reduce((n, r) => n + bucketTax(ls.filter(x => Math.round(num(x.tax_rate)) === r).reduce((a, x) => a + num(x.money), 0), r), 0);
-        return { site: ls[0].field_cd ? `${ls[0].field_cd}|${ls[0].field_suffix}` : '', siteName: ls[0].field_name || '', method: [...new Set(ls.map(x => METHODS[x.payment_method_cd] || ''))].filter(Boolean).join('・'), net, tax, total: net + tax }; });
+        return { site: ls[0].field_cd ? `${ls[0].field_cd}|${ls[0].field_suffix}` : '', siteName: ls[0].field_name || '', method: [...new Set(ls.map(x => METHODS[x.payment_method_cd] || ''))].filter(Boolean).join('・'), net, tax, total: net + tax,
+          issues: iss.get(i.id)?.of(siteLabel(ls[0].field_name)).length || 0 }; });
     }
   }
   if (q.status === 'open') list = list.filter(i => i.balance > 0);
@@ -537,23 +539,44 @@ async function snapshot(c, inv) {
     demo: process.env.SHOW_DEMO_NOTICE !== '0', prevBalance: s.prevBalance, received: s.received, carried: s.carried, net: inv.net, tax: inv.tax, total: inv.total, grandTotal: s.carried + inv.total, buckets, lines: await summaryLines(c, [inv.id], inv.lines),
   };
 }
-export async function issueInvoices(c, ctx, { ids }) {
+// sites：{請求ID: [現場名]}（2026-10-27 現場別発行）。無い請求は全現場。スナップショットは請求全体を保存し、発行した現場（sites）と現場ごとの発行回数（siteIssueNo）を持つ
+export async function issueInvoices(c, ctx, { ids, sites = {} }) {
   check(Array.isArray(ids) && ids.length > 0 && ids.length <= 200, '発行する請求を選択してください（最大200件）');
   const out = [];
   for (const id of [...new Set(ids.map(Number))].sort((a, b) => a - b)) {
     const h = await one(c, 'SELECT * FROM billing_head WHERE invoice_id=? FOR UPDATE', [id]); check(h, '請求が見つかりません');
     const inv = await invoiceDetail(c, id), snap = await snapshot(c, inv), no = (inv.issues || 0) + 1;
-    const body = JSON.stringify({ ...snap, issueNo: no, issuedOn: today(), issuedBy: ctx.user.login_id }), sha = createHash('sha256').update(body).digest('hex');
+    const all = [...new Set(snap.lines.map(l => siteLabel(l.siteName)))], want = Array.isArray(sites[id]) ? [...new Set(sites[id].map(siteLabel))] : all;
+    const bad = want.filter(n => !all.includes(n)); check(!bad.length && want.length, `請求No.${id} に現場「${bad.join('・')}」がありません`);
+    const prev = (await siteIssues(c, [id])).get(id), siteIssueNo = Object.fromEntries(want.map(n => [n, (prev?.of(n).length || 0) + 1]));
+    const body = JSON.stringify({ ...snap, issueNo: no, issuedOn: today(), issuedBy: ctx.user.login_id, sites: want, siteIssueNo }), sha = createHash('sha256').update(body).digest('hex');
     await c.query('INSERT INTO invoice_issue (invoice_id,issue_no,issued_at,issued_by,snapshot_json,document_sha256) VALUES (?,?,UTC_TIMESTAMP(6),?,?,?)', [id, no, ctx.user.login_id, body, sha]);
+    for (const n of want) await c.query('INSERT INTO app_invoice_issue_site (invoice_id,issue_no,site_name) VALUES (?,?,?)', [id, no, n.slice(0, 80)]);
     await c.query('UPDATE billing_head SET invoice_flag=?, row_version=row_version+1 WHERE invoice_id=?', [no === 1 ? '1' : '2', id]);
     const w = detailWhere(h); await c.query(`UPDATE billing_detail SET invoice_issud_flag='1' WHERE ${w.sql}`, w.args);
-    await audit(c, ctx, 'billing_head', id, no === 1 ? 'invoice.issue' : 'invoice.reissue', { issueNo: no, sha256: sha });
+    await audit(c, ctx, 'billing_head', id, no === 1 ? 'invoice.issue' : 'invoice.reissue', { issueNo: no, sha256: sha, sites: want });
     out.push({ ...JSON.parse(body), reissue: no > 1 });
   }
   return { documents: out };
 }
-export async function issuedDocument(c, id) {
-  const r = await one(c, 'SELECT snapshot_json, issue_no FROM invoice_issue WHERE invoice_id=? ORDER BY issue_no DESC LIMIT 1', [Number(id)]); check(r, '発行履歴がありません');
+// 現場名の表記（請求書の「現場：」・現場別発行の単位）。名称の無い現場は（現場なし）
+export const siteLabel = n => (n && String(n).trim() ? String(n) : '（現場なし）');
+// 請求ごとの発行（invoice_issue）と現場の対応：of(現場名)＝その現場を発行した回の issue_no（古い順）。現場の行が無い発行は全現場
+async function siteIssues(c, ids) {
+  const out = new Map(); if (!ids.length) return out;
+  const q = ids.map(() => '?').join(',');
+  const iss = await rows(c, `SELECT invoice_id, issue_no FROM invoice_issue WHERE invoice_id IN (${q}) ORDER BY issue_no`, ids);
+  const st = await rows(c, `SELECT invoice_id, issue_no, site_name FROM app_invoice_issue_site WHERE invoice_id IN (${q})`, ids);
+  for (const id of ids) {
+    const mine = st.filter(x => Number(x.invoice_id) === Number(id)), withSite = new Set(mine.map(x => Number(x.issue_no)));
+    const all = iss.filter(x => Number(x.invoice_id) === Number(id) && !withSite.has(Number(x.issue_no))).map(x => Number(x.issue_no));
+    out.set(Number(id), { of: n => [...all, ...mine.filter(x => x.site_name === siteLabel(n)).map(x => Number(x.issue_no))].sort((a, b) => a - b) });
+  }
+  return out;
+}
+export async function issuedDocument(c, id, site = null) {
+  const nos = site ? (await siteIssues(c, [Number(id)])).get(Number(id)).of(site) : null; check(!site || nos.length, `現場「${siteLabel(site)}」は未発行です`);
+  const r = await one(c, `SELECT snapshot_json, issue_no FROM invoice_issue WHERE invoice_id=?${site ? ' AND issue_no=?' : ''} ORDER BY issue_no DESC LIMIT 1`, site ? [Number(id), nos.at(-1)] : [Number(id)]); check(r, '発行履歴がありません');
   const s = typeof r.snapshot_json === 'string' ? JSON.parse(r.snapshot_json) : r.snapshot_json;
   // 2026-10-26 より前の発行分は明細に現場名が無く、明細もまとめていない：金額はそのまま、現場名を今の請求明細から補い、得意先×現場×出荷日×商品でまとめる
   if (s.lines?.length && s.lines.every(l => !l.siteName)) {
@@ -561,6 +584,7 @@ export async function issuedDocument(c, id) {
     for (const l of h ? await headLines(c, h) : []) { at.set(String(l.orderNo), l); at.set(String(l.ownNo), l); }
     s.lines = summarizeLines(s.lines.map(l => { const x = at.get(String(l.ownNo || l.orderNo)) || at.get(String(l.orderNo)); return x ? { ...l, site: x.site, siteName: x.siteName } : l; }));
   }
+  if (site) s.sites = [siteLabel(site)];
   return { ...s, issueNo: r.issue_no, reissue: r.issue_no > 1, copy: true };
 }
 export async function cancelInvoice(c, ctx, { id }) {

@@ -1,9 +1,11 @@
 // NO10 請求書の一括ダウンロード：発行済み請求書（最新の発行スナップショット）を Excel にまとめる。現場ごとに1シート（指摘 No.18）
 import { check, today } from './domain.mjs';
-import { issuedDocument } from './sales.mjs';
+import { issuedDocument, siteLabel } from './sales.mjs';
 import { xlsx } from './xlsx.mjs';
 
 const H = v => ({ v, s: 'bold' }), S = v => ({ v, s: 'sum' }), T = v => ({ v, s: 'title' });
+// 現場ごとの発行回数（現場別発行より前の発行分は請求の発行回数）
+const siteNo = s => s.siteIssueNo?.[siteLabel(s.siteName)] ?? s.issueNo;
 const jp = d => (d ? `${d.slice(0, 4)}年${d.slice(5, 7)}月${d.slice(8, 10)}日` : '');
 // 請求書を現場ごとに分ける（画面の印刷 splitBySite と同じ）：前回・入金・繰越は1枚目だけ。消費税は税率ごとに得意先の税額を現場の金額で按分（端数は金額の大きい現場）
 function splitBySite(s) {
@@ -18,19 +20,30 @@ function splitBySite(s) {
   return gs.map((g, k) => { const tax = bk[k].reduce((n, b) => n + b.tax, 0), total = g.net + tax, first = k === 0;
     return { ...s, lines: g.lines, buckets: bk[k], net: g.net, tax, total, prevBalance: first ? s.prevBalance ?? s.carried : 0, received: first ? s.received ?? 0 : 0, carried: first ? s.carried : 0, grandTotal: (first ? s.carried : 0) + total, siteName: g.name, page: k + 1, pages: gs.length }; });
 }
+// sites：{請求ID: [現場名]}（JSON、2026-10-27 現場別発行）。指定した現場はその現場の最新の発行分、指定が無い請求は最新の発行分で発行した現場
 export async function invoiceBook(c, q) {
   const ids = [...new Set(String(q.ids || '').split(',').map(Number).filter(Boolean))];
   check(ids.length > 0 && ids.length <= 200, '請求書を選択してください（最大200件）');
+  let want = {}; try { want = q.sites ? JSON.parse(q.sites) : {}; } catch { check(false, '現場の指定が正しくありません'); }
   const sheets = [];
   for (const id of ids) {
-    let doc; try { doc = await issuedDocument(c, id); } catch { check(false, `請求No.${id} は未発行です。発行後にダウンロードしてください`); }
-    for (const s of splitBySite(doc)) {
+    const pages = [];
+    if (Array.isArray(want[id]) && want[id].length) {
+      for (const n of [...new Set(want[id].map(siteLabel))]) {
+        let doc; try { doc = await issuedDocument(c, id, n); } catch { check(false, `請求No.${id} の現場「${n}」は未発行です。発行後にダウンロードしてください`); }
+        pages.push(...splitBySite(doc).filter(s => siteLabel(s.siteName) === n));
+      }
+    } else {
+      let doc; try { doc = await issuedDocument(c, id); } catch { check(false, `請求No.${id} は未発行です。発行後にダウンロードしてください`); }
+      pages.push(...splitBySite(doc).filter(s => !doc.sites || doc.sites.includes(siteLabel(s.siteName))));
+    }
+    for (const s of pages) {
       // 印刷の請求書（提案書 スライド14 の様式）と同じ項目・見出し（指摘 No.17）。税率区分は印刷と同じく末尾に
       const no = s.invoiceNo || 'K' + String(s.closing).slice(0, 7).replace('-', '') + String(s.invoiceId).padStart(5, '0');
       const tax10 = s.buckets.filter(b => b.rate !== 8).reduce((n, b) => n + b.tax, 0), tax8 = s.buckets.filter(b => b.rate === 8).reduce((n, b) => n + b.tax, 0);
       const kind = l => (l.shipKb === 5 ? (l.quantity < 0 ? '赤' : '黒') : '売上'), banks = s.company.banks || (s.company.bankText ? [s.company.bankText] : []);
       const rows = [[T('請 求 書'), '', '', '', '', '', `請求書番号: ${no}`],
-        ['', '', '', '', '', '', `${jp(s.issuedOn || today())}${s.issueNo > 1 ? `　${s.company.saisyutsu || '再発行'}（${s.issueNo}回目）` : ''}`],
+        ['', '', '', '', '', '', `${jp(s.issuedOn || today())}${siteNo(s) > 1 ? `　${s.company.saisyutsu || '再発行'}（${siteNo(s)}回目）` : ''}`],
         [s.customer.address, '', '', '', '', '', s.company.name], [`${s.customer.name} 御中`, '', '', '', '', '', s.company.address],
         ['毎度ありがとうございます。下記のとおり御請求申し上げます。', '', '', '', '', '', `TEL ${s.company.tel}${s.company.fax ? ' FAX ' + s.company.fax : ''}`],
         [`${jp(s.periodStart)} 〜 ${jp(s.closing)}`, '', '', '', '', '', s.company.invoiceNo ? `登録番号: ${s.company.invoiceNo}` : ''],

@@ -102,6 +102,9 @@ export async function prepare(pool, env = process.env) {
     site_key varchar(20) COLLATE "C" NOT NULL DEFAULT '', site_name varchar(80) NOT NULL DEFAULT '', sales_date date NOT NULL, slip_no varchar(40) COLLATE "C" NOT NULL, slip_count integer NOT NULL DEFAULT 1, order_nos text NOT NULL DEFAULT '',
     ship_kb integer NOT NULL DEFAULT 1, item_cd varchar(20) COLLATE "C" NOT NULL DEFAULT '', item_name varchar(60) NOT NULL DEFAULT '', unit varchar(10) NOT NULL DEFAULT '', quantity numeric(14,3) NOT NULL, unit_price numeric(14,2) NOT NULL,
     money numeric(14,0) NOT NULL, tax_rate integer NOT NULL, carry varchar(20) NOT NULL DEFAULT '', remarks varchar(80) NOT NULL DEFAULT '', PRIMARY KEY (invoice_id, line_no))`);
+  // 請求書の現場別発行（2026-10-27）：発行（invoice_issue の1回）ごとに、発行した現場名。行が無い発行（それ以前）は全現場を発行したものとみなす
+  await pool.query(`CREATE TABLE IF NOT EXISTS app_invoice_issue_site (invoice_id bigint NOT NULL REFERENCES billing_head (invoice_id) ON DELETE CASCADE, issue_no integer NOT NULL,
+    site_name varchar(80) NOT NULL, PRIMARY KEY (invoice_id, issue_no, site_name))`);
   await pool.query(`CREATE TABLE IF NOT EXISTS app_jv_alloc (alloc_key varchar(40) COLLATE "C" PRIMARY KEY, parts text NOT NULL, updated_by varchar(256) COLLATE "C" NOT NULL, updated_at timestamp(6) NOT NULL)`);
   await slipNoBackfill(pool);
   // 赤黒訂正の黒伝票が区分 1 で登録されていた不具合（2026-10-23 修正）の補正：元伝票に結び付いた黒（sales_suffix 3）を区分 5 にそろえる（何度実行しても同じ）

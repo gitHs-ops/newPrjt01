@@ -655,36 +655,45 @@ const invoiceSearch = q => `${monthInput('month', q.month || '')}<select name="c
 const invoiceLines = list => list.flatMap(r => (r.sites?.length ? r.sites : [{ site: '', siteName: '', method: '', net: r.net, tax: r.tax, total: r.total }]).map((x, k) => ({ ...x, inv: r, first: k === 0 }))).map((x, k) => ({ ...x, k }));
 const siteCell = r => (r.siteName ? esc(r.siteName) : '<span class="muted small">（現場なし）</span>');
 // 請求書発行（10/26 打合せ・提案書 P13）：請求年月・締日・得意先（任意）で検索 → 得意先×現場の行と発行状況（未発行／発行済／再発行）。
-// 請求書は請求（得意先）単位で発行し、現場ごとに1枚（その請求の先頭行にチェック）。見出しのチェックで全件、行のチェックで選択分だけ（訂正後の再発行）
+// 請求書は現場ごとに1枚。チェック・発行状況は現場の行ごと（2026-10-27）。見出しのチェックで全件、行のチェックで選択した現場だけ（訂正後の再発行）
 const ISSUE_STATES = { unissued: '未発行', issued: '発行済', reissued: '再発行' };
-const issueState = r => (!r.issues ? 'unissued' : r.issues > 1 ? 'reissued' : 'issued');
+// 現場名の表記（請求書の「現場：」・現場別発行の単位。サーバーの siteLabel と同じ）
+const siteLabel = n => (n && String(n).trim() ? String(n) : '（現場なし）');
+// 現場ごとの発行回数（現場別発行より前の発行分は請求の発行回数）
+const siteNo = s => s.siteIssueNo?.[siteLabel(s.siteName)] ?? s.issueNo;
+const issueState = r => (!r.issues ? 'unissued' : r.issues > 1 ? 'reissued' : 'issued'); // r＝現場の行（issues＝その現場の発行回数）
 async function invoiceIssueView(q) {
   const A = actions;
   A.view = d => go('invoices', { view: d.view });
-  const ist = ISSUE_STATES[q.istate] ? q.istate : '';
-  const list = (await api('/api/invoices?' + qs({ month: q.month, closing: q.closing, customer: q.customer }))).filter(r => !ist || issueState(r) === ist);
-  // 発行前に確認ポップアップ（件数・得意先・請求額・初回／再発行）を出し、「発行する」で発行・印刷
-  A.issue = () => { const ids = $$('.inv-pick:checked').map(x => Number(x.value)); if (!ids.length) return toast('発行する請求を選択してください（見出しのチェックで全件）', true);
-    const picked = ids.map(id => list.find(r => r.id === id)).filter(Boolean), re = picked.filter(r => r.issues).length;
-    modal({ title: '請求書の発行確認', submit: '発行する', wide: picked.length > 3, body: `<p>選択した <b>${picked.length}件</b>（請求額合計 <b>${yen(picked.reduce((n, r) => n + r.total, 0))}</b> 円）の請求書を発行し、印刷画面を開きます。${re ? `<br><span class="check-ng">うち ${re}件は発行済みのため再発行になります。</span>` : ''}</p>
-      <div style="max-height:300px;overflow:auto;margin-top:8px">${table([{ label: 'No', value: r => r.id }, { label: '締日', value: r => r.closing }, { label: '得意先', value: r => `${r.customer} ${r.customerName}` }, { label: '請求額', num: 1, value: r => yen(r.total) }, { label: '発行', value: r => (r.issues ? `${r.issues}回目済 → 再発行` : '初回') }], picked)}</div>`,
-      onSubmit: async () => { const r = await post('/api/invoices/issue', { ids }); printDocs(r.documents); await render(); } }); };
+  const ist = ISSUE_STATES[q.istate] ? q.istate : '', month = q.month || thisMonth(); // 請求年月の既定は当月（2026-10-27）
+  const list = await api('/api/invoices?' + qs({ month, closing: q.closing, customer: q.customer }));
+  // 行＝得意先×現場。発行状況・チェックは現場の行ごと（請求書は現場ごとに1枚。訂正した現場だけを再発行できる。2026-10-27）
+  const lines = invoiceLines(list).filter(r => !ist || issueState(r) === ist).map((x, k, a) => ({ ...x, k, first: k === 0 || a[k - 1].inv.id !== x.inv.id }));
+  const sum = k => lines.reduce((n, r) => n + r[k], 0);
+  const picks = rows => { const m = {}; for (const r of rows) (m[r.inv.id] ||= []).push(siteLabel(r.siteName)); return m; };
+  const checked = () => $$('.inv-pick:checked').map(x => lines[Number(x.value)]).filter(Boolean);
+  // 発行前に確認ポップアップ（件数・得意先・現場・請求額・初回／再発行）を出し、「発行する」で発行・印刷
+  A.issue = () => { const rows = checked(); if (!rows.length) return toast('発行する現場を選択してください（見出しのチェックで全件）', true);
+    const re = rows.filter(r => r.issues).length, sites = picks(rows), ids = Object.keys(sites).map(Number);
+    modal({ title: '請求書の発行確認', submit: '発行する', wide: rows.length > 3, body: `<p>選択した <b>${ids.length}得意先・${rows.length}現場</b>（請求額合計 <b>${yen(rows.reduce((n, r) => n + r.total, 0))}</b> 円）の請求書を発行し、印刷画面を開きます。${re ? `<br><span class="check-ng">うち ${re}現場は発行済みのため再発行になります。</span>` : ''}</p>
+      <div style="max-height:300px;overflow:auto;margin-top:8px">${table([{ label: 'No', value: r => r.inv.id }, { label: '締日', value: r => r.inv.closing }, { label: '得意先', value: r => `${r.inv.customer} ${r.inv.customerName}` }, { label: '現場', html: siteCell }, { label: '請求額', num: 1, value: r => yen(r.total) }, { label: '発行', value: r => (r.issues ? `${r.issues}回目済 → 再発行` : '初回') }], rows)}</div>`,
+      onSubmit: async () => { const r = await post('/api/invoices/issue', { ids, sites }); printDocs(r.documents); await render(); } }); };
   A.bulk = async () => {
-    // 10/14 打合せ：チェックなし＝表示中の発行済み全件、チェックあり＝選択分
-    const picked = $$('.inv-pick:checked').map(x => x.value), ids = picked.length ? picked : list.filter(r => r.issues).map(r => String(r.id)); if (!ids.length) return toast('発行済みの請求書がありません', true);
-    const res = await fetch('/api/invoices/book?ids=' + ids.join(','), { cache: 'no-store' });
+    // 10/14 打合せ：チェックなし＝表示中の発行済み全件、チェックあり＝選択分（現場ごとに最新の発行分）
+    const rows = (checked().length ? checked() : lines).filter(r => r.issues); if (!rows.length) return toast('発行済みの請求書がありません', true);
+    const sites = picks(rows), ids = Object.keys(sites);
+    const res = await fetch('/api/invoices/book?' + qs({ ids: ids.join(','), sites: JSON.stringify(sites) }), { cache: 'no-store' });
     if (!res.ok) return toast((await res.json().catch(() => ({}))).error || 'ダウンロードできません', true);
-    const url = URL.createObjectURL(await res.blob()), el = document.createElement('a'); el.href = url; el.download = `請求書_${today()}_${ids.length}件.xlsx`; el.click(); setTimeout(() => URL.revokeObjectURL(url), 2000);
-    toast(`${ids.length}件の請求書をダウンロードしました（1請求書＝1シート）`);
+    const url = URL.createObjectURL(await res.blob()), el = document.createElement('a'); el.href = url; el.download = `請求書_${today()}_${rows.length}現場.xlsx`; el.click(); setTimeout(() => URL.revokeObjectURL(url), 2000);
+    toast(`${rows.length}現場の請求書をダウンロードしました（1現場＝1シート）`);
   };
-  const lines = invoiceLines(list), sum = k => lines.reduce((n, r) => n + r[k], 0);
-  return page('請求締め・発行', '請求年月・締日・得意先（任意）で検索し、請求書を発行します。見出しのチェックで全件、行のチェックで選択した請求書だけを発行します（訂正後の再発行）。',
-    `${invoiceSearch(q)}<select id="inv-state" title="発行状況">${options(Object.entries(ISSUE_STATES).map(([code, name]) => ({ code, name })), ist, { blank: 'すべての発行状況', label: x => x.name })}</select>${canWrite() ? '<button class="primary" data-act="issue">請求書発行</button>' : ''}<button data-act="bulk" title="チェックなしは表示中の発行済み全件">⇩ 一括ダウンロード</button>`,
+  return page('請求締め・発行', '請求年月・締日・得意先（任意）で検索し、請求書を発行します。請求書は現場ごとに1枚で、見出しのチェックで全件、行のチェックで選択した現場だけを発行します（訂正後の再発行）。',
+    `${invoiceSearch({ ...q, month })}<select id="inv-state" title="発行状況">${options(Object.entries(ISSUE_STATES).map(([code, name]) => ({ code, name })), ist, { blank: 'すべての発行状況', label: x => x.name })}</select>${canWrite() ? '<button class="primary" data-act="issue">請求書発行</button>' : ''}<button data-act="bulk" title="チェックなしは表示中の発行済み全件">⇩ 一括ダウンロード</button>`,
     `<section class="card glass" data-sub="issue">
-    ${table([{ label: '', head: '<input type="checkbox" data-pick-all="inv-pick" title="すべて選択／解除">', html: r => (r.first ? `<input type="checkbox" class="inv-pick" value="${r.inv.id}">` : '') }, { label: '締日', value: r => (r.first ? r.inv.closing : '') }, { label: '得意先コード', value: r => (r.first ? r.inv.customer : '') }, { label: '得意先名', value: r => (r.first ? r.inv.customerName : '') },
+    ${table([{ label: '', head: '<input type="checkbox" data-pick-all="inv-pick" title="すべて選択／解除">', html: r => `<input type="checkbox" class="inv-pick" value="${r.k}">` }, { label: '締日', value: r => (r.first ? r.inv.closing : '') }, { label: '得意先コード', value: r => (r.first ? r.inv.customer : '') }, { label: '得意先名', value: r => (r.first ? r.inv.customerName : '') },
       { label: '現場名', html: siteCell }, { label: '売上額', num: 1, value: r => yen(r.net) }, { label: '消費税', num: 1, value: r => yen(r.tax) }, { label: '今回請求額', num: 1, value: r => yen(r.total) },
-      { label: '発行状況', html: r => (r.first ? badge(ISSUE_STATES[issueState(r.inv)], r.inv.issues ? 'green' : 'gray') + (r.inv.issues ? ` <span class="small muted">${r.inv.issues}回</span>` : '') : '') }],
-      lines, { empty: ist ? 'この発行状況の請求はありません' : '請求がありません', foot: ['', '合計', '', '', '', yen(sum('net')), yen(sum('tax')), yen(sum('total')), ''] })}</section>`);
+      { label: '発行状況', html: r => badge(ISSUE_STATES[issueState(r)], r.issues ? 'green' : 'gray') + (r.issues ? ` <span class="small muted">${r.issues}回</span>` : '') }],
+      lines, { empty: ist ? 'この発行状況の現場はありません' : '請求がありません', foot: ['', '合計', '', '', '', yen(sum('net')), yen(sum('tax')), yen(sum('total')), ''] })}</section>`);
 }
 // 発行前確認一覧（2026-10-25）：請求データ作成の前に、その締日で請求される未請求の掛売上（出荷伝票）を得意先ごとに確認する。
 // 現行 HAR430（メニュー 11）と同じ明細項目。請求データは作らない（読み取りのみ）
@@ -787,10 +796,10 @@ async function invoiceDetail(id, site = null) {
     <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap"><h3>明細</h3><label class="small" style="display:inline-flex;gap:4px;align-items:center" title="請求書・請求書発行確認表と同じ 出荷日×商品 の行（伝票No は「先頭の伝票No 他n件」）"><input type="checkbox" id="inv-sum" checked> 出荷日×商品でまとめる</label></div><div id="inv-lines">${lineTable(true)}</div>
     <div class="grid2" style="margin-top:12px"><div><h3>発行履歴</h3>${table([{ label: '回', value: r => r.no }, { label: '発行日時', value: r => jst(r.at) }, { label: '発行者', value: r => r.by }], inv.issueLog, { empty: '未発行' })}</div>
     <div><h3>入金消込</h3>${table([{ label: '入金No', value: r => r.receiptNo }, { label: '入金日', value: r => r.date }, { label: '状態', html: r => status(r.status) }, { label: '消込額', num: 1, value: r => yen(r.amount) }], inv.allocations, { empty: '消込なし' })}</div></div>
-    <div class="filters" style="margin-top:14px">${inv.issues ? '<button type="button" id="inv-copy">最新発行分を印刷（控え）</button>' : ''}${canWrite() && !site ? `<button type="button" class="primary" id="inv-issue">${inv.issues ? '再発行して印刷' : '発行して印刷'}</button>` : ''}${canWrite() && !inv.issues && !inv.allocations.length ? '<button type="button" class="danger" id="inv-cancel">請求取消</button>' : ''}</div>`,
+    <div class="filters" style="margin-top:14px">${(site ? site.issues : inv.issues) ? '<button type="button" id="inv-copy">最新発行分を印刷（控え）</button>' : ''}${canWrite() && !site ? `<button type="button" class="primary" id="inv-issue">${inv.issues ? '再発行して印刷' : '発行して印刷'}</button>` : ''}${canWrite() && !inv.issues && !inv.allocations.length ? '<button type="button" class="danger" id="inv-cancel">請求取消</button>' : ''}</div>`,
     onOpen: () => {
       $('#inv-sum')?.addEventListener('change', e => { $('#inv-lines').innerHTML = lineTable(e.target.checked); });
-      $('#inv-copy')?.addEventListener('click', async () => printDocs([await api(`/api/invoices/${inv.id}/document`)], site));
+      $('#inv-copy')?.addEventListener('click', async () => printDocs([await api(`/api/invoices/${inv.id}/document` + (site ? '?' + qs({ site: siteLabel(site.siteName) }) : ''))], site));
       $('#inv-issue')?.addEventListener('click', async () => { try { const r = await post('/api/invoices/issue', { ids: [inv.id] }); $('#dialog').close(); printDocs(r.documents); render(); } catch (e) { $('#form-error').textContent = e.message; toast(e.message, true); } });
       $('#inv-cancel')?.addEventListener('click', async () => { try { await post('/api/invoices/cancel', { id: inv.id }); $('#dialog').close(); toast('請求を取消しました（売上は未請求に戻り、仕訳は逆仕訳）'); render(); } catch (e) { $('#form-error').textContent = e.message; toast(e.message, true); } });
     } });
@@ -818,7 +827,7 @@ function proposalInvoice(s) {
   const no = s.invoiceNo || 'K' + String(s.closing).slice(0, 7).replace('-', '') + String(s.invoiceId).padStart(5, '0');
   const banks = s.company.banks || (s.company.bankText ? [s.company.bankText] : []);
   return `<section class="invoice-doc prop-inv">
-    <div class="inv-top"><div style="flex:1"></div><h1 style="flex:0 0 auto">請 求 書</h1><div style="flex:1;text-align:right"><p>請求書番号: ${esc(no)}${s.copy ? `<br><span class="reissue">控え（${s.issueNo}回目の発行分）</span>` : s.reissue ? `<br><span class="reissue">${esc(s.company.saisyutsu || '再発行')}（${s.issueNo}回目）</span>` : ''}</p><p>${esc(jpDate(s.issuedOn || today()))}</p></div></div>
+    <div class="inv-top"><div style="flex:1"></div><h1 style="flex:0 0 auto">請 求 書</h1><div style="flex:1;text-align:right"><p>請求書番号: ${esc(no)}${s.copy ? `<br><span class="reissue">控え（${siteNo(s)}回目の発行分）</span>` : siteNo(s) > 1 ? `<br><span class="reissue">${esc(s.company.saisyutsu || '再発行')}（${siteNo(s)}回目）</span>` : ''}</p><p>${esc(jpDate(s.issuedOn || today()))}</p></div></div>
     <div class="inv-top"><div><p>${esc(s.customer.address)}</p><p class="to">${esc(s.customer.name)} 御中</p>
         <p>毎度ありがとうございます。<br>下記のとおり御請求申し上げます。</p><p>${esc(jpDate(s.periodStart))} 〜 ${esc(jpDate(s.closing))}</p>${s.siteName ? `<p class="site-name">現場：<b>${esc(s.siteName)}</b>${s.pages > 1 ? `（${s.page}/${s.pages}）` : ''}</p>` : ''}</div>
       <div><p><b>${esc(s.company.name)}</b><br>${esc(s.company.address)}<br>TEL ${esc(s.company.tel)}${s.company.fax ? ' FAX ' + esc(s.company.fax) : ''}${s.company.invoiceNo ? `<br>登録番号: ${esc(s.company.invoiceNo)}` : ''}</p>
@@ -834,13 +843,13 @@ function proposalInvoice(s) {
 // site：請求一覧照会の現場の行から控えを出すとき、その現場の1枚だけ（現場ごとに1枚の請求書）
 function printDocs(docs, site = null) {
   // 現行の請求書（帳票一覧③）と同じ構成：当月御買上額・消費税額・当月値引額・当月御請求額、明細（年月日・伝票番号・商品名・数量・単位・単価・金額・備考）、税率別合計
-  const all = docs.flatMap(splitBySite), mine = site ? all.filter(s => s.siteName === (site.siteName || '（現場なし）')) : all, pages = mine.length ? mine : all;
+  const all = docs.flatMap(d => splitBySite(d).filter(s => !d.sites || d.sites.includes(siteLabel(s.siteName)))), mine = site ? all.filter(s => siteLabel(s.siteName) === siteLabel(site.siteName)) : all, pages = mine.length ? mine : all;
   $('#print-area').innerHTML = pages.map(s => {
     if ((s.company.layout || 'proposal') !== 'legacy') return proposalInvoice(s);
     const lines = s.lines.map(l => `<tr><td>${esc(l.date)}</td><td>${esc(l.orderNo)}${l.shipKb === 5 ? (l.quantity < 0 ? ' 赤' : ' 黒') : ''}</td><td>${esc(l.itemName)}</td><td class="num">${l.quantity}</td><td>${esc(l.unit || '')}</td><td class="num">${yen(l.price)}</td><td class="num">${yen(l.net)}</td><td>${esc(l.siteName || '')}${l.remarks ? ' ' + esc(l.remarks) : ''}</td></tr>`).join('')
       + `<tr class="subtotal"><td colspan="6" class="right">現場計</td><td class="num"><b>${yen(s.net)}</b></td><td></td></tr>`;
     return `<section class="invoice-doc">
-    <h1>請 求 書</h1>${s.copy || s.reissue ? `<p style="text-align:right"><span class="reissue">${s.copy ? `控え（${s.issueNo}回目の発行分）` : `${esc(s.company.saisyutsu || '再発行')}（${s.issueNo}回目）`}</span></p>` : ''}
+    <h1>請 求 書</h1>${s.copy || siteNo(s) > 1 ? `<p style="text-align:right"><span class="reissue">${s.copy ? `控え（${siteNo(s)}回目の発行分）` : `${esc(s.company.saisyutsu || '再発行')}（${siteNo(s)}回目）`}</span></p>` : ''}
     <div class="inv-top"><div><p class="to">${esc(s.customer.name)} 御中</p><p>${esc(s.customer.address)}</p></div>
       <div style="text-align:right"><p><b>${esc(s.company.name)}</b>${s.company.invoiceNo ? `　登録番号 ${esc(s.company.invoiceNo)}` : ''}<br>${esc(s.company.address)}<br>TEL ${esc(s.company.tel)}${s.company.fax ? ' FAX ' + esc(s.company.fax) : ''}</p>${s.company.bankText ? `<p>振込先 ${esc(s.company.bankText)}</p>` : ''}<p class="stamp">発行日 ${esc(s.issuedOn || today())}${s.copy ? '（控え）' : ''}　請求No. ${s.invoiceId}-${s.issueNo}</p></div></div>
     <table class="totals"><tr><th>請求年月日</th><th>得意先コード</th><th>締日</th><th>お支払期日</th></tr><tr><td>${esc(s.closing)}</td><td>${esc(s.customer.code)}</td><td>${esc(String(Number(s.closing.slice(8))))}</td><td>${esc(s.due)}</td></tr></table>
@@ -849,7 +858,7 @@ function printDocs(docs, site = null) {
     <table><tr><th>年月日</th><th>伝票番号</th><th>商品名</th><th>数量</th><th>単位</th><th>単価</th><th>金額</th><th>備考</th></tr>${lines}</table>
     <table><tr><th>税率区分</th><th>対象額(税抜)</th><th>消費税</th></tr>${s.buckets.map(b => `<tr><td>${b.rate}%対象</td><td class="num">${yen(b.net)}</td><td class="num">${yen(b.tax)}</td></tr>`).join('')}</table>
     </section>`; }).join('');
-  toast(docs.some(d => d.copy) ? `請求書の控え ${pages.length}枚を印刷します` : `${docs.length}件の請求書を印刷します`);
+  toast(docs.some(d => d.copy) ? `請求書の控え ${pages.length}枚を印刷します` : `請求書 ${pages.length}枚を印刷します`);
   setTimeout(() => window.print(), 300);
 }
 
