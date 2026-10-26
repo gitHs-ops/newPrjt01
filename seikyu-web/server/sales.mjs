@@ -310,7 +310,7 @@ export async function runBilling(c, ctx, { month, closing, customers, slip: cont
     }
     for (const s2 of list) {
       await c.query("INSERT INTO billing_detail (closing_yymm,closingdd,claim_processing_period,customers_cd,sales_date,order_no,ship_kb,item_cd,item_name,quantity,unit_cd,unit_price,money,tax_kb,tax_rate,consumption_tax,remarks,field_cd,field_suffix,field_name,payment_method_cd,shipping_kb,invoice_issud_flag,update_day,update_time,update_pgm,update_ws) VALUES (?,?,?,?,?,?,?,?,?,?,NULL,?,?,?,?,?,?,?,?,?,?,NULL,'0',?,?,?,?)",
-        [yymm, day, toNum(end), cu.customers_cd, s2.sales_date, s2.order_no, s2.ship_kb, s2.item_cd, (s2.item_name || '').slice(0, 22), s2.quantity, s2.unit_price, s2.money, s2.tax_kb, Math.round(num(s2.tax_rate)), s2.consumption_tax, s2.remarks, s2.field_cd, s2.field_suffix, (s2.field_name1 || '').slice(0, 40), s2.payment_method_cd, st.update_day, st.update_time, st.update_pgm, st.update_ws]);
+        [yymm, day, toNum(end), cu.customers_cd, s2.sales_date, s2.order_no, s2.ship_kb, s2.item_cd, (s2.item_name || '').slice(0, 22), s2.quantity, s2.unit_price, s2.money, s2.tax_kb, Math.round(num(s2.tax_rate)), s2.consumption_tax, s2.remarks, s2.field_cd, s2.field_suffix, [s2.field_name1, s2.field_name2].filter(Boolean).join(' ').slice(0, 40), s2.payment_method_cd, st.update_day, st.update_time, st.update_pgm, st.update_ws]);
       await c.query("UPDATE sales_trn SET process_status='1', claim_processing_period=? WHERE order_no=? AND order_suffix=?", [toNum(end), s2.order_no, s2.order_suffix]);
       await c.query('UPDATE shipment_slip SET claim_status=1, claim_processing_period=? WHERE order_no=?', [yymm, s2.order_no]);
     }
@@ -348,12 +348,13 @@ export async function listInvoices(c, q = {}) {
   let list = (await rows(c, `${invoiceSql}${w.length ? ' WHERE ' + w.join(' AND ') : ''} ORDER BY h.closing_date DESC, h.customers_cd, h.invoice_id DESC LIMIT 1000`, args)).map(decodeInvoice);
   // 10/14 打合せ：請求一覧照会に現場名を表示（請求一覧表（確認用）の代わり）。請求は得意先単位のため明細の現場名を列挙する。
   if (list.length) {
-    const sites = await rows(c, `SELECT DISTINCT d.customers_cd, d.closing_yymm, d.claim_processing_period, d.field_name FROM billing_detail d JOIN billing_head h ON h.customers_cd=d.customers_cd AND h.closing_yymm=d.closing_yymm AND h.closing_date=d.claim_processing_period
-      WHERE h.invoice_id IN (${list.map(() => '?').join(',')}) AND d.field_name<>''`, list.map(i => i.id));
+    // 現場名は請求明細の現場名、空なら売上の現場名1・2（移行データは現場名2だけのことがある）
+    const sites = await rows(c, `SELECT DISTINCT d.customers_cd, d.closing_yymm, d.claim_processing_period, COALESCE(NULLIF(d.field_name,''), NULLIF(TRIM(CONCAT_WS(' ', st.field_name1, st.field_name2)),''), '') field_name FROM billing_detail d JOIN billing_head h ON h.customers_cd=d.customers_cd AND h.closing_yymm=d.closing_yymm AND h.closing_date=d.claim_processing_period LEFT JOIN sales_trn st ON st.order_no=d.order_no AND st.order_suffix=1
+      WHERE h.invoice_id IN (${list.map(() => '?').join(',')}) AND COALESCE(NULLIF(d.field_name,''), NULLIF(TRIM(CONCAT_WS(' ', st.field_name1, st.field_name2)),''), '')<>''`, list.map(i => i.id));
     for (const i of list) { const n = sites.filter(s => s.customers_cd === i.customer && toNum(i.closing) === Number(s.claim_processing_period) && String(s.closing_yymm) === i.month.replace('-', '')).map(s => s.field_name); if (n.length) i.siteNames = n; }
     // 10/23 打合せ（大西さん）：請求一覧照会は 得意先×現場 の行。現場ごとの売上額・消費税（税率別に端数処理）・決済区分
-    const parts = await rows(c, `SELECT h.invoice_id, d.field_cd, d.field_suffix, d.field_name, d.payment_method_cd, d.tax_rate, SUM(d.money) money FROM billing_detail d JOIN billing_head h ON h.customers_cd=d.customers_cd AND h.closing_yymm=d.closing_yymm AND h.closing_date=d.claim_processing_period
-      WHERE h.invoice_id IN (${list.map(() => '?').join(',')}) GROUP BY h.invoice_id, d.field_cd, d.field_suffix, d.field_name, d.payment_method_cd, d.tax_rate ORDER BY h.invoice_id, d.field_cd, d.field_suffix, d.field_name`, list.map(i => i.id));
+    const parts = await rows(c, `SELECT h.invoice_id, d.field_cd, d.field_suffix, COALESCE(NULLIF(d.field_name,''), NULLIF(TRIM(CONCAT_WS(' ', st.field_name1, st.field_name2)),''), '') field_name, d.payment_method_cd, d.tax_rate, SUM(d.money) money FROM billing_detail d JOIN billing_head h ON h.customers_cd=d.customers_cd AND h.closing_yymm=d.closing_yymm AND h.closing_date=d.claim_processing_period LEFT JOIN sales_trn st ON st.order_no=d.order_no AND st.order_suffix=1
+      WHERE h.invoice_id IN (${list.map(() => '?').join(',')}) GROUP BY h.invoice_id, d.field_cd, d.field_suffix, COALESCE(NULLIF(d.field_name,''), NULLIF(TRIM(CONCAT_WS(' ', st.field_name1, st.field_name2)),''), ''), d.payment_method_cd, d.tax_rate ORDER BY h.invoice_id, d.field_cd, d.field_suffix, 4`, list.map(i => i.id));
     for (const i of list) {
       const mine = parts.filter(x => Number(x.invoice_id) === i.id), keyOf = x => `${x.field_cd || ''}|${x.field_suffix || ''}|${x.field_name || ''}`, keys = [...new Set(mine.map(keyOf))]; // 現場コードの無い自由入力の現場は名称で分ける
       i.sites = keys.map(k => { const ls = mine.filter(x => keyOf(x) === k), net = ls.reduce((n, x) => n + num(x.money), 0);
