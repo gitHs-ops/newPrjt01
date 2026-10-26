@@ -466,9 +466,10 @@ function shipmentForm(r, bizDate) {
       const pickup = () => active('deliveryKinds').find(k => k.code === f.deliveryKbn.value)?.pickup;
       const price = async () => { if (!nameOf('items', f.item.value) || !nameOf('customers', f.customer.value)) return; const p = await api('/api/price?' + qs({ item: f.item.value, customer: f.customer.value, site: siteVal(), date: f.date.value })); f.price.value = p.price; f.freight.value = pickup() ? 0 : p.freight; f.taxRate.value = p.taxRate; preview(); toast(`単価: ${p.source} ${yen(p.price)}円${p.freight ? '・運賃 ' + yen(p.freight) + '円' : ''}`); };
       const siteList = () => { $('#dl-site').innerHTML = (masters.sites || []).filter(x => x.customer === f.customer.value && x.active).map(x => `<option value="${esc(x.code)}">${esc(x.suffix + ' ' + x.name + ' ' + (x.name2 || ''))}</option>`).join(''); };
-      const siteNames = () => { const code = f.siteCode.value.trim(); if (code && !f.siteSuffix.value.trim()) f.siteSuffix.value = '000';
+      // keep：伝票（修正・赤黒訂正・元伝票の写し）の現場名をそのまま残す（移行データは現場マスタに名称2が無いことがある）
+      const siteNames = (keep = false) => { const code = f.siteCode.value.trim(); if (code && !f.siteSuffix.value.trim()) f.siteSuffix.value = '000';
         const s = (masters.sites || []).find(x => x.customer === f.customer.value && x.code === code && x.suffix === (f.siteSuffix.value.trim() || '000'));
-        if (s) { f.siteName1.value = s.name || ''; f.siteName2.value = s.name2 || ''; } f.siteName1.readOnly = f.siteName2.readOnly = !!s; };
+        if (s && !(keep && (f.siteName1.value || f.siteName2.value))) { f.siteName1.value = s.name || ''; f.siteName2.value = s.name2 || ''; } f.siteName1.readOnly = f.siteName2.readOnly = !!s; };
       f.customer.onchange = () => { show('#sf-cname', 'customers', f.customer.value); siteList(); siteNames(); price(); cumulative(); };
       f.otherCustomer.onchange = () => show('#sf-oname', 'customers', f.otherCustomer.value);
       f.item.onchange = () => { show('#sf-iname', 'items', f.item.value); unitOf(); price(); cumulative(); };
@@ -488,7 +489,7 @@ function shipmentForm(r, bizDate) {
         Object.assign(f.customer, { value: o.customer }); f.siteCode.value = sc || ''; f.siteSuffix.value = ss || ''; f.siteName1.value = o.siteName1; f.siteName2.value = o.siteName2;
         f.item.value = o.item; f.deliveryKbn.value = o.deliveryKbn || f.deliveryKbn.value; f.method.value = o.method; f.price.value = o.price; f.freight.value = o.freight; f.quantity.value = -o.quantity; f.taxRate.value = o.taxRate;
         if (!f.remarks.value) f.remarks.value = `赤 ${o.orderNo}`;
-        show('#sf-cname', 'customers', f.customer.value); show('#sf-iname', 'items', f.item.value); siteList(); siteNames(); unitOf(); preview(); cumulative();
+        show('#sf-cname', 'customers', f.customer.value); show('#sf-iname', 'items', f.item.value); siteList(); siteNames(true); unitOf(); preview(); cumulative();
         origInfo(`元 ${esc(o.date)} ${esc(o.customerName || o.customer)}／${esc(o.itemName)} ${o.quantity}${esc(o.unit)}${o.billed ? '（請求済）' : ''}`);
       };
       f.siteName1.onchange = f.siteName2.onchange = cumulative;
@@ -496,7 +497,7 @@ function shipmentForm(r, bizDate) {
       if (co) { const pv = () => { const qn = Number(f.quantity.value) || 0, black = Math.round(Math.round(qn * 100) * (Number(f.price.value) + Number(f.freight.value || 0)) / 100); $('#corr-preview').innerHTML = `<br>赤 ${yen(-co.net)} 円 ＋ 黒 ${yen(black)} 円 ＝ 差額 <b>${yen(black - co.net)}</b> 円（税抜）`; };
         for (const n of ['quantity', 'price', 'freight']) f[n].addEventListener('input', pv); pv(); }
       show('#sf-cname', 'customers', f.customer.value); show('#sf-oname', 'customers', f.otherCustomer.value); show('#sf-iname', 'items', f.item.value);
-      siteList(); unitOf(); siteNames(); preview(); cumulative(); if (!r || r.fromPlan) price();
+      siteList(); unitOf(); siteNames(true); preview(); cumulative(); if (!r || r.fromPlan) price();
       f.querySelector('[data-sample]')?.addEventListener('click', () => { fillSample(f); f.customer.onchange(); f.item.onchange(); });
       $('#dn-one')?.addEventListener('click', () => issueDeliveryNotes({ orderNo: r.orderNo }).catch(e => toast(e.message, true)));
     },
