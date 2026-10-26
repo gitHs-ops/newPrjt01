@@ -4,7 +4,7 @@ import { billingList, billingConfirm, billingPrecheck, PRECHECK_PLAN, receiptPla
 import { today, jst } from './domain.mjs';
 
 const H = v => ({ v, s: 'bold' }), S = v => ({ v, s: 'sum' }), T = v => ({ v, s: 'title' });
-const shipKb = k => (Number(k) === 5 ? '訂正' : '売上');
+const kindOf = l => (Number(l.shipKb) === 5 ? (l.quantity < 0 ? '赤' : '黒') : '売上'); // 区分は請求書と同じ 赤／黒／売上
 
 // 発行前確認一覧（請求データ作成前の未請求掛売上。現行 HAR430 と同じ明細項目）
 export async function billingPrecheckBook(c, q) {
@@ -12,7 +12,7 @@ export async function billingPrecheckBook(c, q) {
   const out = [[T('発行前確認一覧'), '', '', '', '', '', '', '', '', '', '', d.company], [`締日 ${cl}　請求期間 ${ymd(d.start)}〜${ymd(d.end)}　売上締切日 ${ymd(d.end)}　作成日 ${ymd(today())}`], []];
   for (const x of d.rows) {
     out.push([H(`${x.customer} ${x.name}`), '', '', H(PRECHECK_PLAN[x.plan])], ['売上日', '伝票No', '区分', '商品CD', '商品名', '数量', '単位', '単価', '金額', '税率', '運送', '現場名']);
-    for (const l of x.lines) out.push([ymd(l.date), l.orderNo, shipKb(l.shipKb), l.item, l.itemName, { v: l.quantity, s: 'qty' }, l.unit, l.price, l.net, `${l.taxRate}%`, l.carry, l.siteName]);
+    for (const l of x.lines) out.push([ymd(l.date), l.orderNo, kindOf(l), l.item, l.itemName, { v: l.quantity, s: 'qty' }, l.unit, l.price, l.net, `${l.taxRate}%`, l.carry, l.siteName]);
     out.push(['', S('（売上額）'), S(x.net), '', S('（消費税額）'), S(x.tax), '', S('（値引額）'), S(0), '', S('（今回請求額）'), S(x.current)]);
     for (const r of x.byRate || []) out.push(['', `${r.rate} %`, r.net, '', '', r.tax]);
     out.push([]);
@@ -41,7 +41,7 @@ export async function billingConfirmBook(c, q) {
     const groups = new Map(); for (const l of x.lines) { const k = `${l.site}|${l.siteName}`; if (!groups.has(k)) groups.set(k, []); groups.get(k).push(l); }
     for (const ls of groups.values()) {
       out.push([H(`現場：${ls[0].siteName || '（現場なし）'}`)]);
-      for (const l of ls) out.push([ymd(l.date), l.orderNo, shipKb(l.shipKb), l.item, l.itemName, { v: l.quantity, s: 'qty' }, l.unit, l.price, l.net, `${l.taxRate}%`, l.carry, l.siteName]);
+      for (const l of ls) out.push([ymd(l.date), l.orderNo, kindOf(l), l.item, l.itemName, { v: l.quantity, s: 'qty' }, l.unit, l.price, l.net, `${l.taxRate}%`, l.carry, l.siteName]);
       if (groups.size > 1) out.push(['', '', '', '', '', '', '', S('（現場計）'), S(ls.reduce((n, l) => n + l.net, 0))]);
     }
     // 合計は金額の列に縦に並べる（狭い列に入れると「###」になるため）

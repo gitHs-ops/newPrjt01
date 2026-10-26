@@ -798,6 +798,7 @@ function proposalInvoice(s) {
     <table><tr><th>月日</th><th>伝票NO</th><th>区分</th><th>品名</th><th>数量</th><th>単位</th><th>単価</th><th>金額</th></tr>
       ${s.lines.map(l => `<tr><td>${esc(String(l.date).slice(5).replace('-', '/'))}</td><td>${esc(l.orderNo)}</td><td>${kind(l)}</td><td>${esc(l.itemName)}</td><td class="num">${l.quantity}</td><td>${esc(l.unit || '')}</td><td class="num">${yen(l.price)}</td><td class="num">${yen(l.net)}</td></tr>`).join('')}
       <tr class="subtotal"><td colspan="7" class="right">現場計</td><td class="num"><b>${yen(s.net)}</b></td></tr></table>
+    <table class="inv-rates"><tr><th>税率区分</th><th>対象額(税抜)</th><th>消費税</th></tr>${s.buckets.map(b => `<tr><td>${b.rate}%対象</td><td class="num">${yen(b.net)}</td><td class="num">${yen(b.tax)}</td></tr>`).join('')}</table>
     </section>`;
 }
 function printDocs(docs) {

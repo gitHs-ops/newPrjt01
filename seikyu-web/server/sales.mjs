@@ -320,6 +320,7 @@ export async function runBilling(c, ctx, { month, closing, customers, slip: cont
     await c.query('UPDATE billing_head SET money=?, consumption_tax=?, row_version=row_version+1 WHERE invoice_id=?', [net, tax, h.invoice_id]);
     if (!h.isNew) await reverseJournal(c, { sourceType: 'billing_head', sourceId: h.invoice_id, date: end });
     await postBillingJournal(c, h.invoice_id, end, cu.customers_cd, net, tax, slip);
+    await saveSummary(c, h.invoice_id);
     (h.isNew ? created : appended).push(h.invoice_id);
     await audit(c, ctx, 'billing_head', h.invoice_id, h.isNew ? 'billing.create' : 'billing.append', { customer: cu.customers_cd, closing: end, net, tax, lines: list.length, lateEntries: list.filter(x => fromNum(x.sales_date) < period(month, closing).start).length, credit: net + tax < 0 });
   }
@@ -377,10 +378,36 @@ export function summarizeLines(lines) {
   for (const l of lines) {
     if (l.shipKb === 5 || corrected.has(String(l.orderNo))) { out.push(l); continue; }
     const k = [l.site, l.siteName, l.date, l.item, l.price, l.taxRate, l.unit, l.carry].join('|'), g = at.get(k);
-    if (!g) { const row = { ...l, slips: [l.orderNo] }; at.set(k, row); out.push(row); continue; }
-    g.slips.push(l.orderNo); g.quantity = Math.round((g.quantity + l.quantity) * 1000) / 1000; g.net += l.net; g.orderNo = `${g.slips[0]} 他${g.slips.length - 1}件`;
+    if (!g) { const row = { ...l, slips: [l.orderNo], owns: [l.ownNo || l.orderNo] }; at.set(k, row); out.push(row); continue; }
+    g.owns.push(l.ownNo || l.orderNo); g.slips.push(l.orderNo); g.quantity = Math.round((g.quantity + l.quantity) * 1000) / 1000; g.net += l.net; g.orderNo = `${g.slips[0]} 他${g.slips.length - 1}件`;
   }
-  return out.map(({ slips, ...l }) => (slips?.length > 1 ? { ...l, slipCount: slips.length } : l));
+  return out.map(({ slips, owns, ...l }) => (slips?.length > 1 ? { ...l, slipCount: slips.length, orderNos: owns } : l));
+}
+// まとめた請求データの保存と読込（指摘 No.9：請求データは得意先×現場×出荷日×商品のサマリーで保存）。保存が無い請求（保存前に作成したもの）はその場でまとめる
+export async function saveSummary(c, invoiceId) {
+  const h = await one(c, 'SELECT * FROM billing_head WHERE invoice_id=?', [invoiceId]); if (!h) return 0;
+  const ls = summarizeLines(await headLines(c, h));
+  await c.query('DELETE FROM app_billing_line WHERE invoice_id=?', [invoiceId]);
+  for (let i = 0; i < ls.length; i += 200) {
+    const part = ls.slice(i, i + 200);
+    await c.query(`INSERT INTO app_billing_line (invoice_id,line_no,site_key,site_name,sales_date,slip_no,slip_count,order_nos,ship_kb,item_cd,item_name,unit,quantity,unit_price,money,tax_rate,carry,remarks) VALUES ${part.map(() => '(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)').join(',')}`,
+      part.flatMap((l, k) => [invoiceId, i + k + 1, l.site || '', (l.siteName || '').slice(0, 80), l.date, String(l.orderNo).slice(0, 40), l.slipCount || 1, (l.orderNos || [l.ownNo || l.orderNo]).join(','), l.shipKb || 1, l.item || '', (l.itemName || '').slice(0, 60), (l.unit || '').slice(0, 10), l.quantity, l.price, l.net, l.taxRate, l.carry || '', (l.remarks || '').slice(0, 80)]));
+  }
+  return ls.length;
+}
+async function storedSummary(c, ids) {
+  if (!ids.length) return null;
+  const rs = await rows(c, `SELECT * FROM app_billing_line WHERE invoice_id IN (${ids.map(() => '?').join(',')}) ORDER BY invoice_id, line_no`, ids);
+  if (new Set(rs.map(r => String(r.invoice_id))).size !== ids.length) return null;
+  return rs.map(r => ({ site: r.site_key, siteName: r.site_name, date: String(r.sales_date instanceof Date ? r.sales_date.toISOString() : r.sales_date).slice(0, 10), orderNo: r.slip_no, slipCount: r.slip_count > 1 ? r.slip_count : undefined, orderNos: r.order_nos ? r.order_nos.split(',') : [],
+    shipKb: Number(r.ship_kb), item: r.item_cd, itemName: r.item_name, unit: r.unit, quantity: num(r.quantity), price: num(r.unit_price), net: num(r.money), taxRate: Number(r.tax_rate), carry: r.carry, remarks: r.remarks }));
+}
+export const summaryLines = async (c, ids, lines) => (await storedSummary(c, ids.map(Number))) || summarizeLines(lines);
+// 保存前に作成した請求のまとめを作る（起動時に裏で1回。件数が多くても起動は待たせない）
+export async function backfillSummaries(pool) {
+  const ids = (await rows(pool, 'SELECT h.invoice_id FROM billing_head h WHERE NOT EXISTS (SELECT 1 FROM app_billing_line b WHERE b.invoice_id=h.invoice_id) ORDER BY h.invoice_id')).map(r => r.invoice_id);
+  for (const id of ids) await saveSummary(pool, id);
+  return ids.length;
 }
 // 赤・黒は元伝票の直後に並べる（元伝票の売上日・番号で並べ、枝番 2 赤・3 黒の順）
 async function headLines(c, h) { const w = detailWhere(h); return (await rows(c, `SELECT d.*, st.sales_no, st.sales_suffix, NULLIF(TRIM(CONCAT_WS(' ', st.field_name1, st.field_name2)), '') st_site, unit_name(i.unit) unit, (SELECT k.category1 FROM code_m k WHERE k.code_key='A0000' AND k.code_dtl=CAST(d.shipping_kb AS TEXT)) kbn_cat FROM billing_detail d LEFT JOIN item_m i ON i.item_cd=d.item_cd
@@ -472,7 +499,7 @@ export async function billingConfirm(c, { month, closing, unissued, customer }) 
   for (const h of heads) {
     const s = await statement(c, h.customers_cd, month, closing);
     const last = s.invoiceIds.length ? await one(c, `SELECT i.issue_no, i.issued_at, i.issued_by FROM invoice_issue i WHERE i.invoice_id IN (${s.invoiceIds.map(() => '?').join(',')}) ORDER BY i.issued_at DESC LIMIT 1`, s.invoiceIds) : null;
-    out.push({ ...s, lines: summarizeLines(s.lines), name: h.customers_name, lastIssue: last ? { no: last.issue_no, at: last.issued_at, by: last.issued_by } : null });
+    out.push({ ...s, lines: await summaryLines(c, s.invoiceIds, s.lines), name: h.customers_name, lastIssue: last ? { no: last.issue_no, at: last.issued_at, by: last.issued_by } : null });
   }
   // 税率別（現行 HAR430 の合計下段「10 %  売上額  消費税額」）
   for (const r of out) r.byRate = RATES.map(rate => { const n = r.lines.filter(l => Math.round(l.taxRate) === rate).reduce((a, l) => a + l.net, 0); return { rate, net: n, tax: bucketTax(n, rate) }; }).filter(x => x.net);
@@ -504,7 +531,7 @@ async function snapshot(c, inv) {
     company: await companyProfile(c), discount: 0, invoiceNo: 'K' + String(inv.closing).slice(0, 7).replace('-', '') + String(inv.id).padStart(5, '0'),
     customer: { code: inv.customer, name: cu?.customers_name || inv.customerName, address: cu?.addr1 || '', tel: cu?.tel_no || '' },
     site: { key: inv.site, name: inv.siteName }, invoiceId: inv.id, periodStart: s.start, closing: inv.closing, due: inv.due,
-    demo: process.env.SHOW_DEMO_NOTICE !== '0', prevBalance: s.prevBalance, received: s.received, carried: s.carried, net: inv.net, tax: inv.tax, total: inv.total, grandTotal: s.carried + inv.total, buckets, lines: summarizeLines(inv.lines),
+    demo: process.env.SHOW_DEMO_NOTICE !== '0', prevBalance: s.prevBalance, received: s.received, carried: s.carried, net: inv.net, tax: inv.tax, total: inv.total, grandTotal: s.carried + inv.total, buckets, lines: await summaryLines(c, [inv.id], inv.lines),
   };
 }
 export async function issueInvoices(c, ctx, { ids }) {
