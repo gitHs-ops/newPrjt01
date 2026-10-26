@@ -874,11 +874,12 @@ async function arLedgerView(q) {
   const A = actions; A.view = d => go('invoices', { view: d.view });
   // 請求書状況で絞込（検索結果を絞るだけで DB は読まない）。合計は絞込後の行で計算
   const LG_STATES = ['draft', 'issued', 'partial', 'paid', 'credit'], st = LG_STATES.includes(q.lstate) ? q.lstate : '';
-  const all = await api('/api/ar-ledger?' + qs({ customer: q.ledgerCustomer, month: q.ledgerMonth })), rows = all.rows.filter(r => !st || r.status === st);
+  const month = q.ledgerMonth === 'all' ? '' : q.ledgerMonth || thisMonth(); // 請求年月の既定は当月、空欄で検索するとすべての年月（2026-10-27）
+  const all = await api('/api/ar-ledger?' + qs({ customer: q.ledgerCustomer, month })), rows = all.rows.filter(r => !st || r.status === st);
   const d = { rows, totals: { current: rows.reduce((n, r) => n + r.current, 0), cleared: rows.reduce((n, r) => n + r.cleared, 0), remain: rows.filter(r => r.latest).reduce((n, r) => n + r.remain, 0) } };
-  A.search = () => go('invoices', { view: 'ledger', ledgerCustomer: $('#lg-cust').value, ledgerMonth: $('#lg-month').value, lstate: st });
+  A.search = () => go('invoices', { view: 'ledger', ledgerCustomer: $('#lg-cust').value, ledgerMonth: $('#lg-month').value || 'all', lstate: st });
   return page('請求締め・発行', '請求残高照会：得意先×請求年月で 前回残高 → 当月請求金額 → 今回請求金額 → 消込金額（締日翌日〜次の締日の入金）→ 今回残高。',
-    `<input id="lg-cust" placeholder="得意先（部分一致）" value="${esc(q.ledgerCustomer || '')}" style="width:200px"><input type="month" id="lg-month" value="${esc(q.ledgerMonth || '')}"><button class="primary" data-act="search">検索</button><select id="lg-state" title="請求書状況">${options(LG_STATES.map(code => ({ code, name: STATUS[code][0] })), st, { blank: 'すべての請求書状況', label: x => x.name })}</select><a class="button" href="/api/ar-ledger?${qs({ customer: q.ledgerCustomer, month: q.ledgerMonth, state: st, format: 'xlsx' })}" download>⇩ Excel</a>`,
+    `<input type="month" id="lg-month" value="${esc(month)}"><input id="lg-cust" placeholder="得意先（部分一致）" value="${esc(q.ledgerCustomer || '')}" style="width:200px"><button class="primary" data-act="search">検索</button><select id="lg-state" title="請求書状況">${options(LG_STATES.map(code => ({ code, name: STATUS[code][0] })), st, { blank: 'すべての請求書状況', label: x => x.name })}</select><a class="button" href="/api/ar-ledger?${qs({ customer: q.ledgerCustomer, month, state: st, format: 'xlsx' })}" download>⇩ Excel</a>`,
     `<section class="card glass">${ledgerTable(d)}</section>`);
 }
 VIEWS.receipts = async q => {
