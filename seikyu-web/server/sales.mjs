@@ -552,7 +552,14 @@ export async function issueInvoices(c, ctx, { ids }) {
 }
 export async function issuedDocument(c, id) {
   const r = await one(c, 'SELECT snapshot_json, issue_no FROM invoice_issue WHERE invoice_id=? ORDER BY issue_no DESC LIMIT 1', [Number(id)]); check(r, '発行履歴がありません');
-  const s = typeof r.snapshot_json === 'string' ? JSON.parse(r.snapshot_json) : r.snapshot_json; return { ...s, issueNo: r.issue_no, reissue: r.issue_no > 1, copy: true };
+  const s = typeof r.snapshot_json === 'string' ? JSON.parse(r.snapshot_json) : r.snapshot_json;
+  // 2026-10-26 より前の発行分は明細に現場名が無く、明細もまとめていない：金額はそのまま、現場名を今の請求明細から補い、得意先×現場×出荷日×商品でまとめる
+  if (s.lines?.length && s.lines.every(l => !l.siteName)) {
+    const h = await one(c, 'SELECT * FROM billing_head WHERE invoice_id=?', [Number(id)]), at = new Map();
+    for (const l of h ? await headLines(c, h) : []) { at.set(String(l.orderNo), l); at.set(String(l.ownNo), l); }
+    s.lines = summarizeLines(s.lines.map(l => { const x = at.get(String(l.ownNo || l.orderNo)) || at.get(String(l.orderNo)); return x ? { ...l, site: x.site, siteName: x.siteName } : l; }));
+  }
+  return { ...s, issueNo: r.issue_no, reissue: r.issue_no > 1, copy: true };
 }
 export async function cancelInvoice(c, ctx, { id }) {
   const h = await one(c, 'SELECT * FROM billing_head WHERE invoice_id=? FOR UPDATE', [Number(id)]); check(h, '請求が見つかりません');

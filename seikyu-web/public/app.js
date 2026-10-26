@@ -787,7 +787,7 @@ async function invoiceDetail(id, site = null) {
     <div><h3>入金消込</h3>${table([{ label: '入金No', value: r => r.receiptNo }, { label: '入金日', value: r => r.date }, { label: '状態', html: r => status(r.status) }, { label: '消込額', num: 1, value: r => yen(r.amount) }], inv.allocations, { empty: '消込なし' })}</div></div>
     <div class="filters" style="margin-top:14px">${inv.issues ? '<button type="button" id="inv-copy">最新発行分を印刷（控え）</button>' : ''}${canWrite() && !site ? `<button type="button" class="primary" id="inv-issue">${inv.issues ? '再発行して印刷' : '発行して印刷'}</button>` : ''}${canWrite() && !inv.issues && !inv.allocations.length ? '<button type="button" class="danger" id="inv-cancel">請求取消</button>' : ''}</div>`,
     onOpen: () => {
-      $('#inv-copy')?.addEventListener('click', async () => printDocs([await api(`/api/invoices/${inv.id}/document`)]));
+      $('#inv-copy')?.addEventListener('click', async () => printDocs([await api(`/api/invoices/${inv.id}/document`)], site));
       $('#inv-issue')?.addEventListener('click', async () => { try { const r = await post('/api/invoices/issue', { ids: [inv.id] }); $('#dialog').close(); printDocs(r.documents); render(); } catch (e) { $('#form-error').textContent = e.message; toast(e.message, true); } });
       $('#inv-cancel')?.addEventListener('click', async () => { try { await post('/api/invoices/cancel', { id: inv.id }); $('#dialog').close(); toast('請求を取消しました（売上は未請求に戻り、仕訳は逆仕訳）'); render(); } catch (e) { $('#form-error').textContent = e.message; toast(e.message, true); } });
     } });
@@ -815,7 +815,7 @@ function proposalInvoice(s) {
   const no = s.invoiceNo || 'K' + String(s.closing).slice(0, 7).replace('-', '') + String(s.invoiceId).padStart(5, '0');
   const banks = s.company.banks || (s.company.bankText ? [s.company.bankText] : []);
   return `<section class="invoice-doc prop-inv">
-    <div class="inv-top"><div style="flex:1"></div><h1 style="flex:0 0 auto">請 求 書</h1><div style="flex:1;text-align:right"><p>請求書番号: ${esc(no)}${s.reissue ? `<br><span class="reissue">${esc(s.company.saisyutsu || '再発行')}（${s.issueNo}回目）</span>` : ''}</p><p>${esc(jpDate(s.issuedOn || today()))}</p></div></div>
+    <div class="inv-top"><div style="flex:1"></div><h1 style="flex:0 0 auto">請 求 書</h1><div style="flex:1;text-align:right"><p>請求書番号: ${esc(no)}${s.copy ? `<br><span class="reissue">控え（${s.issueNo}回目の発行分）</span>` : s.reissue ? `<br><span class="reissue">${esc(s.company.saisyutsu || '再発行')}（${s.issueNo}回目）</span>` : ''}</p><p>${esc(jpDate(s.issuedOn || today()))}</p></div></div>
     <div class="inv-top"><div><p>${esc(s.customer.address)}</p><p class="to">${esc(s.customer.name)} 御中</p>
         <p>毎度ありがとうございます。<br>下記のとおり御請求申し上げます。</p><p>${esc(jpDate(s.periodStart))} 〜 ${esc(jpDate(s.closing))}</p>${s.siteName ? `<p class="site-name">現場：<b>${esc(s.siteName)}</b>${s.pages > 1 ? `（${s.page}/${s.pages}）` : ''}</p>` : ''}</div>
       <div><p><b>${esc(s.company.name)}</b><br>${esc(s.company.address)}<br>TEL ${esc(s.company.tel)}${s.company.fax ? ' FAX ' + esc(s.company.fax) : ''}${s.company.invoiceNo ? `<br>登録番号: ${esc(s.company.invoiceNo)}` : ''}</p>
@@ -828,14 +828,16 @@ function proposalInvoice(s) {
     <table class="inv-rates"><tr><th>税率区分</th><th>対象額(税抜)</th><th>消費税</th></tr>${s.buckets.map(b => `<tr><td>${b.rate}%対象</td><td class="num">${yen(b.net)}</td><td class="num">${yen(b.tax)}</td></tr>`).join('')}</table>
     </section>`;
 }
-function printDocs(docs) {
+// site：請求一覧照会の現場の行から控えを出すとき、その現場の1枚だけ（現場ごとに1枚の請求書）
+function printDocs(docs, site = null) {
   // 現行の請求書（帳票一覧③）と同じ構成：当月御買上額・消費税額・当月値引額・当月御請求額、明細（年月日・伝票番号・商品名・数量・単位・単価・金額・備考）、税率別合計
-  $('#print-area').innerHTML = docs.flatMap(splitBySite).map(s => {
+  const all = docs.flatMap(splitBySite), mine = site ? all.filter(s => s.siteName === (site.siteName || '（現場なし）')) : all, pages = mine.length ? mine : all;
+  $('#print-area').innerHTML = pages.map(s => {
     if ((s.company.layout || 'proposal') !== 'legacy') return proposalInvoice(s);
     const lines = s.lines.map(l => `<tr><td>${esc(l.date)}</td><td>${esc(l.orderNo)}${l.shipKb === 5 ? (l.quantity < 0 ? ' 赤' : ' 黒') : ''}</td><td>${esc(l.itemName)}</td><td class="num">${l.quantity}</td><td>${esc(l.unit || '')}</td><td class="num">${yen(l.price)}</td><td class="num">${yen(l.net)}</td><td>${esc(l.siteName || '')}${l.remarks ? ' ' + esc(l.remarks) : ''}</td></tr>`).join('')
       + `<tr class="subtotal"><td colspan="6" class="right">現場計</td><td class="num"><b>${yen(s.net)}</b></td><td></td></tr>`;
     return `<section class="invoice-doc">
-    <h1>請 求 書</h1>${s.reissue ? `<p style="text-align:right"><span class="reissue">${esc(s.company.saisyutsu || '再発行')}（${s.issueNo}回目）</span></p>` : ''}
+    <h1>請 求 書</h1>${s.copy || s.reissue ? `<p style="text-align:right"><span class="reissue">${s.copy ? `控え（${s.issueNo}回目の発行分）` : `${esc(s.company.saisyutsu || '再発行')}（${s.issueNo}回目）`}</span></p>` : ''}
     <div class="inv-top"><div><p class="to">${esc(s.customer.name)} 御中</p><p>${esc(s.customer.address)}</p></div>
       <div style="text-align:right"><p><b>${esc(s.company.name)}</b>${s.company.invoiceNo ? `　登録番号 ${esc(s.company.invoiceNo)}` : ''}<br>${esc(s.company.address)}<br>TEL ${esc(s.company.tel)}${s.company.fax ? ' FAX ' + esc(s.company.fax) : ''}</p>${s.company.bankText ? `<p>振込先 ${esc(s.company.bankText)}</p>` : ''}<p class="stamp">発行日 ${esc(s.issuedOn || today())}${s.copy ? '（控え）' : ''}　請求No. ${s.invoiceId}-${s.issueNo}</p></div></div>
     <table class="totals"><tr><th>請求年月日</th><th>得意先コード</th><th>締日</th><th>お支払期日</th></tr><tr><td>${esc(s.closing)}</td><td>${esc(s.customer.code)}</td><td>${esc(String(Number(s.closing.slice(8))))}</td><td>${esc(s.due)}</td></tr></table>
@@ -844,7 +846,7 @@ function printDocs(docs) {
     <table><tr><th>年月日</th><th>伝票番号</th><th>商品名</th><th>数量</th><th>単位</th><th>単価</th><th>金額</th><th>備考</th></tr>${lines}</table>
     <table><tr><th>税率区分</th><th>対象額(税抜)</th><th>消費税</th></tr>${s.buckets.map(b => `<tr><td>${b.rate}%対象</td><td class="num">${yen(b.net)}</td><td class="num">${yen(b.tax)}</td></tr>`).join('')}</table>
     </section>`; }).join('');
-  toast(`${docs.length}件の請求書を印刷します`);
+  toast(docs.some(d => d.copy) ? `請求書の控え ${pages.length}枚を印刷します` : `${docs.length}件の請求書を印刷します`);
   setTimeout(() => window.print(), 300);
 }
 
