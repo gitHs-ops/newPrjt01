@@ -923,7 +923,7 @@ VIEWS.receipts = async q => {
       ${tt.overdueCount ? `<span class="check-ng">予定日経過・未入金 ${tt.overdueCustomers}社 ${tt.overdueCount}件 残高 ${yen(tt.overdueBalance)}円（基準日 ${esc(d.today)}）</span>` : `<span class="check-ok">予定日を過ぎた未入金はありません（基準日 ${esc(d.today)}）</span>`}</div>`;
     return page('入金・消込', '入金予定一覧：支払期日（得意先の回収サイト）が入金予定月の範囲に入る請求。入金予定日を過ぎても未入金の請求は赤で表示します。',
       `<label class="field">入金予定月（から）<input type="month" id="rp-from" value="${esc(from)}"></label><label class="field">（まで）<input type="month" id="rp-to" value="${esc(to)}"></label><input id="rp-cust" placeholder="得意先（部分一致）" value="${esc(q.customer || '')}" style="width:200px">
-       <label class="small"><input type="checkbox" id="rp-over" ${overdue ? 'checked' : ''}> 予定日経過・未入金のみ</label><button class="primary" data-act="search">検索</button><button class="quiet" data-act="thisMonth">今月</button><button class="quiet" data-act="late" title="入金予定月：過去すべて〜今月">予定日経過・未入金（過去〜現在）</button><button data-act="planXlsx" title="画面の検索条件のまま出力">⇩ Excel</button>`,
+       <label class="small"><input type="checkbox" id="rp-over" ${overdue ? 'checked' : ''}> 予定日経過・未入金のみ</label><button class="primary" data-act="search">検索</button><button data-act="thisMonth">今月</button><button data-act="late" title="入金予定月：過去すべて〜今月">予定日経過・未入金（過去〜現在）</button><button data-act="planXlsx" title="画面の検索条件のまま出力">⇩ Excel</button>`,
       `<section class="card glass">${summary}${table([{ label: '得意先', value: r => `${r.customer} ${r.name}` }, { label: '請求年月（締日）', value: r => r.closing }, { label: '請求金額', num: 1, value: r => yen(r.total) }, { label: 'サイト', value: r => r.site },
         { label: '入金予定日', html: r => (r.overdue ? `<span class="check-ng">${esc(r.due)} 超過</span>` : esc(r.due)) }, { label: '経過日数', num: 1, html: r => (r.overdue ? `<span class="check-ng">${r.days}日</span>` : '') }, { label: '入金予定金額', num: 1, value: r => yen(r.planned) }, { label: '入金金額', num: 1, value: r => yen(r.paid) }, { label: '残高', num: 1, value: r => yen(r.balance) }],
         d.rows, { empty: 'この条件で入金予定の請求はありません', rowClass: r => (r.overdue ? 'overdue' : ''), foot: ['入金予定合計', '', '', '', '', '', yen(tt.planned), yen(tt.paid), yen(tt.balance)] })}</section>`);
@@ -1296,7 +1296,7 @@ const rangeInputs = (id, label = '期間', from = `${thisMonth()}-01`, to = mont
 // 直近の締日の月度（前月21日〜当月20日）
 const closingRange = () => { const to = lastClosing(), [y, m] = to.split('-').map(Number); return [new Date(Date.UTC(y, m - 2, 21)).toISOString().slice(0, 10), to]; };
 function miscCard(title, sub, inputs, buttons, note = '') {
-  return `<section class="card glass"><div class="card-head"><h2>${title}</h2></div><div class="filters">${inputs}</div><div class="filters" style="margin-top:10px">${buttons}</div></section>`;
+  return `<section class="card glass"><div class="card-head"><h2>${title}</h2></div><div class="filters">${inputs}</div>${buttons ? `<div class="filters" style="margin-top:10px">${buttons}</div>` : ''}</section>`;
 }
 const shipmentReportsCard = () => miscCard('出荷・売上帳票', '画面表示・印刷・Excel', rangeInputs('ms', '出荷日'),
   '<button data-act="misc" data-kind="shipment-summary" data-src="ms">商品・製品別出荷集計表</button><button data-act="misc" data-kind="customer-items" data-src="ms">得意先別商品別出荷累計表</button><button data-act="misc" data-kind="cash-sales" data-src="ms">現金売上明細表</button><button data-act="misc" data-kind="sales-register" data-src="ms">商品売上登録リスト</button>',
@@ -1311,8 +1311,8 @@ const payableReportsCard = () => miscCard('定時請求入力明細表', '部門
   '<button data-act="misc" data-kind="payable-input" data-src="pi">定時請求データ入力明細表（組織別）</button>', '業者コード：ブランク＝出力しない／From〜To＝範囲の業者／To に 9999999＝全業者（10/21 打合せ）。発注残・相殺は未確定（Q03）のため0。削減案6では画面照会で代用可とされていますが、帳票としても出力できます。');
 const pettyReportsCard = () => miscCard('小口現金出納簿', '定額資金前渡制（推定）', rangeInputs('pc', '期間', ...closingRange()),
   '<button data-act="misc" data-kind="petty-book" data-src="pc">小口現金出納簿</button>' + (canWrite() ? '<button data-act="fund">定額資金の設定</button><button data-act="refill">現金補充を登録</button>' : ''), '期首に定額資金を受入、支払ごとに残高を表示し、支払合計を次期補充額とします。JV構成員が登録済みなら出資比率で配分列を表示します。');
-const receiptScheduleCard = () => miscCard('入金予定チェックリスト', '得意先別・工事（現場）別', `<label class="field">入金予定日（から）<input type="date" id="rs-from" value="${addMonths(thisMonth(), -6)}-01"></label><label class="field">入金予定日（まで）<input type="date" id="rs-to" value="${today()}"></label><label class="field"><span>超過分のみ</span><span><input type="checkbox" id="rs-over"> 予定日を過ぎた未入金</span></label>`,
-  '<button data-act="misc" data-kind="receipt-schedule" data-src="rs">入金予定チェックリスト</button>', '残高のある請求が対象（未発行を含み、発行の有無を表示）。入金方法・入金先は過去の入金実績から推定します。');
+const receiptScheduleCard = () => miscCard('入金予定チェックリスト', '得意先別・工事（現場）別', `<label class="field">入金予定日（から）<input type="date" id="rs-from" value="${addMonths(thisMonth(), -6)}-01"></label><label class="field">入金予定日（まで）<input type="date" id="rs-to" value="${today()}"></label><label class="field"><span>超過分のみ</span><span><input type="checkbox" id="rs-over"> 予定日を過ぎた未入金</span></label><button data-act="misc" data-kind="receipt-schedule" data-src="rs">入金予定チェックリスト</button>`,
+  '', '残高のある請求が対象（未発行を含み、発行の有無を表示）。入金方法・入金先は過去の入金実績から推定します。'); // 条件とボタンを1行に（2026-10-27）
 const accountingCard = () => miscCard('会計連携データ', '会計システムは勘定奉行（奉行クラウド）。受入は CSV／Excel（QA回答 2026-10-08）', rangeInputs('ac', '仕訳日'),
   '<button class="primary" data-act="acct" data-format="bugyo">⇩ 勘定奉行 受入CSV</button><button data-act="acct" data-format="generic">⇩ 汎用CSV（借貸併記・UTF-8）</button><button data-act="acct" data-format="yayoi">⇩ 弥生会計形式（Shift_JIS）</button>',
   '勘定奉行CSVの見出しは「財務会計 → 会計設定 → 勘定奉行連携」で登録した OBC受入記号（未登録は項目名）、税区分は処税率→奉行税区分の対応表で変換します。受入記号・税区分コードは「データ受入形式一覧表」で確定予定（Q14/Q19）。出力は操作履歴に記録されます。');
