@@ -12,7 +12,7 @@ export async function billingPrecheckBook(c, q) {
   const out = [[T('発行前確認一覧'), '', '', '', '', '', '', '', '', '', '', d.company], [`締日 ${cl}　請求期間 ${ymd(d.start)}〜${ymd(d.end)}　売上締切日 ${ymd(d.end)}　作成日 ${ymd(today())}`], []];
   for (const x of d.rows) {
     out.push([H(`${x.customer} ${x.name}`), '', '', H(PRECHECK_PLAN[x.plan])], ['売上日', '伝票No', '区分', '商品CD', '商品名', '数量', '単位', '単価', '金額', '税率', '運送', '現場名']);
-    for (const l of x.lines) out.push([ymd(l.date), l.orderNo, shipKb(l.shipKb), l.item, l.itemName, l.quantity, l.unit, l.price, l.net, `${l.taxRate}%`, l.carry, l.siteName]);
+    for (const l of x.lines) out.push([ymd(l.date), l.orderNo, shipKb(l.shipKb), l.item, l.itemName, { v: l.quantity, s: 'qty' }, l.unit, l.price, l.net, `${l.taxRate}%`, l.carry, l.siteName]);
     out.push(['', S('（売上額）'), S(x.net), '', S('（消費税額）'), S(x.tax), '', S('（値引額）'), S(0), '', S('（今回請求額）'), S(x.current)]);
     for (const r of x.byRate || []) out.push(['', `${r.rate} %`, r.net, '', '', r.tax]);
     out.push([]);
@@ -37,13 +37,20 @@ export async function billingConfirmBook(c, q) {
   const out = [[T(d.unissued ? '請求書発行確認表（未発行を含む）' : '請求書発行確認表'), '', '', '', '', '', '', '', '', '', '', d.company], [`締日 ${cl}　請求日付 ${ymd(d.end)}　売上締切日 ${ymd(d.end)}　作成日 ${ymd(today())}`], []];
   for (const x of d.rows) {
     out.push([H(`${x.customer} ${x.name}`), '', '', H(x.lastIssue ? `${x.lastIssue.no}回目発行 ${jst(x.lastIssue.at, 10)}` : '未発行')], ['売上日', '伝票No', '区分', '商品CD', '商品名', '数量', '単位', '単価', '金額', '税率', '運送', '備考'].map(H));
-    for (const l of x.lines) out.push([ymd(l.date), l.orderNo, shipKb(l.shipKb), l.item, l.itemName, l.quantity, l.unit, l.price, l.net, `${l.taxRate}%`, l.carry, l.siteName]);
-    out.push(['', S('（売上額）'), S(x.net), '', S('（消費税額）'), S(x.tax), '', S('（値引額）'), S(0), '', S('（今回請求額）'), S(x.current)]);
-    for (const r of x.byRate || []) out.push(['', `${r.rate} %`, r.net, '', '', r.tax]);
+    // 帳票②と同じく現場ごとに区切る（見出し「現場：名」、現場が2つ以上なら現場計）。数量は小数2桁、備考は現場名
+    const groups = new Map(); for (const l of x.lines) { const k = `${l.site}|${l.siteName}`; if (!groups.has(k)) groups.set(k, []); groups.get(k).push(l); }
+    for (const ls of groups.values()) {
+      out.push([H(`現場：${ls[0].siteName || '（現場なし）'}`)]);
+      for (const l of ls) out.push([ymd(l.date), l.orderNo, shipKb(l.shipKb), l.item, l.itemName, { v: l.quantity, s: 'qty' }, l.unit, l.price, l.net, `${l.taxRate}%`, l.carry, l.siteName]);
+      if (groups.size > 1) out.push(['', '', '', '', '', '', '', S('（現場計）'), S(ls.reduce((n, l) => n + l.net, 0))]);
+    }
+    // 合計は金額の列に縦に並べる（狭い列に入れると「###」になるため）
+    for (const [label, v] of [['（売上額）', x.net], ['（消費税額）', x.tax], ['（値引額）', 0], ['（今回請求額）', x.current]]) out.push(['', '', '', '', '', '', '', S(label), S(v)]);
+    for (const r of x.byRate || []) out.push(['', '', '', '', '', '', '', `${r.rate}%対象`, r.net, '消費税', r.tax]);
     out.push([]);
   }
   if (!d.rows.length) out.push([d.unissued ? '対象の請求はありません' : '発行済みの請求書はありません']);
-  return { name: `請求書発行確認表_${d.month}${d.unissued ? '_未発行含む' : ''}.xlsx`, body: xlsx([{ name: '発行確認表', rows: out, widths: [10, 13, 6, 8, 24, 9, 5, 10, 12, 6, 8, 24] }]) };
+  return { name: `請求書発行確認表_${d.month}${d.unissued ? '_未発行含む' : ''}.xlsx`, body: xlsx([{ name: '発行確認表', rows: out, widths: [10, 13, 6, 8, 24, 10, 5, 13, 14, 7, 11, 24] }]) };
 }
 
 // 入金予定一覧（提案書 スライド18・10/14 打合せ）— 画面と同じ条件・項目

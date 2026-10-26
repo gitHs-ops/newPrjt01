@@ -21,7 +21,7 @@ export async function invoiceBook(c, q) {
     const groups = new Map();
     for (const l of s.lines) { const k = `${l.site || ''}|${l.siteName || ''}`; if (!groups.has(k)) groups.set(k, []); groups.get(k).push(l); }
     for (const ls of groups.values()) {
-      for (const l of ls) rows.push([l.date, l.orderNo + (l.shipKb === 5 ? (l.quantity < 0 ? ' 赤' : ' 黒')  : ''), l.siteName || '', l.itemName, l.quantity, l.price, l.net, `${l.taxRate}%`, l.remarks || '']);
+      for (const l of ls) rows.push([l.date, l.orderNo + (l.shipKb === 5 ? (l.quantity < 0 ? ' 赤' : ' 黒')  : ''), l.siteName || '', l.itemName, { v: l.quantity, s: 'qty' }, l.price, l.net, `${l.taxRate}%`, l.remarks || '']);
       rows.push(['', '', S('現場小計'), '', '', '', S(ls.reduce((n, l) => n + l.net, 0))]); // ラベルは「現場」列
     }
     sheets.push({ name: `${s.invoiceId}_${s.customer.code}`.slice(0, 31), rows, widths: [12, 14, 20, 20, 9, 10, 13, 7, 16] });
