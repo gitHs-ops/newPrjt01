@@ -596,7 +596,8 @@ VIEWS.invoices = async q => {
   if (q.view === 'balance') return invoiceBalanceView(q);
   if (q.view === 'ledger') return arLedgerView(q); // await より前に呼ぶ（画面のボタン actions は描画開始時に同期で受け取る）
   if (q.view === 'issue') return invoiceIssueView(q);
-  const list = await api('/api/invoices?' + qs({ month: q.month, closing: q.closing, customer: q.customer }));
+  const month = q.month || thisMonth(); // 請求年月の既定は当月（2026-10-27）
+  const list = await api('/api/invoices?' + qs({ month, closing: q.closing, customer: q.customer }));
   const closings = closingList();
   // 請求データ作成（10/23 打合せ：年月・締日だけ指定し「請求データ作成」。得意先の選択一覧は出さない）。
   // 対象＝その締日の得意先のうち未請求の掛売があり未作成のもの。得意先ごとに作成して進捗を表示し、終わったら請求一覧照会へ
@@ -626,8 +627,8 @@ VIEWS.invoices = async q => {
   // 帳票は一覧を画面に出さない：0件ならその旨、あれば件数と「Excel」「印刷」だけのポップアップ
   // 請求一覧照会の［請求書発行確認表出力］（指摘 No.14）：検索条件の請求年月・締日・得意先で、未発行も含めて出す（発行前の確認用）
   A.confirmBook = async (_, btn) => {
-    if (!q.month || !q.closing) return toast('請求年月と締日を指定して検索してください', true);
-    btn.disabled = true; try { await billingReport('confirm', q.month, q.closing, true, q.customer || ''); } catch (e) { toast(e.message, true); } finally { btn.disabled = false; }
+    if (!q.closing) return toast('請求年月と締日を指定して検索してください', true);
+    btn.disabled = true; try { await billingReport('confirm', month, q.closing, true, q.customer || ''); } catch (e) { toast(e.message, true); } finally { btn.disabled = false; }
   };
   A.report = async (d, btn) => { btn.disabled = true; try { await billingReport(d.kind, $('#rep-month').value, $('#rep-closing').value, $('#rep-unissued')?.checked); } catch (e) { toast(e.message, true); } finally { btn.disabled = false; } };
   // 請求一覧照会（10/23 打合せ：提案書 P11＋現場名）：行は 得意先×現場。発行状況は表示だけ（発行・一括ダウンロードは請求書発行。10/26 打合せ）
@@ -635,7 +636,7 @@ VIEWS.invoices = async q => {
   const sum = k => lines.reduce((n, r) => n + r[k], 0);
   const closeSel = id => `<select id="${id}">${closings.map(c => `<option value="${c}">${closingName(c)}</option>`).join('')}</select>`;
   return page('請求締め・発行', '得意先単位・締日ごとの請求を、得意先×現場の行で照会します。請求書の発行は「請求書発行」で行います。',
-    `${invoiceSearch(q)}<button data-act="confirmBook" title="検索条件（請求年月・締日・得意先）の請求書発行確認表（未発行を含む）">請求書発行確認表出力</button>`,
+    `${invoiceSearch({ ...q, month })}<button data-act="confirmBook" title="検索条件（請求年月・締日・得意先）の請求書発行確認表（未発行を含む）">請求書発行確認表出力</button>`,
     `<div>${canWrite() ? `<section class="card glass" data-sub="create"><div class="card-head"><h2>請求データ作成</h2></div>
       <div class="filters"><label class="field">請求年月<input type="month" id="bill-month" value="${thisMonth()}"></label><label class="field">締日${closeSel('bill-closing')}</label><button class="primary" data-act="run">請求データ作成</button></div></section>` : ''}
     <section class="card glass" data-sub="reports"><div class="card-head"><h2>請求帳票</h2></div>
