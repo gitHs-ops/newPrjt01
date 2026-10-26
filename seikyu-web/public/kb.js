@@ -214,7 +214,7 @@ export function installKb(h) {
     return page('仕訳帳・伝票検索', '期間・科目・入力区分・摘要・金額で伝票を検索し、修正・削除します。請求システムから受け入れた伝票も同じように扱えます。',
       `${periodBar(q)}<select name="account" data-filter>${accOptions(q.account || '', { blank: 'すべての科目', all: true })}</select>
        <select name="source" data-filter><option value="">すべての入力区分</option>${Object.entries(K.sources).map(([k, v]) => `<option value="${k}" ${q.source === k ? 'selected' : ''}>${esc(v)}</option>`).join('')}</select>
-       <input id="kb-text" placeholder="摘要" value="${esc(q.text || '')}" style="width:140px"><input id="kb-amount" placeholder="金額" class="num" value="${esc(q.amount || '')}" style="width:110px"><button data-act="search">検索</button>
+       <input id="kb-text" placeholder="摘要" value="${esc(q.text || '')}" style="width:140px"><input id="kb-amount" placeholder="金額" class="num" value="${esc(q.amount || '')}" style="width:110px"><button class="primary" data-act="search">検索</button>
        ${xlsxLink('journal', f)}<a class="button" href="/api/kb/journal-csv?${qs(f)}" download>⇩ 仕訳CSV</a>${printBtn}${canWrite() ? '<a class="button primary" href="#kb-entry">＋ 伝票入力</a>' : ''}`,
       `<section class="card glass" id="kb-body">${journalTable(d)}</section>`);
   };
