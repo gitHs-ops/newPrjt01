@@ -577,7 +577,7 @@ document.addEventListener('change', e => { if (e.target.id !== 'lg-state') retur
 // 得意先別残高照会：請求書状況の絞込（検索済みの結果を使い、DB は読まない）
 document.addEventListener('change', e => { if (e.target.id !== 'bal-state') return; freshNext = false; location.hash = '#invoices/balance?' + qs({ ...route.q, bstate: e.target.value }); });
 // 入金一覧・消込：「計上済のみ」（既定は取消も含めてすべて。検索済みの結果を使い、DB は読まない）
-document.addEventListener('change', e => { if (e.target.id !== 'rec-posted') return; freshNext = false; location.hash = '#receipts/list?' + qs({ ...route.q, posted: e.target.checked ? '1' : '' }); });
+document.addEventListener('change', e => { if (e.target.id !== 'rec-state') return; freshNext = false; location.hash = '#receipts/list?' + qs({ ...route.q, rstate: e.target.value }); });
 // 入金消込：「消込対象のみ」・締日の絞込（検索済みの結果を使い、DB は読まない）
 document.addEventListener('change', e => { if (!['rt-only', 'rt-cl'].includes(e.target.id)) return; freshNext = false; location.hash = '#receipts/targets?' + qs({ ...route.q, all: $('#rt-only').checked ? '' : '1', cl: $('#rt-cl').value }); });
 // 出荷伝票一覧の決済方法の絞込（10/26 打合せ：出荷伝票は請求前の段階なので 掛売（振込）・カード・現金 の3種だけ。未請求・請求済は出さない）
@@ -929,10 +929,11 @@ VIEWS.receipts = async q => {
         d.rows, { empty: 'この条件で入金予定の請求はありません', rowClass: r => (r.overdue ? 'overdue' : ''), foot: ['入金予定合計', '', '', '', '', '', yen(tt.planned), yen(tt.paid), yen(tt.balance)] })}</section>`);
   }
   const month = q.month || thisMonth(), all = await api('/api/receipts?' + qs({ month, customer: q.customer }));
-  const posted = q.posted === '1', list = posted ? all.filter(r => r.status === 'POSTED') : all;
+  // 状態の絞込（すべて／計上済／取消済。2026-10-27 チェック「計上済のみ」から変更）
+  const RSTATES = { POSTED: '計上済', REVERSED: '取消済' }, rst = RSTATES[q.rstate] ? q.rstate : q.posted === '1' ? 'POSTED' : '', list = rst ? all.filter(r => r.status === rst) : all;
   A.rev = d => confirmBox('入金の取消', `入金No ${d.no} を取消します。消込が解除され、逆仕訳を計上します。`, () => post('/api/receipts/reverse', { id: Number(d.id) }).then(() => { toast('取消しました'); render(); }), '取消する');
   return page('入金・消込', '得意先ごとに、請求（得意先×請求年月）に対する入金を消し込みます。当座預金・現金・手形・振込手数料・協力会費・預り金充当・値引を処理します（receipt / receipt_component / receipt_allocation）。',
-    `${monthInput('month', month)}${filterSelect('customer', masters.customers, q.customer, 'すべての得意先')}<label class="small"><input type="checkbox" id="rec-posted" ${posted ? 'checked' : ''}> 計上済のみ</label>${csvLink('receipts', { month })}`,
+    `${monthInput('month', month)}${filterSelect('customer', masters.customers, q.customer, 'すべての得意先')}<select id="rec-state" title="状態">${options(Object.entries(RSTATES).map(([code, name]) => ({ code, name })), rst, { blank: 'すべて', label: x => x.name })}</select>${csvLink('receipts', { month })}`,
     `<section class="card glass" data-sub="list">${table([{ label: '入金No', value: r => r.no }, { label: '入金日', value: r => r.date }, { label: '得意先', value: r => r.customerName }, { label: '振込', num: 1, value: r => yen(r.bank) }, { label: '銀行', value: r => nameOf('banks', r.bankCode) },
       { label: '現金', num: 1, value: r => yen(r.cash) }, { label: '手形', num: 1, value: r => yen(r.notes) }, { label: '手数料', num: 1, value: r => yen(r.fee) }, { label: '協力会費', num: 1, value: r => yen(r.coop) }, { label: '預り金', num: 1, value: r => yen(r.deposit) }, { label: '値引', num: 1, value: r => yen(r.discount) }, { label: '雑損失', num: 1, value: r => yen(r.loss) }, { label: '消込額', num: 1, value: r => yen(r.settlement) },
       { label: '消込先(請求No)', value: r => r.allocations.map(a => `${a.invoiceId}`).join(', ') }, { label: '状態', html: r => status(r.status) },
