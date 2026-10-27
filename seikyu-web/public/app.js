@@ -98,6 +98,14 @@ function table(cols, rows, { empty = 'データがありません', foot, rowCla
 const field = (label, input, { req, hint, wide } = {}) => `<label class="field ${req ? 'req' : ''} ${wide ? 'wide' : ''}"><span>${esc(label)}</span>${input}${hint ? `<small>${esc(hint)}</small>` : ''}</label>`;
 const monthInput = (name, value) => `<input type="month" name="${name}" value="${esc(value)}" data-filter>`;
 const filterSelect = (name, list, value, blank) => `<select name="${name}" data-filter>${options(list, value, { blank })}</select>`;
+// 入力した文字の部分一致で候補を出す検索条件（コード・名称のどちらでも）。「検索」でコードに直す（comboCode）。2026-10-27
+const comboFilter = (name, kind, value, placeholder, id = '') => { const x = (masters[kind] || []).find(r => r.code === value);
+  return `<input name="${name}" ${id ? `id="${id}"` : ''} list="dl-f${name}" data-combo="${kind}" data-filter value="${esc(x ? `${x.code} ${x.name}` : value || '')}" placeholder="${esc(placeholder)}" title="${esc(placeholder)}" autocomplete="off" style="width:220px">
+    <datalist id="dl-f${name}">${(masters[kind] || []).filter(r => r.active !== false).map(r => `<option value="${esc(`${r.code} ${r.name}`)}"></option>`).join('')}</datalist>`; };
+const comboCode = el => { const t = el.value.trim(), list = masters[el.dataset.combo] || []; if (!t) return '';
+  const hit = list.find(r => r.code === t || `${r.code} ${r.name}` === t), part = hit ? [hit] : list.filter(r => r.code.includes(t) || (r.name || '').includes(t));
+  if (part.length === 1) return part[0].code;
+  toast(`${el.title}「${t}」は${part.length ? `${part.length}件該当します。候補から選んでください` : '該当がありません'}`, true); el.focus(); return null; };
 const page = (title, sub, actionsHtml, body) => `<div class="page"><div class="page-head"><div><h1>${esc(title)}</h1></div><div class="filters">${actionsHtml || ''}</div></div>${body}</div>`;
 const csvLink = (kind, q = {}) => `<a class="button" href="/api/export/${kind}?${qs(q)}" download>⇩ CSV</a>`;
 
@@ -282,7 +290,7 @@ document.addEventListener('click', e => {
   e.preventDefault(); actions[b.dataset.act](b.dataset, b);
 });
 // 検索条件を変えたら「検索」ボタンを目立たせる。読込は「検索」（入力欄で Enter）を押したとき
-const search = () => { const q = { ...route.q }; for (const el of $$('[data-filter]')) q[el.name] = el.value; freshNext = true; go(route.name, q); };
+const search = () => { const q = { ...route.q }; for (const el of $$('[data-filter]')) { const v = el.dataset.combo ? comboCode(el) : el.value; if (v === null) return; q[el.name] = v; } freshNext = true; go(route.name, q); };
 document.addEventListener('change', e => { if (e.target.matches('[data-filter]')) $$('[data-search]').forEach(b => b.classList.add('pending')); });
 document.addEventListener('keydown', e => { if (e.key === 'Enter' && e.target.matches('input[data-filter]')) { e.preventDefault(); search(); } });
 document.addEventListener('click', e => {
@@ -323,6 +331,13 @@ const ACTIONS = { 'shipment.create': '出荷登録', 'shipment.update': '出荷�
 // ----- 出荷・売上 -----
 // 決済方法（現行 Java A0001）：1 現金 / 2 掛売 / 3 カード。伝票区分 5＝訂正（赤黒）。
 const CREDIT = 2;
+// 出荷伝票一覧の現場の候補（部分一致）：得意先の現場マスタ（コード）＋表示中の伝票の納入場所名。得意先を選ぶと絞る（2026-10-27）
+let shipNames = [];
+const shipSiteOptions = (customer, rows = null) => { if (rows) shipNames = rows;
+  const sites = (masters.sites || []).filter(x => x.active && (!customer || x.customer === customer)).map(x => [x.code, `${x.suffix} ${x.name} ${x.name2 || ''}`]);
+  const names = [...new Set(shipNames.filter(r => !customer || r.customer === customer).map(r => r.siteName).filter(Boolean))].map(n => [n, '']);
+  return [...sites, ...names].map(([v, l]) => `<option value="${esc(v)}">${esc(l)}</option>`).join(''); };
+document.addEventListener('change', e => { if (e.target.id !== 'ship-cust') return; const t = e.target.value.trim(), x = (masters.customers || []).find(r => `${r.code} ${r.name}` === t || r.code === t); $('#dl-fsite').innerHTML = shipSiteOptions(x ? x.code : ''); });
 VIEWS.shipments = async q => {
   const A = actions;
   A.shipTab = d => go('shipments', d.tab === 'plans' ? { tab: 'plans' } : {});
@@ -356,7 +371,7 @@ VIEWS.shipments = async q => {
     return `<div class="actions">${b.join('')}</div>`;
   };
   return page('出荷・売上', '出荷伝票（shipment_slip）と売上（sales_trn）を同時に登録します。請求済みの伝票は「赤黒訂正」で、元伝票のマイナス（赤）と訂正後（黒）を起票します（NO11、10/14 打合せ）。',
-    `<input type="date" name="from" value="${esc(from)}" data-filter title="売上日（から）"><span>〜</span><input type="date" name="to" value="${esc(to)}" data-filter title="売上日（まで）">${filterSelect('customer', masters.customers, q.customer, 'すべての得意先')}<input name="site" value="${esc(q.site || '')}" placeholder="現場（コード・名称）" data-filter style="width:160px"><select name="kind" data-filter title="決済方法">${options(Object.entries(SHIP_KINDS).map(([code, x]) => ({ code, name: x.name })), kind, { blank: 'すべて', label: r => r.name })}</select>
+    `<input type="date" name="from" value="${esc(from)}" data-filter title="売上日（から）"><span>〜</span><input type="date" name="to" value="${esc(to)}" data-filter title="売上日（まで）">${comboFilter('customer', 'customers', q.customer || '', '得意先（コード・名称）', 'ship-cust')}<input name="site" list="dl-fsite" value="${esc(q.site || '')}" placeholder="現場（コード・名称）" title="現場（コード・名称）" autocomplete="off" data-filter style="width:200px"><datalist id="dl-fsite">${shipSiteOptions(q.customer, list)}</datalist><select name="kind" data-filter title="決済方法">${options(Object.entries(SHIP_KINDS).map(([code, x]) => ({ code, name: x.name })), kind, { blank: 'すべて', label: r => r.name })}</select>
      ${canWrite() ? '<button class="primary" data-act="new">＋ 出荷登録</button>' : ''}`,
     `<section class="card glass" data-sub="slips">${table([{ label: '売上No', value: r => (r.shipKb === 5 ? r.slipNo : r.orderNo) } /* 赤黒は「元伝票No－枝番」だけ（内部の売上Noは出さない。指摘 No.6） */, { label: '出荷日', value: r => r.date }, { label: '得意先', value: r => r.customerName }, { label: '現場', value: r => r.siteName }, { label: '商品', value: r => r.itemName },
       { label: '数量', num: 1, html: r => `${r.quantity < 0 ? `<span class="check-ng">${r.quantity}</span>` : r.quantity} ${esc(r.unit)}${r.cumulativeCount ? `<br><span class="small muted" title="同日・同現場・同商品・同納入区分の累計">累計 ${r.cumulativeQty}／${r.cumulativeCount}台</span>` : ''}` },
