@@ -603,7 +603,10 @@ VIEWS.invoices = async q => {
   // 対象＝その締日の得意先のうち未請求の掛売があり未作成のもの。得意先ごとに作成して進捗を表示し、終わったら請求一覧照会へ
   A.run = async (_, btn) => {
     const month = $('#bill-month').value, closing = $('#bill-closing').value; if (!month) return toast('請求年月を入力してください', true);
-    const p = await api('/api/billing/preview?' + qs({ month, closing })), targets = p.customers.filter(r => r.count && !r.created), done = p.customers.filter(r => r.created).length;
+    const p = await api('/api/billing/preview?' + qs({ month, closing }));
+    // 締日が来ていない締めは作成できない（サーバーも拒否する）。得意先ごとに失敗させず、ここで止める（2026-10-27）
+    if (p.end > today()) return alertBox(`締日（${p.end}）が到来していないため、${month} ${closingLabel(closing)}締の請求データは作成できません。`);
+    const targets = p.customers.filter(r => r.count && !r.created), done = p.customers.filter(r => r.created).length;
     if (!targets.length) return alertBox(`作成する請求データはありません（${month} ${closingLabel(closing)}締：請求期間 ${p.start}〜${p.end}${done ? `、作成済み ${done}得意先` : ''}）`);
     const cnt = targets.reduce((n, r) => n + r.count, 0), net = targets.reduce((n, r) => n + r.net, 0);
     modal({ title: `請求データ作成（${month} ${closingLabel(closing)}締）`, submit: '作成する', body: `<p>請求期間 ${esc(p.start)} 〜 ${esc(p.end)}（支払期日 ${esc(p.due)}）</p><p>対象 <b>${targets.length}</b> 得意先・未請求の掛売 <b>${cnt}</b> 件（税抜 ${yen(net)} 円）の請求データを作成します。${done ? `<br><span class="muted small">作成済み ${done}得意先は対象外</span>` : ''}</p>`,
