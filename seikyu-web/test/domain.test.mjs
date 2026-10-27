@@ -52,3 +52,11 @@ test('A01 slip numbers: one closing run shares a number, split every 45 customer
   assert.deepEqual(['R00829', 'R00830', 'R00831'].map(n => saved.filter(x => x === n).length), [45, 45, 10]);
   assert.equal(await assignSlipNo(c, 101, 'A01'), 'R00832', 'without a shared run state each journal gets its own number');
 });
+
+test('単価・運賃：出荷伝票と売上の単価が合わない移行データは売上の単価（運賃0）', async () => {
+  const { priceOf } = await import('../server/sales.mjs');
+  assert.deepEqual(priceOf('2000', '1200', '0'), { price: 2000, freight: 0 });
+  assert.deepEqual(priceOf('9300', '9300', '1500'), { price: 9300, freight: 0 });
+  assert.deepEqual(priceOf('10300', '9300', '1000'), { price: 9300, freight: 1000 });
+  assert.deepEqual(priceOf('5000', null, null), { price: 5000, freight: 0 });
+});

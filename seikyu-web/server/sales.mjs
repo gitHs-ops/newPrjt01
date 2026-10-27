@@ -84,12 +84,15 @@ export async function listShipments(c, q = {}) {
     LEFT JOIN billing_detail d ON d.order_no=s.order_no LEFT JOIN billing_head h ON ${DETAIL_JOIN}
     WHERE s.sales_date BETWEEN ? AND ?${where} ORDER BY s.sales_date DESC, s.order_no DESC LIMIT 1000`, args);
   return rs.map(r => ({ orderNo: r.order_no, slipNo: slipNoOf(r), date: fromNum(r.sales_date), correctionDate: r.correction_date ? fromNum(r.correction_date) : '', customer: r.customers_cd, customerName: r.customers_name, site: r.field_cd ? `${r.field_cd}|${r.field_suffix}` : '', siteName: [r.field_name1, r.field_name2].filter(Boolean).join(' '),
-    siteName1: r.field_name1 || '', siteName2: r.field_name2 || '', item: r.item_cd, itemName: r.item_name, quantity: Number(r.quantity), unit: r.unit || '', price: num(r.slip_price ?? r.unit_price), freight: num(r.slip_freight), unitPrice: num(r.unit_price),
+    siteName1: r.field_name1 || '', siteName2: r.field_name2 || '', item: r.item_cd, itemName: r.item_name, quantity: Number(r.quantity), unit: r.unit || '', ...priceOf(r.unit_price, r.slip_price, r.slip_freight), unitPrice: num(r.unit_price),
     net: Number(r.money), taxRate: Number(r.tax_rate), tax: Number(r.consumption_tax), method: Number(r.payment_method_cd), methodName: METHODS[r.payment_method_cd] || '', billed: r.process_status === '1', invoiceId: r.invoice_id || null,
     vehicle: r.vehicle_no || '', remarks: r.remarks || '', operator: r.person_in_charge_cd || '', operatorName: r.tanto_nm || '', deliveryKbn: r.delivery_kbn_cd ? String(r.delivery_kbn_cd) : '', deliveryKbnName: r.delivery_kbn_name || '',
     cumulativeQty: num(r.cumulative_quantity), cumulativeCount: num(r.cumulative_number), otherCustomer: r.other_company_customers_cd || '', otherCustomerName: r.other_name || '', paymentMoney: num(r.payment_money), weather: r.weather_cd === null || r.weather_cd === undefined ? '' : String(r.weather_cd), weatherName: r.weather_name || '', startTemp: r.start_temperature === null || r.start_temperature === undefined ? '' : String(Number(r.start_temperature)), startTime: r.start_time || '', planQty: num(r.plan_cumulative_quantity), planTime: r.plan_start_time || '', printed: Number(r.ship_printing_fg4 || 0), shipKb: Number(r.ship_kb || 1), shipKbName: SHIP_KB[Number(r.ship_kb || 1)] || '', originalNo: r.sales_no !== r.order_no ? r.sales_no : '', corrected: Number(r.corrections) > 0 }));
 }
 // sales_trn の列は現行 Java（NI0010）に合わせる：unit_price＝単価＋運賃、proc_kb・tax_kb＝''、remarks＝伝票備考の先頭20文字
+// 単価・運賃：出荷伝票の単価＋運賃が売上（請求の元）の単価と合わない移行データ（現行の伝票 157件）は、売上の単価を単価・運賃0とする。
+// 合わないまま赤黒訂正すると、何も変えなくても差額が出ていた（2026-10-27、例 221001265：売上 2,000 円・伝票 1,200 円）
+export const priceOf = (salesUnit, slipPrice, slipFreight) => (slipPrice == null || num(slipPrice) + num(slipFreight) !== num(salesUnit) ? { price: num(salesUnit), freight: 0 } : { price: num(slipPrice), freight: num(slipFreight) });
 async function insertSlip(c, { orderNo, shipKb, date, cust, f, it, q, price, freight = 0, net, rate, tax, method, vehicle, remarks, operator, kbn, other = '', salesNo, salesSuffix, startTime = '', weather = null, startTemp = null }) {
   const st = stamp(), paid = net + tax; // payment_money は決済方法に関係なく 金額＋税（現行 Java）
   await c.query(`INSERT INTO shipment_slip (order_no,ship_kb,shipment_dt,weather_cd,customers_cd,other_company_customers_cd,delivery_cd,delivery_name,field_cd,field_suffix,field_name1,field_name2,item_cd,delivery_kbn_cd,quantity,unit_cd,cumulative_quantity,plan_cumulative_quantity,unit_price,money,tax_rate,consumption_tax,payment_method_cd,payment_money,vehicle_no,cumulative_number,start_time,plan_start_time,start_temperature,person_in_charge_cd,slip_remark,ship_printing_fg1,ship_printing_fg2,ship_printing_fg3,ship_printing_fg4,printing_settled_fg,claim_status,claim_processing_period,freight,card_sales_sts,card_sales_dt,card_member_id,card_order_id,card_credit_dt,update_daytime,order_processing_period)
@@ -199,7 +202,7 @@ export async function correctShipment(c, ctx, p) {
   const cust = await one(c, 'SELECT * FROM client_m WHERE customers_cd=?', [orig.customers_cd]);
   const it = await one(c, 'SELECT * FROM item_m WHERE item_cd=?', [orig.item_cd]);
   const f = { field_cd: orig.field_cd || '', field_suffix: orig.field_suffix || '', field_name1: orig.field_name1 || '', field_name2: orig.field_name2 || '' };
-  const red = { date, cust, f, it, q: qty('-' + String(orig.quantity).replace(/^-/, ''), '数量', { positive: false, allowNegative: true }), price: num(slip?.unit_price ?? orig.unit_price), freight: num(slip?.freight),
+  const red = { date, cust, f, it, q: qty('-' + String(orig.quantity).replace(/^-/, ''), '数量', { positive: false, allowNegative: true }), ...priceOf(orig.unit_price, slip?.unit_price, slip?.freight),
     net: -num(orig.money), rate: Math.round(num(orig.tax_rate)), tax: -num(orig.consumption_tax), method: Number(orig.payment_method_cd), vehicle: '', remarks: redMemo(orig),
     operator: slip?.person_in_charge_cd || '', kbn: String(slip?.delivery_kbn_cd ?? orig.shipping_kb ?? 1) };
   if (Number(orig.quantity) < 0) red.q = qty(String(-Number(orig.quantity)), '数量'); // 元がマイナス伝票なら赤はプラス
