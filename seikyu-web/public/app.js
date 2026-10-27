@@ -824,18 +824,17 @@ async function billingReport(kind, month, closing, unissued = false, customer = 
 async function invoiceDetail(id, site = null) {
   const inv = await api('/api/invoices/' + id);
   const mine = l => (!site.site || l.site === site.site) && (l.siteName || '') === (site.siteName || ''), pick = ls => (site ? ls.filter(mine) : ls);
-  // 明細：出荷日×商品でまとめる（既定。請求書・発行確認表と同じ形）／伝票ごと。開くたびに既定から始める（請求書と同じ形で確認するため）
+  // 明細：まとめずに伝票ごとの全行（請求書・請求書発行確認表と同じ。2026-10-27 内部会議 No.3）
   // 明細の列は請求書発行確認表と同じ（運送＝1 自社手配・2 先方引取、備考＝現場名。2026-10-27、10/27 打合せ）
-  const lineTable = on => table([{ label: '日付', value: r => r.date }, { label: '売上No', value: r => r.orderNo }, { label: '区分', html: r => r.shipKb === 5 ? badge('訂正', 'amber') : '売上' }, { label: '商品', value: r => r.itemName }, { label: '数量', num: 1, value: r => r.quantity }, { label: '単価', num: 1, value: r => yen(r.price) }, { label: '金額', num: 1, value: r => yen(r.net) }, { label: '税率', num: 1, value: r => r.taxRate + '%' },
-    { label: '運送', value: r => r.carry || '' }, { label: '備考', value: r => r.siteName }], pick(on && inv.summary ? inv.summary : inv.lines));
+  const lineTable = () => table([{ label: '日付', value: r => r.date }, { label: '売上No', value: r => r.orderNo }, { label: '区分', html: r => r.shipKb === 5 ? badge('訂正', 'amber') : '売上' }, { label: '商品', value: r => r.itemName }, { label: '数量', num: 1, value: r => r.quantity }, { label: '単価', num: 1, value: r => yen(r.price) }, { label: '金額', num: 1, value: r => yen(r.net) }, { label: '税率', num: 1, value: r => r.taxRate + '%' },
+    { label: '運送', value: r => r.carry || '' }, { label: '備考', value: r => r.siteName }], pick(inv.lines));
   modal({ title: `請求 No.${inv.id} ${inv.customerName}${site ? ' ／ ' + (site.siteName || '（現場なし）') : ''}`, wide: true, body: `
     <div class="grid3"><div><div class="muted small">${site ? '現場' : '請求単位'}</div><b>${esc(site ? site.siteName || '（現場なし）' : inv.siteName)}</b></div><div><div class="muted small">締日 / 支払期日</div><b>${esc(inv.closing)} / ${esc(inv.due)}</b></div><div><div class="muted small">状態</div>${status(inv.status)}</div></div>
     <div class="grid3" style="margin:12px 0"><div class="sum-line"><span>税抜金額</span><b>${yen(site ? site.net : inv.net)}</b></div><div class="sum-line"><span>消費税</span><b>${yen(site ? site.tax : inv.tax)}</b></div>${site ? `<div class="sum-line"><span>今回請求額</span><b>${yen(site.total)}</b></div>` : `<div class="sum-line"><span>請求額 / 残高</span><b>${yen(inv.total)} / ${yen(inv.balance)}</b></div>`}</div>
-    <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap"><h3>明細</h3><label class="small" style="display:inline-flex;gap:4px;align-items:center" title="請求書・請求書発行確認表と同じ 出荷日×商品 の行（伝票No は「先頭の伝票No 他n件」）"><input type="checkbox" id="inv-sum" checked> 出荷日×商品でまとめる</label></div><div id="inv-lines">${lineTable(true)}</div>
+    <h3>明細</h3><div id="inv-lines">${lineTable()}</div>
     ${/* 発行履歴・入金消込の表は 2026-10-27 に削除（10/27 打合せ：詳細は請求書発行確認表と同じ明細だけ） */ ''}
     <div class="filters" style="margin-top:14px">${(site ? site.issues : inv.issues) ? '<button type="button" id="inv-copy">⇩ 最新発行分の Excel（控え）</button>' : ''}${canWrite() && !site ? `<button type="button" class="primary" id="inv-issue">${inv.issues ? '再発行して Excel' : '発行して Excel'}</button>` : ''}${canWrite() && !inv.issues && !inv.allocations.length ? '<button type="button" class="danger" id="inv-cancel">請求取消</button>' : ''}</div>`,
     onOpen: () => {
-      $('#inv-sum')?.addEventListener('change', e => { $('#inv-lines').innerHTML = lineTable(e.target.checked); });
       // 控え・発行は印刷せず Excel（現場ごとに最新の発行分を1シート）をダウンロード（2026-10-27 Excel に統一）
       const book = () => saveXlsx('/api/invoices/book', { ids: [inv.id], sites: site ? { [inv.id]: [siteLabel(site.siteName)] } : {} });
       $('#inv-copy')?.addEventListener('click', async () => { try { await book(); toast('最新発行分の請求書（控え）を Excel で出力しました'); } catch (e) { toast(e.message, true); } });

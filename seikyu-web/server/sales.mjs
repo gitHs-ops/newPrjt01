@@ -330,7 +330,6 @@ export async function runBilling(c, ctx, { month, closing, customers, slip: cont
     await c.query('UPDATE billing_head SET money=?, consumption_tax=?, row_version=row_version+1 WHERE invoice_id=?', [net, tax, h.invoice_id]);
     if (!h.isNew) await reverseJournal(c, { sourceType: 'billing_head', sourceId: h.invoice_id, date: end });
     await postBillingJournal(c, h.invoice_id, end, cu.customers_cd, net, tax, slip);
-    await saveSummary(c, h.invoice_id);
     (h.isNew ? created : appended).push(h.invoice_id);
     await audit(c, ctx, 'billing_head', h.invoice_id, h.isNew ? 'billing.create' : 'billing.append', { customer: cu.customers_cd, closing: end, net, tax, lines: list.length, lateEntries: list.filter(x => fromNum(x.sales_date) < period(month, closing).start).length, credit: net + tax < 0 });
   }
@@ -389,44 +388,9 @@ export const slipNoOf = l => (String(l.ship_kb) === '5' && l.sales_no && l.sales
 async function dropSummaryOf(c, orderNo) { await c.query(`DELETE FROM app_billing_line WHERE invoice_id IN (SELECT h.invoice_id FROM billing_detail d JOIN billing_head h ON ${DETAIL_JOIN} WHERE d.order_no=?)`, [String(orderNo)]); }
 const decodeLine = l => ({ carry: CARRY(l.kbn_cat), unit: l.unit || '', orderNo: slipNoOf(l), ownNo: l.order_no, date: fromNum(l.sales_date), site: `${l.field_cd}|${l.field_suffix}`, siteName: l.field_name || l.st_site || '', item: l.item_cd, itemName: l.item_name, quantity: num(l.quantity), price: num(l.unit_price),
   net: num(l.money), taxRate: num(l.tax_rate), remarks: l.remarks || '', shipKb: Number(l.ship_kb || 1) });
-// 請求書・発行確認表の明細は 得意先×現場×出荷日×商品（単価・税率・単位・運送が同じもの）でまとめる（指摘 No.9）。
-// 赤黒（区分5）とその元伝票はまとめずに、そのまま並べる。まとめた行の伝票No は「先頭の伝票No 他n件」。請求データ（billing_detail）は伝票単位のまま
-export function summarizeLines(lines) {
-  const out = [], at = new Map(), corrected = new Set(lines.filter(l => l.shipKb === 5).map(l => String(l.orderNo).split('-')[0])); // 赤黒のある元伝票（-01）もまとめない
-  for (const l of lines) {
-    if (l.shipKb === 5 || corrected.has(String(l.orderNo).split('-')[0]) || String(l.orderNo).endsWith('-01')) { out.push(l); continue; }
-    const k = [l.site, l.siteName, l.date, l.item, l.price, l.taxRate, l.unit, l.carry].join('|'), g = at.get(k);
-    if (!g) { const row = { ...l, slips: [l.orderNo], owns: [l.ownNo || l.orderNo] }; at.set(k, row); out.push(row); continue; }
-    g.owns.push(l.ownNo || l.orderNo); g.slips.push(l.orderNo); g.quantity = Math.round((g.quantity + l.quantity) * 1000) / 1000; g.net += l.net; g.orderNo = `${g.slips[0]} 他${g.slips.length - 1}件`;
-  }
-  return out.map(({ slips, owns, ...l }) => (slips?.length > 1 ? { ...l, slipCount: slips.length, orderNos: owns } : l));
-}
-// まとめた請求データの保存と読込（指摘 No.9：請求データは得意先×現場×出荷日×商品のサマリーで保存）。保存が無い請求（保存前に作成したもの）はその場でまとめる
-export async function saveSummary(c, invoiceId) {
-  const h = await one(c, 'SELECT * FROM billing_head WHERE invoice_id=?', [invoiceId]); if (!h) return 0;
-  const ls = summarizeLines(await headLines(c, h));
-  await c.query('DELETE FROM app_billing_line WHERE invoice_id=?', [invoiceId]);
-  for (let i = 0; i < ls.length; i += 200) {
-    const part = ls.slice(i, i + 200);
-    await c.query(`INSERT INTO app_billing_line (invoice_id,line_no,site_key,site_name,sales_date,slip_no,slip_count,order_nos,ship_kb,item_cd,item_name,unit,quantity,unit_price,money,tax_rate,carry,remarks) VALUES ${part.map(() => '(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)').join(',')}`,
-      part.flatMap((l, k) => [invoiceId, i + k + 1, l.site || '', (l.siteName || '').slice(0, 80), l.date, String(l.orderNo).slice(0, 40), l.slipCount || 1, (l.orderNos || [l.ownNo || l.orderNo]).join(','), l.shipKb || 1, l.item || '', (l.itemName || '').slice(0, 60), (l.unit || '').slice(0, 10), l.quantity, l.price, l.net, l.taxRate, l.carry || '', (l.remarks || '').slice(0, 80)]));
-  }
-  return ls.length;
-}
-async function storedSummary(c, ids) {
-  if (!ids.length) return null;
-  const rs = await rows(c, `SELECT * FROM app_billing_line WHERE invoice_id IN (${ids.map(() => '?').join(',')}) ORDER BY invoice_id, line_no`, ids);
-  if (new Set(rs.map(r => String(r.invoice_id))).size !== ids.length) return null;
-  return rs.map(r => ({ site: r.site_key, siteName: r.site_name, date: String(r.sales_date instanceof Date ? r.sales_date.toISOString() : r.sales_date).slice(0, 10), orderNo: r.slip_no, slipCount: r.slip_count > 1 ? r.slip_count : undefined, orderNos: r.order_nos ? r.order_nos.split(',') : [],
-    shipKb: Number(r.ship_kb), item: r.item_cd, itemName: r.item_name, unit: r.unit, quantity: num(r.quantity), price: num(r.unit_price), net: num(r.money), taxRate: Number(r.tax_rate), carry: r.carry, remarks: r.remarks }));
-}
-export const summaryLines = async (c, ids, lines) => (await storedSummary(c, ids.map(Number))) || summarizeLines(lines);
-// 保存前に作成した請求のまとめを作る（起動時に裏で1回。件数が多くても起動は待たせない）
-export async function backfillSummaries(pool) {
-  const ids = (await rows(pool, 'SELECT h.invoice_id FROM billing_head h WHERE NOT EXISTS (SELECT 1 FROM app_billing_line b WHERE b.invoice_id=h.invoice_id) ORDER BY h.invoice_id')).map(r => r.invoice_id);
-  for (const id of ids) await saveSummary(pool, id);
-  return ids.length;
-}
+// 請求書・請求書発行確認表・請求詳細の明細はまとめずに全行を現場別に出す（2026-10-27 内部会議 No.3：「明細は現場別に全行を出力」）。
+// 以前の「得意先×現場×出荷日×商品でまとめる」（指摘 No.9、app_billing_line に保存）は廃止。テーブルは残すが読み書きしない
+export const summaryLines = async (c, ids, lines) => lines;
 // 赤・黒は元伝票の直後に並べる（元伝票の売上日・番号で並べ、枝番 2 赤・3 黒の順）
 async function headLines(c, h) { const w = detailWhere(h); return (await rows(c, `SELECT d.*, st.sales_no, st.sales_suffix, (SELECT COUNT(*) FROM sales_trn x WHERE x.sales_no=d.order_no AND x.order_no<>d.order_no) corrections, NULLIF(TRIM(CONCAT_WS(' ', st.field_name1, st.field_name2)), '') st_site, unit_name(i.unit) unit, (SELECT k.category1 FROM code_m k WHERE k.code_key='A0000' AND k.code_dtl=CAST(d.shipping_kb AS TEXT)) kbn_cat FROM billing_detail d LEFT JOIN item_m i ON i.item_cd=d.item_cd
     LEFT JOIN sales_trn st ON st.order_no=d.order_no AND st.order_suffix=1 LEFT JOIN sales_trn o ON st.ship_kb='5' AND o.order_no=st.sales_no AND o.order_suffix=1
@@ -436,8 +400,7 @@ export async function invoiceDetail(c, id) {
   const issues = await rows(c, 'SELECT issue_no, issued_at, issued_by, document_sha256 FROM invoice_issue WHERE invoice_id=? ORDER BY issue_no', [h.invoice_id]);
   const allocations = await rows(c, 'SELECT r.receipt_no, r.receipt_date, r.status, a.amount FROM receipt_allocation a JOIN receipt r ON r.receipt_id=a.receipt_id WHERE a.invoice_id=? ORDER BY r.receipt_date', [h.invoice_id]);
   const lines = await headLines(c, h);
-  // summary：請求書・発行確認表と同じ 得意先×現場×出荷日×商品 でまとめた明細（請求詳細の「出荷日×商品でまとめる」）
-  return { ...decodeInvoice(h), lines, summary: await summaryLines(c, [h.invoice_id], lines),
+  return { ...decodeInvoice(h), lines,
     issueLog: issues.map(i => ({ no: i.issue_no, at: i.issued_at, by: i.issued_by, sha256: i.document_sha256 })), allocations: allocations.map(a => ({ receiptNo: a.receipt_no, date: a.receipt_date, status: a.status, amount: num(a.amount) })) };
 }
 
@@ -602,11 +565,11 @@ export async function issuedDocument(c, id, site = null) {
   const nos = site ? (await siteIssues(c, [Number(id)])).get(Number(id)).of(site) : null; check(!site || nos.length, `現場「${siteLabel(site)}」は未発行です`);
   const r = await one(c, `SELECT snapshot_json, issue_no FROM invoice_issue WHERE invoice_id=?${site ? ' AND issue_no=?' : ''} ORDER BY issue_no DESC LIMIT 1`, site ? [Number(id), nos.at(-1)] : [Number(id)]); check(r, '発行履歴がありません');
   const s = typeof r.snapshot_json === 'string' ? JSON.parse(r.snapshot_json) : r.snapshot_json;
-  // 2026-10-26 より前の発行分は明細に現場名が無く、明細もまとめていない：金額はそのまま、現場名を今の請求明細から補い、得意先×現場×出荷日×商品でまとめる
+  // 2026-10-26 より前の発行分は明細に現場名が無い：金額はそのまま、現場名を今の請求明細から補う（まとめない）
   if (s.lines?.length && s.lines.every(l => !l.siteName)) {
     const h = await one(c, 'SELECT * FROM billing_head WHERE invoice_id=?', [Number(id)]), at = new Map();
     for (const l of h ? await headLines(c, h) : []) { at.set(String(l.orderNo), l); at.set(String(l.ownNo), l); }
-    s.lines = summarizeLines(s.lines.map(l => { const x = at.get(String(l.ownNo || l.orderNo)) || at.get(String(l.orderNo)); return x ? { ...l, site: x.site, siteName: x.siteName } : l; }));
+    s.lines = (s.lines.map(l => { const x = at.get(String(l.ownNo || l.orderNo)) || at.get(String(l.orderNo)); return x ? { ...l, site: x.site, siteName: x.siteName } : l; }));
   }
   if (site) s.sites = [siteLabel(site)];
   return { ...s, issueNo: r.issue_no, reissue: r.issue_no > 1, copy: true };
