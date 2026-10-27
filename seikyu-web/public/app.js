@@ -963,7 +963,7 @@ function receiptForm(customer, receiptId = 0) {
   const rcRow = ([k, l, h]) => `<tr><th>${esc(l)}</th><td><input name="${k}" class="num" value="0" style="width:150px"></td><td class="small muted">${esc(h)}${k === 'bank' ? `<br><select name="bankCode" aria-label="入金口座">${options(active('banks'), active('banks')[0]?.code)}</select>` : ''}${k === 'deposit' ? '<br><span id="rc-dep">預り金残高: -</span>' : ''}</td></tr>`;
   modal({ title: receiptId ? '入金消込（修正）' : '入金消込', wide: true, submit: receiptId ? '更新' : '登録', body: `${receiptId ? '<p class="small" id="rc-edit">読み込み中…</p>' : sampleButton}<div class="form-grid">
     ${field('得意先', `<input value="${esc(customer)} ${esc(cu?.name || '')}" readonly><input type="hidden" name="customer" value="${esc(customer)}">`)}
-    ${field('入金日', `<input type="date" name="date" value="${lastClosing()}" required>`, { req: 1 })}</div>
+    ${/* 入金日は入力しない（10/27 内部会議 No.22：振込は月1回まとめて入る）。値は従来の初期値（直近の締日）、修正は元の入金の日付のまま */ ''}<input type="hidden" name="date" value="${lastClosing()}"></div>
     <h3 style="margin-top:14px">消込画面</h3><div id="rc-open" class="muted small">読み込み中…</div>
     <h3 style="margin-top:14px">仕訳明細入力</h3>
     <div class="table-wrap"><table class="rc-journal"><thead><tr><th>科目</th><th class="num">金額</th><th>補足</th></tr></thead><tbody>${RC_ROWS.map(rcRow).join('')}
@@ -1023,7 +1023,7 @@ function receiptForm(customer, receiptId = 0) {
         if (!invs().length) return toast('この得意先には残高のある請求がありません', true);
         const due = invs().reduce((n, r) => n + r.balance, 0), fee = due > 10000 ? 660 : 0;
         for (const [k] of RC_KEYS) f[k].value = 0;
-        f.date.value = today(); f.fee.value = fee; f.bank.value = due - fee;
+        f.fee.value = fee; f.bank.value = due - fee;
         refresh();
       });
     },
