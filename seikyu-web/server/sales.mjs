@@ -209,9 +209,11 @@ export async function correctShipment(c, ctx, p) {
   await recalcCumulative(c, await one(c, 'SELECT * FROM shipment_slip WHERE order_no=?', [redNo]));
   let blackNo = null, black = null;
   if (p.quantity !== undefined && p.quantity !== '' && Number(p.quantity) !== 0) {
-    black = await slipValues(c, { date, customer: p.customer || orig.customers_cd, site: p.site ?? (orig.field_cd ? `${orig.field_cd}|${orig.field_suffix}` : ''), siteName1: p.siteName1 ?? orig.field_name1, siteName2: p.siteName2 ?? orig.field_name2,
-      item: p.item || orig.item_cd, quantity: p.quantity, price: p.price ?? red.price, freight: p.freight ?? red.freight, method: p.method ?? red.method, operator: p.operator || red.operator, deliveryKbn: p.deliveryKbn || red.kbn,
-      shipKb: '1', otherCustomer: '', vehicle: slip?.vehicle_no || '', remarks: p.remarks ?? orig.remarks ?? '' }, '黒伝票の'); // 黒の備考は元伝票の備考を引き継ぐ（指摘 No.26）
+    // 訂正できるのは 単価・数量 だけ（2026-10-27：お客様の運用は決められた範囲で行う。10/23「まずは単価・数量の2種類」）。
+    // 得意先・現場・商品・運賃・決済・担当・納入区分は元伝票のまま。得意先・現場などの誤りは 数量0（取消）→ 正しい内容で出荷登録
+    black = await slipValues(c, { date, customer: orig.customers_cd, site: orig.field_cd ? `${orig.field_cd}|${orig.field_suffix}` : '', siteName1: orig.field_name1, siteName2: orig.field_name2,
+      item: orig.item_cd, quantity: p.quantity, price: p.price ?? red.price, freight: red.freight, method: red.method, operator: red.operator, deliveryKbn: red.kbn,
+      shipKb: '1', otherCustomer: '', vehicle: slip?.vehicle_no || '', remarks: orig.remarks ?? '' }, '黒伝票の'); // 黒の備考は元伝票の備考を引き継ぐ（指摘 No.26）
     blackNo = await nextShipNo(c);
     await insertSlip(c, { orderNo: blackNo, ...black, shipKb: CORRECTION, salesNo: orig.order_no, salesSuffix: 3 }); // black（slipValues）の shipKb '1' で上書きしない
     await c.query('UPDATE sales_trn SET correction_date=? WHERE order_no=?', [toNum(corrDate), blackNo]);
