@@ -839,13 +839,15 @@ async function invoiceDetail(id, site = null) {
     <div class="grid3" style="margin:12px 0"><div class="sum-line"><span>税抜金額</span><b>${yen(site ? site.net : inv.net)}</b></div><div class="sum-line"><span>消費税</span><b>${yen(site ? site.tax : inv.tax)}</b></div>${site ? `<div class="sum-line"><span>今回請求額</span><b>${yen(site.total)}</b></div>` : `<div class="sum-line"><span>請求額 / 残高</span><b>${yen(inv.total)} / ${yen(inv.balance)}</b></div>`}</div>
     <h3>明細</h3><div id="inv-lines">${lineTable()}</div>
     ${/* 発行履歴・入金消込の表は 2026-10-27 に削除（10/27 打合せ：詳細は請求書発行確認表と同じ明細だけ） */ ''}
-    <div class="filters" style="margin-top:14px">${(site ? site.issues : inv.issues) ? '<button type="button" id="inv-copy">⇩ 最新発行分の Excel（控え）</button>' : ''}${canWrite() && !site ? `<button type="button" class="primary" id="inv-issue">${inv.issues ? '再発行して Excel' : '発行して Excel'}</button>` : ''}${canWrite() && !inv.issues && !inv.allocations.length ? '<button type="button" class="danger" id="inv-cancel">請求取消</button>' : ''}</div>`,
+    <div class="filters" style="margin-top:14px">${(site ? site.issues : inv.issues) ? '<button type="button" id="inv-copy">⇩ 最新発行分の Excel（控え）</button>' : ''}${canWrite() && !site ? `<button type="button" class="primary" id="inv-issue">${inv.issues ? '再発行して Excel' : '発行して Excel'}</button>` : ''}${canWrite() && !inv.issues && !inv.allocations.length ? `<button type="button" class="danger" id="inv-cancel">${site ? '請求取消（この現場）' : '請求取消'}</button>` : ''}</div>`,
     onOpen: () => {
       // 控え・発行は印刷せず Excel（現場ごとに最新の発行分を1シート）をダウンロード（2026-10-27 Excel に統一）
       const book = () => saveXlsx('/api/invoices/book', { ids: [inv.id], sites: site ? { [inv.id]: [siteLabel(site.siteName)] } : {} });
       $('#inv-copy')?.addEventListener('click', async () => { try { await book(); toast('最新発行分の請求書（控え）を Excel で出力しました'); } catch (e) { toast(e.message, true); } });
       $('#inv-issue')?.addEventListener('click', async () => { try { await post('/api/invoices/issue', { ids: [inv.id] }); $('#dialog').close(); await book(); toast('請求書を発行し、Excel をダウンロードしました'); render(); } catch (e) { $('#form-error').textContent = e.message; toast(e.message, true); } });
-      $('#inv-cancel')?.addEventListener('click', async () => { try { await post('/api/invoices/cancel', { id: inv.id }); $('#dialog').close(); toast('請求を取消しました（売上は未請求に戻り、仕訳は逆仕訳）'); render(); } catch (e) { $('#form-error').textContent = e.message; toast(e.message, true); } });
+      // 現場の行から開いたときはその現場の明細だけを取消す（2026-10-28）。最後の現場なら請求ごと取消
+      $('#inv-cancel')?.addEventListener('click', async () => { try { const x = await post('/api/invoices/cancel', site ? { id: inv.id, site: site.site || '', siteName: site.siteName || '' } : { id: inv.id }); $('#dialog').close();
+        toast(x.site ? `現場「${x.site}」の請求を取消しました（売上${x.orders}件は未請求に戻り、請求額は ${yen(x.net + x.tax)} 円に再計算）` : '請求を取消しました（売上は未請求に戻り、仕訳は逆仕訳）'); render(); } catch (e) { $('#form-error').textContent = e.message; toast(e.message, true); } });
     } });
 }
 // 提案書 スライド14 の請求書様式：請求書番号・取引銀行（2行）・前回残高／今回入金額／今回請求額(税抜)／今回消費税／今回消費税(軽減)／今回請求額(税込)／今回残高、明細（月日・伝票NO・区分・品名・数量・単位・単価・金額）

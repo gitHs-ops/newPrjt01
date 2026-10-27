@@ -577,12 +577,19 @@ export async function issuedDocument(c, id, site = null) {
   if (site) s.sites = [siteLabel(site)];
   return { ...s, issueNo: r.issue_no, reissue: r.issue_no > 1, copy: true };
 }
-export async function cancelInvoice(c, ctx, { id }) {
+// site・siteName（請求一覧照会の現場の行）があればその現場の明細だけを取消す（2026-10-28）。残りの現場で金額・消費税を計算し直し、売掛金の仕訳は逆仕訳して同じ伝票番号で計上し直す。
+// 現場の明細が請求の全明細なら請求ごと取消す
+export async function cancelInvoice(c, ctx, { id, site, siteName }) {
   const h = await one(c, 'SELECT * FROM billing_head WHERE invoice_id=? FOR UPDATE', [Number(id)]); check(h, '請求が見つかりません');
   await assertOpen(c, fromNum(h.closing_date));
   check(!(await one(c, 'SELECT 1 x FROM invoice_issue WHERE invoice_id=? LIMIT 1', [h.invoice_id])), '発行済みの請求は取消できません（発行履歴を保全するため）');
   check(!(await one(c, 'SELECT 1 x FROM receipt_allocation WHERE invoice_id=? LIMIT 1', [h.invoice_id])), '入金消込のある請求は取消できません');
   const w = detailWhere(h);
+  if (site !== undefined || siteName !== undefined) {
+    const all = await headLines(c, h), mine = all.filter(l => (!site || l.site === site) && l.siteName === (siteName || ''));
+    check(mine.length, 'この現場の明細がありません（画面を更新してください）');
+    if (mine.length < all.length) return cancelSite(c, ctx, h, w, [...new Set(mine.map(l => l.ownNo))], siteLabel(siteName));
+  }
   const orders = await rows(c, `SELECT order_no FROM billing_detail WHERE ${w.sql} FOR UPDATE`, w.args);
   for (const o of orders) {
     await c.query("UPDATE sales_trn SET process_status='0', claim_processing_period=NULL WHERE order_no=?", [o.order_no]);
@@ -593,6 +600,22 @@ export async function cancelInvoice(c, ctx, { id }) {
   await c.query('DELETE FROM billing_head WHERE invoice_id=?', [h.invoice_id]);
   await audit(c, ctx, 'billing_head', h.invoice_id, 'billing.cancel', { customer: h.customers_cd, closing: fromNum(h.closing_date), orders: orders.length });
   return { cancelled: h.invoice_id };
+}
+
+async function cancelSite(c, ctx, h, w, orders, label) {
+  const end = fromNum(h.closing_date);
+  for (const o of orders) {
+    await c.query("UPDATE sales_trn SET process_status='0', claim_processing_period=NULL WHERE order_no=?", [o]);
+    await c.query('UPDATE shipment_slip SET claim_status=0, claim_processing_period=0 WHERE order_no=?', [o]);
+    await c.query(`DELETE FROM billing_detail WHERE ${w.sql} AND order_no=?`, [...w.args, o]);
+  }
+  const { net, tax } = totals(await rows(c, `SELECT money, tax_rate FROM billing_detail WHERE ${w.sql}`, w.args));
+  await c.query('UPDATE billing_head SET money=?, consumption_tax=?, row_version=row_version+1 WHERE invoice_id=?', [net, tax, h.invoice_id]);
+  const prev = await one(c, "SELECT s.slip_no FROM journal_entry e JOIN app_slip_no s ON s.journal_id=e.journal_id WHERE e.source_type='billing_head' AND e.source_id=? AND e.status='POSTED' AND e.reversal_of IS NULL", [String(h.invoice_id)]);
+  await reverseJournal(c, { sourceType: 'billing_head', sourceId: h.invoice_id, date: end });
+  await postBillingJournal(c, h.invoice_id, end, h.customers_cd, net, tax, prev ? { max: AR_SLIP_MAX, no: prev.slip_no, count: 0 } : { max: AR_SLIP_MAX });
+  await audit(c, ctx, 'billing_head', h.invoice_id, 'billing.cancel', { customer: h.customers_cd, closing: end, site: label, orders: orders.length, net, tax });
+  return { cancelled: h.invoice_id, site: label, orders: orders.length, net, tax };
 }
 
 // ---------- 入金・消込 (NO17: 当座預金・現金・手形・振込手数料・協力会費・預り金充当・値引) ----------

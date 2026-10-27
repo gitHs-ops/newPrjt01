@@ -338,6 +338,29 @@ test('workflow against PostgreSQL business tables', { skip, timeout: 900000 }, a
       const kb = ok(await a.call('/api/kb/import/seikyu', { from: end, to: end, dry: true })), ks = kb.sample.filter(x => x.memo.startsWith(each[0].slipNo + ' '));
       assert.equal(ks.length, 1, '会計の仕訳受入も伝票番号単位で1伝票'); assert.match(ks[0].memo, /（3件）/); assert.equal(ks[0].ref, each[0].slipNo); assert.equal(ks[0].rows.length, 6);
     });
+    await t.test('請求取消 by site: cancels only that site and recomputes the invoice (2026-10-28)', async () => {
+      const ok = r => { assert.equal(r.status, 200, JSON.stringify(r.data)); return r.data; };
+      const S = 'S' + tag;
+      ok(await a.call('/api/masters/customers', { mode: 'create', record: { code: S, name: '現場取消試験', closing: 15, active: true } }));
+      for (const x of ['A', 'B']) ok(await a.call('/api/masters/sites', { mode: 'create', record: { customer: S, code: S + x, suffix: '000', name: '現場' + x, active: true } }));
+      ok(await a.call('/api/shipments', { date: pm + '-01', customer: S, site: S + 'A|000', item: 'I' + tag, quantity: '2', price: 1000, taxRate: 10, operator: '1', deliveryKbn: '1', method: 2 }));
+      ok(await a.call('/api/shipments', { date: pm + '-02', customer: S, site: S + 'B|000', item: 'I' + tag, quantity: '3', price: 1000, taxRate: 10, operator: '1', deliveryKbn: '1', method: 2 }));
+      const run = ok(await a.call('/api/billing/run', { month: pm, closing: 15, customers: [S] })), id = run.ids[0];
+      const inv = ok(await a.call('/api/invoices/' + id)); assert.equal(inv.total, 5500);
+      const la = inv.lines.find(l => l.site === S + 'A|000'), lb = inv.lines.find(l => l.site === S + 'B|000');
+      const x = ok(await a.call('/api/invoices/cancel', { id, site: la.site, siteName: la.siteName }));
+      assert.equal(x.orders, 1); assert.equal(x.net + x.tax, 3300);
+      const inv2 = ok(await a.call('/api/invoices/' + id)); assert.equal(inv2.total, 3300); assert.deepEqual(inv2.lines.map(l => l.site), [lb.site]);
+      const jl = ok(await a.call('/api/journals?month=' + pm)).filter(j => j.source === 'billing_head' && j.sourceId === String(id));
+      assert.equal(jl.filter(j => j.status === 'POSTED' && !j.reversalOf).length, 1, 'one live AR journal after the site cancel');
+      // 取消した現場の売上は未請求に戻り、同じ締日の再作成で同じ請求に追加される
+      const again = ok(await a.call('/api/billing/run', { month: pm, closing: 15, customers: [S] })); assert.equal(again.appended, 1);
+      assert.equal(ok(await a.call('/api/invoices/' + id)).total, 5500);
+      // 最後の現場を取消すと請求ごと取消
+      ok(await a.call('/api/invoices/cancel', { id, site: la.site, siteName: la.siteName }));
+      ok(await a.call('/api/invoices/cancel', { id, site: lb.site, siteName: lb.siteName }));
+      assert.notEqual((await a.call('/api/invoices/' + id)).status, 200, 'invoice removed after its last site');
+    });
     const raw = await fetch(base + '/api/export/journals?month=' + month, { headers: { cookie: a.cookie } }); const bytes = new Uint8Array(await raw.arrayBuffer());
     assert.equal(raw.status, 200); assert.deepEqual([...bytes.slice(0, 3)], [0xef, 0xbb, 0xbf], 'CSV has UTF-8 BOM for Excel');
   } finally {
