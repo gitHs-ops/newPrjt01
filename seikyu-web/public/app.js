@@ -684,7 +684,8 @@ ${heldNote}` : ''}`);
     ${table([{ label: '締日', value: r => (r.first ? r.inv.closing : '') }, { label: '得意先コード', value: r => (r.first ? r.inv.customer : '') }, { label: '得意先名', value: r => (r.first ? r.inv.customerName : '') },
       { label: '現場名', html: siteCell }, { label: '決済区分', value: r => r.method || '' },
       { label: '売上額', num: 1, value: r => yen(r.net) }, { label: '消費税', num: 1, value: r => yen(r.tax) }, { label: '今回請求額', num: 1, value: r => yen(r.total) },
-      { label: '請求書発行状況', html: r => (r.first ? status(r.inv.status) + (r.inv.issues ? ` <span class="small muted">${r.inv.issues}回</span>` : '') : '') },
+      // 発行状況は現場の行ごと（請求書発行と同じ 未発行／発行済／再発行。2026-10-28）。入金・クレジットの状況は得意先の先頭行に並べる
+      { label: '請求書発行状況', html: r => issueCell(r) + (r.first && ['partial', 'paid', 'credit'].includes(r.inv.status) ? ' ' + status(r.inv.status) : '') },
       { label: '', html: r => `<button class="mini" data-act="detail" data-k="${r.k}">詳細</button>` }], lines, { empty: '請求がありません', foot: ['合計', '', '', '', '', yen(sum('net')), yen(sum('tax')), yen(sum('total')), '', ''] })}</section>`);
 };
 // 請求一覧照会・請求書発行で共通：検索条件（請求年月・締日・得意先。得意先は任意）と 得意先×現場 の行
@@ -699,6 +700,7 @@ const siteLabel = n => (n && String(n).trim() ? String(n) : '（現場なし）'
 // 現場ごとの発行回数（現場別発行より前の発行分は請求の発行回数）
 const siteNo = s => s.siteIssueNo?.[siteLabel(s.siteName)] ?? s.issueNo;
 const issueState = r => (!r.issues ? 'unissued' : r.issues > 1 ? 'reissued' : 'issued'); // r＝現場の行（issues＝その現場の発行回数）
+const issueCell = r => badge(ISSUE_STATES[issueState(r)], r.issues ? 'green' : 'gray') + (r.issues ? ` <span class="small muted">${r.issues}回</span>` : '');
 async function invoiceIssueView(q) {
   const A = actions;
   A.view = d => go('invoices', { view: d.view });
@@ -733,7 +735,7 @@ async function invoiceIssueView(q) {
     `<section class="card glass" data-sub="issue">
     ${table([{ label: '', head: '<input type="checkbox" data-pick-all="inv-pick" title="すべて選択／解除">', html: r => `<input type="checkbox" class="inv-pick" value="${r.k}">` }, { label: '締日', value: r => (r.first ? r.inv.closing : '') }, { label: '得意先コード', value: r => (r.first ? r.inv.customer : '') }, { label: '得意先名', value: r => (r.first ? r.inv.customerName : '') },
       { label: '現場名', html: siteCell }, { label: '売上額', num: 1, value: r => yen(r.net) }, { label: '消費税', num: 1, value: r => yen(r.tax) }, { label: '今回請求額', num: 1, value: r => yen(r.total) },
-      { label: '発行状況', html: r => badge(ISSUE_STATES[issueState(r)], r.issues ? 'green' : 'gray') + (r.issues ? ` <span class="small muted">${r.issues}回</span>` : '') }],
+      { label: '発行状況', html: issueCell }],
       lines, { empty: ist ? 'この発行状況の現場はありません' : '請求がありません', foot: ['', '合計', '', '', '', yen(sum('net')), yen(sum('tax')), yen(sum('total')), ''] })}</section>`);
 }
 // 発行前確認一覧（2026-10-25）：請求データ作成の前に、その締日で請求される未請求の掛売上（出荷伝票）を得意先ごとに確認する。
