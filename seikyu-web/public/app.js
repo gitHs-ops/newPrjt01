@@ -633,27 +633,25 @@ VIEWS.invoices = async q => {
     const p = await api('/api/billing/preview?' + qs({ month, closing }));
     // 締日が来ていない締めは作成できない（サーバーも拒否する）。得意先ごとに失敗させず、ここで止める（2026-10-27）
     if (p.end > today()) return alertBox(`締日（${p.end}）が到来していないため、${month} ${closingLabel(closing)}締の請求データは作成できません。`);
-    const targets = p.customers.filter(r => r.count && !(r.created && r.locked)), adds = targets.filter(r => r.created).length;
+    const targets = p.customers.filter(r => r.count && !(r.created && r.locked));
     const held = p.customers.filter(r => r.count && r.created && r.locked), done = p.customers.filter(r => r.created && !r.count).length;
     const heldNote = held.length ? `発行済みのため次回締めで請求 ${held.length}得意先（${held.map(r => `${r.customer} ${r.name} ${r.count}件`).join('、')}）` : '';
     if (!targets.length) return alertBox(`作成する請求データはありません（${month} ${closingLabel(closing)}締：請求期間 ${p.start}〜${p.end}${done ? `、作成済み ${done}得意先` : ''}）${heldNote ? `
 ${heldNote}` : ''}`);
-    const cnt = targets.reduce((n, r) => n + r.count, 0), net = targets.reduce((n, r) => n + r.net, 0);
-    modal({ title: `請求データ作成（${month} ${closingLabel(closing)}締）`, submit: '作成する', body: `<p>請求期間 ${esc(p.start)} 〜 ${esc(p.end)}（支払期日 ${esc(p.due)}）</p><p>対象 <b>${targets.length}</b> 得意先・未請求の掛売 <b>${cnt}</b> 件（税抜 ${yen(net)} 円）の請求データを作成します。${adds ? `<br>うち <b>${adds}</b> 得意先は作成済みの請求（未発行）に追加します。` : ''}${done ? `<br><span class="muted small">作成済み ${done}得意先は対象外</span>` : ''}${heldNote ? `<br><span class="check-ng small">${esc(heldNote)}</span>` : ''}</p>`,
-      onSubmit: async () => {
-        const sum = { created: 0, appended: 0, skipped: [], failed: [] }; let slip = ''; // 売掛金計上の伝票番号（1伝票45得意先まで同じ番号、Q08）
-        if (btn) btn.disabled = true;
-        progress.open(`請求データ作成（${month} ${closingLabel(closing)}締）`, targets.length);
-        for (const [k, r] of targets.entries()) {
-          progress.step(k, `${r.customer} ${r.name} を作成中…`);
-          try { const x = await post('/api/billing/run', { month, closing, customers: [r.customer], slip }); slip = x.slip || slip; sum.created += x.created || 0; sum.appended += x.appended || 0; sum.skipped.push(...(x.skipped || [])); }
-          catch (e) { sum.failed.push(`${r.customer} ${r.name}：${e.message}`); }
-        }
-        progress.step(targets.length, '完了'); progress.close(); if (btn) btn.disabled = false;
-        const msg = `請求 作成${sum.created}件・追加${sum.appended}件${sum.skipped.length ? ' ／ ' + sum.skipped.join('、') : ''}`;
-        if (sum.failed.length) alertBox(`${msg}\n\n作成できなかった得意先（${sum.failed.length}件）：\n${sum.failed.join('\n')}`); else toast(msg);
-        freshNext = true; location.hash = '#invoices/list?' + qs({ month, closing });
-      } });
+    // 確認のポップアップは出さずにそのまま作成し、終わったら請求書発行確認表（未発行を含む）の Excel を出す（2026-10-27。10/27 打合せ「メッセージはいらない、処理中→終了でよい」）
+    const sum = { created: 0, appended: 0, skipped: [], failed: [] }; let slip = ''; // 売掛金計上の伝票番号（1伝票45得意先まで同じ番号、Q08）
+    if (btn) btn.disabled = true;
+    progress.open(`請求データ作成（${month} ${closingLabel(closing)}締）`, targets.length);
+    for (const [k, r] of targets.entries()) {
+      progress.step(k, `${r.customer} ${r.name} を作成中…`);
+      try { const x = await post('/api/billing/run', { month, closing, customers: [r.customer], slip }); slip = x.slip || slip; sum.created += x.created || 0; sum.appended += x.appended || 0; sum.skipped.push(...(x.skipped || [])); }
+      catch (e) { sum.failed.push(`${r.customer} ${r.name}：${e.message}`); }
+    }
+    progress.step(targets.length, '完了'); progress.close(); if (btn) btn.disabled = false;
+    // 作成できなかった得意先・次回締めに回る得意先があるときだけ知らせる
+    if (sum.failed.length || heldNote) alertBox([sum.failed.length ? `作成できなかった得意先（${sum.failed.length}件）：\n${sum.failed.join('\n')}` : '', heldNote].filter(Boolean).join('\n\n'));
+    freshNext = true; location.hash = '#invoices/list?' + qs({ month, closing });
+    if (sum.created || sum.appended) await billingReport('confirm', month, closing, true).catch(e => toast(e.message, true));
   };
   // 10/26 打合せ：［詳細］は現場の行ごと。その現場の明細だけを出す
   A.detail = d => { const x = lines[Number(d.k)]; if (x) invoiceDetail(x.inv.id, x.site || x.siteName ? x : null); };
@@ -822,13 +820,14 @@ async function invoiceDetail(id, site = null) {
   const inv = await api('/api/invoices/' + id);
   const mine = l => (!site.site || l.site === site.site) && (l.siteName || '') === (site.siteName || ''), pick = ls => (site ? ls.filter(mine) : ls);
   // 明細：出荷日×商品でまとめる（既定。請求書・発行確認表と同じ形）／伝票ごと。開くたびに既定から始める（請求書と同じ形で確認するため）
-  const lineTable = on => table([{ label: '日付', value: r => r.date }, { label: '売上No', value: r => r.orderNo }, { label: '区分', html: r => r.shipKb === 5 ? badge('訂正', 'amber') : '売上' }, { label: '現場', value: r => r.siteName }, { label: '商品', value: r => r.itemName }, { label: '数量', num: 1, value: r => r.quantity }, { label: '単価', num: 1, value: r => yen(r.price) }, { label: '金額', num: 1, value: r => yen(r.net) }, { label: '税率', num: 1, value: r => r.taxRate + '%' }], pick(on && inv.summary ? inv.summary : inv.lines));
+  // 明細の列は請求書発行確認表と同じ（運送＝1 自社手配・2 先方引取、備考＝現場名。2026-10-27、10/27 打合せ）
+  const lineTable = on => table([{ label: '日付', value: r => r.date }, { label: '売上No', value: r => r.orderNo }, { label: '区分', html: r => r.shipKb === 5 ? badge('訂正', 'amber') : '売上' }, { label: '商品', value: r => r.itemName }, { label: '数量', num: 1, value: r => r.quantity }, { label: '単価', num: 1, value: r => yen(r.price) }, { label: '金額', num: 1, value: r => yen(r.net) }, { label: '税率', num: 1, value: r => r.taxRate + '%' },
+    { label: '運送', value: r => r.carry || '' }, { label: '備考', value: r => r.siteName }], pick(on && inv.summary ? inv.summary : inv.lines));
   modal({ title: `請求 No.${inv.id} ${inv.customerName}${site ? ' ／ ' + (site.siteName || '（現場なし）') : ''}`, wide: true, body: `
     <div class="grid3"><div><div class="muted small">${site ? '現場' : '請求単位'}</div><b>${esc(site ? site.siteName || '（現場なし）' : inv.siteName)}</b></div><div><div class="muted small">締日 / 支払期日</div><b>${esc(inv.closing)} / ${esc(inv.due)}</b></div><div><div class="muted small">状態</div>${status(inv.status)}</div></div>
     <div class="grid3" style="margin:12px 0"><div class="sum-line"><span>税抜金額</span><b>${yen(site ? site.net : inv.net)}</b></div><div class="sum-line"><span>消費税</span><b>${yen(site ? site.tax : inv.tax)}</b></div>${site ? `<div class="sum-line"><span>今回請求額</span><b>${yen(site.total)}</b></div>` : `<div class="sum-line"><span>請求額 / 残高</span><b>${yen(inv.total)} / ${yen(inv.balance)}</b></div>`}</div>
     <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap"><h3>明細</h3><label class="small" style="display:inline-flex;gap:4px;align-items:center" title="請求書・請求書発行確認表と同じ 出荷日×商品 の行（伝票No は「先頭の伝票No 他n件」）"><input type="checkbox" id="inv-sum" checked> 出荷日×商品でまとめる</label></div><div id="inv-lines">${lineTable(true)}</div>
-    <div class="grid2" style="margin-top:12px"><div><h3>発行履歴</h3>${table([{ label: '回', value: r => r.no }, { label: '発行日時', value: r => jst(r.at) }, { label: '発行者', value: r => r.by }], inv.issueLog, { empty: '未発行' })}</div>
-    <div><h3>入金消込</h3>${table([{ label: '入金No', value: r => r.receiptNo }, { label: '入金日', value: r => r.date }, { label: '状態', html: r => status(r.status) }, { label: '消込額', num: 1, value: r => yen(r.amount) }], inv.allocations, { empty: '消込なし' })}</div></div>
+    ${/* 発行履歴・入金消込の表は 2026-10-27 に削除（10/27 打合せ：詳細は請求書発行確認表と同じ明細だけ） */ ''}
     <div class="filters" style="margin-top:14px">${(site ? site.issues : inv.issues) ? '<button type="button" id="inv-copy">最新発行分を印刷（控え）</button>' : ''}${canWrite() && !site ? `<button type="button" class="primary" id="inv-issue">${inv.issues ? '再発行して印刷' : '発行して印刷'}</button>` : ''}${canWrite() && !inv.issues && !inv.allocations.length ? '<button type="button" class="danger" id="inv-cancel">請求取消</button>' : ''}</div>`,
     onOpen: () => {
       $('#inv-sum')?.addEventListener('change', e => { $('#inv-lines').innerHTML = lineTable(e.target.checked); });
