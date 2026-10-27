@@ -319,7 +319,8 @@ dialog.modal.wide:has(.slip-sheet) { width: min(1320px, calc(100vw - 24px)); } /
 .har430-rate span:nth-child(n+2) { text-align: right; }
 
 .slip-sheet .span2c { grid-column: span 2; } .slip-sheet .span4c { grid-column: span 4; }
-.slip-sheet .sv-site { grid-template-columns: minmax(0,1fr) auto minmax(0,.7fr) minmax(0,2.2fr) auto minmax(0,1.6fr) !important; }
+.slip-sheet .sv-site { grid-template-columns: minmax(0,1.6fr) auto minmax(0,.5fr) minmax(0,2fr) auto minmax(0,1.4fr) !important; }
+.slip-sheet .sv-site select { min-width: 0; width: 100%; } /* 現場の選択（名称が長くても欄からはみ出さない） */
 @media (max-width: 900px) { .slip-sheet .span2c { display: none; } .slip-sheet .span4c { grid-column: auto; } .slip-sheet .sv-site { grid-template-columns: 1fr !important; } }
 
 /* サイドバーの小メニュー */

@@ -441,7 +441,7 @@ function shipmentForm(r, bizDate) {
     ${SL('出荷日', `<input type="date" name="date" value="${esc(r?.date || bizDate || today())}" required>`, { req: 1 })}${SL('天候', `<select name="weather">${opt(active('weathers'), r?.weather || '', '　')}</select>`)}${SEP}
     <div class="sl req">得意先</div>${CODE_NAME(`<input name="customer" list="dl-cust" maxlength="5" value="${esc(cust)}" autocomplete="off" required>`, '<div class="ro" id="sf-cname">&nbsp;</div>')}
     <div class="sl">他社得意先</div>${CODE_NAME(`<input name="otherCustomer" list="dl-cust" maxlength="5" value="${esc(r?.otherCustomer || '')}" autocomplete="off" placeholder="伝票区分 2・4 のとき">`, '<div class="ro" id="sf-oname">&nbsp;</div>')}
-    <div class="sl">納入場所</div>${SITE_ROW(`<input name="siteCode" list="dl-site" maxlength="7" value="${esc(sc0)}" autocomplete="off" placeholder="現場CD">`, `<input name="siteSuffix" maxlength="3" value="${esc(ss0 || (sc0 ? '000' : ''))}" placeholder="000">`, `<input name="siteName1" maxlength="20" value="${esc(r?.siteName1 || '')}" placeholder="納入場所名1">`, `<input name="siteName2" maxlength="20" value="${esc(r?.siteName2 || '')}" placeholder="納入場所名2">`)}${SEP}
+    <div class="sl">納入場所</div>${SITE_ROW(`<select name="sitePick" title="現場（得意先の現場マスタから選択）"></select><input type="hidden" name="siteCode" value="${esc(sc0)}">`, `<input name="siteSuffix" maxlength="3" value="${esc(ss0 || (sc0 ? '000' : ''))}" placeholder="000" readonly tabindex="-1">`, `<input name="siteName1" maxlength="20" value="${esc(r?.siteName1 || '')}" placeholder="納入場所名1">`, `<input name="siteName2" maxlength="20" value="${esc(r?.siteName2 || '')}" placeholder="納入場所名2">`)}${SEP}
     <div class="sl req">商品</div>${CODE_NAME(`<input name="item" list="dl-item" maxlength="5" value="${esc(r?.item || '')}" autocomplete="off" required>`, '<div class="ro" id="sf-iname">&nbsp;</div>', SL('納入区分', `<select name="deliveryKbn">${kbnOpts}</select>`, { req: 1 }))}
     ${SL('数量', `<input name="quantity" class="num" inputmode="decimal" value="${esc(r?.quantity ?? '')}" required>`, { req: 1 })}${SL('単位', '<div class="ro" id="sf-unit">&nbsp;</div>')}${SL('累計数量', '<div class="ro num" id="sf-cq">0.00</div>')}${SL('予定数量', '<div class="ro num" id="sf-pq">0.00</div>')}${SEP}
     ${SL('決済方法', `<select name="method">${methodOpts}</select>`)}${SL('単価', `<input name="price" class="num" inputmode="numeric" value="${esc(r?.price ?? '')}" required>`, { req: 1 })}${SL('運賃', `<input name="freight" class="num" inputmode="numeric" value="${esc(r?.freight ?? 0)}">`)}<div class="span2c fill"></div>
@@ -450,7 +450,7 @@ function shipmentForm(r, bizDate) {
     ${SL('出発時間', `<input type="time" name="startTime" value="${esc(r?.startTime || '')}">`)}${SL('予定時間', '<div class="ro" id="sf-pt">&nbsp;</div>')}${SL('出発温度', `<input name="startTemp" class="num" inputmode="numeric" maxlength="3" value="${esc(r?.startTemp ?? '')}">`)}${SL('担当者', `<select name="operator">${opt(active('operators'), r?.operator || myOperator(), '選択')}</select>`, { req: 1 })}
     ${SL('伝票備考', `<input name="remarks" maxlength="20" value="${esc(r?.remarks || '')}">`, { span: 4 })}</div>
     ${r?.orderNo && !co && r.shipKb !== 5 ? '<div class="filters right" style="margin-top:12px"><button type="button" id="dn-one">伝票発行</button></div>' : ''}
-    ${dl('dl-cust', active('customers'))}${dl('dl-item', active('items'))}<datalist id="dl-site"></datalist>
+    ${dl('dl-cust', active('customers'))}${dl('dl-item', active('items'))}
     `,
     onOpen: f => {
       const nameOf = (list, code) => (masters[list] || []).find(x => x.code === code)?.name;
@@ -465,7 +465,10 @@ function shipmentForm(r, bizDate) {
         if (!d || my !== seq) return; $('#sf-cq').textContent = n2(d.cumulativeQty); $('#sf-cn').textContent = d.cumulativeCount; $('#sf-pq').textContent = n2(d.planQty); $('#sf-pt').innerHTML = esc(d.planTime) || '&nbsp;'; };
       const pickup = () => active('deliveryKinds').find(k => k.code === f.deliveryKbn.value)?.pickup;
       const price = async () => { if (!nameOf('items', f.item.value) || !nameOf('customers', f.customer.value)) return; const p = await api('/api/price?' + qs({ item: f.item.value, customer: f.customer.value, site: siteVal(), date: f.date.value })); f.price.value = p.price; f.freight.value = pickup() ? 0 : p.freight; f.taxRate.value = p.taxRate; preview(); toast(`単価: ${p.source} ${yen(p.price)}円${p.freight ? '・運賃 ' + yen(p.freight) + '円' : ''}`); };
-      const siteList = () => { $('#dl-site').innerHTML = (masters.sites || []).filter(x => x.customer === f.customer.value && x.active).map(x => `<option value="${esc(x.code)}">${esc(x.suffix + ' ' + x.name + ' ' + (x.name2 || ''))}</option>`).join(''); };
+      // 現場CD は得意先の現場マスタから選ぶ（2026-10-27）。マスタに無い現場の伝票（移行データ等）はその現場を選択肢に残す
+      const siteList = () => { const cur = siteVal(), list = (masters.sites || []).filter(x => x.customer === f.customer.value && x.active).map(x => ({ v: `${x.code}|${x.suffix}`, l: `${x.code}-${x.suffix}　${x.name} ${x.name2 || ''}` }));
+        if (cur && !list.some(x => x.v === cur)) list.unshift({ v: cur, l: `${cur.replace('|', '-')}（マスタなし）` });
+        f.sitePick.innerHTML = `<option value="">${list.length ? '（現場を選択）' : '（現場マスタなし）'}</option>` + list.map(x => `<option value="${esc(x.v)}">${esc(x.l)}</option>`).join(''); f.sitePick.value = cur; };
       // keep：伝票（修正・赤黒訂正・元伝票の写し）の現場名をそのまま残す（移行データは現場マスタに名称2が無いことがある）
       const siteNames = (keep = false) => { const code = f.siteCode.value.trim(); if (code && !f.siteSuffix.value.trim()) f.siteSuffix.value = '000';
         const s = (masters.sites || []).find(x => x.customer === f.customer.value && x.code === code && x.suffix === (f.siteSuffix.value.trim() || '000'));
@@ -473,7 +476,7 @@ function shipmentForm(r, bizDate) {
       f.customer.onchange = () => { show('#sf-cname', 'customers', f.customer.value); siteList(); siteNames(); price(); cumulative(); };
       f.otherCustomer.onchange = () => show('#sf-oname', 'customers', f.otherCustomer.value);
       f.item.onchange = () => { show('#sf-iname', 'items', f.item.value); unitOf(); price(); cumulative(); };
-      f.siteCode.onchange = f.siteSuffix.onchange = () => { siteNames(); price(); cumulative(); };
+      f.sitePick.onchange = () => { const [code = '', suffix = ''] = f.sitePick.value.split('|'); f.siteCode.value = code; f.siteSuffix.value = suffix; siteNames(); price(); cumulative(); };
       f.date.onchange = () => { price(); cumulative(); };
       f.deliveryKbn.onchange = () => { if (pickup()) f.freight.value = 0; preview(); cumulative(); };
       // 区分 5 訂正：元伝票No を入れると元伝票の内容を写し、数量を逆符号（全量）にする。数量は元の数量以内で減らせる
@@ -501,7 +504,7 @@ function shipmentForm(r, bizDate) {
       f.querySelector('[data-sample]')?.addEventListener('click', () => { fillSample(f); f.customer.onchange(); f.item.onchange(); });
       $('#dn-one')?.addEventListener('click', () => issueDeliveryNotes({ orderNo: r.orderNo }).catch(e => toast(e.message, true)));
     },
-    onSubmit: async v => { const { siteCode, siteSuffix, ...rest } = v; const site = siteCode.trim() ? `${siteCode.trim()}|${(siteSuffix.trim() || '000')}` : '';
+    onSubmit: async v => { const { siteCode, siteSuffix, sitePick, ...rest } = v; const site = siteCode.trim() ? `${siteCode.trim()}|${(siteSuffix.trim() || '000')}` : '';
       if (co) { const res = await post('/api/shipments/correct', { ...rest, site, orderNo: co.orderNo }); toast(`赤 ${res.red}${res.black ? '・黒 ' + res.black : ''} を登録しました（差額 ${yen(res.net)}円）`); render(); return; }
       const res = await post('/api/shipments', { ...rest, site, orderNo: r?.orderNo }); toast(`${r?.orderNo ? '更新' : '登録'}しました（伝票番号 ${res.orderNo}）`); render(); },
   });
