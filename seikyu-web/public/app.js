@@ -656,7 +656,7 @@ ${heldNote}` : ''}`);
   };
   // 10/26 打合せ：［詳細］は現場の行ごと。その現場の明細だけを出す
   A.detail = d => { const x = lines[Number(d.k)]; if (x) invoiceDetail(x.inv.id, x.site || x.siteName ? x : null); };
-  // 帳票は一覧を画面に出さない：0件ならその旨、あれば件数と「Excel」「印刷」だけのポップアップ
+  // 帳票は一覧を画面に出さない：0件ならその旨、あれば Excel をダウンロード（2026-10-27 選択のポップアップを廃止）
   // 請求一覧照会の［請求書発行確認表出力］（指摘 No.14）：検索条件の請求年月・締日・得意先で、未発行も含めて出す（発行前の確認用）
   A.confirmBook = async (_, btn) => {
     if (!q.closing) return toast('請求年月と締日を指定して検索してください', true);
@@ -1075,7 +1075,7 @@ VIEWS.purchases = async q => {
       { label: '商品', value: r => `${r.itemName || r.item}${r.lineKind === '2' ? '（運賃）' : ''}` }, { label: '数量', num: 1, value: r => (r.lineKind === '2' ? '' : `${r.quantity} ${r.unit || ''}`) },
       { label: '単価', num: 1, value: r => (r.lineKind === '2' ? '' : yen(r.price)) }, { label: '金額', num: 1, value: r => yen(r.net) }, { label: '処税率', value: r => r.taxCode }, { label: '摘要', value: r => r.memo },
       { label: '', html: r => canWrite() && r.line === 1 ? `<button class="mini danger" data-act="del" data-id="${r.id}" data-no="${esc(r.no)}">取消</button>` : '' }], list, { foot: ['合計', '', '', '', '', '', '', '', yen(list.reduce((n, r) => n + r.net, 0)), '', '', ''] })}</section>
-    ${miscCard('商品仕入登録リスト', '業者別・伝票明細', rangeInputs('pl', '仕入日'), '<button data-act="misc" data-kind="purchase-register" data-src="pl">表示・印刷・Excel</button>')}`);
+    ${miscCard('商品仕入登録リスト', '業者別・伝票明細', rangeInputs('pl', '仕入日'), '<button data-act="misc" data-kind="purchase-register" data-src="pl">⇩ Excel</button>')}`);
 };
 
 // ----- 在庫計上 -----
@@ -1107,7 +1107,7 @@ VIEWS.inventory = async q => {
   return page('在庫', '実在庫登録 → 配合計算 → 材料受払表 → 在庫計上（月次1回）の順に処理します（10/21 打合せ）。', `${monthInput('month', q.month || '')}${csvLink('inventory', { month: q.month })}`,
     `${countCard}${postCard}<section class="card glass" data-sub="list"><h2>在庫一覧</h2>${table([{ label: '月度', value: r => r.month }, { label: '調査日', value: r => String(r.countedOn || '').slice(0, 10) }, { label: '商品', value: r => `${r.item} ${r.itemName}` }, { label: '数量', num: 1, value: r => `${r.quantity} ${r.unit || ''}` },
       { label: '評価単価', num: 1, value: r => (r.status === 'POSTED' ? yen(r.price) : '') }, { label: '評価額', num: 1, value: r => (r.status === 'POSTED' ? yen(r.value) : '') }, { label: '状態', html: r => (r.status === 'POSTED' ? badge('計上済', 'green') : badge('未計上', 'gray')) }], list, { empty: 'この条件の在庫はありません' })}</section>
-    <div data-sub="reports">${miscCard('在庫登録リスト', '実在庫登録のチェックリスト。画面で確認しにくいため一覧・Excel で確認', `<label class="field">月度<input type="month" id="ir-month" value="${esc(cnt.month)}"></label>`, '<button data-act="misc" data-kind="inventory-register" data-src="ir">表示・印刷・Excel</button>')}</div><div data-sub="reports">${inventoryReportsCard()}</div>`);
+    <div data-sub="reports">${miscCard('在庫登録リスト', '実在庫登録のチェックリスト。画面で確認しにくいため一覧・Excel で確認', `<label class="field">月度<input type="month" id="ir-month" value="${esc(cnt.month)}"></label>`, '<button data-act="misc" data-kind="inventory-register" data-src="ir">⇩ Excel</button>')}</div><div data-sub="reports">${inventoryReportsCard()}</div>`);
 };
 // 実在庫登録の絞込（コード・名称、入力済みのみ）
 document.addEventListener('input', e => { if (e.target.id === 'ic-search') icFilter(); });
@@ -1231,11 +1231,11 @@ VIEWS.payments = async q => {
     `<section class="card glass" data-sub="list">${table([{ label: '支払No', value: r => r.no }, { label: '支払日', value: r => r.date }, { label: '業者', value: r => r.vendorName }, { label: '支払額', num: 1, value: r => yen(r.amount) }, { label: '支払元', value: r => nameOf('banks', r.fromBank) },
       { label: '振込先', value: r => r.payee ? `${r.payee.bank}-${r.payee.branch} ${r.payee.account}` : '未登録' }, { label: '対象伝票', value: r => r.allocations.map(a => a.no).join(', ') }, { label: '状態', html: r => status(r.status) },
       { label: '', html: r => canWrite() && r.status === 'POSTED' ? `<button class="mini danger" data-act="rev" data-id="${r.id}" data-no="${esc(r.no)}">取消</button>` : '' }], list, { rowClass: r => r.status === 'REVERSED' ? 'reversed' : '' })}</section><div data-sub="reports">${paymentReportsCard()}</div><div data-sub="bank">${miscCard('銀行別随時支払一覧表', '支払日→支払元口座（銀行）別に、業者・振込先銀行・支店を一覧', rangeInputs('bp', '支払日'),
-      '<button data-act="bankList">表示・印刷・Excel</button>', '「仕訳・会計連携 › 自動仕訳リスト」の「銀行別随時支払一覧表」と同じ帳票です。')}</div><div data-sub="transfer">${miscCard('振込先一覧', '業者マスタの振込サイクル（15日／月末）・振込元口座・振込先口座（10/19 打合せ）', `<label class="field">支払予定日（まで）<input type="date" id="tl-to" value="${today()}"></label>`, '<button data-act="misc" data-kind="transfer-list" data-src="tl">表示・印刷・Excel</button>')}</div>`);
+      '<button data-act="bankList">表示・Excel</button>', '「仕訳・会計連携 › 自動仕訳リスト」の「銀行別随時支払一覧表」と同じ帳票です。')}</div><div data-sub="transfer">${miscCard('振込先一覧', '業者マスタの振込サイクル（15日／月末）・振込元口座・振込先口座（10/19 打合せ）', `<label class="field">支払予定日（まで）<input type="date" id="tl-to" value="${today()}"></label>`, '<button data-act="misc" data-kind="transfer-list" data-src="tl">表示・印刷・Excel</button>')}</div>`);
 };
 
 // ③ 支払帳票（NO37 全銀データ・NO45〜48）
-// 帳票は一覧を画面に出さない（2026-10-23）：件数と Excel／印刷ボタンだけの確認ポップアップ。0件は「データがありません」。本文は印刷用に隠して持つ
+// 帳票は一覧を画面に出さない（2026-10-23）。データがあれば Excel を直接ダウンロード（2026-10-27）、0件のときだけ「データがありません」を出す
 // 帳票の件数（通知書の枚数または明細の行数）
 const reportCount = body => { const t = document.createElement('div'); t.innerHTML = body; return t.querySelectorAll('.notice-doc').length || [...t.querySelectorAll('tr')].filter(tr => tr.querySelector('td') && !tr.closest('thead, tfoot') && !tr.matches('.subtotal, .kb-group')).length; };
 // 出力は Excel だけ：選択のポップアップを出さずにダウンロードする（2026-10-27。10/27 打合せ「請求書以外は全部 Excel」）
@@ -1302,7 +1302,7 @@ const closingRange = () => { const to = lastClosing(), [y, m] = to.split('-').ma
 function miscCard(title, sub, inputs, buttons, note = '') {
   return `<section class="card glass"><div class="card-head"><h2>${title}</h2></div><div class="filters">${inputs}</div>${buttons ? `<div class="filters" style="margin-top:10px">${buttons}</div>` : ''}</section>`;
 }
-const shipmentReportsCard = () => miscCard('出荷・売上帳票', '画面表示・印刷・Excel', rangeInputs('ms', '出荷日'),
+const shipmentReportsCard = () => miscCard('出荷・売上帳票', 'Excel で出力', rangeInputs('ms', '出荷日'),
   '<button data-act="misc" data-kind="shipment-summary" data-src="ms">商品・製品別出荷集計表</button><button data-act="misc" data-kind="customer-items" data-src="ms">得意先別商品別出荷累計表</button><button data-act="misc" data-kind="cash-sales" data-src="ms">現金売上明細表</button><button data-act="misc" data-kind="sales-register" data-src="ms">商品売上登録リスト</button>',
   '期間は締日単位（例: 前月21日〜当月20日）で指定できます。<span id="ms-range"></span>');
 const inventoryReportsCard = () => miscCard('配合計算・材料受払表', '月次（実在庫登録と商品仕入登録の後に実行）', `<label class="field">処理年月（計算年月）<input type="month" id="mi-month" value="${lastClosing().slice(0, 7)}"></label><label class="field">締日<select id="mi-closing"><option value="20" selected>20日</option><option value="10">10日</option><option value="31">月末（暦月）</option></select></label>`,
@@ -1495,7 +1495,7 @@ async function journalListsView(q) {
       <tfoot><tr><td>総合計</td><td></td><td></td><td></td><td class="num">${yen(d.total)}</td><td></td><td></td><td></td><td></td><td class="num">${yen(d.total)}</td><td></td><td></td></tr></tfoot></table></div>` : '<div class="empty">対象期間の仕訳はありません</div>';
   }
   const kinds = Object.entries(meta.journalLists).map(([code, v]) => ({ code, name: v.title }));
-  return page('仕訳・会計連携', '自動仕訳リストは現行帳票（⑥⑦⑨・資料ア〜エ）と同じ項目を、借方・貸方を1行に並べた形式で表示・印刷・Excel出力します（削減案5：同一フォーマット）。',
+  return page('仕訳・会計連携', '自動仕訳リストは現行帳票（⑥⑦⑨・資料ア〜エ）と同じ項目を、借方・貸方を1行に並べた形式で表示・Excel出力します（削減案5：同一フォーマット）。',
     `<select name="list" data-filter>${options(kinds, kind, { label: r => r.name })}</select><input type="date" name="from" value="${from}" data-filter><input type="date" name="to" value="${to}" data-filter><input type="hidden" name="tab" value="lists" data-filter>
      <a class="button" href="${url}&format=xlsx" download>⇩ Excel</a>`,
     `<section class="card glass"><div class="card-head"><h2>${esc(d.title)}</h2><span class="muted small">${from} 〜 ${to}</span></div><div id="jl-body">${body}</div></section>`);
