@@ -902,9 +902,9 @@ function printDocs(docs, site = null) {
 
 // ----- 入金・消込 (NO17) -----
 const RC_KEYS = [['bank', 'BANK'], ['cash', 'CASH'], ['notes', 'NOTE'], ['fee', 'FEE'], ['coop', 'COOP'], ['deposit', 'DEPOSIT'], ['discount', 'DISCOUNT'], ['loss', 'LOSS']];
-// 提案書 スライド19・21：得意先×請求年月の 前回残高・当月請求金額・今回請求金額・消込金額・今回残高（得意先は部分一致）
+// 提案書 スライド19・21：得意先×請求年月の 前回残高・当月請求金額・今回請求金額・消込金額・消込残高（得意先は部分一致）
 const ledgerTable = (d, { clear = false } = {}) => table([{ label: '得意先', value: r => `${r.customer} ${r.name}` }, { label: '請求年月', value: r => r.month }, { label: '前回残高', num: 1, html: r => (r.prev ? `<b class="${r.prev > 0 ? 'check-ng' : ''}">${yen(r.prev)}</b>` : '0') },
-  { label: '当月請求金額', num: 1, value: r => yen(r.current) }, { label: '今回請求金額', num: 1, value: r => yen(r.claim) }, { label: '消込金額', num: 1, value: r => yen(r.cleared) }, { label: '今回残高', num: 1, html: r => (r.remain ? `<b class="${r.latest ? '' : 'check-ng'}">${yen(r.remain)}</b>` : '0') },
+  { label: '当月請求金額', num: 1, value: r => yen(r.current) }, { label: '今回請求金額', num: 1, value: r => yen(r.claim) }, { label: '消込金額', num: 1, value: r => yen(r.cleared) }, { label: '消込残高', num: 1, html: r => (r.remain ? `<b class="${r.latest ? '' : 'check-ng'}">${yen(r.remain)}</b>` : '0') },
   // 消込済みでも月次確定前は［修正］で選び直して入金を更新できる（2026-10-27）
   ...(clear ? [{ label: '', html: r => (r.latest && (r.remain > 0 || r.receipt) && canWrite() ? `<button class="mini primary" data-act="clear" data-customer="${esc(r.customer)}" data-receipt="${r.receipt || ''}">${r.receipt ? '修正' : '消込'}</button>` : '') }] : [])], d.rows,
   { empty: '該当する請求はありません', rowClass: r => (r.latest ? '' : 'muted'), foot: ['合計', '', '', yen(d.totals.current), '', yen(d.totals.cleared), yen(d.totals.remain), ...(clear ? [''] : [])] });
@@ -916,7 +916,7 @@ async function arLedgerView(q) {
   const all = await api('/api/ar-ledger?' + qs({ customer: q.ledgerCustomer, month })), rows = all.rows.filter(r => !st || r.status === st);
   const d = { rows, totals: { current: rows.reduce((n, r) => n + r.current, 0), cleared: rows.reduce((n, r) => n + r.cleared, 0), remain: rows.filter(r => r.latest).reduce((n, r) => n + r.remain, 0) } };
   A.search = () => go('invoices', { view: 'ledger', ledgerCustomer: $('#lg-cust').value, ledgerMonth: $('#lg-month').value || 'all', lstate: st });
-  return page('請求締め・発行', '請求残高照会：得意先×請求年月で 前回残高 → 当月請求金額 → 今回請求金額 → 消込金額（締日翌日〜次の締日の入金）→ 今回残高。',
+  return page('請求締め・発行', '請求残高照会：得意先×請求年月で 前回残高 → 当月請求金額 → 今回請求金額 → 消込金額（締日翌日〜次の締日の入金）→ 消込残高。',
     `<input type="month" id="lg-month" value="${esc(month)}"><input id="lg-cust" list="dl-pcust" autocomplete="off" placeholder="得意先（部分一致）" value="${esc(q.ledgerCustomer || '')}" style="width:200px">${custHints()}<button class="primary" data-act="search">検索</button><select id="lg-state" title="請求書状況">${options(LG_STATES.map(code => ({ code, name: STATUS[code][0] })), st, { blank: 'すべての請求書状況', label: x => x.name })}</select><a class="button" href="/api/ar-ledger?${qs({ customer: q.ledgerCustomer, month, state: st, format: 'xlsx' })}" download>⇩ Excel</a>`,
     `<section class="card glass">${ledgerTable(d)}</section>`);
 }
@@ -930,14 +930,14 @@ VIEWS.receipts = async q => {
     // 提案書 スライド19：得意先（部分一致）で検索し、残高のある請求年月の行から「消込」へ
     const all = await api('/api/ar-ledger?' + qs({ customer: q.customer }));
     // 絞込（検索結果を絞るだけで DB は読まない）：「消込対象のみ」（既定オン）＝得意先ごとの最新の請求年月で残高のある行、締日（5・10・15・20・月末）
-    // 消込済み（今回残高 0）でも月次確定前の入金がある行は残す（2026-10-27。［修正］で選び直す）
+    // 消込済み（消込残高 0）でも月次確定前の入金がある行は残す（2026-10-27。［修正］で選び直す）
     const only = q.all !== '1', cl = STD_CLOSINGS.includes(Number(q.cl)) ? Number(q.cl) : 0;
     const dayOf = c => (c === monthEnd(c.slice(0, 7)) ? 31 : Number(c.slice(8, 10)));
     // デモ版：前回残高 0 の行は出さない（10/27 打合せ。実システムでの扱いは別途確認）
     const rows = all.rows.filter(r => r.prev && (!only || (r.latest && (r.remain > 0 || r.receipt))) && (!cl || dayOf(r.closing) === cl)), sum = k => rows.reduce((n, r) => n + r[k], 0);
     const d = { rows, totals: { current: sum('current'), cleared: sum('cleared'), remain: rows.filter(r => r.latest).reduce((n, r) => n + r.remain, 0) } };
     A.search = () => go('receipts', { tab, customer: $('#rt-cust').value, all: q.all, cl: q.cl });
-    return page('入金・消込', '消込対象の選択：今回残高のある最新の請求年月から「消込」を押すと、その得意先の入金消込画面を開きます。消込済みでも月次確定前は「修正」で入金を更新できます。', `<input id="rt-cust" list="dl-pcust" autocomplete="off" placeholder="得意先（部分一致）" value="${esc(q.customer || '')}" style="width:200px">${custHints()}<select id="rt-cl" title="締日">${options(STD_CLOSINGS.map(x => ({ code: String(x), name: closingLabel(x) })), cl ? String(cl) : '', { blank: 'すべての締日', label: x => x.name })}</select>
+    return page('入金・消込', '消込対象の選択：消込残高のある最新の請求年月から「消込」を押すと、その得意先の入金消込画面を開きます。消込済みでも月次確定前は「修正」で入金を更新できます。', `<input id="rt-cust" list="dl-pcust" autocomplete="off" placeholder="得意先（部分一致）" value="${esc(q.customer || '')}" style="width:200px">${custHints()}<select id="rt-cl" title="締日">${options(STD_CLOSINGS.map(x => ({ code: String(x), name: closingLabel(x) })), cl ? String(cl) : '', { blank: 'すべての締日', label: x => x.name })}</select>
        <button class="primary" data-act="search">検索</button><label class="small"><input type="checkbox" id="rt-only" ${only ? 'checked' : ''}> 消込対象のみ</label>`,
       `<section class="card glass">${ledgerTable(d, { clear: true })}</section>`);
   }

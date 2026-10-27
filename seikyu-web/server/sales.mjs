@@ -692,7 +692,7 @@ export async function reverseReceipt(c, ctx, { id }) {
 }
 
 // ---------- 請求残高照会・入金消込の対象選択・入金予定一覧（提案書 スライド18〜21） ----------
-// 得意先×請求年月ごとに 前回残高（前回の今回残高）→ 当月請求金額 → 今回請求金額 → 消込金額（その締日の翌日から次の締日までの入金消込）→ 今回残高
+// 得意先×請求年月ごとに 前回残高（前回の今回残高）→ 当月請求金額 → 今回請求金額 → 消込金額（その締日の翌日から次の締日までの入金消込）→ 消込残高（10/27 内部会議 No.19 で「今回残高」から改称）
 export async function arLedger(c, q = {}) {
   const t = String(q.customer || '').trim(), like = `%${t}%`;
   const custs = await rows(c, `SELECT customers_cd, customers_name FROM client_m WHERE (customers_cd LIKE ? OR customers_name LIKE ?) ORDER BY customers_cd`, [like, like]);

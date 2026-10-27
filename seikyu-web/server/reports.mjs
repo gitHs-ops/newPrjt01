@@ -72,7 +72,7 @@ export async function arLedgerBook(c, q) {
   const d = await arLedger(c, q), rows = STATES[q.state] ? d.rows.filter(r => r.status === q.state) : d.rows;
   const cond = [q.customer ? `得意先 ${q.customer}` : '', q.month ? `請求年月 ${q.month}` : '', STATES[q.state] ? `請求書状況 ${STATES[q.state]}` : ''].filter(Boolean).join('　');
   const out = [[T('請求残高照会')], [`${cond ? cond + '　' : ''}出力日 ${today()}`], [],
-    ['得意先CD', '得意先名', '請求年月', '締日', '前回残高', '当月請求金額', '今回請求金額', '消込金額', '今回残高', '請求書状況'].map(H)];
+    ['得意先CD', '得意先名', '請求年月', '締日', '前回残高', '当月請求金額', '今回請求金額', '消込金額', '消込残高', '請求書状況'].map(H)];
   for (const r of rows) out.push([r.customer, r.name, r.month, r.closing, r.prev, r.current, r.claim, r.cleared, r.remain, STATES[r.status] || '']);
   const sum = k => rows.reduce((n, r) => n + r[k], 0);
   out.push([S('合計'), '', '', '', '', S(sum('current')), '', S(sum('cleared')), S(rows.filter(r => r.latest).reduce((n, r) => n + r.remain, 0)), '']);
