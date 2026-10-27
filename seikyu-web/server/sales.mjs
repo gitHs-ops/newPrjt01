@@ -265,9 +265,11 @@ export async function billingPreview(c, { month, closing }) {
   for (const cu of custs) {
     const sales = await rows(c, "SELECT payment_method_cd, money, tax_rate, field_cd, field_suffix, sales_date FROM sales_trn WHERE customers_cd=? AND process_status='0' AND sales_date<=?", [cu.customers_cd, toNum(end)]);
     const credit = sales.filter(s => Number(s.payment_method_cd) === CREDIT), t = totals(credit);
-    const made = await one(c, 'SELECT COUNT(*) n FROM billing_head WHERE customers_cd=? AND closing_date=?', [cu.customers_cd, toNum(end)]);
+    const made = await one(c, 'SELECT invoice_id, invoice_flag FROM billing_head WHERE customers_cd=? AND closing_date=?', [cu.customers_cd, toNum(end)]);
+    // 作成済みの請求：未発行・消込なしなら後から入力した未請求分を追加できる。発行済み・消込ありは追加せず次回締めで請求（runBilling と同じ判定）
+    const locked = !!made && (made.invoice_flag !== '0' || !!(await one(c, 'SELECT 1 x FROM receipt_allocation WHERE invoice_id=? LIMIT 1', [made.invoice_id])));
     out.push({ customer: cu.customers_cd, name: cu.customers_name, count: credit.length, sites: new Set(credit.map(s => s.field_cd + s.field_suffix)).size, net: t.net, tax: t.tax,
-      excluded: sales.length - credit.length, late: credit.filter(x => fromNum(x.sales_date) < start).length, created: Number(made.n) });
+      excluded: sales.length - credit.length, late: credit.filter(x => fromNum(x.sales_date) < start).length, created: made ? 1 : 0, locked });
   }
   return { start, end, due: dueDate(end), customers: out };
 }

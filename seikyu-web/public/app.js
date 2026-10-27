@@ -620,16 +620,20 @@ VIEWS.invoices = async q => {
   const list = await api('/api/invoices?' + qs({ month, closing: q.closing, customer: q.customer }));
   const closings = closingList();
   // 請求データ作成（10/23 打合せ：年月・締日だけ指定し「請求データ作成」。得意先の選択一覧は出さない）。
-  // 対象＝その締日の得意先のうち未請求の掛売があり未作成のもの。得意先ごとに作成して進捗を表示し、終わったら請求一覧照会へ
+  // 対象＝その締日の得意先のうち未請求の掛売があるもの。未作成は新規作成、作成済み（未発行・消込なし）は後から入力した分を追加（2026-10-27）。
+  // 発行済み・消込ありの請求の得意先は対象外（未請求分は次回締めで請求）。得意先ごとに作成して進捗を表示し、終わったら請求一覧照会へ
   A.run = async (_, btn) => {
     const month = $('#bill-month').value, closing = $('#bill-closing').value; if (!month) return toast('請求年月を入力してください', true);
     const p = await api('/api/billing/preview?' + qs({ month, closing }));
     // 締日が来ていない締めは作成できない（サーバーも拒否する）。得意先ごとに失敗させず、ここで止める（2026-10-27）
     if (p.end > today()) return alertBox(`締日（${p.end}）が到来していないため、${month} ${closingLabel(closing)}締の請求データは作成できません。`);
-    const targets = p.customers.filter(r => r.count && !r.created), done = p.customers.filter(r => r.created).length;
-    if (!targets.length) return alertBox(`作成する請求データはありません（${month} ${closingLabel(closing)}締：請求期間 ${p.start}〜${p.end}${done ? `、作成済み ${done}得意先` : ''}）`);
+    const targets = p.customers.filter(r => r.count && !(r.created && r.locked)), adds = targets.filter(r => r.created).length;
+    const held = p.customers.filter(r => r.count && r.created && r.locked), done = p.customers.filter(r => r.created && !r.count).length;
+    const heldNote = held.length ? `発行済みのため次回締めで請求 ${held.length}得意先（${held.map(r => `${r.customer} ${r.name} ${r.count}件`).join('、')}）` : '';
+    if (!targets.length) return alertBox(`作成する請求データはありません（${month} ${closingLabel(closing)}締：請求期間 ${p.start}〜${p.end}${done ? `、作成済み ${done}得意先` : ''}）${heldNote ? `
+${heldNote}` : ''}`);
     const cnt = targets.reduce((n, r) => n + r.count, 0), net = targets.reduce((n, r) => n + r.net, 0);
-    modal({ title: `請求データ作成（${month} ${closingLabel(closing)}締）`, submit: '作成する', body: `<p>請求期間 ${esc(p.start)} 〜 ${esc(p.end)}（支払期日 ${esc(p.due)}）</p><p>対象 <b>${targets.length}</b> 得意先・未請求の掛売 <b>${cnt}</b> 件（税抜 ${yen(net)} 円）の請求データを作成します。${done ? `<br><span class="muted small">作成済み ${done}得意先は対象外</span>` : ''}</p>`,
+    modal({ title: `請求データ作成（${month} ${closingLabel(closing)}締）`, submit: '作成する', body: `<p>請求期間 ${esc(p.start)} 〜 ${esc(p.end)}（支払期日 ${esc(p.due)}）</p><p>対象 <b>${targets.length}</b> 得意先・未請求の掛売 <b>${cnt}</b> 件（税抜 ${yen(net)} 円）の請求データを作成します。${adds ? `<br>うち <b>${adds}</b> 得意先は作成済みの請求（未発行）に追加します。` : ''}${done ? `<br><span class="muted small">作成済み ${done}得意先は対象外</span>` : ''}${heldNote ? `<br><span class="check-ng small">${esc(heldNote)}</span>` : ''}</p>`,
       onSubmit: async () => {
         const sum = { created: 0, appended: 0, skipped: [], failed: [] }; let slip = ''; // 売掛金計上の伝票番号（1伝票45得意先まで同じ番号、Q08）
         if (btn) btn.disabled = true;
