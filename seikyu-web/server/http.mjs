@@ -48,6 +48,8 @@ export async function createApp({ pool, publicDir, secureCookies = process.env.N
   route('GET', '/api/invoices', 'read', x => db(c => S.listInvoices(c, x.q)));
   route('GET', '/api/accounting/export', 'read', x => db(c => accountingExport(c, x, x.q)));
   route('GET', '/api/invoices/book', 'read', x => db(c => invoiceBook(c, x.q)).then(b => ({ file: b })));
+  // 多数の現場を指定すると URL が長すぎる（431）ため、画面からは POST で送る（2026-10-27）
+  route('POST', '/api/invoices/book', 'read', x => db(c => invoiceBook(c, { ids: [].concat(x.body.ids || []).join(','), sites: JSON.stringify(x.body.sites || {}) })).then(b => ({ file: b })));
   route('GET', '/api/invoices/:id', 'read', x => db(c => S.invoiceDetail(c, x.params.id)));
   route('GET', '/api/invoices/:id/document', 'read', x => db(c => S.issuedDocument(c, x.params.id, x.q.site || null)));
   route('GET', '/api/open-invoices', 'read', x => db(c => S.openInvoices(c, x.q.customer)));

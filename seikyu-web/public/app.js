@@ -708,8 +708,8 @@ async function invoiceIssueView(q) {
   // 発行した現場の Excel（現場ごとに最新の発行分を1シート）をダウンロード
   const book = async rows => {
     const sites = picks(rows), ids = Object.keys(sites);
-    const res = await fetch('/api/invoices/book?' + qs({ ids: ids.join(','), sites: JSON.stringify(sites) }), { cache: 'no-store' });
-    if (!res.ok) return toast((await res.json().catch(() => ({}))).error || 'ダウンロードできません', true);
+    const res = await fetch('/api/invoices/book', { method: 'POST', cache: 'no-store', headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': session?.csrf || '' }, body: JSON.stringify({ ids: ids.map(Number), sites }) });
+    if (!res.ok) return toast((await res.json().catch(() => ({}))).error || `ダウンロードできません（HTTP ${res.status}）`, true);
     const url = URL.createObjectURL(await res.blob()), el = document.createElement('a'); el.href = url; el.download = `請求書_${today()}_${rows.length}現場.xlsx`; el.click(); setTimeout(() => URL.revokeObjectURL(url), 2000);
     return true;
   };
@@ -750,7 +750,7 @@ async function precheckView(q) {
   return page('請求締め・発行', '発行前確認一覧：請求データ作成の前に、その締日で請求される未請求の掛売上（出荷伝票）を得意先ごとに確認します。請求データは作成しません。',
     `<input type="month" name="pmonth" value="${esc(month)}" data-filter title="請求年月"><select name="pclosing" data-filter title="締日"><option value="all" ${all ? 'selected' : ''}>すべて</option>${closings.map(c => `<option value="${c}" ${String(c) === String(closing) ? 'selected' : ''}>${closingName(c)}</option>`).join('')}</select>
     <input name="pcust" list="dl-pcust" autocomplete="off" value="${esc(q.pcust || '')}" placeholder="得意先（コード・名称の一部）" data-filter>${custHints()}
-    ${d.rows.length ? `<a class="button" href="/api/reports/billing-precheck?${qs({ month, closing, customer: q.pcust || '', format: 'xlsx' })}" download>⇩ Excel</a><button type="button" data-act="print">🖨 印刷</button>` : ''}
+    ${d.rows.length ? `<a class="button" href="/api/reports/billing-precheck?${qs({ month, closing, customer: q.pcust || '', format: 'xlsx' })}" download>⇩ Excel</a>` : ''}
     ${canWrite() ? '<button type="button" data-act="tocreate">請求データ作成へ →</button>' : ''}`,
     `<section class="card glass"><div class="card-head"><h2>${all ? `${esc(month)} すべての締日（5日・10日・15日・20日・月末）` : `${esc(month)} ${closingLabel(closing)}締（請求期間 ${esc(d.start)}〜${esc(d.end)}）`}</h2></div>
     ${table([...(all ? [{ label: '締日', value: r => closingLabel(r.closing) }] : []), { label: '得意先', value: r => `${r.customer} ${r.name}` }, { label: '請求データ作成で', html: r => badge(PRECHECK_PLAN[r.plan][0], PRECHECK_PLAN[r.plan][1]) }, { label: '伝票数', num: 1, value: r => r.count },
@@ -804,13 +804,12 @@ async function billingReport(kind, month, closing, unissued = false, customer = 
       ${(r.byRate || []).map(x => `<p class="small har430-rate"><span>${x.rate} %</span><span>${yen(x.net)}</span><span>${yen(x.tax)}</span></p>`).join('')}</div>`).join('') + ''
       : `<div class="empty">${unissued ? 'この請求年月・締日の請求はありません' : 'この請求年月・締日の発行済み請求書はありません'}</div>${d.available?.length ? `<p class="small">発行済みの請求がある年月・締日：${d.available.map(a => `<button type="button" class="mini" data-period="${a.month}|${a.closing}">${a.month} ${closingLabel(a.closing)}締</button>`).join(' ')}</p>` : ''}`;
   }
-  // 一覧は表示せず（印刷用に隠して持つ）、件数・合計と出力ボタンだけ
+  // データがあれば選択のポップアップを出さず Excel をダウンロード（2026-10-27）。無いときだけ理由を出す
   const n = d.rows.length, total = d.rows.reduce((t, r) => t + (r.current || 0), 0);
-  const head = n ? `<p>対象 <b>${n}</b> 得意先／今回請求額 合計 <b>${yen(total)}</b> 円</p><div class="filters" style="margin-top:10px"><a class="button primary" href="${url}&format=xlsx" download>⇩ Excel</a><button type="button" id="rep-print">🖨 印刷</button></div>`
-    : `<p><b>データがありません。</b>（${esc(month)} ${esc(closingLabel(closing))}締）</p>`;
+  if (n) { await saveXlsx(url + '&format=xlsx'); return toast(`${title}（${n}得意先・今回請求額 ${yen(total)} 円）を Excel で出力しました`); }
+  const head = `<p><b>データがありません。</b>（${esc(month)} ${esc(closingLabel(closing))}締）</p>`;
   modal({ title: `${title} ${month} ${closingLabel(closing)}締`, body: `${head}<div id="rep-body"${n ? ' hidden' : ''}>${n ? body : body.replace(/<div class="empty">[^<]*<\/div>/, '')}</div>`,
     onOpen: () => {
-      $('#rep-print')?.addEventListener('click', () => { $('#print-area').innerHTML = `<section class="invoice-doc report-doc"><h2>${esc(title)}</h2><p>締日 ${closingLabel(closing)} ／ 請求日 ${esc(d.end)} ／ 出力日 ${today()}</p>${$('#rep-body').innerHTML}</section>`; setTimeout(() => window.print(), 200); });
       // 該当なしのとき：発行済みがある年月・締日を押すとその条件で出し直す
       $$('#rep-body [data-period]').forEach(b => (b.onclick = () => { const [m, cl] = b.dataset.period.split('|'), sel = $('#rep-closing');
         if ($('#rep-month')) $('#rep-month').value = m; if (sel && ![...sel.options].some(o => o.value === cl)) sel.insertAdjacentHTML('beforeend', `<option value="${cl}">${closingLabel(cl)}</option>`); if (sel) sel.value = cl;
@@ -1237,9 +1236,19 @@ VIEWS.payments = async q => {
 
 // ③ 支払帳票（NO37 全銀データ・NO45〜48）
 // 帳票は一覧を画面に出さない（2026-10-23）：件数と Excel／印刷ボタンだけの確認ポップアップ。0件は「データがありません」。本文は印刷用に隠して持つ
+// 帳票の件数（通知書の枚数または明細の行数）
+const reportCount = body => { const t = document.createElement('div'); t.innerHTML = body; return t.querySelectorAll('.notice-doc').length || [...t.querySelectorAll('tr')].filter(tr => tr.querySelector('td') && !tr.closest('thead, tfoot') && !tr.matches('.subtotal, .kb-group')).length; };
+// 出力は Excel だけ：選択のポップアップを出さずにダウンロードする（2026-10-27。10/27 打合せ「請求書以外は全部 Excel」）
+async function saveXlsx(href) {
+  const res = await fetch(href, { cache: 'no-store' });
+  if (!res.ok) throw Error((await res.json().catch(() => ({}))).error || `ダウンロードできません（HTTP ${res.status}）`);
+  const cd = res.headers.get('Content-Disposition') || '', name = decodeURIComponent((cd.match(/filename\*=UTF-8''([^;]+)/) || [])[1] || '') || 'report.xlsx';
+  const url = URL.createObjectURL(await res.blob()), a = document.createElement('a'); a.href = url; a.download = name; a.click(); setTimeout(() => URL.revokeObjectURL(url), 2000);
+  return name;
+}
 function reportConfirm(body, id, sub, buttons) {
   const t = document.createElement('div'); t.innerHTML = body;
-  const docs = t.querySelectorAll('.notice-doc').length, rows = [...t.querySelectorAll('tr')].filter(tr => tr.querySelector('td') && !tr.closest('thead, tfoot') && !tr.matches('.subtotal, .kb-group')).length, n = docs || rows;
+  const docs = t.querySelectorAll('.notice-doc').length, n = reportCount(body);
   if (!n) { const e = t.querySelector('.empty'); return `<p><b>データがありません。</b>${sub ? `（${esc(sub)}）` : ''}</p>${e ? `<p class="muted small">${esc(e.textContent)}</p>` : ''}`; }
   return `<p>対象 <b>${n}</b> ${docs ? '件' : '行'}${sub ? `　<span class="muted small">${esc(sub)}</span>` : ''}</p><div class="filters" style="margin-top:10px">${buttons}</div><div id="${id}" hidden>${body}</div>`;
 }
@@ -1272,13 +1281,8 @@ async function paymentReport(kind) {
       ${table([{ label: '伝票No', value: x => x.no }, { label: '計上日', value: x => x.date }, { label: '摘要', value: x => x.memo }, { label: '請求額', num: 1, value: x => yen(x.gross) }, { label: '今回支払額', num: 1, value: x => yen(x.paid) }], n.docs)}
       <p class="small"><b>支払繰越（支払後の未払残高）</b></p><table><tr><th>${esc(m.m3)}</th><th>${esc(m.m2)}</th><th>${esc(m.m1)}</th><th>${esc(m.m0)}</th><th>合計</th></tr><tr><td class="num">${yen(n.carry.m3)}</td><td class="num">${yen(n.carry.m2)}</td><td class="num">${yen(n.carry.m1)}</td><td class="num">${yen(n.carry.m0)}</td><td class="num">${yen(n.carry.total)}</td></tr></table></div>`).join('')
     : '<div class="empty">この支払日の支払はありません</div>'; }
-  const perPage = kind === 'notices';
-  modal({ title: `${d.title}`, body: reportConfirm(body, 'pr-body', d.sub || (d.from ? `${d.from} 〜 ${d.to}` : d.date || ''), `<a class="button" href="${url}&format=xlsx" download>⇩ Excel</a><button type="button" id="pr-print">🖨 印刷</button>`),
-    onOpen: () => $('#pr-print')?.addEventListener('click', () => {
-      $('#print-area').innerHTML = perPage ? [...$$('#pr-body .notice-doc')].map(x => `<section class="invoice-doc report-doc">${x.innerHTML}</section>`).join('')
-        : `<section class="invoice-doc report-doc journal-doc"><h2>${esc(d.title)}</h2><p>出力日 ${today()}</p>${$('#pr-body').innerHTML}</section>`;
-      setTimeout(() => window.print(), 200);
-    }) });
+  if (reportCount(body)) { await saveXlsx(url + '&format=xlsx'); return toast(`${d.title} を Excel で出力しました`); } // 選択のポップアップは出さない（2026-10-27）
+  modal({ title: `${d.title}`, body: reportConfirm(body, 'pr-body', d.sub || (d.from ? `${d.from} 〜 ${d.to}` : d.date || ''), '') });
 }
 async function zenginDialog() {
   const date = $('#pr-date').value, bank = $('#pr-bank').value, url = '/api/reports/zengin?' + qs({ date, bank }), d = await api(url);
@@ -1414,8 +1418,8 @@ async function miscReport(kind, src) {
   if (d.columns) { const cell = (col, v) => (col.num && typeof v === 'number' ? yen(v) : esc(v ?? '')); const tot = (label, t) => `<tr class="subtotal">${d.columns.map((col, i) => `<td class="${col.num ? 'num' : ''}">${i === 0 ? esc(label) : t[col.key] !== undefined ? yen(t[col.key]) : ''}</td>`).join('')}</tr>`;
     body = d.groups.length ? `<div class="table-wrap"><table class="jl"><thead><tr>${d.columns.map(col => `<th class="${col.num ? 'num' : ''}">${esc(col.label)}</th>`).join('')}</tr></thead><tbody>${d.groups.map(g => `<tr class="kb-group"><td colspan="${d.columns.length}"><b>${esc(g.title)}</b></td></tr>`
       + g.rows.map(r => `<tr>${d.columns.map(col => `<td class="${col.num ? 'num' : ''}">${cell(col, r[col.key])}</td>`).join('')}</tr>`).join('') + tot('計', g.totals)).join('')}${tot('総合計', d.totals)}</tbody></table></div>` : '<div class="empty">対象データがありません</div>'; }
-  modal({ title: `${d.title}`, body: reportConfirm(body, 'mr-body', d.sub || (d.from ? `${d.from} 〜 ${d.to}` : d.month), `<a class="button" href="${url}&format=xlsx" download>⇩ Excel</a><button type="button" id="mr-print">🖨 印刷</button>`),
-    onOpen: () => $('#mr-print')?.addEventListener('click', () => { $('#print-area').innerHTML = `<section class="invoice-doc report-doc journal-doc"><h2>${esc(d.title)}</h2><p>${esc(d.sub || (d.from ? `${d.from} 〜 ${d.to}` : d.month))} ／ 出力日 ${today()}</p>${$('#mr-body').innerHTML}</section>`; setTimeout(() => window.print(), 200); }) });
+  if (reportCount(body)) { await saveXlsx(url + '&format=xlsx'); return toast(`${d.title} を Excel で出力しました`); } // 選択のポップアップは出さない（2026-10-27）
+  modal({ title: `${d.title}`, body: reportConfirm(body, 'mr-body', d.sub || (d.from ? `${d.from} 〜 ${d.to}` : d.month), '') });
 }
 async function mixDialog() {
   const month = $('#mi-month').value, closing = $('#mi-closing').value, d = await api('/api/reports/misc/mix?' + qs({ month, closing }));
@@ -1493,7 +1497,7 @@ async function journalListsView(q) {
   const kinds = Object.entries(meta.journalLists).map(([code, v]) => ({ code, name: v.title }));
   return page('仕訳・会計連携', '自動仕訳リストは現行帳票（⑥⑦⑨・資料ア〜エ）と同じ項目を、借方・貸方を1行に並べた形式で表示・印刷・Excel出力します（削減案5：同一フォーマット）。',
     `<select name="list" data-filter>${options(kinds, kind, { label: r => r.name })}</select><input type="date" name="from" value="${from}" data-filter><input type="date" name="to" value="${to}" data-filter><input type="hidden" name="tab" value="lists" data-filter>
-     <a class="button" href="${url}&format=xlsx" download>⇩ Excel</a><button data-act="print">🖨 印刷</button>`,
+     <a class="button" href="${url}&format=xlsx" download>⇩ Excel</a>`,
     `<section class="card glass"><div class="card-head"><h2>${esc(d.title)}</h2><span class="muted small">${from} 〜 ${to}</span></div><div id="jl-body">${body}</div></section>`);
 }
 
