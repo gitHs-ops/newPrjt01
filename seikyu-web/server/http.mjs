@@ -64,7 +64,6 @@ export async function createApp({ pool, publicDir, secureCookies = process.env.N
     return x.q.format === 'xlsx' ? db(c => (NEW_REPORTS[k] ? genericBook : XR.EXTRA[k] ? XR.extraBook : MR.miscBook)(c, k, x.q)).then(b => ({ file: b })) : db(c => fn(c, x.q));
   });
   route('GET', '/api/ar-ledger', 'read', x => x.q.format === 'xlsx' ? db(c => X.arLedgerBook(c, x.q)).then(b => ({ file: b })) : db(c => S.arLedger(c, x.q)));
-  route('GET', '/api/receipt-plan', 'read', x => x.q.format === 'xlsx' ? db(c => X.receiptPlanBook(c, x.q)).then(b => ({ file: b })) : db(c => S.receiptPlan(c, x.q)));
   route('GET', '/api/receipt-context', 'read', x => db(c => S.receiptContext(c, x.q.customer)));
   route('GET', '/api/reports/billing-list', 'read', x => x.q.format === 'xlsx' ? db(c => (x.q.layout === 'balance' ? X.billingBalanceBook : X.billingListBook)(c, x.q)).then(b => ({ file: b })) : db(c => S.billingList(c, x.q)));
   route('GET', '/api/reports/billing-precheck', 'read', x => x.q.format === 'xlsx' ? db(c => X.billingPrecheckBook(c, x.q)).then(b => ({ file: b })) : db(c => S.billingPrecheck(c, x.q)));
