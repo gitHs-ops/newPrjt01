@@ -832,11 +832,13 @@ async function invoiceDetail(id, site = null) {
     <div class="grid3" style="margin:12px 0"><div class="sum-line"><span>税抜金額</span><b>${yen(site ? site.net : inv.net)}</b></div><div class="sum-line"><span>消費税</span><b>${yen(site ? site.tax : inv.tax)}</b></div>${site ? `<div class="sum-line"><span>今回請求額</span><b>${yen(site.total)}</b></div>` : `<div class="sum-line"><span>請求額 / 残高</span><b>${yen(inv.total)} / ${yen(inv.balance)}</b></div>`}</div>
     <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap"><h3>明細</h3><label class="small" style="display:inline-flex;gap:4px;align-items:center" title="請求書・請求書発行確認表と同じ 出荷日×商品 の行（伝票No は「先頭の伝票No 他n件」）"><input type="checkbox" id="inv-sum" checked> 出荷日×商品でまとめる</label></div><div id="inv-lines">${lineTable(true)}</div>
     ${/* 発行履歴・入金消込の表は 2026-10-27 に削除（10/27 打合せ：詳細は請求書発行確認表と同じ明細だけ） */ ''}
-    <div class="filters" style="margin-top:14px">${(site ? site.issues : inv.issues) ? '<button type="button" id="inv-copy">最新発行分を印刷（控え）</button>' : ''}${canWrite() && !site ? `<button type="button" class="primary" id="inv-issue">${inv.issues ? '再発行して印刷' : '発行して印刷'}</button>` : ''}${canWrite() && !inv.issues && !inv.allocations.length ? '<button type="button" class="danger" id="inv-cancel">請求取消</button>' : ''}</div>`,
+    <div class="filters" style="margin-top:14px">${(site ? site.issues : inv.issues) ? '<button type="button" id="inv-copy">⇩ 最新発行分の Excel（控え）</button>' : ''}${canWrite() && !site ? `<button type="button" class="primary" id="inv-issue">${inv.issues ? '再発行して Excel' : '発行して Excel'}</button>` : ''}${canWrite() && !inv.issues && !inv.allocations.length ? '<button type="button" class="danger" id="inv-cancel">請求取消</button>' : ''}</div>`,
     onOpen: () => {
       $('#inv-sum')?.addEventListener('change', e => { $('#inv-lines').innerHTML = lineTable(e.target.checked); });
-      $('#inv-copy')?.addEventListener('click', async () => printDocs([await api(`/api/invoices/${inv.id}/document` + (site ? '?' + qs({ site: siteLabel(site.siteName) }) : ''))], site));
-      $('#inv-issue')?.addEventListener('click', async () => { try { const r = await post('/api/invoices/issue', { ids: [inv.id] }); $('#dialog').close(); printDocs(r.documents); render(); } catch (e) { $('#form-error').textContent = e.message; toast(e.message, true); } });
+      // 控え・発行は印刷せず Excel（現場ごとに最新の発行分を1シート）をダウンロード（2026-10-27 Excel に統一）
+      const book = () => saveXlsx('/api/invoices/book', { ids: [inv.id], sites: site ? { [inv.id]: [siteLabel(site.siteName)] } : {} });
+      $('#inv-copy')?.addEventListener('click', async () => { try { await book(); toast('最新発行分の請求書（控え）を Excel で出力しました'); } catch (e) { toast(e.message, true); } });
+      $('#inv-issue')?.addEventListener('click', async () => { try { await post('/api/invoices/issue', { ids: [inv.id] }); $('#dialog').close(); await book(); toast('請求書を発行し、Excel をダウンロードしました'); render(); } catch (e) { $('#form-error').textContent = e.message; toast(e.message, true); } });
       $('#inv-cancel')?.addEventListener('click', async () => { try { await post('/api/invoices/cancel', { id: inv.id }); $('#dialog').close(); toast('請求を取消しました（売上は未請求に戻り、仕訳は逆仕訳）'); render(); } catch (e) { $('#form-error').textContent = e.message; toast(e.message, true); } });
     } });
 }
@@ -1243,8 +1245,8 @@ VIEWS.payments = async q => {
 // 帳票の件数（通知書の枚数または明細の行数）
 const reportCount = body => { const t = document.createElement('div'); t.innerHTML = body; return t.querySelectorAll('.notice-doc').length || [...t.querySelectorAll('tr')].filter(tr => tr.querySelector('td') && !tr.closest('thead, tfoot') && !tr.matches('.subtotal, .kb-group')).length; };
 // 出力は Excel だけ：選択のポップアップを出さずにダウンロードする（2026-10-27。10/27 打合せ「請求書以外は全部 Excel」）
-async function saveXlsx(href) {
-  const res = await fetch(href, { cache: 'no-store' });
+async function saveXlsx(href, body = null) { // body があれば POST（請求書：現場の指定が長くなるため）
+  const res = await fetch(href, body ? { method: 'POST', cache: 'no-store', headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': session?.csrf || '' }, body: JSON.stringify(body) } : { cache: 'no-store' });
   if (!res.ok) throw Error((await res.json().catch(() => ({}))).error || `ダウンロードできません（HTTP ${res.status}）`);
   const cd = res.headers.get('Content-Disposition') || '', name = decodeURIComponent((cd.match(/filename\*=UTF-8''([^;]+)/) || [])[1] || '') || 'report.xlsx';
   const url = URL.createObjectURL(await res.blob()), a = document.createElement('a'); a.href = url; a.download = name; a.click(); setTimeout(() => URL.revokeObjectURL(url), 2000);
