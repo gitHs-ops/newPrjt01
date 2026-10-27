@@ -163,6 +163,7 @@ export async function saveShipment(c, ctx, p) {
     const link = v.shipKb === CORRECTION ? await redLink(c, p, v) : {};
     orderNo = await nextShipNo(c);
     await insertSlip(c, { ...v, orderNo, shipKb: v.shipKb, ...link });
+    if (link.salesNo) await dropSummaryOf(c, link.salesNo);
     await recalcCumulative(c, await one(c, 'SELECT * FROM shipment_slip WHERE order_no=?', [orderNo]));
     await audit(c, ctx, 'sales_trn', orderNo, 'shipment.create', { date: v.date, customer: v.cust.customers_cd, item: v.it.item_cd, net: v.net });
   }
@@ -213,8 +214,9 @@ export async function correctShipment(c, ctx, p) {
     await insertSlip(c, { orderNo: blackNo, ...black, shipKb: CORRECTION, salesNo: orig.order_no, salesSuffix: 3 }); // black（slipValues）の shipKb '1' で上書きしない
     await recalcCumulative(c, await one(c, 'SELECT * FROM shipment_slip WHERE order_no=?', [blackNo]));
   }
+  await dropSummaryOf(c, orig.order_no);
   await audit(c, ctx, 'sales_trn', orig.order_no, 'shipment.correct', { original: orig.order_no, red: redNo, black: blackNo, net: red.net + (black?.net || 0) });
-  return { orderNo: blackNo || redNo, red: redNo, black: blackNo, original: orig.order_no, net: red.net + (black?.net || 0) };
+  return { orderNo: blackNo || redNo, red: redNo, black: blackNo, original: orig.order_no, redSlip: `${orig.order_no}-02`, blackSlip: blackNo ? `${orig.order_no}-03` : null, net: red.net + (black?.net || 0) };
 }
 // 入力中の累計数量・累計台数・予定数量・予定時間（現行 NS006001 の lastCumulative／planInformation と同じ考え方）。登録後はサーバーで振り直す。
 // 登録済みの出荷日の範囲（帳票の期間指定の目安）
@@ -244,6 +246,7 @@ export async function deleteShipment(c, ctx, { orderNo }) {
   // 赤黒は組で取消（赤だけ・黒だけを残さない）
   const pair = old.ship_kb === CORRECTION ? (await rows(c, "SELECT order_no FROM sales_trn WHERE sales_no=? AND order_no<>sales_no AND ship_kb=? AND process_status='0'", [old.sales_no, CORRECTION])).map(r => r.order_no) : [orderNo];
   for (const no of pair) { const sl = await one(c, 'SELECT * FROM shipment_slip WHERE order_no=?', [no]); await c.query('DELETE FROM sales_trn WHERE order_no=?', [no]); await c.query('DELETE FROM shipment_slip WHERE order_no=?', [no]); if (sl) await recalcCumulative(c, sl); }
+  if (old.ship_kb === CORRECTION && old.sales_no && old.sales_no !== old.order_no) await dropSummaryOf(c, old.sales_no);
   await audit(c, ctx, 'sales_trn', orderNo, 'shipment.delete', { date: fromNum(old.sales_date), customer: old.customers_cd, net: Number(old.money), slips: pair });
   return { orderNo, slips: pair };
 }
@@ -371,15 +374,20 @@ export async function listInvoices(c, q = {}) {
 // 運送（現行 HAR430「1 当方／2 先方」）：納入区分が引取（category1=2）なら先方、それ以外は当方（推定）
 const CARRY = cat => (cat === '2' ? '2 先方' : '1 当方');
 // 赤黒（区分 5）の伝票No は 元伝票No－枝番（2 赤・3 黒）で表示（10/23 打合せ：帳票②´ と同じ番号で元伝票の下に並べる）
-export const slipNoOf = l => (String(l.ship_kb) === '5' && l.sales_no && l.sales_no !== l.order_no ? `${l.sales_no}-${Number(l.sales_suffix)}` : l.order_no);
+// 伝票No の表示（10/24 採番方式の回答、2026-10-27）：赤黒は「元伝票No-02（赤）／-03（黒）」、赤黒のある元伝票は「元伝票No-01」、それ以外は枝番なし。
+// l.corrections＝その伝票を元にした赤黒の件数（一覧・明細の SQL で取る）
+const BRANCH = n => String(Number(n)).padStart(2, '0');
+export const slipNoOf = l => (String(l.ship_kb) === '5' && l.sales_no && l.sales_no !== l.order_no ? `${l.sales_no}-${BRANCH(l.sales_suffix)}` : Number(l.corrections) > 0 ? `${l.order_no}-${BRANCH(1)}` : l.order_no);
+// 赤黒の起票・取消で元伝票の番号（-01 の有無）が変わるので、元伝票を含む請求の保存済みのまとめを消す（読むときは明細から作り、次の起動で作り直す）
+async function dropSummaryOf(c, orderNo) { await c.query(`DELETE FROM app_billing_line WHERE invoice_id IN (SELECT h.invoice_id FROM billing_detail d JOIN billing_head h ON ${DETAIL_JOIN} WHERE d.order_no=?)`, [String(orderNo)]); }
 const decodeLine = l => ({ carry: CARRY(l.kbn_cat), unit: l.unit || '', orderNo: slipNoOf(l), ownNo: l.order_no, date: fromNum(l.sales_date), site: `${l.field_cd}|${l.field_suffix}`, siteName: l.field_name || l.st_site || '', item: l.item_cd, itemName: l.item_name, quantity: num(l.quantity), price: num(l.unit_price),
   net: num(l.money), taxRate: num(l.tax_rate), remarks: l.remarks || '', shipKb: Number(l.ship_kb || 1) });
 // 請求書・発行確認表の明細は 得意先×現場×出荷日×商品（単価・税率・単位・運送が同じもの）でまとめる（指摘 No.9）。
 // 赤黒（区分5）とその元伝票はまとめずに、そのまま並べる。まとめた行の伝票No は「先頭の伝票No 他n件」。請求データ（billing_detail）は伝票単位のまま
 export function summarizeLines(lines) {
-  const out = [], at = new Map(), corrected = new Set(lines.filter(l => l.shipKb === 5).map(l => String(l.orderNo).split('-')[0])); // 赤黒のある元伝票もまとめない
+  const out = [], at = new Map(), corrected = new Set(lines.filter(l => l.shipKb === 5).map(l => String(l.orderNo).split('-')[0])); // 赤黒のある元伝票（-01）もまとめない
   for (const l of lines) {
-    if (l.shipKb === 5 || corrected.has(String(l.orderNo))) { out.push(l); continue; }
+    if (l.shipKb === 5 || corrected.has(String(l.orderNo).split('-')[0]) || String(l.orderNo).endsWith('-01')) { out.push(l); continue; }
     const k = [l.site, l.siteName, l.date, l.item, l.price, l.taxRate, l.unit, l.carry].join('|'), g = at.get(k);
     if (!g) { const row = { ...l, slips: [l.orderNo], owns: [l.ownNo || l.orderNo] }; at.set(k, row); out.push(row); continue; }
     g.owns.push(l.ownNo || l.orderNo); g.slips.push(l.orderNo); g.quantity = Math.round((g.quantity + l.quantity) * 1000) / 1000; g.net += l.net; g.orderNo = `${g.slips[0]} 他${g.slips.length - 1}件`;
@@ -413,7 +421,7 @@ export async function backfillSummaries(pool) {
   return ids.length;
 }
 // 赤・黒は元伝票の直後に並べる（元伝票の売上日・番号で並べ、枝番 2 赤・3 黒の順）
-async function headLines(c, h) { const w = detailWhere(h); return (await rows(c, `SELECT d.*, st.sales_no, st.sales_suffix, NULLIF(TRIM(CONCAT_WS(' ', st.field_name1, st.field_name2)), '') st_site, unit_name(i.unit) unit, (SELECT k.category1 FROM code_m k WHERE k.code_key='A0000' AND k.code_dtl=CAST(d.shipping_kb AS TEXT)) kbn_cat FROM billing_detail d LEFT JOIN item_m i ON i.item_cd=d.item_cd
+async function headLines(c, h) { const w = detailWhere(h); return (await rows(c, `SELECT d.*, st.sales_no, st.sales_suffix, (SELECT COUNT(*) FROM sales_trn x WHERE x.sales_no=d.order_no AND x.order_no<>d.order_no) corrections, NULLIF(TRIM(CONCAT_WS(' ', st.field_name1, st.field_name2)), '') st_site, unit_name(i.unit) unit, (SELECT k.category1 FROM code_m k WHERE k.code_key='A0000' AND k.code_dtl=CAST(d.shipping_kb AS TEXT)) kbn_cat FROM billing_detail d LEFT JOIN item_m i ON i.item_cd=d.item_cd
     LEFT JOIN sales_trn st ON st.order_no=d.order_no AND st.order_suffix=1 LEFT JOIN sales_trn o ON st.ship_kb='5' AND o.order_no=st.sales_no AND o.order_suffix=1
     WHERE ${w.sql.replace(/(^|AND )(\w+)=/g, '$1d.$2=')} ORDER BY d.field_cd, d.field_suffix, COALESCE(o.sales_date, d.sales_date), COALESCE(o.order_no, d.order_no), COALESCE(st.sales_suffix, 1)`, w.args)).map(decodeLine); }
 export async function invoiceDetail(c, id) {
@@ -442,7 +450,7 @@ export async function statement(c, customer, month, closing) {
     net = heads.reduce((n, h) => n + num(h.money), 0); tax = heads.reduce((n, h) => n + num(h.consumption_tax), 0);
     lines = []; for (const h of heads) lines.push(...await headLines(c, h));
   } else {
-    const sales = await rows(c, "SELECT s.*, unit_name(i.unit) unit FROM sales_trn s LEFT JOIN item_m i ON i.item_cd=s.item_cd WHERE s.customers_cd=? AND s.process_status='0' AND s.payment_method_cd=2 AND s.sales_date<=? ORDER BY s.field_cd, s.field_suffix, s.sales_date, s.order_no", [customer, toNum(end)]);
+    const sales = await rows(c, "SELECT s.*, unit_name(i.unit) unit, (SELECT COUNT(*) FROM sales_trn x WHERE x.sales_no=s.order_no AND x.order_no<>s.order_no) corrections FROM sales_trn s LEFT JOIN item_m i ON i.item_cd=s.item_cd WHERE s.customers_cd=? AND s.process_status='0' AND s.payment_method_cd=2 AND s.sales_date<=? ORDER BY s.field_cd, s.field_suffix, s.sales_date, s.order_no", [customer, toNum(end)]);
     ({ net, tax } = totals(sales));
     lines = sales.map(s => decodeLine({ ...s, field_name: s.field_name1 }));
   }
@@ -485,7 +493,7 @@ async function billingPrecheckOne(c, { month, closing, customer }) {
   const custs = await rows(c, `SELECT customers_cd, customers_name FROM client_m WHERE delete_f<>'1' AND CAST(substring(deadline from '^ *([0-9]+)') AS INTEGER)=?${cw} ORDER BY customers_cd`, args);
   const out = [];
   for (const cu of custs) {
-    const sales = await rows(c, "SELECT s.*, unit_name(i.unit) unit, (SELECT k.category1 FROM code_m k WHERE k.code_key='A0000' AND k.code_dtl=CAST(s.shipping_kb AS TEXT)) kbn_cat FROM sales_trn s LEFT JOIN item_m i ON i.item_cd=s.item_cd WHERE s.customers_cd=? AND s.process_status='0' AND s.payment_method_cd=2 AND s.sales_date<=? ORDER BY s.field_cd, s.field_suffix, s.sales_date, s.order_no", [cu.customers_cd, toNum(end)]);
+    const sales = await rows(c, "SELECT s.*, unit_name(i.unit) unit, (SELECT COUNT(*) FROM sales_trn x WHERE x.sales_no=s.order_no AND x.order_no<>s.order_no) corrections, (SELECT k.category1 FROM code_m k WHERE k.code_key='A0000' AND k.code_dtl=CAST(s.shipping_kb AS TEXT)) kbn_cat FROM sales_trn s LEFT JOIN item_m i ON i.item_cd=s.item_cd WHERE s.customers_cd=? AND s.process_status='0' AND s.payment_method_cd=2 AND s.sales_date<=? ORDER BY s.field_cd, s.field_suffix, s.sales_date, s.order_no", [cu.customers_cd, toNum(end)]);
     if (!sales.length) continue;
     const { net, tax } = totals(sales), lines = sales.map(s => decodeLine({ ...s, field_name: s.field_name1 }));
     const h = await one(c, 'SELECT invoice_id, invoice_flag FROM billing_head WHERE customers_cd=? AND closing_date=?', [cu.customers_cd, toNum(end)]);
