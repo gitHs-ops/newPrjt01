@@ -904,7 +904,8 @@ const RC_KEYS = [['bank', 'BANK'], ['cash', 'CASH'], ['notes', 'NOTE'], ['fee', 
 // 提案書 スライド19・21：得意先×請求年月の 前回残高・当月請求金額・今回請求金額・消込金額・今回残高（得意先は部分一致）
 const ledgerTable = (d, { clear = false } = {}) => table([{ label: '得意先', value: r => `${r.customer} ${r.name}` }, { label: '請求年月', value: r => r.month }, { label: '前回残高', num: 1, html: r => (r.prev ? `<b class="${r.prev > 0 ? 'check-ng' : ''}">${yen(r.prev)}</b>` : '0') },
   { label: '当月請求金額', num: 1, value: r => yen(r.current) }, { label: '今回請求金額', num: 1, value: r => yen(r.claim) }, { label: '消込金額', num: 1, value: r => yen(r.cleared) }, { label: '今回残高', num: 1, html: r => (r.remain ? `<b class="${r.latest ? '' : 'check-ng'}">${yen(r.remain)}</b>` : '0') },
-  ...(clear ? [{ label: '', html: r => (r.latest && r.remain > 0 && canWrite() ? `<button class="mini primary" data-act="clear" data-customer="${esc(r.customer)}">消込</button>` : '') }] : [])], d.rows,
+  // 消込済みでも月次確定前は［修正］で選び直して入金を更新できる（2026-10-27）
+  ...(clear ? [{ label: '', html: r => (r.latest && (r.remain > 0 || r.receipt) && canWrite() ? `<button class="mini primary" data-act="clear" data-customer="${esc(r.customer)}" data-receipt="${r.receipt || ''}">${r.receipt ? '修正' : '消込'}</button>` : '') }] : [])], d.rows,
   { empty: '該当する請求はありません', rowClass: r => (r.latest ? '' : 'muted'), foot: ['合計', '', '', yen(d.totals.current), '', yen(d.totals.cleared), yen(d.totals.remain), ...(clear ? [''] : [])] });
 async function arLedgerView(q) {
   const A = actions; A.view = d => go('invoices', { view: d.view });
@@ -923,18 +924,19 @@ VIEWS.receipts = async q => {
   A.misc = d => miscReport(d.kind, d.src).catch(e => toast(e.message, true));
   const tab = ['targets'].includes(q.tab) ? q.tab : 'list'; // 'plan'（入金予定一覧）は 2026-10-27 削除
   A.tab = d => go('receipts', { tab: d.tab });
-  A.clear = d => receiptForm(d.customer);
+  A.clear = d => receiptForm(d.customer, Number(d.receipt) || 0);
   if (tab === 'targets') {
     // 提案書 スライド19：得意先（部分一致）で検索し、残高のある請求年月の行から「消込」へ
     const all = await api('/api/ar-ledger?' + qs({ customer: q.customer }));
     // 絞込（検索結果を絞るだけで DB は読まない）：「消込対象のみ」（既定オン）＝得意先ごとの最新の請求年月で残高のある行、締日（5・10・15・20・月末）
+    // 消込済み（今回残高 0）でも月次確定前の入金がある行は残す（2026-10-27。［修正］で選び直す）
     const only = q.all !== '1', cl = STD_CLOSINGS.includes(Number(q.cl)) ? Number(q.cl) : 0;
     const dayOf = c => (c === monthEnd(c.slice(0, 7)) ? 31 : Number(c.slice(8, 10)));
     // デモ版：前回残高 0 の行は出さない（10/27 打合せ。実システムでの扱いは別途確認）
-    const rows = all.rows.filter(r => r.prev && (!only || (r.latest && r.remain > 0)) && (!cl || dayOf(r.closing) === cl)), sum = k => rows.reduce((n, r) => n + r[k], 0);
+    const rows = all.rows.filter(r => r.prev && (!only || (r.latest && (r.remain > 0 || r.receipt))) && (!cl || dayOf(r.closing) === cl)), sum = k => rows.reduce((n, r) => n + r[k], 0);
     const d = { rows, totals: { current: sum('current'), cleared: sum('cleared'), remain: rows.filter(r => r.latest).reduce((n, r) => n + r.remain, 0) } };
     A.search = () => go('receipts', { tab, customer: $('#rt-cust').value, all: q.all, cl: q.cl });
-    return page('入金・消込', '消込対象の選択：今回残高のある最新の請求年月から「消込」を押すと、その得意先の入金消込画面を開きます。', `<input id="rt-cust" list="dl-pcust" autocomplete="off" placeholder="得意先（部分一致）" value="${esc(q.customer || '')}" style="width:200px">${custHints()}<button class="primary" data-act="search">検索</button>
+    return page('入金・消込', '消込対象の選択：今回残高のある最新の請求年月から「消込」を押すと、その得意先の入金消込画面を開きます。消込済みでも月次確定前は「修正」で入金を更新できます。', `<input id="rt-cust" list="dl-pcust" autocomplete="off" placeholder="得意先（部分一致）" value="${esc(q.customer || '')}" style="width:200px">${custHints()}<button class="primary" data-act="search">検索</button>
        <select id="rt-cl" title="締日">${options(STD_CLOSINGS.map(x => ({ code: String(x), name: closingLabel(x) })), cl ? String(cl) : '', { blank: 'すべての締日', label: x => x.name })}</select><label class="small"><input type="checkbox" id="rt-only" ${only ? 'checked' : ''}> 消込対象のみ</label>`,
       `<section class="card glass">${ledgerTable(d, { clear: true })}</section>`);
   }
@@ -954,10 +956,11 @@ VIEWS.receipts = async q => {
 const RC_ROWS = [['bank', '当座預金（振込）', '当座預金 1112・入金口座の内訳'], ['fee', '振込手数料', '先方差引・雑費 8330-101（B-02）'], ['coop', '協力金', '協力会費・災防協会費の差引・雑費 8330-107（B-03）'],
   ['deposit', '預り金', '預り金 4170 から充当（B-06）'], ['loss', '雑損失', '端数等・8850・対象外'], ['discount', '値引き', '8850（B-04）'], ['cash', '現金', '現金 1111']];
 // 入金消込の入力（「入金消込」一覧の「消込」から得意先を決めて開く。得意先の選び直しはしない）
-function receiptForm(customer) {
+// receiptId＝修正する入金（月次確定前。元の入金を取り消して登録し直す。2026-10-27）
+function receiptForm(customer, receiptId = 0) {
   const key = uuid(), cu = masters.customers.find(c => c.code === customer);
   const rcRow = ([k, l, h]) => `<tr><th>${esc(l)}</th><td><input name="${k}" class="num" value="0" style="width:150px"></td><td class="small muted">${esc(h)}${k === 'bank' ? `<br><select name="bankCode" aria-label="入金口座">${options(active('banks'), active('banks')[0]?.code)}</select>` : ''}${k === 'deposit' ? '<br><span id="rc-dep">預り金残高: -</span>' : ''}</td></tr>`;
-  modal({ title: '入金消込', wide: true, submit: '登録', body: `${sampleButton}<div class="form-grid">
+  modal({ title: receiptId ? '入金消込（修正）' : '入金消込', wide: true, submit: receiptId ? '更新' : '登録', body: `${receiptId ? '<p class="small" id="rc-edit">読み込み中…</p>' : sampleButton}<div class="form-grid">
     ${field('得意先', `<input value="${esc(customer)} ${esc(cu?.name || '')}" readonly><input type="hidden" name="customer" value="${esc(customer)}">`)}
     ${field('入金日', `<input type="date" name="date" value="${lastClosing()}" required>`, { req: 1 })}</div>
     <h3 style="margin-top:14px">消込画面</h3><div id="rc-open" class="muted small">読み込み中…</div>
@@ -985,7 +988,7 @@ function receiptForm(customer) {
       };
       const load = async () => {
         manual = false;
-        ctx = await api('/api/receipt-context?customer=' + encodeURIComponent(customer));
+        ctx = await api('/api/receipt-context?' + qs({ customer, exclude: receiptId || '' }));
         const m = latest(), prior = invs().filter(r => r.month !== m), cur = invs().filter(r => r.month === m), sum = (l, k) => l.reduce((n, r) => n + r[k], 0);
         const partly = sum(cur, 'paid');
         $('#rc-open').innerHTML = !invs().length ? '<span class="muted">残高のある請求はありません</span>'
@@ -1001,7 +1004,19 @@ function receiptForm(customer) {
         refresh();
       };
       RC_KEYS.forEach(([k]) => (f[k].oninput = refresh)); f.overpayToDeposit.onchange = refresh;
-      load();
+      // 修正：元の入金の内容（入金日・仕訳明細・口座・消込内訳）を入れて開く
+      const edit = async () => {
+        const old = (await api('/api/receipts?' + qs({ customer }))).find(r => r.id === receiptId);
+        if (!old) return ($('#rc-edit').textContent = '修正する入金が見つかりません');
+        $('#rc-edit').innerHTML = `入金No <b>${esc(old.no)}</b>（${esc(String(old.date).slice(0, 10))}）を修正します。「更新」で元の入金を取り消し（逆仕訳）、この内容で登録し直します。`;
+        f.date.value = String(old.date).slice(0, 10); for (const [k, kind] of RC_KEYS) f[k].value = old[k] || 0;
+        if (old.bankCode) f.bankCode.value = old.bankCode; if (old.noteDue) f.noteDue.value = String(old.noteDue).slice(0, 10); f.overpayToDeposit.checked = old.overpay > 0;
+        await load(); manual = true;
+        $$('.rc-amt').forEach(x => (x.value = old.allocations.filter(a => a.invoiceId === Number(x.dataset.id)).reduce((n, a) => n + a.amount, 0)));
+        RC_KEYS.forEach(([k]) => (f[k].oninput = () => { manual = false; refresh(); })); // 金額を直したら古い順に配分し直す
+        refresh();
+      };
+      if (receiptId) edit().catch(e => toast(e.message, true)); else load();
       // サンプル入力：振込（手数料差引）で今回請求金額の全額を消し込む値を入れる（登録はしない）
       f.querySelector('[data-sample]')?.addEventListener('click', () => {
         if (!invs().length) return toast('この得意先には残高のある請求がありません', true);
@@ -1013,7 +1028,9 @@ function receiptForm(customer) {
     },
     onSubmit: async v => {
       const allocations = $$('.rc-amt').map(x => ({ invoiceId: Number(x.dataset.id), amount: Number(x.value) || 0 })).filter(a => a.amount > 0);
-      const r = await post('/api/receipts', { ...v, overpayToDeposit: v.overpayToDeposit === 'on', allocations, idempotencyKey: key }); toast(`入金 ${r.no} を登録しました（仕訳 B01）`); render();
+      const body = { ...v, overpayToDeposit: v.overpayToDeposit === 'on', allocations, idempotencyKey: key };
+      if (receiptId) { const r = await post('/api/receipts/update', { ...body, id: receiptId }); toast(`入金を修正しました（新しい入金No ${r.no}。元の入金は取消・逆仕訳）`); return render(); }
+      const r = await post('/api/receipts', body); toast(`入金 ${r.no} を登録しました（仕訳 B01）`); render();
     } });
 }
 

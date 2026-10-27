@@ -64,7 +64,7 @@ export async function createApp({ pool, publicDir, secureCookies = process.env.N
     return x.q.format === 'xlsx' ? db(c => (NEW_REPORTS[k] ? genericBook : XR.EXTRA[k] ? XR.extraBook : MR.miscBook)(c, k, x.q)).then(b => ({ file: b })) : db(c => fn(c, x.q));
   });
   route('GET', '/api/ar-ledger', 'read', x => x.q.format === 'xlsx' ? db(c => X.arLedgerBook(c, x.q)).then(b => ({ file: b })) : db(c => S.arLedger(c, x.q)));
-  route('GET', '/api/receipt-context', 'read', x => db(c => S.receiptContext(c, x.q.customer)));
+  route('GET', '/api/receipt-context', 'read', x => db(c => S.receiptContext(c, x.q.customer, x.q.exclude)));
   route('GET', '/api/reports/billing-list', 'read', x => x.q.format === 'xlsx' ? db(c => (x.q.layout === 'balance' ? X.billingBalanceBook : X.billingListBook)(c, x.q)).then(b => ({ file: b })) : db(c => S.billingList(c, x.q)));
   route('GET', '/api/reports/billing-precheck', 'read', x => x.q.format === 'xlsx' ? db(c => X.billingPrecheckBook(c, x.q)).then(b => ({ file: b })) : db(c => S.billingPrecheck(c, x.q)));
   route('GET', '/api/reports/billing-confirm', 'read', x => x.q.format === 'xlsx' ? db(c => X.billingConfirmBook(c, x.q)).then(b => ({ file: b })) : db(c => S.billingConfirm(c, x.q)));
@@ -106,6 +106,7 @@ export async function createApp({ pool, publicDir, secureCookies = process.env.N
   w('/api/invoices/cancel', (c, x, b) => S.cancelInvoice(c, x, b));
   w('/api/receipts', (c, x, b) => S.createReceipt(c, x, b));
   w('/api/receipts/reverse', (c, x, b) => S.reverseReceipt(c, x, b));
+  w('/api/receipts/update', (c, x, b) => S.updateReceipt(c, x, b));
   w('/api/purchases', (c, x, b) => P.createPurchase(c, x, b));
   w('/api/purchases/delete', (c, x, b) => P.deletePurchase(c, x, b));
   w('/api/inventory', (c, x, b) => P.saveInventory(c, x, b));

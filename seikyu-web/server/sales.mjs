@@ -637,12 +637,17 @@ export async function depositBalance(c, customer) {
   const over = num((await one(c, "SELECT COALESCE(SUM(k.amount),0) v FROM receipt_component k JOIN receipt r ON r.receipt_id=k.receipt_id AND r.status='POSTED' WHERE r.customers_cd=? AND k.component_kind='OVERPAY'", [customer])).v);
   return base + over - num((await one(c, DEPOSIT_USED, [customer])).v);
 }
-export async function receiptContext(c, customer) {
+export async function receiptContext(c, customer, exclude = 0) {
   // 得意先が空のときは全得意先の請求を返さない（未選択のまま消込対象が表示されて登録エラーになっていた）
   const cu = String(customer || ''); if (!cu) return { invoices: [], deposit: 0 };
   // 2026-10-23：未発行の請求も残高があれば消込対象（移行データは発行履歴が無いため）。発行の有無は status（draft＝未発行）で表示
-  const invoices = (await listInvoices(c, { customer: cu, status: 'open' })).sort((a, b) => a.closing.localeCompare(b.closing) || a.id - b.id);
-  return { invoices, deposit: cu ? await depositBalance(c, cu) : 0 };
+  // exclude＝修正する入金（2026-10-27）：その入金を取り消した後の残高・預り金残高で返す
+  const ex = Number(exclude) || 0, back = ex ? await rows(c, "SELECT a.invoice_id, a.amount FROM receipt_allocation a JOIN receipt r ON r.receipt_id=a.receipt_id AND r.status='POSTED' WHERE a.receipt_id=? AND r.customers_cd=?", [ex, cu]) : [];
+  const undo = id => back.filter(x => x.invoice_id === id).reduce((n, x) => n + num(x.amount), 0);
+  const invoices = (await listInvoices(c, { customer: cu, status: ex ? '' : 'open' })).map(i => (undo(i.id) ? { ...i, paid: i.paid - undo(i.id), balance: i.balance + undo(i.id) } : i))
+    .filter(i => i.balance > 0).sort((a, b) => a.closing.localeCompare(b.closing) || a.id - b.id);
+  const dep = ex ? await one(c, "SELECT COALESCE(SUM(CASE WHEN k.component_kind='DEPOSIT' THEN k.amount WHEN k.component_kind='OVERPAY' THEN -k.amount ELSE 0 END),0) v FROM receipt_component k JOIN receipt r ON r.receipt_id=k.receipt_id AND r.status='POSTED' WHERE k.receipt_id=?", [ex]) : null;
+  return { invoices, deposit: (await depositBalance(c, cu)) + num(dep?.v) };
 }
 export const openInvoices = async (c, customer) => (await receiptContext(c, customer)).invoices;
 const BANK_SUB = "(SELECT jl.sub_code FROM journal_entry je JOIN journal_line jl ON jl.journal_id=je.journal_id WHERE je.source_type='receipt' AND je.source_id=CAST(r.receipt_id AS CHAR) AND je.reversal_of IS NULL AND jl.account_code='1112' LIMIT 1)";
@@ -657,7 +662,7 @@ export async function listReceipts(c, q = {}) {
   return rs.map(r => {
     const part = k => num(comps.find(x => x.receipt_id === r.receipt_id && x.component_kind === k)?.amount);
     return { id: r.receipt_id, no: r.receipt_no, date: r.receipt_date, customer: r.customers_cd, customerName: r.customers_name, received: num(r.received_amount), settlement: num(r.settlement_amount),
-      bank: part('BANK'), cash: part('CASH'), notes: part('NOTE'), fee: part('FEE'), coop: part('COOP'), deposit: part('DEPOSIT'), overpay: part('OVERPAY'), discount: part('DISCOUNT'), loss: part('LOSS'), bankCode: r.bank_code || '', status: r.status,
+      bank: part('BANK'), cash: part('CASH'), notes: part('NOTE'), fee: part('FEE'), coop: part('COOP'), deposit: part('DEPOSIT'), overpay: part('OVERPAY'), discount: part('DISCOUNT'), loss: part('LOSS'), bankCode: r.bank_code || '', noteDue: comps.find(x => x.receipt_id === r.receipt_id && x.component_kind === 'NOTE')?.maturity_date || '', status: r.status,
       allocations: allocs.filter(a => a.receipt_id === r.receipt_id).map(a => ({ invoiceId: a.invoice_id, closing: fromNum(a.closing_date), amount: num(a.amount) })) };
   });
 }
@@ -706,6 +711,14 @@ export async function createReceipt(c, ctx, p) {
   await audit(c, ctx, 'receipt', r.insertId, 'receipt.create', { no, customer: cust.customers_cd, received, settlement, parts: Object.fromEntries(Object.entries(parts).filter(([, v]) => v)), invoices: allocs.map(a => a.id) });
   return { id: r.insertId, no };
 }
+// 入金の修正（2026-10-27）：月次確定前なら、元の入金を取り消して（逆仕訳）同じ得意先で新しい入金として登録し直す（1トランザクション）
+export async function updateReceipt(c, ctx, p) {
+  const r = await one(c, 'SELECT customers_cd FROM receipt WHERE receipt_id=?', [Number(p.id)]); check(r, '入金が見つかりません');
+  check(r.customers_cd === String(p.customer || ''), '異なる得意先の入金は修正できません');
+  await reverseReceipt(c, ctx, { id: p.id });
+  const res = await createReceipt(c, ctx, p);
+  return { ...res, replaced: Number(p.id) };
+}
 export async function reverseReceipt(c, ctx, { id }) {
   const r = await one(c, 'SELECT * FROM receipt WHERE receipt_id=? FOR UPDATE', [Number(id)]); check(r, '入金が見つかりません');
   check(r.status === 'POSTED', '取消済みです'); await assertOpen(c, r.receipt_date);
@@ -720,17 +733,19 @@ export async function reverseReceipt(c, ctx, { id }) {
 export async function arLedger(c, q = {}) {
   const t = String(q.customer || '').trim(), like = `%${t}%`;
   const custs = await rows(c, `SELECT customers_cd, customers_name FROM client_m WHERE (customers_cd LIKE ? OR customers_name LIKE ?) ORDER BY customers_cd`, [like, like]);
-  const out = [];
+  const out = [], closed = new Set((await rows(c, 'SELECT period FROM app_period_close')).map(r => r.period));
   for (const cu of custs) {
     const invs = (await listInvoices(c, { customer: cu.customers_cd })).filter(i => i.customer === cu.customers_cd).sort((a, b) => a.closing.localeCompare(b.closing) || a.id - b.id);
     const opening = num((await one(c, "SELECT COALESCE(SUM(amount),0) v FROM opening_balance WHERE customers_cd=? AND balance_kind='AR'", [cu.customers_cd])).v);
     if (!invs.length && !opening) continue;
-    const pays = await rows(c, "SELECT r.receipt_date d, SUM(a.amount) v FROM receipt_allocation a JOIN receipt r ON r.receipt_id=a.receipt_id AND r.status='POSTED' WHERE a.customers_cd=? GROUP BY r.receipt_date", [cu.customers_cd]);
+    const pays = await rows(c, "SELECT r.receipt_id id, r.receipt_date d, SUM(a.amount) v FROM receipt_allocation a JOIN receipt r ON r.receipt_id=a.receipt_id AND r.status='POSTED' WHERE a.customers_cd=? GROUP BY r.receipt_id, r.receipt_date ORDER BY r.receipt_date, r.receipt_id", [cu.customers_cd]);
     let prev = opening;
     invs.forEach((inv, i) => {
-      const next = invs[i + 1]?.closing || '9999-12-31', cleared = pays.filter(p => String(p.d).slice(0, 10) > inv.closing && String(p.d).slice(0, 10) <= next).reduce((n, p) => n + num(p.v), 0);
+      const next = invs[i + 1]?.closing || '9999-12-31', mine = pays.filter(p => String(p.d).slice(0, 10) > inv.closing && String(p.d).slice(0, 10) <= next), cleared = mine.reduce((n, p) => n + num(p.v), 0);
       const claim = prev + inv.total, remain = claim - cleared;
-      out.push({ customer: cu.customers_cd, name: cu.customers_name, month: inv.month, closing: inv.closing, invoiceId: inv.id, prev, current: inv.total, claim, cleared, remain, latest: i === invs.length - 1, issued: inv.issues > 0, status: inv.status });
+      // receipt＝この行の最新の入金（月次確定前なら入金消込の一覧から選び直して修正できる。2026-10-27）
+      const last = mine[mine.length - 1], receipt = last && !closed.has(String(last.d).slice(0, 7)) ? last.id : 0;
+      out.push({ customer: cu.customers_cd, name: cu.customers_name, month: inv.month, closing: inv.closing, invoiceId: inv.id, prev, current: inv.total, claim, cleared, remain, receipt, latest: i === invs.length - 1, issued: inv.issues > 0, status: inv.status });
       prev = remain;
     });
   }
