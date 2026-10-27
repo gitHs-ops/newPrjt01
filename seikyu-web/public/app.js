@@ -403,6 +403,10 @@ const SEP = '<hr class="sep">';
 // 得意先・商品などは「コード＋名称」の2枠（提案書の画面どおり）
 const CODE_NAME = (codeHtml, nameHtml, after = '<div class="span2c fill"></div>') => `<div class="sv">${codeHtml}</div><div class="sv span4c">${nameHtml}</div>${after}`;
 const SITE_ROW = (a, b, c, d) => `<div class="sv span7"><div class="sv-site">${a}<span>—</span>${b}${c}<span>—</span>${d}</div></div>`;
+// 照会の現場CD：登録画面と同じ現場マスタの選択リスト（「コード-枝番　名称」）で、変更はできない（2026-10-27）
+const siteSelectRO = (customer, code, suffix) => { const cur = code ? `${code}|${suffix || '000'}` : '', list = (masters.sites || []).filter(x => x.customer === customer && (x.active || `${x.code}|${x.suffix}` === cur)).map(x => ({ v: `${x.code}|${x.suffix}`, l: `${x.code}-${x.suffix}　${x.name} ${x.name2 || ''}` }));
+  if (cur && !list.some(x => x.v === cur)) list.unshift({ v: cur, l: `${cur.replace('|', '-')}（マスタなし）` });
+  return `<select disabled title="現場（得意先の現場マスタ）"><option value="">${list.length ? '（現場の指定なし）' : '（現場マスタなし）'}</option>${list.map(x => `<option value="${esc(x.v)}"${x.v === cur ? ' selected' : ''}>${esc(x.l)}</option>`).join('')}</select>`; };
 // 出荷伝票を変更できない理由（無ければ変更可）
 const slipLock = r => (!canWrite() ? '参照権限のため変更できません' : r.billed ? '請求済みのため変更できません（「赤黒訂正」で訂正）' : r.shipKb === 5 ? '訂正伝票（赤・黒）は変更できません（取消して再登録）' : r.corrected ? '赤黒訂正済みのため変更できません' : '');
 function slipInquiry(r, why = '') {
@@ -412,7 +416,7 @@ function slipInquiry(r, why = '') {
     ${SL('出荷日', RO(esc(r.date.replaceAll('-', '/')) + (r.correctionDate ? `<span class="muted small">（訂正日 ${esc(r.correctionDate.replaceAll('-', '/'))}）</span>` : '')))}${SL('天候', RO(esc(r.weatherName)))}${SEP}
     <div class="sl">得意先</div>${CODE_NAME(RO(esc(r.customer)), RO(esc(r.customerName)))}
     <div class="sl">他社得意先</div>${CODE_NAME(RO(esc(r.otherCustomer)), RO(esc(r.otherCustomerName)))}
-    <div class="sl">納入場所</div>${SITE_ROW(RO(esc(sc)), RO(esc(ss)), RO(esc(r.siteName1)), RO(esc(r.siteName2)))}${SEP}
+    <div class="sl">納入場所</div>${SITE_ROW(siteSelectRO(r.customer, sc, ss), RO(esc(ss)), RO(esc(r.siteName1)), RO(esc(r.siteName2)))}${SEP}
     <div class="sl">商品</div>${CODE_NAME(RO(esc(r.item)), RO(esc(r.itemName)), SL('納入区分', RO(esc(r.deliveryKbnName))))}
     ${SL('数量', RO(n2(r.quantity), 1))}${SL('単位', RO(esc(r.unit)))}${SL('累計数量', RO(n2(r.cumulativeQty), 1))}${SL('予定数量', RO(n2(r.planQty), 1))}${SEP}
     ${SL('決済方法', RO(esc(r.methodName)))}${SL('単価', RO(yen(r.price), 1))}${SL('運賃', RO(yen(r.freight), 1))}<div class="span2c fill"></div>
@@ -458,7 +462,7 @@ function shipmentForm(r, bizDate) {
   modal({ title: co ? `出荷伝票の赤黒訂正（元 ${co.orderNo}）` : r?.orderNo ? `出荷伝票の詳細（${r.slipNo || r.orderNo}）` : r?.fromPlan ? `出荷伝票登録（出荷予定 ${r.fromPlan} から）` : r?.copyOf ? `出荷伝票登録（類似登録：元 ${r.copyOf}）` : '出荷伝票登録', submit: co ? '赤黒伝票を登録' : r?.orderNo ? '更新する' : '登録する', wide: true, body: `${co ? `<div class="note" style="margin-bottom:10px">元伝票：${esc(co.date)} ${esc(co.customerName)} ／ ${esc(co.siteName)} ／ ${esc(co.itemName)} ${co.quantity} ${esc(co.unit)} × ${yen(co.price)}${co.freight ? '＋運賃' + yen(co.freight) : ''} ＝ ${yen(co.net)} 円（${esc(co.methodName)}）<br>
       <b>赤</b>＝元伝票の全量マイナス（${-co.quantity} ${esc(co.unit)}）を自動作成。<b>黒</b>＝下の訂正後の内容（数量 0 なら赤のみ＝取消）。赤・黒の出荷日（売上日）は元伝票の出荷日、下の出荷日欄は訂正日として記録（2026-10-27 大西さん回答 H）。<br><b>訂正できるのは 単価・数量 だけ</b>です。<span id="corr-preview"></span></div>
       <div class="corr-fixed"><div class="corr-fixed-h">変更できない項目（元伝票のまま）</div><table><tr><th>得意先</th><td>${esc(co.customer)}</td><td colspan="2">${esc(co.customerName || '')}</td></tr><tr><th>現場</th><td>${esc((co.site || '').replace('|', '-'))}</td><td>${esc(co.siteName1 || '')}</td><td>${esc(co.siteName2 || '')}</td></tr></table>
-      <div class="corr-fixed-n">得意先・現場の誤りは、数量 0 で取消してから正しい得意先・現場で出荷登録してください。商品などの誤りも同じです。</div></div>` : r?.orderNo ? '' : sampleButton}<div class="slip-sheet">
+      <div class="corr-fixed-n">得意先・現場の誤りは、数量 0 で取消してから正しい得意先・現場で出荷登録してください。商品などの誤りも同じです。</div></div>` : sampleButton}<div class="slip-sheet">
     ${SL('伝票番号', RO(r?.orderNo ? esc(r.slipNo || r.orderNo) : '<span class="muted">登録時に採番</span>'))}${SL('伝票区分', `<select name="shipKb">${kbOpts}</select>`)}${co ? `${SL('元伝票No', RO(esc(co.orderNo)))}<div class="span2c fill"></div>` : r?.orderNo ? '<div class="span4c fill"></div>' : `${SL('元伝票No', '<input name="originalNo" maxlength="12" class="num" placeholder="区分 訂正のとき" autocomplete="off" disabled>')}<div class="span2c sv muted small" id="sf-orig"></div>`}
     ${SL(co ? '訂正日' : '出荷日', `<input type="date" name="date" value="${esc(r?.date || bizDate || today())}" required>`, { req: 1 })}${SL('天候', `<select name="weather">${opt(active('weathers'), r?.weather || '', '　')}</select>`)}${SEP}
     <div class="sl req">得意先</div>${CODE_NAME(`<input name="customer" list="dl-cust" maxlength="5" value="${esc(cust)}" autocomplete="off" required>`, '<div class="ro" id="sf-cname">&nbsp;</div>')}
