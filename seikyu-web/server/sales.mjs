@@ -469,7 +469,16 @@ export async function billingList(c, { month, closing }) {
 // 発行前確認一覧（2026-10-25）：請求データ作成の前に、その締日で請求される未請求の掛売上（出荷伝票）を得意先ごとに明細で確認する。
 // 現行 HAR430（メニュー 11）は請求書印刷及び更新（12）の前に出力していたため、請求データを作らずに出荷伝票から直接作る。
 // 対象・条件は請求データ作成（runBilling）と同じ：締日の得意先、process_status=0・掛売・売上日≦締日。
+// closing='all'（2026-10-27）：規定の締日 5・10・15・20・月末 をまとめて表示（請求漏れの確認用）。各行に締日・請求期間を持つ
+const PRECHECK_CLOSINGS = [5, 10, 15, 20, 31];
 export async function billingPrecheck(c, { month, closing, customer }) {
+  if (String(closing) === 'all') {
+    const parts = []; for (const cl of PRECHECK_CLOSINGS) parts.push(await billingPrecheckOne(c, { month, closing: cl, customer }));
+    return { month, closing: 'all', start: parts[0].start, end: parts[parts.length - 1].end, company: parts[0].company, rows: parts.flatMap(p => p.rows) };
+  }
+  return billingPrecheckOne(c, { month, closing, customer });
+}
+async function billingPrecheckOne(c, { month, closing, customer }) {
   const { start, end } = period(month, closing), day = closingDay(closing);
   const args = [day]; let cw = '';
   if (customer) { cw = ' AND (customers_cd=? OR customers_name LIKE ?)'; args.push(String(customer), '%' + String(customer) + '%'); }
@@ -482,8 +491,8 @@ export async function billingPrecheck(c, { month, closing, customer }) {
     const h = await one(c, 'SELECT invoice_id, invoice_flag FROM billing_head WHERE customers_cd=? AND closing_date=?', [cu.customers_cd, toNum(end)]);
     const locked = h && (h.invoice_flag !== '0' || await one(c, 'SELECT 1 x FROM receipt_allocation WHERE invoice_id=? LIMIT 1', [h.invoice_id]));
     const byRate = RATES.map(rate => { const n = lines.filter(l => Math.round(l.taxRate) === rate).reduce((a, l) => a + l.net, 0); return { rate, net: n, tax: bucketTax(n, rate) }; }).filter(x => x.net);
-    out.push({ customer: cu.customers_cd, name: cu.customers_name, plan: !h ? 'new' : locked ? 'next' : 'append', invoiceId: h?.invoice_id || null,
-      count: lines.length, corrections: lines.filter(l => Number(l.shipKb) === CORRECTION).length, late: sales.filter(s => fromNum(s.sales_date) < start).length,
+    out.push({ closing: day, start, end, customer: cu.customers_cd, name: cu.customers_name, plan: !h ? 'new' : locked ? 'next' : 'append', invoiceId: h?.invoice_id || null,
+      count: lines.length, corrections: lines.filter(l => String(l.shipKb) === CORRECTION).length, late: sales.filter(s => fromNum(s.sales_date) < start).length,
       sites: new Set(lines.map(l => l.site)).size, net, tax, current: net + tax, byRate, lines });
   }
   const co = await one(c, 'SELECT company_name1 FROM company_info_m WHERE company_info_id=1');
