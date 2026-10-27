@@ -83,7 +83,7 @@ export async function listShipments(c, q = {}) {
     LEFT JOIN client_m oc ON oc.customers_cd=NULLIF(sl.other_company_customers_cd,'') LEFT JOIN operator_m op ON op.tanto_cd=CAST(NULLIF(sl.person_in_charge_cd,'') AS INTEGER) LEFT JOIN code_m dk ON dk.code_key='A0000' AND dk.code_dtl=CAST(sl.delivery_kbn_cd AS TEXT)
     LEFT JOIN billing_detail d ON d.order_no=s.order_no LEFT JOIN billing_head h ON ${DETAIL_JOIN}
     WHERE s.sales_date BETWEEN ? AND ?${where} ORDER BY s.sales_date DESC, s.order_no DESC LIMIT 1000`, args);
-  return rs.map(r => ({ orderNo: r.order_no, slipNo: slipNoOf(r), date: fromNum(r.sales_date), customer: r.customers_cd, customerName: r.customers_name, site: r.field_cd ? `${r.field_cd}|${r.field_suffix}` : '', siteName: [r.field_name1, r.field_name2].filter(Boolean).join(' '),
+  return rs.map(r => ({ orderNo: r.order_no, slipNo: slipNoOf(r), date: fromNum(r.sales_date), correctionDate: r.correction_date ? fromNum(r.correction_date) : '', customer: r.customers_cd, customerName: r.customers_name, site: r.field_cd ? `${r.field_cd}|${r.field_suffix}` : '', siteName: [r.field_name1, r.field_name2].filter(Boolean).join(' '),
     siteName1: r.field_name1 || '', siteName2: r.field_name2 || '', item: r.item_cd, itemName: r.item_name, quantity: Number(r.quantity), unit: r.unit || '', price: num(r.slip_price ?? r.unit_price), freight: num(r.slip_freight), unitPrice: num(r.unit_price),
     net: Number(r.money), taxRate: Number(r.tax_rate), tax: Number(r.consumption_tax), method: Number(r.payment_method_cd), methodName: METHODS[r.payment_method_cd] || '', billed: r.process_status === '1', invoiceId: r.invoice_id || null,
     vehicle: r.vehicle_no || '', remarks: r.remarks || '', operator: r.person_in_charge_cd || '', operatorName: r.tanto_nm || '', deliveryKbn: r.delivery_kbn_cd ? String(r.delivery_kbn_cd) : '', deliveryKbnName: r.delivery_kbn_name || '',
@@ -193,8 +193,9 @@ export async function correctShipment(c, ctx, p) {
   check(!(await one(c, 'SELECT 1 x FROM sales_trn WHERE sales_no=? AND order_no<>? LIMIT 1', [orig.order_no, orig.order_no])), 'この伝票は訂正済みです。訂正後（黒）の伝票を訂正してください');
   check(!(orig.ship_kb === CORRECTION && Number(orig.quantity) < 0), '赤伝票は訂正できません');
   const slip = await one(c, 'SELECT * FROM shipment_slip WHERE order_no=?', [orig.order_no]);
-  const date = isoDate(p.date, '訂正日'); await assertOpen(c, date);
-  check(date >= fromNum(orig.sales_date), '訂正日が元伝票の出荷日より前です');
+  // 赤・黒の売上日は元伝票の売上日（現行と同じ、2026-10-27 大西さん回答 H）。訂正日は correction_date に持つ
+  const corrDate = isoDate(p.date, '訂正日'), date = fromNum(orig.sales_date); await assertOpen(c, corrDate);
+  check(corrDate >= date, '訂正日が元伝票の出荷日より前です');
   const cust = await one(c, 'SELECT * FROM client_m WHERE customers_cd=?', [orig.customers_cd]);
   const it = await one(c, 'SELECT * FROM item_m WHERE item_cd=?', [orig.item_cd]);
   const f = { field_cd: orig.field_cd || '', field_suffix: orig.field_suffix || '', field_name1: orig.field_name1 || '', field_name2: orig.field_name2 || '' };
@@ -204,6 +205,7 @@ export async function correctShipment(c, ctx, p) {
   if (Number(orig.quantity) < 0) red.q = qty(String(-Number(orig.quantity)), '数量'); // 元がマイナス伝票なら赤はプラス
   const redNo = await nextShipNo(c);
   await insertSlip(c, { orderNo: redNo, shipKb: CORRECTION, ...red, salesNo: orig.order_no, salesSuffix: 2 });
+  await c.query('UPDATE sales_trn SET correction_date=? WHERE order_no=?', [toNum(corrDate), redNo]);
   await recalcCumulative(c, await one(c, 'SELECT * FROM shipment_slip WHERE order_no=?', [redNo]));
   let blackNo = null, black = null;
   if (p.quantity !== undefined && p.quantity !== '' && Number(p.quantity) !== 0) {
@@ -212,6 +214,7 @@ export async function correctShipment(c, ctx, p) {
       shipKb: '1', otherCustomer: '', vehicle: slip?.vehicle_no || '', remarks: p.remarks ?? orig.remarks ?? '' }, '黒伝票の'); // 黒の備考は元伝票の備考を引き継ぐ（指摘 No.26）
     blackNo = await nextShipNo(c);
     await insertSlip(c, { orderNo: blackNo, ...black, shipKb: CORRECTION, salesNo: orig.order_no, salesSuffix: 3 }); // black（slipValues）の shipKb '1' で上書きしない
+    await c.query('UPDATE sales_trn SET correction_date=? WHERE order_no=?', [toNum(corrDate), blackNo]);
     await recalcCumulative(c, await one(c, 'SELECT * FROM shipment_slip WHERE order_no=?', [blackNo]));
   }
   await dropSummaryOf(c, orig.order_no);

@@ -407,7 +407,7 @@ function slipInquiry(r, why = '') {
   const n2 = v => Number(v || 0).toFixed(2), [sc = '', ss = ''] = r.site.split('|');
   modal({ title: `出荷伝票の詳細（${r.slipNo || r.orderNo}）`, wide: true, submit: '更新する', body: `${why ? `<p class="note small" style="margin-bottom:10px">照会のみ：${esc(why)}</p>` : ''}<div class="slip-sheet">
     ${SL('伝票番号', RO(esc(r.slipNo || r.orderNo)))}${SL('伝票区分', RO(esc(r.shipKbName)))}<div class="span4c sv right muted small status-cell">${r.billed ? '請求済' : '未請求'}・伝票 ${r.printed ? (r.printed >= 2 ? '再発行済' : '発行済') : '未発行'}</div>
-    ${SL('出荷日', RO(esc(r.date.replaceAll('-', '/'))))}${SL('天候', RO(esc(r.weatherName)))}${SEP}
+    ${SL('出荷日', RO(esc(r.date.replaceAll('-', '/')) + (r.correctionDate ? `<span class="muted small">（訂正日 ${esc(r.correctionDate.replaceAll('-', '/'))}）</span>` : '')))}${SL('天候', RO(esc(r.weatherName)))}${SEP}
     <div class="sl">得意先</div>${CODE_NAME(RO(esc(r.customer)), RO(esc(r.customerName)))}
     <div class="sl">他社得意先</div>${CODE_NAME(RO(esc(r.otherCustomer)), RO(esc(r.otherCustomerName)))}
     <div class="sl">納入場所</div>${SITE_ROW(RO(esc(sc)), RO(esc(ss)), RO(esc(r.siteName1)), RO(esc(r.siteName2)))}${SEP}
@@ -454,9 +454,9 @@ function shipmentForm(r, bizDate) {
   const co = r?.correctOf, kbOpts = (co ? [5] : [1, 2, 3, 4, ...(r?.orderNo ? [] : [5])]).map(k => `<option value="${k}" ${Number(r?.shipKb || 1) === k ? 'selected' : ''}>${esc(meta.shipKinds[k])}</option>`).join('');
   const kbnOpts = options(active('deliveryKinds'), r?.deliveryKbn || active('deliveryKinds')[0]?.code, { blank: '選択', label: x => x.name + (x.pickup ? '（運賃なし）' : '') });
   modal({ title: co ? `出荷伝票の赤黒訂正（元 ${co.orderNo}）` : r?.orderNo ? `出荷伝票の詳細（${r.slipNo || r.orderNo}）` : r?.fromPlan ? `出荷伝票登録（出荷予定 ${r.fromPlan} から）` : r?.copyOf ? `出荷伝票登録（類似登録：元 ${r.copyOf}）` : '出荷伝票登録', submit: co ? '赤黒伝票を登録' : r?.orderNo ? '更新する' : '登録する', wide: true, body: `${co ? `<div class="note" style="margin-bottom:10px">元伝票：${esc(co.date)} ${esc(co.customerName)} ／ ${esc(co.siteName)} ／ ${esc(co.itemName)} ${co.quantity} ${esc(co.unit)} × ${yen(co.price)}${co.freight ? '＋運賃' + yen(co.freight) : ''} ＝ ${yen(co.net)} 円（${esc(co.methodName)}）<br>
-      <b>赤</b>＝元伝票の全量マイナス（${-co.quantity} ${esc(co.unit)}）を自動作成。<b>黒</b>＝下の訂正後の内容（数量 0 なら赤のみ＝取消）。出荷日は赤・黒の訂正日。<span id="corr-preview"></span></div>` : r?.orderNo ? '' : sampleButton}<div class="slip-sheet">
+      <b>赤</b>＝元伝票の全量マイナス（${-co.quantity} ${esc(co.unit)}）を自動作成。<b>黒</b>＝下の訂正後の内容（数量 0 なら赤のみ＝取消）。赤・黒の出荷日（売上日）は元伝票の出荷日、下の出荷日欄は訂正日として記録（2026-10-27 大西さん回答 H）。<span id="corr-preview"></span></div>` : r?.orderNo ? '' : sampleButton}<div class="slip-sheet">
     ${SL('伝票番号', RO(r?.orderNo ? esc(r.slipNo || r.orderNo) : '<span class="muted">登録時に採番</span>'))}${SL('伝票区分', `<select name="shipKb">${kbOpts}</select>`)}${co ? `${SL('元伝票No', RO(esc(co.orderNo)))}<div class="span2c fill"></div>` : r?.orderNo ? '<div class="span4c fill"></div>' : `${SL('元伝票No', '<input name="originalNo" maxlength="12" class="num" placeholder="区分 訂正のとき" autocomplete="off" disabled>')}<div class="span2c sv muted small" id="sf-orig"></div>`}
-    ${SL('出荷日', `<input type="date" name="date" value="${esc(r?.date || bizDate || today())}" required>`, { req: 1 })}${SL('天候', `<select name="weather">${opt(active('weathers'), r?.weather || '', '　')}</select>`)}${SEP}
+    ${SL(co ? '訂正日' : '出荷日', `<input type="date" name="date" value="${esc(r?.date || bizDate || today())}" required>`, { req: 1 })}${SL('天候', `<select name="weather">${opt(active('weathers'), r?.weather || '', '　')}</select>`)}${SEP}
     <div class="sl req">得意先</div>${CODE_NAME(`<input name="customer" list="dl-cust" maxlength="5" value="${esc(cust)}" autocomplete="off" required>`, '<div class="ro" id="sf-cname">&nbsp;</div>')}
     <div class="sl">他社得意先</div>${CODE_NAME(`<input name="otherCustomer" list="dl-cust" maxlength="5" value="${esc(r?.otherCustomer || '')}" autocomplete="off" placeholder="伝票区分 2・4 のとき">`, '<div class="ro" id="sf-oname">&nbsp;</div>')}
     <div class="sl">納入場所</div>${SITE_ROW(`<select name="sitePick" title="現場（得意先の現場マスタから選択）"></select><input type="hidden" name="siteCode" value="${esc(sc0)}">`, `<input name="siteSuffix" maxlength="3" value="${esc(ss0 || (sc0 ? '000' : ''))}" placeholder="000" readonly tabindex="-1">`, `<input name="siteName1" maxlength="20" value="${esc(r?.siteName1 || '')}" placeholder="納入場所名1">`, `<input name="siteName2" maxlength="20" value="${esc(r?.siteName2 || '')}" placeholder="納入場所名2">`)}${SEP}
@@ -851,8 +851,8 @@ const splitBySite = s => {
     taxes[nets.indexOf(Math.max(...nets))] += b.tax - taxes.reduce((a, t) => a + t, 0);
     nets.forEach((n, k) => { if (n || taxes[k]) bk[k].push({ rate: b.rate, net: n, tax: taxes[k] }); });
   }
-  return gs.map((g, k) => { const tax = bk[k].reduce((n, b) => n + b.tax, 0), total = g.net + tax, first = k === 0;
-    return { ...s, lines: g.lines, buckets: bk[k], net: g.net, tax, total, discount: 0, prevBalance: first ? s.prevBalance ?? s.carried : 0, received: first ? s.received ?? 0 : 0, carried: first ? s.carried : 0, grandTotal: (first ? s.carried : 0) + total, siteName: g.name, page: k + 1, pages: gs.length }; });
+  return gs.map((g, k) => { const tax = bk[k].reduce((n, b) => n + b.tax, 0), total = g.net + tax;
+    return { ...s, lines: g.lines, buckets: bk[k], net: g.net, tax, total, discount: 0, prevBalance: 0, received: 0, carried: 0, grandTotal: total, siteName: g.name, page: k + 1, pages: gs.length }; });
 };
 function proposalInvoice(s) {
   const tax10 = s.buckets.filter(b => b.rate !== 8).reduce((n, b) => n + b.tax, 0), tax8 = s.buckets.filter(b => b.rate === 8).reduce((n, b) => n + b.tax, 0);
@@ -865,8 +865,8 @@ function proposalInvoice(s) {
         <p>毎度ありがとうございます。<br>下記のとおり御請求申し上げます。</p><p>${esc(jpDate(s.periodStart))} 〜 ${esc(jpDate(s.closing))}</p>${s.siteName ? `<p class="site-name">現場：<b>${esc(s.siteName)}</b>${s.pages > 1 ? `（${s.page}/${s.pages}）` : ''}</p>` : ''}</div>
       <div><p><b>${esc(s.company.name)}</b><br>${esc(s.company.address)}<br>TEL ${esc(s.company.tel)}${s.company.fax ? ' FAX ' + esc(s.company.fax) : ''}${s.company.invoiceNo ? `<br>登録番号: ${esc(s.company.invoiceNo)}` : ''}</p>
         ${banks.length ? `<p>取引銀行 ${banks.map(esc).join('<br>')}</p>` : ''}<p>お支払期日 ${esc(s.due)}</p></div></div>
-    <table class="totals"><tr><th>前回残高</th><th>今回入金額</th><th>今回請求額(税抜)</th><th>今回消費税</th><th>今回消費税(軽減)</th><th>今回請求額(税込)</th><th>今回残高</th></tr>
-      <tr><td class="num">${yen(s.prevBalance ?? s.carried)}</td><td class="num">${yen(s.received ?? 0)}</td><td class="num">${yen(s.net)}</td><td class="num">${yen(tax10)}</td><td class="num">${yen(tax8)}</td><td class="num">${yen(s.total)}</td><td class="num"><b>${yen(s.grandTotal)}</b></td></tr></table>
+    <table class="totals"><tr><th>今回請求額(税抜)</th><th>今回消費税</th><th>今回消費税(軽減)</th><th>今回請求額(税込)</th></tr>
+      <tr><td class="num">${yen(s.net)}</td><td class="num">${yen(tax10)}</td><td class="num">${yen(tax8)}</td><td class="num"><b>${yen(s.total)}</b></td></tr></table>
     <table><tr><th>月日</th><th>伝票NO</th><th>区分</th><th>品名</th><th>数量</th><th>単位</th><th>単価</th><th>金額</th></tr>
       ${s.lines.map(l => `<tr><td>${esc(String(l.date).slice(5).replace('-', '/'))}</td><td>${esc(l.orderNo)}</td><td>${kind(l)}</td><td>${esc(l.itemName)}</td><td class="num">${l.quantity}</td><td>${esc(l.unit || '')}</td><td class="num">${yen(l.price)}</td><td class="num">${yen(l.net)}</td></tr>`).join('')}
       <tr class="subtotal"><td colspan="7" class="right">現場計</td><td class="num"><b>${yen(s.net)}</b></td></tr></table>

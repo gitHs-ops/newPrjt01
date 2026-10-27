@@ -118,6 +118,8 @@ export async function prepare(pool, env = process.env) {
     'CREATE INDEX IF NOT EXISTS ix_shipment_slip_work ON shipment_slip (shipment_dt, customers_cd, item_cd)', 'CREATE INDEX IF NOT EXISTS ix_shipment_plan_work ON shipment_plan (shipment_dt, customers_cd, item_cd)',
     'CREATE INDEX IF NOT EXISTS ix_billing_detail_head ON billing_detail (customers_cd, closing_yymm, claim_processing_period)', 'CREATE INDEX IF NOT EXISTS ix_billing_head_cust ON billing_head (customers_cd, closing_date)']) await pool.query(sql);
   // 2026-10-21 再構成：仕入の区分・運賃行、定時請求の請求No（業者ごと4桁）、明細の摘要コード（工事コード7桁）。44表設計への列追加。
+  // 赤黒の訂正日（2026-10-27 大西さん回答 H：売上日は元伝票の売上日、訂正日は別に持つ）
+  await pool.query('ALTER TABLE sales_trn ADD COLUMN IF NOT EXISTS correction_date numeric(8)');
   await pool.query(`ALTER TABLE purchase ADD COLUMN IF NOT EXISTS purchase_kb varchar(1) COLLATE "C" NOT NULL DEFAULT '1'`);
   await pool.query(`ALTER TABLE purchase ADD COLUMN IF NOT EXISTS line_kind varchar(1) COLLATE "C" NOT NULL DEFAULT '1'`);
   await pool.query(`ALTER TABLE expense_document ADD COLUMN IF NOT EXISTS bill_no varchar(4) COLLATE "C"`);
