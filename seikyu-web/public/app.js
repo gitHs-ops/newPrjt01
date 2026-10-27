@@ -701,20 +701,24 @@ async function invoiceIssueView(q) {
   const sum = k => lines.reduce((n, r) => n + r[k], 0);
   const picks = rows => { const m = {}; for (const r of rows) (m[r.inv.id] ||= []).push(siteLabel(r.siteName)); return m; };
   const checked = () => $$('.inv-pick:checked').map(x => lines[Number(x.value)]).filter(Boolean);
-  // 発行前に確認ポップアップ（件数・得意先・現場・請求額・初回／再発行）を出し、「発行する」で発行・印刷
-  A.issue = () => { const rows = checked(); if (!rows.length) return toast('発行する現場を選択してください（見出しのチェックで全件）', true);
-    const re = rows.filter(r => r.issues).length, sites = picks(rows), ids = Object.keys(sites).map(Number);
-    modal({ title: '請求書の発行確認', submit: '発行する', wide: rows.length > 3, body: `<p>選択した <b>${ids.length}得意先・${rows.length}現場</b>（請求額合計 <b>${yen(rows.reduce((n, r) => n + r.total, 0))}</b> 円）の請求書を発行し、印刷画面を開きます。${re ? `<br><span class="check-ng">うち ${re}現場は発行済みのため再発行になります。</span>` : ''}</p>
-      <div style="max-height:300px;overflow:auto;margin-top:8px">${table([{ label: 'No', value: r => r.inv.id }, { label: '締日', value: r => r.inv.closing }, { label: '得意先', value: r => `${r.inv.customer} ${r.inv.customerName}` }, { label: '現場', html: siteCell }, { label: '請求額', num: 1, value: r => yen(r.total) }, { label: '発行', value: r => (r.issues ? `${r.issues}回目済 → 再発行` : '初回') }], rows)}</div>`,
-      onSubmit: async () => { const r = await post('/api/invoices/issue', { ids, sites }); printDocs(r.documents); await render(); } }); };
-  A.bulk = async () => {
-    // 10/14 打合せ：チェックなし＝表示中の発行済み全件、チェックあり＝選択分（現場ごとに最新の発行分）
-    const rows = (checked().length ? checked() : lines).filter(r => r.issues); if (!rows.length) return toast('発行済みの請求書がありません', true);
+  // 現場ごとに最新の発行分を1シートにした Excel をダウンロード（一括ダウンロード・発行後に共通）
+  const book = async rows => {
     const sites = picks(rows), ids = Object.keys(sites);
     const res = await fetch('/api/invoices/book?' + qs({ ids: ids.join(','), sites: JSON.stringify(sites) }), { cache: 'no-store' });
     if (!res.ok) return toast((await res.json().catch(() => ({}))).error || 'ダウンロードできません', true);
     const url = URL.createObjectURL(await res.blob()), el = document.createElement('a'); el.href = url; el.download = `請求書_${today()}_${rows.length}現場.xlsx`; el.click(); setTimeout(() => URL.revokeObjectURL(url), 2000);
-    toast(`${rows.length}現場の請求書をダウンロードしました（1現場＝1シート）`);
+    return true;
+  };
+  // 発行前に確認ポップアップ（件数・得意先・現場・請求額・初回／再発行）を出し、「発行する」で発行して Excel をダウンロード（2026-10-27、印刷画面から変更）
+  A.issue = () => { const rows = checked(); if (!rows.length) return toast('発行する現場を選択してください（見出しのチェックで全件）', true);
+    const re = rows.filter(r => r.issues).length, sites = picks(rows), ids = Object.keys(sites).map(Number);
+    modal({ title: '請求書の発行確認', submit: '発行する', wide: rows.length > 3, body: `<p>選択した <b>${ids.length}得意先・${rows.length}現場</b>（請求額合計 <b>${yen(rows.reduce((n, r) => n + r.total, 0))}</b> 円）の請求書を発行し、Excel（1現場＝1シート）をダウンロードします。${re ? `<br><span class="check-ng">うち ${re}現場は発行済みのため再発行になります。</span>` : ''}</p>
+      <div style="max-height:300px;overflow:auto;margin-top:8px">${table([{ label: 'No', value: r => r.inv.id }, { label: '締日', value: r => r.inv.closing }, { label: '得意先', value: r => `${r.inv.customer} ${r.inv.customerName}` }, { label: '現場', html: siteCell }, { label: '請求額', num: 1, value: r => yen(r.total) }, { label: '発行', value: r => (r.issues ? `${r.issues}回目済 → 再発行` : '初回') }], rows)}</div>`,
+      onSubmit: async () => { await post('/api/invoices/issue', { ids, sites }); if (await book(rows)) toast(`${rows.length}現場の請求書を発行し、Excel をダウンロードしました（1現場＝1シート）`); await render(); } }); };
+  A.bulk = async () => {
+    // 10/14 打合せ：チェックなし＝表示中の発行済み全件、チェックあり＝選択分（現場ごとに最新の発行分）
+    const rows = (checked().length ? checked() : lines).filter(r => r.issues); if (!rows.length) return toast('発行済みの請求書がありません', true);
+    if (await book(rows)) toast(`${rows.length}現場の請求書をダウンロードしました（1現場＝1シート）`);
   };
   return page('請求締め・発行', '請求年月・締日・得意先（任意）で検索し、請求書を発行します。請求書は現場ごとに1枚で、見出しのチェックで全件、行のチェックで選択した現場だけを発行します（訂正後の再発行）。',
     `${invoiceSearch({ ...q, month })}<select id="inv-state" title="発行状況">${options(Object.entries(ISSUE_STATES).map(([code, name]) => ({ code, name })), ist, { blank: 'すべての発行状況', label: x => x.name })}</select>${canWrite() ? '<button class="primary" data-act="issue">請求書発行</button>' : ''}<button data-act="bulk" title="チェックなしは表示中の発行済み全件">⇩ 一括ダウンロード</button>`,
