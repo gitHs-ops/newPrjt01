@@ -173,7 +173,8 @@ const SUBMENUS = {
   // 請求書発行は 2026-10-27 に請求一覧照会から分けた（10/26 打合せ・提案書 P13。照会は確認と発行確認表の出力だけ）
   invoices: [{ k: 'precheck', l: '発行前確認一覧', q: { view: 'precheck' }, hidden: true }, { k: 'create', l: '請求データ作成', tools: false }, { k: 'list', l: '請求一覧照会', tools: true }, { k: 'issue', l: '請求書発行', q: { view: 'issue' } }, { k: 'reports', l: '請求帳票' }, { k: 'balance', l: '得意先別残高照会', q: { view: 'balance' } }, { k: 'ledger', l: '請求残高照会', q: { view: 'ledger' } }],
   // 入金予定一覧は 2026-10-27 削除（機能一覧 NO16 対象外。入金予定は入金予定チェックリストで確認）
-  receipts: [{ k: 'targets', l: '入金消込', q: { tab: 'targets' } }, { k: 'list', l: '入金一覧', tools: true }, { k: 'schedule', l: '入金予定チェックリスト' }],
+  // 入金一覧・入金予定チェックリストは 2026-10-27 非表示（10/27 打合せ：消込の結果は入金消込の一覧で確認、入金予定チェックリストは不要。画面・API は残す）
+  receipts: [{ k: 'targets', l: '入金消込', q: { tab: 'targets' } }, { k: 'list', l: '入金一覧', tools: true, hidden: true }, { k: 'schedule', l: '入金予定チェックリスト', hidden: true }],
   // 10/21 打合せの処理順（実在庫登録 → 配合計算 → 材料受払表 → 在庫計上）に並べる
   inventory: [{ k: 'count', l: '実在庫登録' }, { k: 'reports', l: '在庫登録リスト・配合計算・材料受払表' }, { k: 'list', l: '在庫一覧・在庫計上' }],
   payables: [{ k: 'list', l: '定時請求一覧・入力' }, { k: 'reports', l: '定時請求入力明細表' }],
