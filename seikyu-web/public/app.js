@@ -168,9 +168,9 @@ async function act(fn, msg) { try { const r = await fn(); if (msg) toast(typeof 
 const SUBMENUS = {
   // 出荷予定・納品書発行は機能一覧の範囲外（推定実装）のため小メニューを無効表示（納品書発行は 2026-10-24）（2026-10-23、要否は大西さんに確認。画面・API は残す）
   shipments: [{ k: 'slips', l: '出荷伝票' }, { k: 'plans', l: '出荷予定', q: { tab: 'plans' }, disabled: true }, { k: 'notes', l: '納品書発行', disabled: true }, { k: 'reports', l: '出荷・売上帳票' }],
-  // 発行前確認一覧は 2026-10-25 非表示 → 2026-10-27 再表示（請求漏れの確認方法を大西さんに確認するため。確認事項 F）
+  // 発行前確認一覧は 2026-10-25 非表示 → 2026-10-27 再表示（確認事項 F）→ 2026-10-27 再び非表示（画面・API は残す）
   // 請求書発行は 2026-10-27 に請求一覧照会から分けた（10/26 打合せ・提案書 P13。照会は確認と発行確認表の出力だけ）
-  invoices: [{ k: 'precheck', l: '発行前確認一覧', q: { view: 'precheck' } }, { k: 'create', l: '請求データ作成', tools: false }, { k: 'list', l: '請求一覧照会', tools: true }, { k: 'issue', l: '請求書発行', q: { view: 'issue' } }, { k: 'reports', l: '請求帳票' }, { k: 'balance', l: '得意先別残高照会', q: { view: 'balance' } }, { k: 'ledger', l: '請求残高照会', q: { view: 'ledger' } }],
+  invoices: [{ k: 'precheck', l: '発行前確認一覧', q: { view: 'precheck' }, hidden: true }, { k: 'create', l: '請求データ作成', tools: false }, { k: 'list', l: '請求一覧照会', tools: true }, { k: 'issue', l: '請求書発行', q: { view: 'issue' } }, { k: 'reports', l: '請求帳票' }, { k: 'balance', l: '得意先別残高照会', q: { view: 'balance' } }, { k: 'ledger', l: '請求残高照会', q: { view: 'ledger' } }],
   // 入金予定一覧は 2026-10-27 削除（機能一覧 NO16 対象外。入金予定は入金予定チェックリストで確認）
   receipts: [{ k: 'targets', l: '入金消込', q: { tab: 'targets' } }, { k: 'list', l: '入金一覧', tools: true }, { k: 'schedule', l: '入金予定チェックリスト' }],
   // 10/21 打合せの処理順（実在庫登録 → 配合計算 → 材料受払表 → 在庫計上）に並べる
