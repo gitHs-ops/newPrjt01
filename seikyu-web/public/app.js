@@ -977,7 +977,7 @@ function receiptForm(customer, receiptId = 0) {
       <tr class="muted"><th>手形・でんさい</th><td><input name="notes" class="num" value="0" style="width:150px"></td><td class="small">受取手形 1120<label class="rc-inline">手形期日 <input type="date" name="noteDue"></label></td></tr></tbody>
       <tfoot><tr><th>消込金額</th><td class="num"><b id="rc-sum">0</b></td><td id="rc-diff" class="small"></td></tr></tfoot></table></div>
     <label class="field wide" style="margin-top:8px"><span>差額の扱い</span><span><input type="checkbox" name="overpayToDeposit"> 今回請求金額を超えた分（過入金）を預り金として受け入れる（貸方 預り金 4170）</span></label>
-    <details id="rc-detail" style="margin-top:8px"><summary>請求No 別の消込内訳（古い順に自動配分。変更もできます）</summary><div id="rc-alloc" class="small muted" style="margin-top:6px"></div></details>`,
+    <details id="rc-detail" hidden><summary>請求No 別の消込内訳</summary><div id="rc-alloc" class="small muted" style="margin-top:6px"></div></details>`,
     onOpen: f => {
       let ctx = { invoices: [], deposit: 0 }, manual = false;
       const total = () => RC_KEYS.reduce((n, [k]) => n + (Number(f[k].value) || 0), 0);
