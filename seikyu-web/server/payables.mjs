@@ -185,6 +185,13 @@ export async function vendorDue(c, vendorCode, date) {
   const last = new Date(Date.UTC(y, mo - 1 + months + 1, 0)).getUTCDate();
   return new Date(Date.UTC(y, mo - 1 + months, Math.min(day, last))).toISOString().slice(0, 10);
 }
+// 業者立替金（1431）の残高＝開始残高（業者マスタ）＋仕訳の借方−貸方（業者ごと。取消は逆仕訳で戻る）
+export const ADVANCE_ACCOUNT = '1431';
+export async function advanceBalance(c, vendorId) {
+  const o = await one(c, "SELECT COALESCE(SUM(amount),0) n FROM opening_balance WHERE vendor_id=? AND balance_kind='ADVANCE'", [vendorId]);
+  const j = await one(c, "SELECT COALESCE(SUM(CASE WHEN side='D' THEN amount ELSE -amount END),0) n FROM journal_line WHERE account_code=? AND vendor_id=?", [ADVANCE_ACCOUNT, vendorId]);
+  return Number(o.n) + Number(j.n);
+}
 // 10/19 打合せ：定時請求・小口現金は 1伝票＝複数明細（科目・内訳・処税率・金額・摘要コード7桁・摘要名）、合計は明細から自動集計。
 // 定時請求の請求No は業者ごとの4桁連番。
 export async function createExpense(c, ctx, p) {
@@ -196,18 +203,23 @@ export async function createExpense(c, ctx, p) {
   const dept = text(p.dept || '063', '組織（部門）', 20);
   const input = Array.isArray(p.lines) ? p.lines : [{ account: p.account, sub: p.sub, taxCode: p.taxCode, amount: p.amount, memo: p.memo }];
   const ls = [];
-  for (const [i, l] of input.entries()) {
+  for (let [i, l] of input.entries()) {
     const label = `${i + 1}行目`;
     if (!l.account && !l.amount) continue;
     const acc = await one(c, 'SELECT * FROM account_subject WHERE account_code=?', [String(l.account || '')]); check(acc?.active, `${label}: 有効な勘定科目を選択してください`);
     const sub = String(l.sub || '') || null;
     if (sub) check(await one(c, 'SELECT 1 x FROM account_subsubject WHERE account_code=? AND sub_code=? AND active', [acc.account_code, sub]), `${label}: 内訳科目が上位科目に登録されていません`);
     const amount = yen(l.amount, `${label}の金額`, { negative: true }); check(amount !== 0, `${label}: 金額を入力してください`); // マイナス行（戻し・値引）は貸方に計上
+    // 業者立替金（10/28 回答：立替金は定時請求の画面で入力）：科目 1431 の行＝立替金との相殺。マイナスで入力、処税率は対象外に固定。小口現金では使わない
+    const isAdv = acc.account_code === ADVANCE_ACCOUNT;
+    if (isAdv) { check(kind === 'PAYABLE', `${label}: 業者立替金は定時請求で入力してください`); check(amount < 0, `${label}: 業者立替金（相殺）はマイナスで入力してください`); l = { ...l, taxCode: '090' }; }
     // 内税（1桁目 1）：金額は税込、消費税は内数。外税（1桁目 2・空白）：金額は税抜、消費税を上乗せ（現行 HAW050 の「外税消費税」）
     const d = mustDecode(l.taxCode || '141', `${label}の処税率`), tax = d.code, taxAmt = Math.sign(amount) * taxOf(Math.abs(amount), tax), excl = !!d.excl;
     ls.push({ account: acc.account_code, sub, tax, amount, excl, taxAmt, gross: excl ? amount + taxAmt : amount, memoCode: text(l.memoCode, `${label}の摘要コード`, 7, { required: false, pattern: /^\d{1,7}$/ }), memo: text(l.memo, `${label}の摘要名`, 500, { required: false }) });
   }
   check(ls.length, '明細を入力してください'); check(ls.length <= 99, '明細は99行以内です');
+  const advUse = -ls.filter(l => l.account === ADVANCE_ACCOUNT).reduce((n, l) => n + l.amount, 0);
+  if (advUse) { const bal = await advanceBalance(c, v.vendor_id); check(advUse <= bal, `業者立替金の相殺額（${advUse.toLocaleString('ja-JP')}円）が立替金の残高（${bal.toLocaleString('ja-JP')}円）を超えています`); }
   // 外税消費税は画面で調整できる（端数）。計算値との差は最後の外税明細の消費税で調整
   const exLines = ls.filter(l => l.excl), exCalc = exLines.reduce((n, l) => n + l.taxAmt, 0);
   if (p.extTax !== undefined && String(p.extTax).trim() !== '') {
@@ -230,7 +242,7 @@ export async function createExpense(c, ctx, p) {
       [r.insertId, i + 1, l.account, l.sub, dept, l.tax, l.gross - l.taxAmt, l.taxAmt, l.gross, payee && i === 0 ? payee : l.memo || memo, l.memoCode || null]);
   // 外税の明細は科目に税抜金額、消費税は仮払消費税 1465 に計上（推定）。内税・対象外は従来どおり科目に金額
   await postJournal(c, { date, pattern: kind === 'PAYABLE' ? 'D01' : 'E01', sourceType: 'expense_document', sourceId: r.insertId, lines: [
-    ...ls.map(l => line(l.amount < 0 ? 'C' : 'D', l.account, Math.abs(l.amount), { sub: l.sub, dept, tax: l.tax })), ...(extTax ? [line(extTax < 0 ? 'C' : 'D', '1465', Math.abs(extTax), { tax: '9' })] : []), kind === 'PAYABLE' ? line('C', '4121', amount, { vendor: v.vendor_id, tax: '9' }) : line('C', '1111', amount, { tax: '9' })] });
+    ...ls.map(l => line(l.amount < 0 ? 'C' : 'D', l.account, Math.abs(l.amount), { sub: l.sub, dept, tax: l.tax, ...(l.account === ADVANCE_ACCOUNT ? { vendor: v.vendor_id } : {}) })), ...(extTax ? [line(extTax < 0 ? 'C' : 'D', '1465', Math.abs(extTax), { tax: '9' })] : []), kind === 'PAYABLE' ? line('C', '4121', amount, { vendor: v.vendor_id, tax: '9' }) : line('C', '1111', amount, { tax: '9' })] });
   await audit(c, ctx, 'expense_document', r.insertId, kind === 'PAYABLE' ? 'payable.create' : 'pettycash.create', { no, billNo, vendor: v?.vendor_code, lines: ls.length, amount });
   return { id: r.insertId, no, billNo, due };
 }
@@ -264,9 +276,8 @@ export async function createPayment(c, ctx, p) {
   // 仕訳パターン分析 F-02（先方負担手数料差引：雑収入8790-001＋仮受消費税）・F-03（相殺：業者立替金1431）に準拠（推定、Q03）
   const fee = yen(p.fee || 0, '振込手数料（先方負担）'), offset = yen(p.offset || 0, '相殺額'), safety = yen(p.safety || 0, '安全協力費');
   if (offset) {
-    const adv = await one(c, "SELECT COALESCE(SUM(amount),0) n FROM opening_balance WHERE vendor_id=? AND balance_kind='ADVANCE'", [v.vendor_id]);
-    const used = await one(c, "SELECT COALESCE(SUM(offset_amount),0) n FROM payment WHERE vendor_id=? AND status='POSTED'", [v.vendor_id]);
-    check(offset <= Number(adv.n) - Number(used.n), `相殺額が業者立替金の残高（${(Number(adv.n) - Number(used.n)).toLocaleString('ja-JP')}円）を超えています`);
+    const bal = await advanceBalance(c, v.vendor_id);
+    check(offset <= bal, `相殺額が業者立替金の残高（${bal.toLocaleString('ja-JP')}円）を超えています`);
   }
   const bankCode = String(p.bankCode || ''); const b = await one(c, "SELECT category1 FROM code_m WHERE code_key='BANK' AND code_dtl=?", [bankCode]); check(b && b.category1 !== '0', '支払元口座（銀行）を選択してください');
   check(Array.isArray(p.allocations) && p.allocations.length, '支払対象の伝票を選択してください');

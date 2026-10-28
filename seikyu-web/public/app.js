@@ -1193,6 +1193,9 @@ function expenseView(kind) {
           const ext = f.querySelector('[name=extTax]'); ext.addEventListener('input', () => { ext.dataset.manual = ext.value.trim() === '' ? '' : '1'; recalc(); });
           f.querySelector('[name=total]').addEventListener('input', recalc);
         }
+        // 業者立替金 1431（10/28 回答②）：相殺の行。処税率は対象外に固定し、マイナスで入力する
+        g.addEventListener('change', e => { if (e.target.name !== 'account') return; const tr = e.target.closest('tr'), t = tr.querySelector('[name=taxCode]'), a = tr.querySelector('[name=amount]'), adv = e.target.value === '1431';
+          if (t) { if (adv && [...t.options].some(o => o.value === '090')) t.value = '090'; t.disabled = adv; } if (a) a.placeholder = adv ? '相殺額をマイナスで（例 -50000）' : ''; });
         g.addEventListener('change', e => { if (e.target.name === 'account') { const tr = e.target.closest('tr'), acc = masters.accounts.find(a => a.code === e.target.value); tr.querySelector('[name=sub]').innerHTML = '<option value="">（なし）</option>' + options(active('subaccounts').filter(s => s.account === e.target.value), ''); if (acc?.tax && tr.querySelector(`[name=taxCode] option[value="${acc.tax}"]`)) tr.querySelector('[name=taxCode]').value = acc.tax; }
           if (['account', 'sub'].includes(e.target.name)) names(e.target.closest('tr')); recalc(); });
         g.addEventListener('input', recalc); g.addEventListener('click', () => setTimeout(recalc)); recalc(); },
@@ -1230,7 +1233,7 @@ VIEWS.payments = async q => {
   A.misc = d => miscReport(d.kind, d.src).catch(e => toast(e.message, true));
   const month = q.month || '', list = await api('/api/payments?' + qs({ month }));
   A.new = () => { const key = uuid(); modal({ title: '支払の登録', wide: true, submit: '支払を登録', sample: true, body: `<div class="form-grid">${field('業者', `<select name="vendor">${options(active('vendors'), '', { blank: '選択してください' })}</select>`, { req: 1 })}
-      ${field('支払日', `<input type="date" name="date" value="${today()}">`, { req: 1 })}${field('支払元口座', `<select name="bankCode">${options(active('banks'), active('banks')[0]?.code)}</select>`, { req: 1 })}${field('振込手数料（先方負担・差引）', '<input name="fee" class="num" value="0">')}${field('相殺額（業者立替金）', '<input name="offset" class="num" value="0">')}${field('安全協力費（差引）', '<input name="safety" class="num" value="0">')}<div class="note" id="py-payee">振込先: -</div></div>
+      ${field('支払日', `<input type="date" name="date" value="${today()}">`, { req: 1 })}${field('支払元口座', `<select name="bankCode">${options(active('banks'), active('banks')[0]?.code)}</select>`, { req: 1 })}${field('振込手数料（先方負担・差引）', '<input name="fee" class="num" value="0">')}${/* 業者立替金の相殺は定時請求データ入力の明細（科目 1431、マイナス）で入力する（10/28 回答②）。支払の画面では入力しない */ ''}<input type="hidden" name="offset" value="0">${field('安全協力費（差引）', '<input name="safety" class="num" value="0">')}<div class="note" id="py-payee">振込先: -</div></div>
       <h3 style="margin-top:12px">支払対象の定時請求</h3><div id="py-open" class="muted small">業者を選択してください</div>`,
     onOpen: f => { f.vendor.onchange = async () => {
       const v = masters.vendors.find(x => x.code === f.vendor.value); $('#py-payee').textContent = v?.bank ? `振込先: ${v.bank}-${v.branch} ${({ 1: '普通', 2: '当座', 4: '貯蓄' })[v.accountType] || ''} ${v.account} ${v.holder}` : '振込先: 未登録（マスタ管理で登録できます）';
