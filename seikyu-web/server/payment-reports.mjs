@@ -79,7 +79,7 @@ async function carryRows(c, date, vendorCode) {
       (SELECT COALESCE(SUM(a.amount),0) FROM payment_allocation a JOIN payment p ON p.payment_id=a.payment_id AND p.status='POSTED' AND p.paid_on<=? WHERE a.expense_id=d.expense_id) paid
     FROM expense_document d JOIN vendor v ON v.vendor_id=d.vendor_id WHERE d.expense_kind='PAYABLE' AND d.status='POSTED' AND d.booked_on<=?${w} ORDER BY v.vendor_code, d.booked_on`, args);
   const base = date.slice(0, 7), out = [];
-  const adv = Object.fromEntries((await rows(c, "SELECT v.vendor_code, COALESCE((SELECT SUM(amount) FROM opening_balance o WHERE o.vendor_id=v.vendor_id AND o.balance_kind='ADVANCE'),0) - COALESCE((SELECT SUM(offset_amount) FROM payment p WHERE p.vendor_id=v.vendor_id AND p.status='POSTED' AND p.paid_on<=?),0) bal FROM vendor v", [date])).map(r => [r.vendor_code, num(r.bal)]));
+  const adv = Object.fromEntries((await rows(c, "SELECT v.vendor_code, COALESCE((SELECT SUM(amount) FROM opening_balance o WHERE o.vendor_id=v.vendor_id AND o.balance_kind='ADVANCE'),0) + COALESCE((SELECT SUM(CASE WHEN l.side='D' THEN l.amount ELSE -l.amount END) FROM journal_line l JOIN journal_entry e ON e.journal_id=l.journal_id WHERE l.account_code='1431' AND l.vendor_id=v.vendor_id AND e.journal_date<=?),0) bal FROM vendor v", [date])).map(r => [r.vendor_code, num(r.bal)]));
   for (const d of docs) {
     const bal = num(d.gross_amount) - num(d.paid); if (bal <= 0) continue;
     let v = out.find(x => x.vendor === d.vendor_code); if (!v) out.push(v = { vendor: d.vendor_code, name: d.vendor_name, m3: 0, m2: 0, m1: 0, m0: 0, total: 0, offset: 0, net: 0, docs: [] });
