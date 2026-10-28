@@ -38,8 +38,8 @@ export const stamp = () => {
 
 export const line = (side, account, amount, extra = {}) => ({ side, account, amount, ...extra });
 // 伝票番号は現行（仕訳帳 AC2205）の系列ごとの連番を引き継ぐ：R 売掛計上・B 入金・S 定時請求・K 小口現金・U 支払、接頭辞なし6桁＝在庫計上・小口補充。
-export const SLIP_SERIES = { A01: 'R', B01: 'B', D01: 'S', E01: 'K', F01: 'U', C01: '', G03: '' };
-export const SLIP_SEED = { R: 819, B: 27587, S: 14435, K: 2032, U: 14402, '': 100321 }; // 現行の最終番号（次は R00820・B27588・S14436・K02033・U14403・100322）
+export const SLIP_SERIES = { A01: 'R', B01: 'B', D01: 'S', E01: 'K', F01: 'U', C01: 'I', G03: '' }; // 頭1桁：更新処理について.xlsx Sheet1（K小口・B入金・U定時支払・R売掛・I在庫・S請求書）。G03 小口補充は資料になし
+export const SLIP_SEED = { R: 819, B: 27587, S: 14435, K: 2032, U: 14402, I: 0, '': 100321 }; // 現行の最終番号（次は R00820・B27588・S14436・K02033・U14403・100322）
 export const formatSlipNo = (series, n) => series + String(n).padStart(series ? 5 : 6, '0'); // 現行（移行データ）の形式
 // 10/26 打合せ「伝票番号の採番」：伝票別に頭1桁の英数＋処理西暦年度（4桁）＋5桁連番。連番は伝票の種類×年度ごとに 1 から（2026-10-28）
 export const formatSlipNoFy = (series, fy, n) => `${series}${fy}${String(n).padStart(5, '0')}`;
