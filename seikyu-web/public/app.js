@@ -1142,7 +1142,7 @@ function expenseView(kind) {
     const A = actions;
     A.fund = () => pettyFundDialog().catch(e => toast(e.message, true)); A.refill = () => pettyRefillDialog().catch(e => toast(e.message, true));
     A.misc = d => miscReport(d.kind, d.src).catch(e => toast(e.message, true));
-    const month = q.month || '', list = await api('/api/expenses?' + qs({ kind, month, vendor: q.vendor })), payable = kind === 'PAYABLE';
+    const month = q.month || thisMonth(), list = await api('/api/expenses?' + qs({ kind, month, vendor: q.vendor })), payable = kind === 'PAYABLE';
     const accOpts = options(active('accounts').filter(a => !['1111', '1112', '1120', '1131', '4121', '4415'].includes(a.code)), '', { blank: '（科目）' });
     const hwCols = [{ name: 'account', label: '科目', cell: () => `<select name="account">${accOpts}</select>` },
       { name: 'sub', label: '内訳／摘要コード', cell: () => '<div class="l2"><select name="sub"><option value="">（なし）</option></select><input name="memoCode" maxlength="7" placeholder="摘要コード（工事・7桁）"></div>' },

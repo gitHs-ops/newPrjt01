@@ -315,6 +315,8 @@ details summary { cursor: pointer; font-size: 12.5px; color: var(--accent-second
   .slip-sheet .sv-site > span { display: none; }
 }
 dialog.modal.wide:has(.slip-sheet) { width: min(1320px, calc(100vw - 24px)); } /* 出荷伝票は提案書の横長レイアウト */
+dialog.modal.wide:has(#pu-lines) { width: min(1320px, calc(100vw - 24px)); } /* 商品仕入：種別・処税率が欠けないよう広げる */
+#pu-lines select[name=lineKind] { min-width: 92px; }
 
 /* 請求書発行確認表（現行 HAR430） */
 .har430-head { display: flex; flex-wrap: wrap; gap: 6px 22px; margin-bottom: 10px; font-size: 13px; }
