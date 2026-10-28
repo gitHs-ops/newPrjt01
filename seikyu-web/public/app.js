@@ -176,7 +176,7 @@ const SUBMENUS = {
   // 入金一覧・入金予定チェックリストは 2026-10-27 非表示（10/27 打合せ：消込の結果は入金消込の一覧で確認、入金予定チェックリストは不要。画面・API は残す）
   receipts: [{ k: 'targets', l: '入金消込', q: { tab: 'targets' } }, { k: 'list', l: '入金一覧', tools: true, hidden: true }, { k: 'schedule', l: '入金予定チェックリスト', hidden: true }],
   // 10/21 打合せの処理順（実在庫登録 → 配合計算 → 材料受払表 → 在庫計上）に並べる
-  inventory: [{ k: 'count', l: '実在庫登録', tools: false }, { k: 'reports', l: '在庫登録リスト・配合計算・材料受払表' }, { k: 'list', l: '在庫一覧・在庫計上', tools: true }],
+  inventory: [{ k: 'count', l: '実在庫登録', tools: false }, { k: 'reports', l: '在庫登録リスト・配合計算・材料受払表' }, { k: 'post', l: '在庫計上', tools: false }, { k: 'list', l: '在庫一覧', tools: true }],
   payables: [{ k: 'list', l: '定時請求一覧・入力' }, { k: 'reports', l: '定時請求入力明細表' }],
   cash: [{ k: 'list', l: '小口現金一覧・登録' }, { k: 'book', l: '出納簿・定額資金・現金補充' }],
   payments: [{ k: 'list', l: '支払一覧・登録' }, { k: 'reports', l: '支払帳票・全銀データ' }, { k: 'transfer', l: '振込先一覧' }, { k: 'bank', l: '銀行別随時支払一覧表' }],
@@ -1108,13 +1108,13 @@ VIEWS.inventory = async q => {
   const ro = cnt.posted || !canWrite(), qtyOf = v => (v === null || v === undefined ? '' : String(v));
   const countCard = `<section class="card glass" data-sub="count"><div class="card-head"><h2>実在庫登録</h2></div>
     <div class="filters"><label class="field">調査日<input type="date" id="ic-date" name="date" data-filter value="${esc(cnt.date)}"></label><span>月度 <b>${esc(cnt.month)}</b></span>${cnt.posted ? badge('在庫計上済', 'green') : badge(`登録 ${cnt.registered}品目`, cnt.registered ? '' : 'gray')}
-      <input id="ic-search" placeholder="コード・名称で絞込" style="width:200px"><label class="small"><input type="checkbox" id="ic-only"> 入力済みのみ</label>${!canWrite() ? '' : cnt.posted ? '<button class="primary" disabled title="この月度は在庫計上済みです。在庫一覧・在庫計上で取消すと登録できます">登録</button><span class="muted small">（在庫計上済みのため登録できません）</span>' : '<button class="primary" data-act="countSave">登録</button>'}</div>
-    ${cnt.posted ? '<p class="note small">この月度は在庫計上済みのため変更できません（入力欄はロック）。修正するときは <a href="#inventory/list">在庫一覧・在庫計上</a> で在庫計上を取消してください。未計上の月度は上の「調査日」を変えて［検索］すると入力できます。</p>' : '<p class="note small">① ここで品目ごとの在庫数量を入力して［登録］ → ② <a href="#inventory/reports">配合計算・材料受払表</a> → ③ <a href="#inventory/list">在庫一覧・在庫計上</a> で［在庫計上］（月度ごとに1回）。</p>'}
+      <input id="ic-search" placeholder="コード・名称で絞込" style="width:200px"><label class="small"><input type="checkbox" id="ic-only"> 入力済みのみ</label>${!canWrite() ? '' : cnt.posted ? '<button class="primary" disabled title="この月度は在庫計上済みです。「在庫計上」で取消すと登録できます">登録</button><span class="muted small">（在庫計上済みのため登録できません）</span>' : '<button class="primary" data-act="countSave">登録</button>'}</div>
+    ${cnt.posted ? '<p class="note small">この月度は在庫計上済みのため変更できません（入力欄はロック）。修正するときは <a href="#inventory/post">在庫計上</a> で在庫計上を取消してください。未計上の月度は上の「調査日」を変えて［検索］すると入力できます。</p>' : '<p class="note small">① ここで品目ごとの在庫数量を入力して［登録］ → ② <a href="#inventory/reports">配合計算・材料受払表</a> → ③ <a href="#inventory/post">在庫計上</a> で［在庫計上］（月度ごとに1回）。</p>'}
     <div class="table-wrap" style="max-height:60vh;overflow:auto"><table id="ic-grid"><thead><tr><th>区分</th><th>コード</th><th>商品名／製品名</th><th>単位</th><th class="num">在庫数量</th></tr></thead><tbody>
     ${cnt.items.map(r => `<tr data-text="${esc((r.code + ' ' + r.name).toLowerCase())}"><td class="small muted">${esc(r.kind)}</td><td>${esc(r.code)}</td><td>${esc(r.name)}</td><td>${esc(r.unit)}</td><td class="num"><input class="num ic-qty" data-item="${esc(r.code)}" data-orig="${esc(qtyOf(r.quantity))}" value="${esc(qtyOf(r.quantity))}" inputmode="decimal" style="width:130px" ${ro ? 'disabled' : ''}></td></tr>`).join('')}
     </tbody></table></div>
     <div class="filters" style="margin-top:10px"><span class="muted small">空欄は未登録。登録済みの数量を消して登録すると、その品目の実在庫を取り消します。数量は小数2桁まで。</span></div></section>`;
-  const postCard = `<section class="card glass" data-sub="list"><div class="card-head"><h2>在庫計上（月次1回）</h2></div>
+  const postCard = `<section class="card glass" data-sub="post"><div class="card-head"><h2>在庫計上（月次1回）</h2></div>
     <div class="filters"><label class="field">計上月度<input type="month" id="ip-month" value="${esc(cnt.month)}"></label>${canWrite() ? '<button class="primary" data-act="post">在庫計上</button><button class="danger" data-act="unpost">在庫計上の取消</button>' : ''}</div>
     </section>`;
   return page('在庫', '実在庫登録 → 配合計算 → 材料受払表 → 在庫計上（月次1回）の順に処理します（10/21 打合せ）。', `${monthInput('month', q.month || thisMonth())}${csvLink('inventory', { month: q.month || thisMonth() })}`,
