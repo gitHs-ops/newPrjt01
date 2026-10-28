@@ -126,6 +126,8 @@ export async function saveCounts(c, ctx, p) {
   await audit(c, ctx, 'inventory_count', month.replace('-', ''), 'inventory.count', { month, date, saved, cleared });
   return { month, saved, cleared };
 }
+// 在庫計上（C01）の直近の伝票番号（結果のポップアップ表示用）
+const lastInvSlip = async (c, end) => (await one(c, "SELECT n.slip_no FROM journal_entry e JOIN app_slip_no n ON n.journal_id=e.journal_id WHERE e.pattern_code='C01' AND e.journal_date=? ORDER BY e.journal_id DESC LIMIT 1", [end]))?.slip_no || '';
 export async function postInventory(c, ctx, p) {
   const P = await companyPeriod(c), month = isoMonth(p.month, '計上月'), end = P.closeOf(+month.slice(0, 4), +month.slice(5, 7)), { from, to } = P.monthRange(month); await assertOpen(c, end);
   check(!(await isPosted(c, month)), `${month} 月度は在庫計上済みです（在庫計上は月次で1回）`);
@@ -143,7 +145,7 @@ export async function postInventory(c, ctx, p) {
   }
   await repostInventoryMonth(c, month, end);
   await audit(c, ctx, 'inventory_count', month.replace('-', ''), 'inventory.post', { month, items: list.length, value: total });
-  return { month, items: list.length, value: total };
+  return { month, items: list.length, value: total, date: end, slipNo: await lastInvSlip(c, end) };
 }
 export async function unpostInventory(c, ctx, p) {
   const P = await companyPeriod(c), month = isoMonth(p.month, '計上月'), end = P.closeOf(+month.slice(0, 4), +month.slice(5, 7)); await assertOpen(c, end);
@@ -152,7 +154,7 @@ export async function unpostInventory(c, ctx, p) {
   await c.query("UPDATE inventory_count SET valuation_price=0, valuation_amount=0, status='DRAFT', row_version=row_version+1 WHERE period_start=? AND location_code='MAIN' AND status='POSTED'", [month + '-01']);
   await repostInventoryMonth(c, month, end);
   await audit(c, ctx, 'inventory_count', month.replace('-', ''), 'inventory.unpost', { month });
-  return { month };
+  return { month, date: end, slipNo: await lastInvSlip(c, end) };
 }
 export async function deleteInventory(c, ctx, { id }) {
   const r = await one(c, 'SELECT * FROM inventory_count WHERE inventory_id=? FOR UPDATE', [Number(id)]); if (!r) throw new Conflict('在庫が見つかりません');

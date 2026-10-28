@@ -68,9 +68,11 @@ document.addEventListener('change', e => {
   const all = e.target.dataset?.pickAll; if (all) return $$('.' + all).forEach(x => { x.checked = e.target.checked; });
   const h = [...e.target.classList].map(k => $(`[data-pick-all="${k}"]`)).find(Boolean); if (h) { const xs = $$('.' + h.dataset.pickAll); h.checked = xs.every(x => x.checked); h.indeterminate = !h.checked && xs.some(x => x.checked); }
 });
-function alertBox(msg) {
+// ok: true で完了報告（緑の ✓・見出し title）。既定はエラー（赤の !・「確認してください」）
+function alertBox(msg, { ok = false, title } = {}) {
   const d = $('#alert-dialog');
   if (!d?.showModal) return window.alert(msg);
+  d.classList.toggle('ok', ok); $('#alert-title').textContent = title || (ok ? '完了しました' : '確認してください'); d.querySelector('.alert-icon').textContent = ok ? '✓' : '!';
   $('#alert-msg').textContent = msg;
   if (!d.open) d.showModal();
   $('#alert-ok').focus();
@@ -1103,8 +1105,15 @@ VIEWS.inventory = async q => {
     if (!lines.length) return toast(`変更された在庫数量がありません。「在庫数量」欄に数量を入力・変更してから［登録］してください（${cnt.items.filter(r => qtyOf(r.quantity) !== '').length}件は登録済みで、そのまま有効です）`, true);
     const r = await post('/api/inventory/counts', { date: $('#ic-date').value, lines }); toast(`${r.month} 月度の実在庫を登録しました（${r.saved}件${r.cleared ? `・取消 ${r.cleared}件` : ''}）`); render();
   };
-  A.post = () => { const month = $('#ip-month').value; confirmBox('在庫計上', `${month} 月度の実在庫を評価し、月末在庫の洗い替え仕訳（C01）を作成します。在庫計上は月度ごとに1回です。`, async () => { const r = await post('/api/inventory/post', { month }); toast(`${r.month} 月度を在庫計上しました（${r.items}品目・評価額 ${yen(r.value)}円）`); render(); }, '在庫計上する'); };
-  A.unpost = () => { const month = $('#ip-month').value; confirmBox('在庫計上の取消', `${month} 月度の在庫計上を取消し、洗い替え仕訳を逆仕訳します。実在庫の数量は残ります。`, async () => { await post('/api/inventory/unpost', { month }); toast('在庫計上を取消しました'); render(); }, '取消する'); };
+  A.post = () => { const month = $('#ip-month').value; confirmBox('在庫計上', `${month} 月度の実在庫を評価し、月末在庫の洗い替え仕訳（C01）を作成します。在庫計上は月度ごとに1回です。`, async () => { const r = await post('/api/inventory/post', { month }); render(); alertBox(`計上月度　${r.month}
+品目数　　${r.items} 品目
+評価額　　${yen(r.value)} 円
+仕訳日付　${r.date}
+伝票番号　${r.slipNo ? r.slipNo + '（在庫計上 C01）' : 'なし（評価額・前月末在庫とも 0 円のため仕訳は作成されていません。評価単価は前月の評価単価と当月度の商品仕入から計算します）'}`, { ok: true, title: '在庫計上が完了しました' }); }, '在庫計上する'); };
+  A.unpost = () => { const month = $('#ip-month').value; confirmBox('在庫計上の取消', `${month} 月度の在庫計上を取消し、洗い替え仕訳を逆仕訳します。実在庫の数量は残ります。`, async () => { const r = await post('/api/inventory/unpost', { month }); render(); alertBox(`計上月度　${r.month}
+逆仕訳の日付　${r.date}
+逆仕訳の伝票番号　${r.slipNo || 'なし（取り消す仕訳がありませんでした）'}
+実在庫の数量は残っています。「実在庫登録」で修正できます。`, { ok: true, title: '在庫計上を取消しました' }); }, '取消する'); };
   const ro = cnt.posted || !canWrite(), qtyOf = v => (v === null || v === undefined ? '' : String(v));
   const countCard = `<section class="card glass" data-sub="count"><div class="card-head"><h2>実在庫登録</h2></div>
     <div class="filters"><label class="field">調査日<input type="date" id="ic-date" name="date" data-filter value="${esc(cnt.date)}"></label><span>月度 <b>${esc(cnt.month)}</b></span>${cnt.posted ? badge('在庫計上済', 'green') : badge(`登録 ${cnt.registered}品目`, cnt.registered ? '' : 'gray')}

@@ -454,3 +454,7 @@ input.file-native { position: absolute; width: 1px; height: 1px; opacity: 0; poi
 .table-wrap th { background: rgba(246,248,253,.97); z-index: 2; box-shadow: 0 1px 0 var(--field-border); }
 /* ロックされた入力欄（在庫計上済みの月度など）を見た目でも区別する */
 input:disabled, select:disabled, textarea:disabled { background: rgba(120,130,150,.10); color: var(--text-secondary); border-style: dashed; cursor: not-allowed; }
+
+/* 完了報告のポップアップ（alertBox ok） */
+.alert-dialog.ok .alert-icon { background: #dcfce7; color: #15803d; }
+.alert-dialog.ok #alert-msg { color: var(--text-primary); font-weight: 500; }
