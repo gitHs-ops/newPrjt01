@@ -1137,13 +1137,17 @@ function vendorTerms(v, date) {
   return { due, label: set ? `${months} ${day}（${when}支払）→ 支払予定日 ${due}` : `未設定（翌月末支払）→ 支払予定日 ${due}` };
 }
 // ----- 定時請求 / 小口現金（10/19 打合せ：ヘッダー＋複数明細、合計自動、請求No＝業者ごと4桁連番、支払予定日＝業者マスタの支払繰延区分）-----
+// 小口現金出納登録で先頭に出す科目（一般管理費 → 製造経費の順、2026-10-28）
+const PETTY_ACCOUNTS = ['8310', '8317', '8318', '8319', '8331', '8323', '8315', '8327', '83181', '8332', '8316', '8328', '8330',
+  '8254', '8255', '8257', '8256', '8258', '8253', '8260'];
 function expenseView(kind) {
   return async q => {
     const A = actions;
     A.fund = () => pettyFundDialog().catch(e => toast(e.message, true)); A.refill = () => pettyRefillDialog().catch(e => toast(e.message, true));
     A.misc = d => miscReport(d.kind, d.src).catch(e => toast(e.message, true));
     const month = q.month || thisMonth(), list = await api('/api/expenses?' + qs({ kind, month, vendor: q.vendor })), payable = kind === 'PAYABLE';
-    const accOpts = options(active('accounts').filter(a => !['1111', '1112', '1120', '1131', '4121', '4415'].includes(a.code)), '', { blank: '（科目）' });
+    const accs = active('accounts').filter(a => !['1111', '1112', '1120', '1131', '4121', '4415'].includes(a.code)), top = payable ? [] : PETTY_ACCOUNTS.map(c => accs.find(a => a.code === c)).filter(Boolean);
+    const accOpts = top.length ? `<option value="">（科目）</option><optgroup label="小口現金でよく使う科目">${options(top, '')}</optgroup><optgroup label="その他の科目">${options(accs.filter(a => !top.includes(a)), '')}</optgroup>` : options(accs, '', { blank: '（科目）' });
     const hwCols = [{ name: 'account', label: '科目', cell: () => `<select name="account">${accOpts}</select>` },
       { name: 'sub', label: '内訳／摘要コード', cell: () => '<div class="l2"><select name="sub"><option value="">（なし）</option></select><input name="memoCode" maxlength="7" placeholder="摘要コード（工事・7桁）"></div>' },
       { label: '科目名・内訳名／摘要', cell: () => '<div class="l2"><span class="hw-names muted small">科目を選択</span><input name="lmemo" maxlength="500" placeholder="摘要（自由入力）"></div>' },
