@@ -5,7 +5,8 @@ import { SYSTEM_ACCOUNTS } from './masters.mjs';
 import { TABLES } from './ledger.mjs';
 import { hashPassword, verifyPassword, ROLES } from './users.mjs';
 import { prepareKb, getsudoMigration } from './kb.mjs';
-import { SLIP_SERIES, SLIP_SEED, formatSlipNo } from './db.mjs';
+import { SLIP_SERIES, formatSlipNoFy, assignSlipNo, audit } from './db.mjs';
+import { companyPeriod } from './period.mjs';
 import { CUMULATIVE_SQL } from './sales.mjs';
 
 export const MENUS = [
@@ -22,14 +23,40 @@ export const MENUS = [
 //  伝票区分 A0009：2 は他社納入（旧本システムの訂正 2）→ 訂正は 5 に変更
 //  商品の製品・材料区分：2 製品 / 1 材料（旧本システムは逆）／ delete_f：有効は空（旧 '0'）
 //  ロール：参照者 3 → 5（3 は現行の manager）／ 採番：キー 1〜5 → 101〜105（1〜6 は現行が使用）／ payment_money は常に 金額＋税
-async function slipNoBackfill(pool) {
-  for (const [series, seed] of Object.entries(SLIP_SEED)) await pool.query('INSERT IGNORE INTO app_slip_series (series,last_no) VALUES (?,?)', [series, seed]);
-  const pats = Object.keys(SLIP_SERIES);
-  const [missing] = await pool.query(`SELECT journal_id, pattern_code FROM journal_entry e WHERE pattern_code IN (${pats.map(() => '?').join(',')}) AND NOT EXISTS (SELECT 1 FROM app_slip_no n WHERE n.journal_id=e.journal_id) ORDER BY journal_date, journal_id`, pats);
-  if (!missing.length) return;
-  const [cur] = await pool.query('SELECT series, last_no FROM app_slip_series'), last = Object.fromEntries(cur.map(r => [r.series, Number(r.last_no)]));
-  for (const e of missing) { const s = SLIP_SERIES[e.pattern_code]; last[s] += 1; await pool.query('INSERT INTO app_slip_no (journal_id,slip_no) VALUES (?,?)', [e.journal_id, formatSlipNo(s, last[s])]); }
-  for (const [s, n] of Object.entries(last)) await pool.query('UPDATE app_slip_series SET last_no=? WHERE series=?', [n, s]);
+// 伝票番号（10/26 打合せ：頭1桁＋処理年度4桁＋5桁連番）。
+//  ① 旧形式（R01235・B27588・100322 など）が残っていれば、全伝票を種類×年度ごとに日付順で振り直す（2026-10-28、1回だけ実行される）。
+//     同じ伝票にまとめた仕訳（売掛金計上の45行分割など）は同じ番号のまま。勘定奉行(kb)へ取込済みの伝票の摘要の番号も合わせる。
+//  ② 番号の無い仕訳は採番する。
+export async function slipNoBackfill(pool, { dryRun = false } = {}) {
+  let summary = null;
+  const c = await pool.getConnection();
+  try {
+    await c.beginTransaction();
+    if (await one(c, "SELECT 1 x FROM app_slip_no WHERE slip_no !~ '^[A-Z]?[0-9]{9}$' LIMIT 1")) {
+      const P = await companyPeriod(c), groups = new Map(), counter = {}, hasKb = !!(await one(c, "SELECT to_regclass('kb_slip') t"))?.t;
+      for (const r of await rows(c, 'SELECT n.journal_id, n.slip_no, e.pattern_code, e.journal_date FROM app_slip_no n JOIN journal_entry e ON e.journal_id=n.journal_id ORDER BY e.journal_date, e.journal_id')) {
+        const series = SLIP_SERIES[r.pattern_code]; if (series === undefined) continue;
+        const k = series + '|' + r.slip_no; if (!groups.has(k)) groups.set(k, { series, fy: P.fyOf(String(r.journal_date).slice(0, 10)), old: r.slip_no, ids: [] });
+        groups.get(k).ids.push(r.journal_id);
+      }
+      const map = [];
+      for (const g of groups.values()) {
+        const key = g.series + g.fy, n = (counter[key] = (counter[key] || 0) + 1), no = formatSlipNoFy(g.series, g.fy, n);
+        await c.query(`UPDATE app_slip_no SET slip_no=? WHERE journal_id IN (${g.ids.map(() => '?').join(',')})`, [no, ...g.ids]);
+        if (hasKb) for (const id of g.ids) await c.query("UPDATE kb_slip SET memo=CAST(? AS text) || substr(memo, CAST(? AS int)) WHERE source='SEIKYU' AND source_ref=? AND memo LIKE ?", [no, g.old.length + 1, String(id), g.old + ' %']);
+        if (g.old !== no) map.push(`${g.old}→${no}`);
+      }
+      await c.query('DELETE FROM app_slip_series');
+      for (const [k, n] of Object.entries(counter)) await c.query('INSERT INTO app_slip_series (series,last_no) VALUES (?,?)', [k, n]);
+      summary = { slips: groups.size, changed: map.length, counter, sample: map.slice(0, 50) };
+      await audit(c, null, 'app_slip_no', 'all', 'slip.renumber', summary);
+    }
+    const pats = Object.keys(SLIP_SERIES);
+    for (const e of await rows(c, `SELECT journal_id, pattern_code, journal_date FROM journal_entry e WHERE pattern_code IN (${pats.map(() => '?').join(',')}) AND NOT EXISTS (SELECT 1 FROM app_slip_no n WHERE n.journal_id=e.journal_id) ORDER BY journal_date, journal_id`, pats))
+      await assignSlipNo(c, e.journal_id, e.pattern_code, null, e.journal_date);
+    if (dryRun) await c.rollback(); else await c.commit();
+    return summary;
+  } catch (x) { await c.rollback(); throw x; } finally { c.release(); }
 }
 async function compatMigration(pool) {
   const [[done]] = await pool.query("SELECT 1 x FROM code_m WHERE code_key='SET' AND code_dtl='CMP1021'");
