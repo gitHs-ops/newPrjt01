@@ -611,7 +611,7 @@ document.addEventListener('change', e => { if (e.target.id !== 'bal-state') retu
 // 入金一覧・消込：「計上済のみ」（既定は取消も含めてすべて。検索済みの結果を使い、DB は読まない）
 document.addEventListener('change', e => { if (e.target.id !== 'rec-state') return; freshNext = false; location.hash = '#receipts/list?' + qs({ ...route.q, rstate: e.target.value }); });
 // 入金消込：「消込対象のみ」・締日の絞込（検索済みの結果を使い、DB は読まない）
-document.addEventListener('change', e => { if (!['rt-only', 'rt-cl', 'rt-ym'].includes(e.target.id)) return; freshNext = false; location.hash = '#receipts/targets?' + qs({ ...route.q, all: $('#rt-only').checked ? '' : '1', cl: $('#rt-cl').value, ym: $('#rt-ym').value }); });
+document.addEventListener('change', e => { if (!['rt-only', 'rt-cl', 'rt-ym'].includes(e.target.id)) return; freshNext = false; location.hash = '#receipts/targets?' + qs({ ...route.q, all: $('#rt-only').checked ? '' : '1', cl: $('#rt-cl').value, ym: $('#rt-ym').value || '-' }); });
 // 出荷伝票一覧の決済方法の絞込（10/26 打合せ：出荷伝票は請求前の段階なので 掛売（振込）・カード・現金 の3種だけ。未請求・請求済は出さない）
 const SHIP_KINDS = { credit: { name: '掛売', q: { method: 2 } }, card: { name: 'カード', q: { method: 3 } }, cash: { name: '現金', q: { method: 1 } } };
 const monthEnd = m => { const [y, mo] = m.split('-').map(Number); return new Date(Date.UTC(y, mo, 0)).toISOString().slice(0, 10); };
@@ -944,12 +944,13 @@ VIEWS.receipts = async q => {
     const dayOf = c => (c === monthEnd(c.slice(0, 7)) ? 31 : Number(c.slice(8, 10)));
     // デモ版：前回残高 0 の行は出さない（10/27 打合せ。実システムでの扱いは別途確認）
     // 請求年月（2026-10-28 追加）：指定時はその年月の請求の行（「消込対象のみ」は残高か入金のある行）。空欄は従来どおり得意先ごとの最新の請求年月
-    const ym = /^\d{4}-\d{2}$/.test(q.ym || '') ? q.ym : '';
+    // 請求年月の初期値＝直近の締め（20日）の年月（2026-10-29）。空欄で検索したときは '-' を渡して空欄のまま
+    const ym0 = q.ym === undefined ? lastClosing().slice(0, 7) : q.ym, ym = /^\d{4}-\d{2}$/.test(ym0 || '') ? ym0 : '';
     const rows = all.rows.filter(r => r.prev && (ym ? String(r.closing).slice(0, 7) === ym && (!only || r.remain > 0 || r.receipt) : (!only || (r.latest && (r.remain > 0 || r.receipt)))) && (!cl || dayOf(r.closing) === cl)), sum = k => rows.reduce((n, r) => n + r[k], 0);
     const ymLabel = m => `${m.slice(0, 4)}年${Number(m.slice(5, 7))}月`, months = [...new Set(rows.map(r => String(r.closing).slice(0, 7)))].sort();
     const target = ym ? ymLabel(ym) : !months.length ? '該当なし' : months.length === 1 ? ymLabel(months[0]) : `${ymLabel(months[0])}〜${ymLabel(months[months.length - 1])}（得意先ごとの最新）`;
     const d = { rows, totals: { current: sum('current'), cleared: sum('cleared'), remain: rows.filter(r => r.latest).reduce((n, r) => n + r.remain, 0) } };
-    A.search = () => go('receipts', { tab, customer: $('#rt-cust').value, all: q.all, cl: q.cl, ym: $('#rt-ym').value });
+    A.search = () => go('receipts', { tab, customer: $('#rt-cust').value, all: q.all, cl: q.cl, ym: $('#rt-ym').value || '-' });
     return page('入金・消込', '消込対象の選択：消込残高のある最新の請求年月から「消込」を押すと、その得意先の入金消込画面を開きます。消込済みでも月次確定前は「修正」で入金を更新できます。', `<input id="rt-cust" list="dl-pcust" autocomplete="off" placeholder="得意先（部分一致）" value="${esc(q.customer || '')}" style="width:200px">${custHints()}<label class="field">請求年月<input type="month" id="rt-ym" value="${esc(ym)}" title="空欄＝得意先ごとの最新の請求年月"></label><select id="rt-cl" title="締日">${options(STD_CLOSINGS.map(x => ({ code: String(x), name: closingLabel(x) })), cl ? String(cl) : '', { blank: 'すべての締日', label: x => x.name })}</select>
        <button class="primary" data-act="search">検索</button><label class="small"><input type="checkbox" id="rt-only" ${only ? 'checked' : ''}> 消込対象のみ</label>`,
       `<section class="card glass"><div class="card-head"><h2>消込対象 ${esc(target)}</h2><span class="muted small">${ym ? '請求年月で指定' : '請求年月が空欄のため、得意先ごとの最新の請求年月を表示'}${cl ? `・締日 ${esc(closingLabel(cl))}` : ''}</span></div>${ledgerTable(d, { clear: true })}</section>`);
