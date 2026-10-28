@@ -20,8 +20,14 @@ export async function listPurchases(c, q = {}) {
   return rs.map(r => ({ id: r.purchase_id, no: r.source_document_no, line: Number(r.line_no), date: r.purchase_date, vendor: r.vendor_code, vendorName: r.vendor_name, kind: r.purchase_kb || '1', kindName: PURCHASE_KINDS[r.purchase_kb || '1'],
     lineKind: r.line_kind || '1', item: r.item_cd, itemName: r.item_nam, unit: r.unit, quantity: Number(r.quantity), price: Number(r.unit_price), net: Number(r.net_amount), taxCode: r.source_tax_code, memo: r.memo }));
 }
+// 在庫計上済みの月度（またはそれより後の月度が計上済み）の仕入は登録・取消できない（材料受払表の当月仕入高と計上済みの在庫金額がずれるため。2026-10-28）
+async function assertNotInventoried(c, date) {
+  const month = (await companyPeriod(c)).labelOf(date);
+  const r = await one(c, "SELECT period_start FROM inventory_count WHERE location_code='MAIN' AND status='POSTED' AND period_start>=? ORDER BY period_start LIMIT 1", [month + '-01']);
+  check(!r, `${month} 月度${r && String(r.period_start).slice(0, 7) !== month ? `より後の ${String(r.period_start).slice(0, 7)} 月度` : ''}は在庫計上済みのため、仕入の登録・取消はできません。在庫計上を取消してから行ってください`);
+}
 export async function createPurchase(c, ctx, p) {
-  const date = isoDate(p.date, '仕入日'); await assertOpen(c, date);
+  const date = isoDate(p.date, '仕入日'); await assertOpen(c, date); await assertNotInventoried(c, date);
   const v = await vendorOf(c, p.vendor), kind = String(p.kind || '1'); check(PURCHASE_KINDS[kind], '区分が不正です');
   const input = Array.isArray(p.lines) ? p.lines : [p];
   const out = [];
@@ -51,7 +57,7 @@ export async function createPurchase(c, ctx, p) {
 // 伝票単位で取消（明細のどれを指定しても伝票全体）
 export async function deletePurchase(c, ctx, { id }) {
   const r = await one(c, 'SELECT * FROM purchase WHERE purchase_id=? FOR UPDATE', [Number(id)]); if (!r) throw new Conflict('仕入が見つかりません');
-  await assertOpen(c, r.purchase_date);
+  await assertOpen(c, r.purchase_date); await assertNotInventoried(c, String(r.purchase_date).slice(0, 10));
   const [d] = await c.query('DELETE FROM purchase WHERE source_document_no=?', [r.source_document_no]);
   await audit(c, ctx, 'purchase', r.source_document_no, 'purchase.delete', { no: r.source_document_no, lines: d.affectedRows });
   return { no: r.source_document_no, lines: d.affectedRows };
