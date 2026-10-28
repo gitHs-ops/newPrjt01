@@ -1610,7 +1610,8 @@ function masterInput(f, r, isNew) {
 }
 function masterForm(kind, r) {
   const m = meta.masters[kind];
-  modal({ title: `${m.label}の${r ? '編集' : '新規登録'}`, submit: r ? '更新する' : '登録する', sample: !r && kind !== 'company', body: `<div class="form-grid">${m.fields.map(f => masterInput(f, r, !r)).join('')}</div>${r?.system ? '<p class="note small">自動仕訳で使用する科目のため無効化できません。</p>' : ''}`,
+  // サンプル入力は新規・編集・自社情報のすべてに付ける（2026-10-29。空欄だけを埋めるので入力済みの値は変わらない）
+  modal({ title: `${m.label}の${r ? '編集' : '新規登録'}`, submit: r ? '更新する' : '登録する', sample: true, body: `<div class="form-grid">${m.fields.map(f => masterInput(f, r, !r)).join('')}</div>${r?.system ? '<p class="note small">自動仕訳で使用する科目のため無効化できません。</p>' : ''}`,
     onOpen: f => {
       if (f.site && f.customer) f.customer.onchange = () => (f.site.innerHTML = siteOptions(f.customer.value, '', '（得意先共通）'));
       // 削除：使用中のコードはサーバーが拒否し、無効化を案内する
