@@ -264,12 +264,23 @@ export async function reverseExpense(c, ctx, { id }) {
 
 // ---------- 支払 (payment + payment_allocation, journal F01) ----------
 const PAY_BANK = "(SELECT jl.sub_code FROM journal_entry je JOIN journal_line jl ON jl.journal_id=je.journal_id WHERE je.source_type='payment' AND je.source_id=CAST(p.payment_id AS CHAR) AND je.reversal_of IS NULL AND jl.account_code='1112' LIMIT 1)";
+// 全銀データ（振込ファイル）作成済みの支払No → 最終作成日時。取消時の警告に使う。
+const jst = t => { const d = new Date(String(t).replace(' ', 'T').slice(0, 23) + 'Z'); return isNaN(d) ? String(t) : new Date(d.getTime() + 9 * 3600e3).toISOString().slice(0, 16).replace('T', ' '); };
+async function zenginExported(c, nos) {
+  const out = {}; if (!nos.length) return out;
+  for (const e of await rows(c, "SELECT occurred_at, change_summary FROM audit_event WHERE action='zengin.export' ORDER BY occurred_at")) {
+    let s = e.change_summary; try { if (typeof s === 'string') s = JSON.parse(s); } catch { s = {}; }
+    for (const n of s?.payments || []) if (nos.includes(n)) out[n] = jst(e.occurred_at);
+  }
+  return out;
+}
 export async function listPayments(c, q = {}) {
   const w = [], args = []; monthWhere('p.paid_on', q, w, args);
   const rs = await rows(c, `SELECT p.*, v.vendor_code, v.vendor_name, b.bank_code, b.branch_code, b.account_type_code, b.account_number, b.holder_name, ${PAY_BANK} from_bank
     FROM payment p JOIN vendor v ON v.vendor_id=p.vendor_id LEFT JOIN bank_account b ON b.bank_account_id=p.bank_account_id ${w.length ? 'WHERE ' + w.join(' AND ') : ''} ORDER BY p.paid_on DESC, p.payment_id DESC LIMIT 1000`, args);
   const al = rs.length ? await rows(c, `SELECT a.*, d.document_no FROM payment_allocation a JOIN expense_document d ON d.expense_id=a.expense_id WHERE a.payment_id IN (${rs.map(() => '?').join(',')})`, rs.map(r => r.payment_id)) : [];
-  return rs.map(r => ({ id: r.payment_id, no: r.payment_no, date: r.paid_on, vendor: r.vendor_code, vendorName: r.vendor_name, amount: Number(r.bank_amount), fromBank: r.from_bank || '', status: r.status,
+  const zg = await zenginExported(c, rs.map(r => r.payment_no));
+  return rs.map(r => ({ id: r.payment_id, no: r.payment_no, exported: zg[r.payment_no] || '', date: r.paid_on, vendor: r.vendor_code, vendorName: r.vendor_name, amount: Number(r.bank_amount), fromBank: r.from_bank || '', status: r.status,
     payee: r.bank_code ? { bank: r.bank_code, branch: r.branch_code, type: r.account_type_code, account: r.account_number, holder: r.holder_name } : null,
     allocations: al.filter(a => a.payment_id === r.payment_id).map(a => ({ expenseId: a.expense_id, no: a.document_no, amount: Number(a.amount) })) }));
 }
@@ -306,12 +317,14 @@ export async function createPayment(c, ctx, p) {
   await audit(c, ctx, 'payment', r.insertId, 'payment.create', { no, vendor: v.vendor_code, amount: total, bank, fee, offset, safety, documents: allocs.map(a => a.id) });
   return { id: r.insertId, no };
 }
-export async function reversePayment(c, ctx, { id }) {
+export async function reversePayment(c, ctx, { id, force }) {
   const p = await one(c, 'SELECT * FROM payment WHERE payment_id=? FOR UPDATE', [Number(id)]); check(p, '支払が見つかりません');
   check(p.status === 'POSTED', '取消済みです'); await assertOpen(c, p.paid_on);
+  const zg = (await zenginExported(c, [p.payment_no]))[p.payment_no];
+  check(!zg || force, `支払 ${p.payment_no} は全銀データ作成済みです（${zg}）。銀行へ送信済みの場合は振込の組戻しが必要です。確認のうえ取消してください`);
   await c.query("UPDATE payment SET status='REVERSED' WHERE payment_id=?", [p.payment_id]);
   await reverseJournal(c, { sourceType: 'payment', sourceId: p.payment_id, date: p.paid_on });
-  await audit(c, ctx, 'payment', p.payment_id, 'payment.reverse', { no: p.payment_no });
+  await audit(c, ctx, 'payment', p.payment_id, 'payment.reverse', { no: p.payment_no, zenginExported: zg || undefined });
   return { id: p.payment_id };
 }
 
