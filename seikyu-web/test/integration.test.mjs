@@ -334,9 +334,11 @@ test('workflow against PostgreSQL business tables', { skip, timeout: 900000 }, a
       // 画面は得意先ごとに呼び出す：受け取った伝票番号を渡すと同じ伝票に続けて載る
       const run2 = ok(await a.call('/api/billing/run', { month: pm, closing: 15, customers: [cs[2]], slip: run.slip })); assert.equal(run2.slip, run.slip); run.ids.push(...run2.ids);
       const end = pm + '-15', l = ok(await a.call('/api/reports/journal-list?' + new URLSearchParams({ pattern: 'A01', from: end, to: end })));
-      const mine = l.slips.filter(sl => run.ids.some(id => sl.sourceNo.includes('I' + id)));
+      // 元伝票は請求書番号と同じ「K＋締切年月6桁＋請求ID 5桁」（2026-10-28 e27f07e）
+      const kno = id => 'K' + pm.replace('-', '') + String(id).padStart(5, '0');
+      const mine = l.slips.filter(sl => run.ids.some(id => sl.sourceNo.includes(kno(id))));
       assert.equal(mine.length, 1, 'both invoices on one slip'); assert.match(mine[0].sourceNo, /（3件）/); assert.equal(mine[0].pairs.length, 6);
-      const each = ok(await a.call('/api/reports/journal-list?' + new URLSearchParams({ pattern: 'A01', from: end, to: end, group: 'none' }))).slips.filter(sl => run.ids.some(id => sl.sourceNo === 'I' + id));
+      const each = ok(await a.call('/api/reports/journal-list?' + new URLSearchParams({ pattern: 'A01', from: end, to: end, group: 'none' }))).slips.filter(sl => run.ids.some(id => sl.sourceNo === kno(id)));
       assert.equal(each.length, 3); assert.equal(new Set(each.map(x => x.slipNo)).size, 1);
       ok(await a.call('/api/kb/settings', { startFy: 2024 }));
       const kb = ok(await a.call('/api/kb/import/seikyu', { from: end, to: end, dry: true })), ks = kb.sample.filter(x => x.memo.startsWith(each[0].slipNo + ' '));
@@ -370,7 +372,8 @@ test('workflow against PostgreSQL business tables', { skip, timeout: 900000 }, a
     assert.ok(JSON.stringify(symbols).length > 200);
     assert.deepEqual((await a.call('/api/kb/bugyo', { symbols, taxMap: {}, encoding: 'shift_jis' })).data.symbols, symbols);
     const tb = await fetch(base + '/api/export/trial-balance?month=' + month, { headers: { cookie: a.cookie } });
-    assert.equal(tb.status, 200); assert.match(await tb.text(), /"科目","科目名","借方","貸方"/);
+    const tbText = await tb.text(); assert.equal(tb.status, 200); assert.match(tbText, /"科目","科目名","借方","貸方"/);
+    assert.ok(!/"'-\d/.test(tbText), 'マイナスの金額に \' を付けない'); assert.match(tbText, /"-\d+"/);
     const raw = await fetch(base + '/api/export/journals?month=' + month, { headers: { cookie: a.cookie } }); const bytes = new Uint8Array(await raw.arrayBuffer());
     assert.equal(raw.status, 200); assert.deepEqual([...bytes.slice(0, 3)], [0xef, 0xbb, 0xbf], 'CSV has UTF-8 BOM for Excel');
   } finally {

@@ -65,7 +65,8 @@ export function text(v, label, max, { required = true, pattern } = {}) {
 export const bool = v => v === true || v === 'true' || v === '1' || v === 1 || v === '有効';
 
 export function csv(rows) {
-  const q = v => '"' + String(v ?? '').replace(/^[=+@\-\t\r]/, "'$&").replaceAll('"', '""') + '"';
+  // 数式インジェクション対策で先頭の = + @ - 等に ' を付ける。ただし数値（-12345 等）はそのまま（マイナス金額が '-12345 にならないように）
+  const q = v => { const s = String(v ?? ''); return '"' + (/^-?\d+(\.\d+)?$/.test(s) ? s : s.replace(/^[=+@\-\t\r]/, "'$&")).replaceAll('"', '""') + '"'; };
   return '﻿' + rows.map(r => r.map(q).join(',')).join('\r\n') + '\r\n';
 }
 export function parseCsv(input) {

@@ -1104,10 +1104,13 @@ VIEWS.inventory = async q => {
   const A = actions;
   A.misc = d => miscReport(d.kind, d.src).catch(e => toast(e.message, true)); A.mix = () => mixDialog().catch(e => toast(e.message, true));
   const [list, cnt] = await Promise.all([api('/api/inventory?' + qs({ month: q.month || thisMonth() })), api('/api/inventory/counts?' + qs({ date: q.date || lastClosing() }))]);
-  A.countSave = async () => {
+  A.countSave = async (_, btn) => {
     const lines = $$('.ic-qty').filter(x => x.value.trim() !== x.dataset.orig).map(x => ({ item: x.dataset.item, quantity: x.value.trim().replace(/,/g, '') }));
     if (!lines.length) return toast(`変更された在庫数量がありません。「在庫数量」欄に数量を入力・変更してから［登録］してください（${cnt.items.filter(r => qtyOf(r.quantity) !== '').length}件は登録済みで、そのまま有効です）`, true);
-    const r = await post('/api/inventory/counts', { date: $('#ic-date').value, lines }); toast(`${r.month} 月度の実在庫を登録しました（${r.saved}件${r.cleared ? `・取消 ${r.cleared}件` : ''}）`); render();
+    // サーバのエラー（在庫計上済み・月次確定済み・数量の誤り 等）は確認ポップアップで表示する（以前は何も出ず、登録されたか分からなかった）
+    if (btn) btn.disabled = true;
+    try { const r = await post('/api/inventory/counts', { date: $('#ic-date').value, lines }); toast(`${r.month} 月度の実在庫を登録しました（${r.saved}件${r.cleared ? `・取消 ${r.cleared}件` : ''}）`); await render(); }
+    catch (e) { alertBox(e.message); } finally { if (btn) btn.disabled = false; }
   };
   A.post = () => { const month = $('#ip-month').value; confirmBox('在庫計上', `${month} 月度の実在庫を評価し、月末在庫の洗い替え仕訳（C01）を作成します。在庫計上は月度ごとに1回です。`, async () => { const r = await post('/api/inventory/post', { month }); render(); alertBox(`計上月度　${r.month}
 品目数　　${r.items} 品目

@@ -34,6 +34,8 @@ test('csv round trip neutralises formulas', () => {
   assert.ok(out.startsWith('﻿'));
   assert.ok(out.includes(`"'=SUM(A1)"`));
   assert.deepEqual(parseCsv(out), [['a', '=SUM(A1)', 'x"y'], ['1', '', '改行\nあり']]);
+  const neg = csv([[-12345, '-678.5', '-cmd', '-1-2']]);
+  assert.ok(neg.includes('"-12345","-678.5","\'-cmd","\'-1-2"'));
   assert.throws(() => parseCsv('"open'), DomainError);
 });
 
