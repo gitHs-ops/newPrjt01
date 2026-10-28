@@ -176,7 +176,7 @@ const SUBMENUS = {
   // 入金一覧・入金予定チェックリストは 2026-10-27 非表示（10/27 打合せ：消込の結果は入金消込の一覧で確認、入金予定チェックリストは不要。画面・API は残す）
   receipts: [{ k: 'targets', l: '入金消込', q: { tab: 'targets' } }, { k: 'list', l: '入金一覧', tools: true, hidden: true }, { k: 'schedule', l: '入金予定チェックリスト', hidden: true }],
   // 10/21 打合せの処理順（実在庫登録 → 配合計算 → 材料受払表 → 在庫計上）に並べる
-  inventory: [{ k: 'count', l: '実在庫登録' }, { k: 'reports', l: '在庫登録リスト・配合計算・材料受払表' }, { k: 'list', l: '在庫一覧・在庫計上' }],
+  inventory: [{ k: 'count', l: '実在庫登録', tools: false }, { k: 'reports', l: '在庫登録リスト・配合計算・材料受払表' }, { k: 'list', l: '在庫一覧・在庫計上', tools: true }],
   payables: [{ k: 'list', l: '定時請求一覧・入力' }, { k: 'reports', l: '定時請求入力明細表' }],
   cash: [{ k: 'list', l: '小口現金一覧・登録' }, { k: 'book', l: '出納簿・定額資金・現金補充' }],
   payments: [{ k: 'list', l: '支払一覧・登録' }, { k: 'reports', l: '支払帳票・全銀データ' }, { k: 'transfer', l: '振込先一覧' }, { k: 'bank', l: '銀行別随時支払一覧表' }],
