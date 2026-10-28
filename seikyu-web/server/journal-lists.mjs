@@ -58,15 +58,15 @@ export async function journalList(c, q) {
         memo2 = DEDUCT[`${l.account_code}|${l.sub_code || ''}`] || (l.account_code === '1120' ? s.note : '');
         if (l.side === 'C' && l.account_code === '1131') memo2 = s.closings?.[creditNo++] || '';
       }
-      if (e.pattern_code === 'C01') memo2 = (l.side === 'D' ? l.account_code === '82316' : l.account_code === '1360') ? '前月末在庫' : '当月末在庫';
+      // 在庫計上（C01）：現行 HAR463 と同じく 摘要1＝前月末在庫／当月末在庫（商品は 1360 の内訳1）。2026-10-28 摘要1＝商品・摘要2＝前月末在庫 から変更
+      if (e.pattern_code === 'C01') return { dept: l.department_code || '', account: l.account_code, accountName: l.account_name || '', sub, subName, sub2: '', tax: l.source_tax_code || '', amount: Number(l.amount),
+        memo1Code: '', memo1: (l.side === 'D' ? l.account_code === '82316' : l.account_code === '1360') ? '前月末在庫' : '当月末在庫', memo2: '' };
       return { dept: l.department_code || '', account: l.account_code, accountName: l.account_name || '', sub, subName, sub2: '', tax: l.source_tax_code || '', amount: Number(l.amount),
-        memo1Code: partner?.code || '', memo1: e.pattern_code === 'C01' ? s.item || '' : partner?.name || '', memo2 };
+        memo1Code: partner?.code || '', memo1: partner?.name || '', memo2 };
     };
     const dr = lines.filter(l => l.side === 'D'), cr = lines.filter(l => l.side === 'C'), pairs = [];
     // Inventory pairs follow the 洗替 order (前月末戻し, 当月末計上) even if one side is zero.
     for (let i = 0; i < Math.max(dr.length, cr.length); i++) pairs.push({ dr: side(dr[i]), cr: side(cr[i]) });
-    // 在庫計上（月度1伝票）：摘要1＝1360 の補助（商品）
-    if (e.pattern_code === 'C01') for (const p of pairs) { const inv = [p.dr, p.cr].find(x => x?.account === '1360' && x.sub); if (inv) for (const x of [p.dr, p.cr]) if (x) x.memo1 = `${inv.sub} ${inv.subName}`.trim(); }
     const total = dr.reduce((n, l) => n + Number(l.amount), 0);
     return { id: e.journal_id, date: e.journal_date, slipNo: e.slip_no || String(e.journal_id), sourceNo: s.no, status: e.reversal_of ? `逆仕訳（#${e.reversal_of}）` : e.status === 'REVERSED' ? '取消済' : '', pairs, total };
   });
@@ -112,23 +112,37 @@ export async function bankPaymentList(c, q) {
 
 // ---------- Excel ----------
 const H = v => ({ v, s: 'bold' }), S = v => ({ v, s: 'sum' }), T = v => ({ v, s: 'title' });
-export const JOURNAL_HEAD = ['日付', '伝票No', '借方 部', '科目', '科目名', '内訳1', '内訳1名', '内訳2', '処税率', '借方金額', '摘要1', '摘要1（借方）', '摘要2（借方）',
-  '貸方 部', '科目', '科目名', '内訳1', '内訳1名', '内訳2', '処税率', '貸方金額', '摘要1', '摘要1（貸方）', '摘要2（貸方）', '元伝票', '状態'];
-const sideCells = s => (s ? [s.dept, s.account, s.accountName, s.sub, s.subName, s.sub2, s.tax, s.amount, s.memo1Code, s.memo1, s.memo2] : ['', '', '', '', '', '', '', '', '', '', '']);
+// 自動仕訳リストの Excel は現行帳票（HAR463 在庫計上・HAR413 入金・HAR363 売掛・HAR152 定時請求・HAR733 小口・CS5785 支払内訳）と同じ2段レイアウト（2026-10-28）。
+//   1段目：日付 ／ 借方の部・科目・内訳1・内訳2・処税率・借方金額 ／ 工種CD・摘要1・摘要1（借方）・摘要2（借方）／ 貸方の部・科目・内訳1・内訳2・処税率
+//   2段目：伝票No ／ 借方の科目名・内訳1名 ／ 工種CD・摘要1・摘要1（貸方）・摘要2（貸方）／ 貸方の科目名・内訳1名・貸方金額
+//   見出しの上下と合計行の上は破線。右端の元伝票・状態は新システムで追加した列。
+const JOURNAL_COLS = 18, JOURNAL_WIDTHS = [12, 5, 9, 15, 6, 6, 13, 6, 8, 20, 20, 5, 9, 15, 6, 6, 13, 24];
+const yymmdd = d => (d ? `${d.slice(2, 4)}/${d.slice(5, 7)}/${d.slice(8, 10)}` : '');
+// cells：{列番号: 値}。style を付けると空の列にも同じ書式（破線）を付ける
+const jrow = (cells, style) => Array.from({ length: JOURNAL_COLS }, (_, i) => { const v = cells[i] ?? ''; return style ? { v, s: typeof v === 'number' && style === 'dashTop' ? 'dashTopNum' : style } : v; });
+export const JOURNAL_HEAD = [
+  jrow({ 0: '日付', 1: '部', 2: '科目', 3: '内訳1', 4: '内訳2', 5: '処税率', 6: '借方金額', 7: '工種CD', 8: '摘要1', 9: '摘　要　1　（借　方）', 10: '摘　要　2　（借　方）', 11: '部', 12: '科目', 13: '内訳1', 14: '内訳2', 15: '処税率', 17: '元伝票' }, 'dashTop'),
+  jrow({ 0: '伝票No', 1: '科　目　名', 3: '内　訳　1　名', 7: '工種CD', 8: '摘要1', 9: '摘　要　1　（貸　方）', 10: '摘　要　2　（貸　方）', 11: '科　目　名', 13: '内　訳　1　名', 16: '貸方金額', 17: '状態' }, 'dashBottom')];
+const pairRows = (p, first, s) => {
+  const dr = p.dr || {}, cr = p.cr || {}, amt = x => (x.account ? x.amount : '');
+  return [jrow({ 0: first ? yymmdd(s.date) : '', 1: dr.dept, 2: dr.account, 3: dr.sub, 4: dr.sub2, 5: dr.tax, 6: amt(dr), 8: dr.memo1Code, 9: dr.memo1, 10: dr.memo2, 11: cr.dept, 12: cr.account, 13: cr.sub, 14: cr.sub2, 15: cr.tax, 17: first ? s.sourceNo : '' }),
+    jrow({ 0: first ? s.slipNo : '', 1: dr.accountName, 3: dr.subName, 8: cr.memo1Code, 9: cr.memo1, 10: cr.memo2, 11: cr.accountName, 13: cr.subName, 16: amt(cr), 17: first ? s.status : '' })];
+};
+const totalRow = (label, amount) => jrow({ 9: label, 6: amount, 16: amount }, 'dashTop');
 export async function journalListBook(c, q) {
-  const d = await journalList(c, q);
-  const out = [[T(d.title)], [`期間 ${d.from} 〜 ${d.to}　出力日 ${today()}`], [], JOURNAL_HEAD.map(H)];
+  const d = await journalList(c, q), now = new Date(Date.now() + 9 * 36e5).toISOString();
+  const out = [jrow({ 0: `出力 ${yymmdd(now.slice(0, 10))} ${now.slice(11, 19)}`, 7: T(d.title) }), [`期間 ${d.from} 〜 ${d.to}`], [], ...JOURNAL_HEAD];
   let lastDate = null;
   for (const s of d.slips) {
-    if (lastDate && s.date !== lastDate) out.push(['', S('日付合計'), '', '', '', '', '', '', '', S(d.dates.find(x => x.date === lastDate).total)]);
+    if (lastDate && s.date !== lastDate) out.push(totalRow('日　付　合　計', d.dates.find(x => x.date === lastDate).total));
     lastDate = s.date;
-    s.pairs.forEach((p, i) => out.push([i ? '' : s.date, i ? '' : s.slipNo, ...sideCells(p.dr), ...sideCells(p.cr), i ? '' : s.sourceNo, i ? '' : s.status]));
-    out.push(['', S('伝票合計'), '', '', '', '', '', '', '', S(s.total), '', '', '', '', '', '', '', '', '', '', S(s.total)]);
+    s.pairs.forEach((p, i) => out.push(...pairRows(p, !i, s)));
+    out.push(totalRow('伝　票　合　計', s.total));
   }
-  if (lastDate) out.push(['', S('日付合計'), '', '', '', '', '', '', '', S(d.dates.find(x => x.date === lastDate).total)]);
-  out.push(['', S('総合計'), '', '', '', '', '', '', '', S(d.total), '', '', '', '', '', '', '', '', '', '', S(d.total)]);
+  if (lastDate) out.push(totalRow('日　付　合　計', d.dates.find(x => x.date === lastDate).total));
+  out.push(totalRow('総　合　計', d.total));
   if (!d.slips.length) out.push(['対象期間の仕訳はありません']);
-  return { name: `${d.title}_${d.from}_${d.to}.xlsx`, body: xlsx([{ name: d.title.slice(0, 28), rows: out, widths: [11, 10, 6, 7, 12, 8, 16, 6, 6, 12, 8, 18, 16, 6, 7, 12, 8, 16, 6, 6, 12, 8, 18, 16, 12, 12] }]) };
+  return { name: `${d.title}_${d.from}_${d.to}.xlsx`, body: xlsx([{ name: d.title.slice(0, 28), rows: out, widths: JOURNAL_WIDTHS, printTitles: '4:5', header: `&L${d.title}&R&P 頁` }]) };
 }
 export async function bankPaymentBook(c, q) {
   const d = await bankPaymentList(c, q);

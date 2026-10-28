@@ -145,7 +145,9 @@ test('workflow against PostgreSQL business tables', { skip, timeout: 900000 }, a
       const bank = await a.call('/api/reports/bank-payments?' + new URLSearchParams(span));
       assert.ok(bank.data.days.some(x => x.rows.some(r => r.vendor === 'V' + tag && r.vendorTotal === 50000)));
       const x = await fetch(base + '/api/reports/journal-list?' + new URLSearchParams({ pattern: 'A01', ...span, format: 'xlsx' }), { headers: { cookie: a.cookie } });
-      assert.equal(Buffer.from(await x.arrayBuffer()).subarray(0, 2).toString(), 'PK');
+      const xb = Buffer.from(await x.arrayBuffer()); assert.equal(xb.subarray(0, 2).toString(), 'PK');
+      // 現行帳票と同じ2段レイアウト（見出し2行・破線・各ページに見出しを繰り返す）。ZIP は無圧縮なので XML を直接確認できる
+      const xt = xb.toString('utf8'); assert.ok(xt.includes('摘　要　1　（借　方）') && xt.includes('摘　要　1　（貸　方）') && xt.includes('style="dashed"') && xt.includes('_xlnm.Print_Titles'));
       assert.equal((await a.call('/api/reports/journal-list?pattern=ZZ&from=2026-01-01&to=2026-01-31')).status, 400);
     });
     await t.test('③ zengin transfer data and payment reports', async () => {
