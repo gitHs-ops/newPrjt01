@@ -1230,7 +1230,7 @@ VIEWS.payments = async q => {
   const A = actions;
   A.bankList = () => { location.hash = '#journals/lists?' + qs({ tab: 'lists', list: 'BANK', from: $('#bp-from').value, to: $('#bp-to').value }); };
   A.misc = d => miscReport(d.kind, d.src).catch(e => toast(e.message, true));
-  const month = q.month || '', list = await api('/api/payments?' + qs({ month }));
+  const month = q.month || thisMonth(), list = await api('/api/payments?' + qs({ month }));
   A.new = () => { const key = uuid(); modal({ title: '支払の登録', wide: true, submit: '支払を登録', sample: true, body: `<div class="form-grid">${field('業者', `<select name="vendor">${options(active('vendors'), '', { blank: '選択してください' })}</select>`, { req: 1 })}
       ${field('支払日', `<input type="date" name="date" value="${today()}">`, { req: 1 })}${field('支払元口座', `<select name="bankCode">${options(active('banks'), active('banks')[0]?.code)}</select>`, { req: 1 })}${field('振込手数料（先方負担・差引）', '<input name="fee" class="num" value="0">')}${/* 業者立替金の相殺は定時請求データ入力の明細（科目 1431、マイナス）で入力する（10/28 回答②）。支払の画面では入力しない */ ''}<input type="hidden" name="offset" value="0">${field('安全協力費（差引）', '<input name="safety" class="num" value="0">')}<div class="note" id="py-payee">振込先: -</div></div>
       <h3 style="margin-top:12px">支払対象の定時請求</h3><div id="py-open" class="muted small">業者を選択してください</div>`,
