@@ -95,6 +95,7 @@ export async function prepare(pool, env = process.env) {
   await pool.query(`CREATE TABLE IF NOT EXISTS app_period_close (period varchar(7) COLLATE "C" PRIMARY KEY, closed_at timestamp(6) NOT NULL, closed_by varchar(256) COLLATE "C" NOT NULL)`);
   // 伝票番号（現行の系列連番を引継ぎ）。既存仕訳には日付・ID順で一度だけ採番する。
   await pool.query(`CREATE TABLE IF NOT EXISTS app_slip_series (series varchar(4) COLLATE "C" PRIMARY KEY, last_no integer NOT NULL)`);
+  await pool.query('ALTER TABLE app_slip_series ALTER COLUMN series TYPE varchar(10)'); // 伝票の種類＋年度（例 R2026）をキーにする（2026-10-28）
   await pool.query(`CREATE TABLE IF NOT EXISTS app_slip_no (journal_id bigint PRIMARY KEY, slip_no varchar(12) COLLATE "C" NOT NULL)`);
   // 入金額配賦登録（現行 HJW030）：NO36 入金明細及び配分表の行ごとに、構成員別の配分額を手で調整した値（parts＝{構成員コード: 金額} の JSON）
   // 請求データ（得意先×現場×出荷日×商品のまとめ、指摘 No.9）：請求データ作成のたびに請求ごとに作り直す。請求の取消で一緒に消える

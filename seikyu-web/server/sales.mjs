@@ -303,7 +303,7 @@ export async function runBilling(c, ctx, { month, closing, customers, slip: cont
   check(targets.length, `締日${day}日の有効な得意先がありません`);
   const created = [], appended = [], skipped = [], st = stamp(), yymm = Number(month.replace('-', '')), slip = { max: AR_SLIP_MAX }; // 売掛金計上の伝票（得意先コード順に45得意先で分割）
   // 画面は得意先ごとに呼び出すため、同じ締日の A01 伝票番号を受け取り、45得意先未満なら続けて使う
-  if (typeof cont === 'string' && /^R\d{5}$/.test(cont)) {
+  if (typeof cont === 'string' && /^R(\d{4})?\d{5}$/.test(cont)) {
     const n = Number((await one(c, "SELECT COUNT(*) n FROM app_slip_no s JOIN journal_entry e ON e.journal_id=s.journal_id WHERE s.slip_no=? AND e.pattern_code='A01' AND e.reversal_of IS NULL AND e.journal_date=?", [cont, end])).n);
     if (n && n < AR_SLIP_MAX) Object.assign(slip, { no: cont, count: n });
   }

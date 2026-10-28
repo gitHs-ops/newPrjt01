@@ -326,7 +326,7 @@ test('workflow against PostgreSQL business tables', { skip, timeout: 900000 }, a
         ok(await a.call('/api/masters/sites', { mode: 'create', record: { customer: k, code: k, suffix: '000', name: '分割現場', active: true } }));
         ok(await a.call('/api/shipments', { date: pm + '-01', customer: k, site: k + '|000', item: 'I' + tag, quantity: '1', price: 1000, taxRate: 10, operator: '1', deliveryKbn: '1', method: 2 }));
       }
-      const run = ok(await a.call('/api/billing/run', { month: pm, closing: 15, customers: cs.slice(0, 2) })); assert.equal(run.created, 2); assert.match(run.slip, /^R\d{5}$/);
+      const run = ok(await a.call('/api/billing/run', { month: pm, closing: 15, customers: cs.slice(0, 2) })); assert.equal(run.created, 2); assert.match(run.slip, /^R\d{4}\d{5}$/);
       // 画面は得意先ごとに呼び出す：受け取った伝票番号を渡すと同じ伝票に続けて載る
       const run2 = ok(await a.call('/api/billing/run', { month: pm, closing: 15, customers: [cs[2]], slip: run.slip })); assert.equal(run2.slip, run.slip); run.ids.push(...run2.ids);
       const end = pm + '-15', l = ok(await a.call('/api/reports/journal-list?' + new URLSearchParams({ pattern: 'A01', from: end, to: end })));
