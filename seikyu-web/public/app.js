@@ -1097,7 +1097,7 @@ const lastClosing = () => { const [y, m, d] = today().split('-').map(Number); re
 VIEWS.inventory = async q => {
   const A = actions;
   A.misc = d => miscReport(d.kind, d.src).catch(e => toast(e.message, true)); A.mix = () => mixDialog().catch(e => toast(e.message, true));
-  const [list, cnt] = await Promise.all([api('/api/inventory?' + qs({ month: q.month })), api('/api/inventory/counts?' + qs({ date: q.date || lastClosing() }))]);
+  const [list, cnt] = await Promise.all([api('/api/inventory?' + qs({ month: q.month || thisMonth() })), api('/api/inventory/counts?' + qs({ date: q.date || lastClosing() }))]);
   A.countSave = async () => {
     const lines = $$('.ic-qty').filter(x => x.value.trim() !== x.dataset.orig).map(x => ({ item: x.dataset.item, quantity: x.value.trim().replace(/,/g, '') }));
     if (!lines.length) return toast('変更された在庫数量がありません', true);
@@ -1117,7 +1117,7 @@ VIEWS.inventory = async q => {
   const postCard = `<section class="card glass" data-sub="list"><div class="card-head"><h2>在庫計上（月次1回）</h2></div>
     <div class="filters"><label class="field">計上月度<input type="month" id="ip-month" value="${esc(cnt.month)}"></label>${canWrite() ? '<button class="primary" data-act="post">在庫計上</button><button class="danger" data-act="unpost">在庫計上の取消</button>' : ''}</div>
     </section>`;
-  return page('在庫', '実在庫登録 → 配合計算 → 材料受払表 → 在庫計上（月次1回）の順に処理します（10/21 打合せ）。', `${monthInput('month', q.month || '')}${csvLink('inventory', { month: q.month })}`,
+  return page('在庫', '実在庫登録 → 配合計算 → 材料受払表 → 在庫計上（月次1回）の順に処理します（10/21 打合せ）。', `${monthInput('month', q.month || thisMonth())}${csvLink('inventory', { month: q.month || thisMonth() })}`,
     `${countCard}${postCard}<section class="card glass" data-sub="list"><h2>在庫一覧</h2>${table([{ label: '月度', value: r => r.month }, { label: '調査日', value: r => String(r.countedOn || '').slice(0, 10) }, { label: '商品', value: r => `${r.item} ${r.itemName}` }, { label: '数量', num: 1, value: r => `${r.quantity} ${r.unit || ''}` },
       { label: '評価単価', num: 1, value: r => (r.status === 'POSTED' ? yen(r.price) : '') }, { label: '評価額', num: 1, value: r => (r.status === 'POSTED' ? yen(r.value) : '') }, { label: '状態', html: r => (r.status === 'POSTED' ? badge('計上済', 'green') : badge('未計上', 'gray')) }], list, { empty: 'この条件の在庫はありません' })}</section>
     <div data-sub="reports">${miscCard('在庫登録リスト', '実在庫登録のチェックリスト。画面で確認しにくいため一覧・Excel で確認', `<label class="field">月度<input type="month" id="ir-month" value="${esc(cnt.month)}"></label>`, '<button data-act="misc" data-kind="inventory-register" data-src="ir">⇩ Excel</button>')}</div><div data-sub="reports">${inventoryReportsCard()}</div>`);
