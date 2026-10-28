@@ -139,8 +139,10 @@ export async function createApp({ pool, publicDir, secureCookies = process.env.N
   kbRead('bugyo', async c => ({ items: BUGYO_ITEMS, ...(await bugyoSettings(c)) }));
   w('/api/kb/slips', (c, x, b) => KB.saveSlip(c, x, b));
   w('/api/kb/slips/delete', (c, x, b) => KB.deleteSlip(c, x, b));
-  w('/api/kb/import/seikyu', (c, x, b) => KB.importSeikyu(c, x, b));
-  w('/api/kb/import/csv', (c, x, b) => KB.importCsv(c, x, b));
+  // 内容を確認・チェック（dry）は参照者も実行できる。受入は登録権限が必要
+  const dryOk = fn => (c, x, b) => { if (!b.dry && !U.WRITE_ROLES.includes(x.user.role)) throw new Forbidden('参照者は登録・変更できません'); return fn(c, x, b); };
+  w('/api/kb/import/seikyu', dryOk(KB.importSeikyu), 'read');
+  w('/api/kb/import/csv', dryOk(KB.importCsv), 'read');
   w('/api/kb/import/cancel', (c, x, b) => KB.cancelImport(c, x, b));
   w('/api/kb/accounts', (c, x, b) => KB.saveAccount(c, x, b));
   w('/api/kb/opening', (c, x, b) => KB.saveOpening(c, x, b));

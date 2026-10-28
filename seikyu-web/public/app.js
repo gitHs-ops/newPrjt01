@@ -16,7 +16,7 @@ const canWrite = () => [1, 2, 3, 4].includes(session?.user.role), isAdmin = () =
 // DB の読込は検索系のボタン（検索・タブ切替など）と登録・更新の後だけ（2026-10-23）。画面の描画中の GET は apiMode で切り替える：
 //  lazy … メニュー・小メニューで開いたとき。読込済みの結果（apiCache）を使い、無ければサーバーに「空の画面」（X-Empty-View：DB を読まず0件）を頼む
 //  fresh … DB から読み、結果を apiCache に入れる。登録・更新（GET 以外）の後はキャッシュを捨て、次の描画で読み直す
-const apiCache = new Map(), LAZY_FETCH = /^\/api\/(business-date|petty\/settings|kb\/meta|kb\/bugyo|coverage)(\?|$)/;
+const apiCache = new Map(), LAZY_FETCH = /^\/api\/(business-date|petty\/settings|kb\/meta|kb\/bugyo|coverage|periods)(\?|$)/;
 let apiMode = null, apiDirty = false, emptyShown = false;
 const fetchJson = async (url, opt) => {
   const res = await fetch(url, { cache: 'no-store', ...opt });
@@ -1245,7 +1245,7 @@ VIEWS.payments = async q => {
     `<section class="card glass" data-sub="list">${table([{ label: '支払No', value: r => r.no }, { label: '支払日', value: r => r.date }, { label: '業者', value: r => r.vendorName }, { label: '支払額', num: 1, value: r => yen(r.amount) }, { label: '支払元', value: r => nameOf('banks', r.fromBank) },
       { label: '振込先', value: r => r.payee ? `${r.payee.bank}-${r.payee.branch} ${r.payee.account}` : '未登録' }, { label: '対象伝票', value: r => r.allocations.map(a => a.no).join(', ') }, { label: '状態', html: r => status(r.status) },
       { label: '', html: r => canWrite() && r.status === 'POSTED' ? `<button class="mini danger" data-act="rev" data-id="${r.id}" data-no="${esc(r.no)}">取消</button>` : '' }], list, { rowClass: r => r.status === 'REVERSED' ? 'reversed' : '' })}</section><div data-sub="reports">${paymentReportsCard()}</div><div data-sub="bank">${miscCard('銀行別随時支払一覧表', '支払日→支払元口座（銀行）別に、業者・振込先銀行・支店を一覧', rangeInputs('bp', '支払日'),
-      '<button data-act="bankList">表示・Excel</button>', '「仕訳・会計連携 › 自動仕訳リスト」の「銀行別随時支払一覧表」と同じ帳票です。')}</div><div data-sub="transfer">${miscCard('振込先一覧', '業者マスタの振込サイクル（15日／月末）・振込元口座・振込先口座（10/19 打合せ）', `<label class="field">支払予定日（まで）<input type="date" id="tl-to" value="${today()}"></label>`, '<button data-act="misc" data-kind="transfer-list" data-src="tl">表示・印刷・Excel</button>')}</div>`);
+      '<button data-act="bankList">表示・Excel</button>', '「仕訳・会計連携 › 自動仕訳リスト」の「銀行別随時支払一覧表」と同じ帳票です。')}</div><div data-sub="transfer">${miscCard('振込先一覧', '業者マスタの振込サイクル（15日／月末）・振込元口座・振込先口座（10/19 打合せ）', `<label class="field">支払予定日（まで）<input type="date" id="tl-to" value="${today()}"></label>`, '<button data-act="misc" data-kind="transfer-list" data-src="tl">表示・Excel</button>')}</div>`);
 };
 
 // ③ 支払帳票（NO37 全銀データ・NO45〜48）
@@ -1338,7 +1338,7 @@ async function accountingDownload(format) {
   const url = '/api/accounting/export?' + qs({ from: $('#ac-from').value, to: $('#ac-to').value, format }), res = await fetch(url, { cache: 'no-store' });
   if (!res.ok) return toast((await res.json().catch(() => ({}))).error || '出力できません', true);
   const blob = await res.blob(), href = URL.createObjectURL(blob), el = document.createElement('a');
-  el.href = href; el.download = `会計連携_${format === 'yayoi' ? '弥生' : '汎用'}_${$('#ac-from').value}_${$('#ac-to').value}.csv`; el.click(); setTimeout(() => URL.revokeObjectURL(href), 2000);
+  el.href = href; el.download = `会計連携_${{ yayoi: '弥生', bugyo: '勘定奉行' }[format] || '汎用'}_${$('#ac-from').value}_${$('#ac-to').value}.csv`; el.click(); setTimeout(() => URL.revokeObjectURL(href), 2000);
   toast('会計連携データを出力しました');
 }
 const jvReportsCard = () => miscCard('出資金（JV）帳票', 'JV構成員・出資比率で配分（10/21 打合せ：締切日＝対象月20日で指示）', `<label class="field">締切日<input type="date" id="jv-closing" value="${lastClosing()}"></label>`,
@@ -1479,7 +1479,7 @@ VIEWS.journals = async q => {
         { label: '取引先', value: l => l.partner }, { label: '借方金額', num: 1, value: l => l.side === 'D' ? yen(l.amount) : '' }, { label: '貸方金額', num: 1, value: l => l.side === 'C' ? yen(l.amount) : '' }], j.lines)}</div>`).join('') : '<div class="empty">仕訳がありません</div>';
   }
   return page('仕訳・会計連携', '業務処理から自動作成された仕訳（journal_entry / journal_line）。取消は原仕訳を残し逆仕訳で記録します。会計システムの受入形式は確認待ちです（Q14/Q19）。',
-    `${monthInput('month', month)}<select name="pattern" data-filter>${options(Object.entries(meta.patterns).map(([code, name]) => ({ code, name })), q.pattern, { blank: 'すべてのパターン' })}</select>${csvLink('journals', { month })}`,
+    `${monthInput('month', month)}${tab === 'tb' ? csvLink('trial-balance', { month }) : `<select name="pattern" data-filter>${options(Object.entries(meta.patterns).map(([code, name]) => ({ code, name })), q.pattern, { blank: 'すべてのパターン' })}</select>${csvLink('journals', { month, pattern: q.pattern })}`}`,
     `<section class="card glass" data-sub="list tb">${body}</section><div data-sub="export">${accountingCard()}</div>`);
 };
 // ② 自動仕訳リスト 7種（帳票形式：借方・貸方併記、伝票合計・日付合計）

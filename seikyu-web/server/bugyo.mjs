@@ -23,7 +23,7 @@ export async function saveBugyoSettings(c, ctx, p) {
   for (const [code, v] of Object.entries(p.taxMap || {})) { const t = decode(code); check(t, `処税率「${code}」が不正です`); const x = String(v || '').trim(); check(x.length <= 20, '奉行の税区分コードが長すぎます'); if (x) taxMap[t.code] = x; }
   const encoding = p.encoding === 'utf-8' ? 'utf-8' : 'shift_jis';
   for (const [k, v] of [['obc_symbols', JSON.stringify(symbols)], ['obc_tax', JSON.stringify(taxMap)], ['obc_encoding', encoding]])
-    await c.query('INSERT INTO kb_setting (k,v) VALUES (?,?) ON DUPLICATE KEY UPDATE v=VALUES(v)', [k, v.slice(0, 200)]);
+    await c.query('INSERT INTO kb_setting (k,v) VALUES (?,?) ON DUPLICATE KEY UPDATE v=VALUES(v)', [k, v]);
   await audit(c, ctx, 'kb_setting', 'obc', 'kb.setting.save', { symbols: Object.keys(symbols).length, tax: Object.keys(taxMap).length, encoding });
   return bugyoSettings(c);
 }

@@ -121,6 +121,10 @@ test('workflow against PostgreSQL business tables', { skip, timeout: 900000 }, a
       assert.equal((await v.call('/api/dashboard')).status, 200);
       assert.equal((await v.call('/api/shipments', { date: d })).status, 403);
       assert.equal((await v.call('/api/users')).status, 403);
+      // 仕訳受入の「内容を確認・チェック」（dry）は参照者も可、受入は不可（2026-10-28）
+      assert.equal((await v.call('/api/kb/import/seikyu', { from: d, to: d, dry: true })).status, 200);
+      assert.equal((await v.call('/api/kb/import/csv', { csv: '伝票日付,伝票番号,借方科目CD,借方金額,貸方科目CD,貸方金額\n', dry: true })).status, 400, 'dry は権限エラーにならない（入力チェックの 400）');
+      assert.equal((await v.call('/api/kb/import/seikyu', { from: d, to: d })).status, 403);
       await a.call('/api/users', { id: u.data.id, name: '参照者', role: 5, enabled: false });
       assert.equal((await v.call('/api/dashboard')).status, 401, 'disabled user session revoked');
     });
@@ -361,6 +365,12 @@ test('workflow against PostgreSQL business tables', { skip, timeout: 900000 }, a
       ok(await a.call('/api/invoices/cancel', { id, site: lb.site, siteName: lb.siteName }));
       assert.notEqual((await a.call('/api/invoices/' + id)).status, 200, 'invoice removed after its last site');
     });
+    // 奉行の受入記号は 200 字を超えても欠けずに保存される（2026-10-28）
+    const meta = (await a.call('/api/kb/bugyo')).data, symbols = Object.fromEntries(meta.items.map(([k]) => [k, 'OBC_' + k.padEnd(30, 'X')]));
+    assert.ok(JSON.stringify(symbols).length > 200);
+    assert.deepEqual((await a.call('/api/kb/bugyo', { symbols, taxMap: {}, encoding: 'shift_jis' })).data.symbols, symbols);
+    const tb = await fetch(base + '/api/export/trial-balance?month=' + month, { headers: { cookie: a.cookie } });
+    assert.equal(tb.status, 200); assert.match(await tb.text(), /"科目","科目名","借方","貸方"/);
     const raw = await fetch(base + '/api/export/journals?month=' + month, { headers: { cookie: a.cookie } }); const bytes = new Uint8Array(await raw.arrayBuffer());
     assert.equal(raw.status, 200); assert.deepEqual([...bytes.slice(0, 3)], [0xef, 0xbb, 0xbf], 'CSV has UTF-8 BOM for Excel');
   } finally {
