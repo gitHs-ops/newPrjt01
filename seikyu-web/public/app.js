@@ -1149,11 +1149,11 @@ VIEWS.purchases = async q => {
     return Number(f('amount').value || 0); };
   // 伝票No.：5桁＋行番号2桁の枝番（10/28 打合せ No.21。例 53192-01）。サーバの purchaseNo と同じ
   const pNo = (no, line) => String(no || '').replace(/\D/g, '').slice(-5).padStart(5, '0') + (line ? '-' + String(line).padStart(2, '0') : '');
-  // ヘッダー：伝票No（キー。2026-10-29 指摘で先頭に）→ 業者 → 仕入日（納入日）・区分。伝票摘要は根拠がないため置かない
+  // ヘッダー：伝票No（キー。2026-10-29 指摘で先頭に）→ 仕入日（納入日）→ 仕入先（業者）→ 区分（10-29 画面レビュー No.11）。伝票摘要は根拠がないため置かない
   // サンプル入力は通常の商品から選ぶ（値引き・運賃は選ばない）
   const pickItem = f => { const it = puItems().filter(i => !isFreight(i)), tr = f.querySelector('#pu-lines tbody tr'), el = tr?.querySelector('[name=item]'); if (el && it.length && !hit(el.value)) { el.value = it[Math.floor(Math.random() * it.length)].code; el.dispatchEvent(new Event('input', { bubbles: true })); } };
   const hit = code => puItems().some(i => i.code === String(code || '').trim());
-  A.new = () => modal({ title: '商品仕入の登録', submit: '登録する', wide: true, sample: pickItem, body: `<div class="form-grid">${field('伝票No', '<input value="（登録時に自動採番）" disabled>')}<div></div>${field('仕入先（業者）', `<select name="vendor">${options(active('vendors'), '', { blank: '選択してください' })}</select>`, { req: 1 })}${field('仕入日（納入日）', `<input type="date" name="date" value="${today()}">`, { req: 1 })}
+  A.new = () => modal({ title: '商品仕入の登録', submit: '登録する', wide: true, sample: pickItem, body: `<div class="form-grid">${field('伝票No', '<input value="（登録時に自動採番）" disabled>')}<div></div>${field('仕入日（納入日）', `<input type="date" name="date" value="${today()}">`, { req: 1 })}${field('仕入先（業者）', `<select name="vendor">${options(active('vendors'), '', { blank: '選択してください' })}</select>`, { req: 1 })}
       ${field('区分', `<select name="kind">${Object.entries(meta.purchaseKinds).map(([k, v]) => `<option value="${k}">${k} ${esc(v)}</option>`).join('')}</select>`)}</div>
       <datalist id="dl-pu-items">${puItems().map(i => `<option value="${esc(i.code)}">${esc(i.name)}</option>`).join('')}</datalist>
       ${lineGrid('pu-lines', cols, undefined, { lineNo: true })}`,
