@@ -154,12 +154,19 @@ export async function extraBook(c, kind, q) {
     return { name: `定時請求入力明細表_${d.month}.xlsx`, body: xlsx([{ name: '定時請求入力明細表', rows: out, widths: [12, 11, 7, 6, 14, 14, 11, 12, 10, 22, 7, 7, 11] }]) };
   }
   if (kind === 'petty-book') {
-    const d = await pettyCashBook(c, q), out = head(d, `期間 ${d.from} 〜 ${d.to}`), mh = d.members ? d.members.map(m => `${m.name}（${m.ratio}%）`) : [];
+    // 構成員の列は現行 HJR051 と同じく名称だけ。列幅は名称が切れないよう全角2・半角1で計算（2026-10-29）
+    const d = await pettyCashBook(c, q), out = head(d, `期間 ${d.from} 〜 ${d.to}`), mh = d.members ? d.members.map(m => m.name) : [];
+    const mw = mh.map(n => Math.max(12, [...n].reduce((w, ch) => w + (ch.charCodeAt(0) > 0xff ? 2 : 1), 0) + 2));
     // 現行 HJR051 と同じ並び・表示（2026-10-29）：支払日・支払先・摘要・科目コード（科目 内訳）・科目名・税率（%）・支払額・構成員別。伝票No・受入・残高の列、前期繰越・現金補充の行は出さない
     out.push(['支払日', '支払先', '摘要', '科目コード', '科目名', '税率', '支払額', ...mh].map(H));
-    for (const r of d.rows.filter(r => r.amount)) out.push([r.date, r.payee, r.memo, `${r.account}${r.sub ? ' ' + r.sub : ''}`, r.accountName, r.rate, r.amount, ...(r.parts || [])]);
-    out.push(['', '', S('合計'), '', '', '', S(d.spent)]);
-    return { name: `小口現金出納簿_${d.from}_${d.to}.xlsx`, body: xlsx([{ name: '小口現金出納簿', rows: out, widths: [11, 22, 26, 12, 16, 7, 12, 14, 14, 14] }]) };
+    const pay = d.rows.filter(r => r.amount), sumParts = rs => mh.map((_, k) => rs.reduce((n, r) => n + (r.parts?.[k] || 0), 0));
+    for (const r of pay) out.push([r.date, r.payee, r.memo, `${r.account}${r.sub ? ' ' + r.sub : ''}`, r.accountName, r.rate, r.amount, ...(r.parts || [])]);
+    // 現行 HJR051 の末尾：＊計＊（支払額・構成員別の合計）→ 税率別の小計（税率の高い順。構成員別は各行の配分の合計）
+    out.push(['', '', S('＊ 計 ＊'), '', '', '', S(d.spent), ...sumParts(pay).map(S)]);
+    for (const rate of [...new Set(pay.map(r => r.rate))].sort((x, y) => parseFloat(y) - parseFloat(x))) {
+      const rs = pay.filter(r => r.rate === rate); out.push(['', '', '', '', '', rate, rs.reduce((n, r) => n + r.amount, 0), ...sumParts(rs)]);
+    }
+    return { name: `小口現金出納簿_${d.from}_${d.to}.xlsx`, body: xlsx([{ name: '小口現金出納簿', rows: out, widths: [11, 22, 26, 12, 16, 7, 12, ...mw] }]) };
   }
   if (kind === 'sales-register') {
     const d = await salesRegister(c, q), out = head(d, `期間 ${d.from} 〜 ${d.to}`);
