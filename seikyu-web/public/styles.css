@@ -90,6 +90,8 @@ button:disabled { opacity: .5; cursor: not-allowed; transform: none; box-shadow:
 button.primary { background: linear-gradient(135deg, var(--accent-primary), var(--accent-secondary)); color: #fff; border-color: transparent; }
 button.primary:hover { box-shadow: 0 12px 26px rgba(99,102,241,.38); }
 button.danger { color: var(--danger); border-color: rgba(220,38,38,.3); }
+button.edit { background: #fffbeb; color: #b45309; border-color: #fcd34d; } /* 修正（入金消込の［消込］＝primary と色を分ける。2026-10-29） */
+button.edit:hover { box-shadow: 0 8px 18px rgba(217,119,6,.22); }
 button.quiet { background: transparent; border-color: transparent; color: var(--text-secondary); }
 button.mini { padding: 3px 9px; font-size: 12px; border-radius: 8px; }
 input, select, textarea { font: 400 13.5px var(--font-main); color: var(--text-primary); background: var(--field-bg); border: 1px solid var(--field-border); border-radius: 10px; padding: 7px 10px; width: 100%; min-width: 0; backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); }

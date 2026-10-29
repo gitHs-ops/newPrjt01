@@ -971,7 +971,7 @@ const RC_KEYS = [['bank', 'BANK'], ['cash', 'CASH'], ['notes', 'NOTE'], ['fee', 
 const ledgerTable = (d, { clear = false } = {}) => table([{ label: '得意先', value: r => `${r.customer} ${r.name}` }, { label: '請求年月', value: r => r.month }, { label: '前回残高', num: 1, html: r => (r.prev ? `<b class="${r.prev > 0 ? 'check-ng' : ''}">${yen(r.prev)}</b>` : '0') },
   { label: '当月請求金額', num: 1, value: r => yen(r.current) }, { label: '今回請求金額', num: 1, value: r => yen(r.claim) }, { label: '消込金額', num: 1, value: r => yen(r.cleared) }, { label: '消込残高', num: 1, html: r => (r.remain ? `<b class="${r.latest ? '' : 'check-ng'}">${yen(r.remain)}</b>` : '0') },
   // 消込済みでも月次確定前は［修正］で選び直して入金を更新できる（2026-10-27）
-  ...(clear ? [{ label: '', html: r => (r.latest && (r.remain > 0 || r.receipt) && canWrite() ? `<button class="mini primary" data-act="clear" data-customer="${esc(r.customer)}" data-receipt="${r.receipt || ''}">${r.receipt ? '修正' : '消込'}</button>` : '') }] : [])], d.rows,
+  ...(clear ? [{ label: '', html: r => (r.latest && (r.remain > 0 || r.receipt) && canWrite() ? `<button class="mini ${r.receipt ? 'edit' : 'primary'}" data-act="clear" data-customer="${esc(r.customer)}" data-receipt="${r.receipt || ''}">${r.receipt ? '修正' : '消込'}</button>` : '') }] : [])], d.rows,
   { empty: '該当する請求はありません', rowClass: r => (r.latest ? '' : 'muted'), foot: ['合計', '', '', yen(d.totals.current), '', yen(d.totals.cleared), yen(d.totals.remain), ...(clear ? [''] : [])] });
 async function arLedgerView(q) {
   const A = actions; A.view = d => go('invoices', { view: d.view });
