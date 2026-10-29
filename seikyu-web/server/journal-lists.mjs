@@ -39,14 +39,18 @@ export async function journalList(c, q) {
       for (const k of await rows(c, `SELECT receipt_id, maturity_date FROM receipt_component WHERE component_kind='NOTE' AND receipt_id IN (${ph(srcIds)})`, srcIds)) if (src.get(k.receipt_id)) src.get(k.receipt_id).note = `手形 期日${k.maturity_date || ''}`;
     }
     if (def.source === 'inventory_count') for (const r of await rows(c, `SELECT n.inventory_id id, n.item_cd, i.item_nam FROM inventory_count n LEFT JOIN item_m i ON i.item_cd=n.item_cd WHERE n.inventory_id IN (${ph(srcIds)})`, srcIds)) src.set(r.id, { no: 'V' + r.id, item: `${r.item_cd} ${r.item_nam || ''}` });
-    if (def.source === 'expense_document') for (const r of await rows(c, `SELECT d.expense_id id, d.document_no, d.memo FROM expense_document d WHERE d.expense_id IN (${ph(srcIds)})`, srcIds)) src.set(r.id, { no: r.document_no, memo2: r.memo });
+    if (def.source === 'expense_document') {
+      for (const r of await rows(c, `SELECT d.expense_id id, d.document_no, d.memo FROM expense_document d WHERE d.expense_id IN (${ph(srcIds)})`, srcIds)) src.set(r.id, { no: r.document_no, memo2: r.memo, lines: [] });
+      // 小口現金（E01）：借方の行ごとの 摘要1＝行の支払先、摘要2＝行の摘要（現行 HAR733。2026-10-29）
+      for (const l of await rows(c, `SELECT l.expense_id, l.gross_amount, l.memo, l.payee, v.vendor_code, v.vendor_name FROM expense_line l LEFT JOIN vendor v ON v.vendor_id=l.vendor_id WHERE l.expense_id IN (${ph(srcIds)}) ORDER BY l.expense_id, l.line_no`, srcIds)) src.get(l.expense_id)?.lines.push(l);
+    }
     if (def.source === 'payment') for (const r of await rows(c, `SELECT payment_id id, payment_no FROM payment WHERE payment_id IN (${ph(srcIds)})`, srcIds)) src.set(r.id, { no: r.payment_no });
   }
   const DEDUCT = { '8330|101': '手数料', '8330|107': '協力費', '8850|': '値引き', '4170|': '預り金充当' };
   const slips = es.map(e => {
     const s = e.source_type === 'inventory_month' ? { no: `棚卸 ${e.source_id.slice(0, 4)}-${e.source_id.slice(4)}月度` } : src.get(Number(e.source_id)) || { no: '' }, lines = ls.filter(l => l.journal_id === e.journal_id);
     const partnerLine = lines.find(l => l.customers_cd || l.vendor_id), partner = partnerLine ? { code: partnerLine.customers_cd || partnerLine.vendor_code, name: partnerLine.customers_name || partnerLine.vendor_name } : null;
-    let creditNo = 0;
+    let creditNo = 0, debitNo = 0;
     const side = l => {
       if (!l) return null;
       let sub = l.sub_code || '', subName = l.sub_name || '';
@@ -61,6 +65,10 @@ export async function journalList(c, q) {
       // 在庫計上（C01）：現行 HAR463 と同じく 摘要1＝前月末在庫／当月末在庫（商品は 1360 の内訳1）。2026-10-28 摘要1＝商品・摘要2＝前月末在庫 から変更
       if (e.pattern_code === 'C01') return { dept: l.department_code || '', account: l.account_code, accountName: l.account_name || '', sub, subName, sub2: '', tax: l.source_tax_code || '', amount: Number(l.amount),
         memo1Code: '', memo1: (l.side === 'D' ? l.account_code === '82316' : l.account_code === '1360') ? '前月末在庫' : '当月末在庫', memo2: '' };
+      if (e.pattern_code === 'E01' && l.side === 'D' && s.lines) {
+        const x = s.lines.filter(y => Number(y.gross_amount) > 0)[debitNo++];
+        if (x && (x.vendor_code || x.payee)) return { dept: l.department_code || '', account: l.account_code, accountName: l.account_name || '', sub, subName, sub2: '', tax: l.source_tax_code || '', amount: Number(l.amount), memo1Code: x.vendor_code || '', memo1: x.vendor_name || x.payee, memo2: x.memo || memo2 };
+      }
       return { dept: l.department_code || '', account: l.account_code, accountName: l.account_name || '', sub, subName, sub2: '', tax: l.source_tax_code || '', amount: Number(l.amount),
         memo1Code: partner?.code || '', memo1: partner?.name || '', memo2 };
     };

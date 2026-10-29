@@ -178,12 +178,12 @@ export async function listExpenses(c, q = {}) {
   const rs = await rows(c, `SELECT d.*, v.vendor_code, v.vendor_name, l.account_code, l.sub_code, l.department_code, l.source_tax_code, l.memo line_memo, a.account_name, ${PAID} paid
     FROM expense_document d LEFT JOIN vendor v ON v.vendor_id=d.vendor_id LEFT JOIN expense_line l ON l.expense_id=d.expense_id AND l.line_no=1 LEFT JOIN account_subject a ON a.account_code=l.account_code
     ${w.length ? 'WHERE ' + w.join(' AND ') : ''} ORDER BY d.booked_on DESC, d.expense_id DESC LIMIT 1000`, args);
-  const ls = rs.length ? await rows(c, `SELECT l.*, a.account_name, s.sub_name FROM expense_line l LEFT JOIN account_subject a ON a.account_code=l.account_code LEFT JOIN account_subsubject s ON s.account_code=l.account_code AND s.sub_code=l.sub_code
+  const ls = rs.length ? await rows(c, `SELECT l.*, a.account_name, s.sub_name, lv.vendor_code line_vendor_code, lv.vendor_name line_vendor_name FROM expense_line l LEFT JOIN vendor lv ON lv.vendor_id=l.vendor_id LEFT JOIN account_subject a ON a.account_code=l.account_code LEFT JOIN account_subsubject s ON s.account_code=l.account_code AND s.sub_code=l.sub_code
     WHERE l.expense_id IN (${rs.map(() => '?').join(',')}) ORDER BY l.expense_id, l.line_no`, rs.map(r => r.expense_id)) : [];
   return rs.map(r => ({ id: r.expense_id, no: r.document_no, billNo: r.bill_no || '', kind: r.expense_kind, date: r.booked_on, due: r.due_on || '', vendor: r.vendor_code || '', vendorName: r.vendor_name || '', payee: r.vendor_name || (r.payee ?? (r.line_memo && r.line_memo !== r.memo ? r.line_memo : '')), account: r.account_code, accountName: r.account_name, sub: r.sub_code || '',
     dept: r.department_code, taxCode: r.source_tax_code, amount: Number(r.gross_amount), paid: Number(r.paid), balance: r.status === 'POSTED' ? Number(r.gross_amount) - Number(r.paid) : 0, memo: r.memo, status: r.status,
     lines: ls.filter(l => l.expense_id === r.expense_id).map(l => ({ no: Number(l.line_no), account: l.account_code, accountName: l.account_name || '', sub: l.sub_code || '', subName: l.sub_name || '', dept: l.department_code, taxCode: l.source_tax_code,
-      amount: Number(l.gross_amount), tax: Number(l.tax_amount || 0), memoCode: l.memo_code || '', memo: l.memo || '' })) }));
+      amount: Number(l.gross_amount), tax: Number(l.tax_amount || 0), memoCode: l.memo_code || '', memo: l.memo || '', payee: l.line_vendor_name || l.payee || '' })) }));
 }
 // 支払予定日：業者マスタの支払繰延区分（code_m VPAY：○か月後・日、31=月末）。未設定は締切日の翌月末。
 export async function vendorDue(c, vendorCode, date) {
@@ -205,19 +205,7 @@ export async function advanceBalance(c, vendorId) {
 export async function createExpense(c, ctx, p) {
   const kind = String(p.kind); check(['PAYABLE', 'PETTY_CASH'].includes(kind), '区分が不正です');
   const date = isoDate(p.date, kind === 'PAYABLE' ? '締切日' : '支払日'); await assertOpen(c, date);
-  // 小口現金：明細ごとの支払先（2026-10-29）。支払先ごとに伝票を分けて登録する（出納簿は伝票1件＝1行で支払先を表示）
-  if (kind === 'PETTY_CASH' && Array.isArray(p.lines) && p.lines.some(l => l.vendor || l.payee)) {
-    const groups = new Map();
-    for (const [i, { vendor, payee, ...l }] of p.lines.entries()) {
-      if (!l.account && !l.amount) continue;
-      const k = vendor ? `V	${vendor}` : `P	${String(payee || '').trim()}`;
-      if (!groups.has(k)) groups.set(k, []); groups.get(k).push({ ...l, row: i + 1 });
-    }
-    check(groups.size, '明細を入力してください');
-    const out = [];
-    for (const [k, lines] of groups) { const [t, v] = k.split('	'); out.push(await createExpense(c, ctx, { ...p, vendor: t === 'V' ? v : '', payee: t === 'P' ? v : '', lines })); }
-    return { id: out[0].id, no: out.map(r => r.no).join('・'), docs: out.length };
-  }
+  // 小口現金：1支払日＝1伝票、明細の行ごとに支払先（業者コード または 自由入力）と科目（2026-10-29 画面レビュー No.9：「支払日を上に入れ、どこに払ったか・どの科目かを打ち込む。日付ごとにある」。支払先ごとに伝票を分けない。現行 HAR733 K02080 と同じ）
   const v = kind === 'PAYABLE' || p.vendor ? await vendorOf(c, p.vendor) : null;
   const payee = kind === 'PETTY_CASH' ? text(p.payee, '支払先', 100, { required: false }) : '';
   const due = kind === 'PAYABLE' ? (p.due ? isoDate(p.due, '支払予定日') : await vendorDue(c, v.vendor_code, date)) : null;
@@ -228,6 +216,7 @@ export async function createExpense(c, ctx, p) {
     const label = `${l.row || i + 1}行目`;
     if (!l.account && !l.amount) continue;
     const acc = await one(c, 'SELECT * FROM account_subject WHERE account_code=?', [String(l.account || '')]); check(acc?.active, `${label}: 有効な勘定科目を選択してください`);
+    const lv = kind === 'PETTY_CASH' && l.vendor ? await vendorOf(c, l.vendor) : null, lpayee = kind === 'PETTY_CASH' ? (lv ? '' : text(l.payee, `${label}の支払先`, 100, { required: false })) : '';
     const sub = String(l.sub || '') || null;
     if (sub) check(await one(c, 'SELECT 1 x FROM account_subsubject WHERE account_code=? AND sub_code=? AND active', [acc.account_code, sub]), `${label}: 内訳科目が上位科目に登録されていません`);
     const amount = yen(l.amount, `${label}の金額`, { negative: true }); check(amount !== 0, `${label}: 金額を入力してください`); // マイナス行（戻し・値引）は貸方に計上
@@ -236,7 +225,7 @@ export async function createExpense(c, ctx, p) {
     if (isAdv) { check(kind === 'PAYABLE', `${label}: 業者立替金は定時請求で入力してください`); check(amount < 0, `${label}: 業者立替金（相殺）はマイナスで入力してください`); l = { ...l, taxCode: '090' }; }
     // 内税（1桁目 1）：金額は税込、消費税は内数。外税（1桁目 2・空白）：金額は税抜、消費税を上乗せ（現行 HAW050 の「外税消費税」）
     const d = mustDecode(l.taxCode || '141', `${label}の処税率`), tax = d.code, taxAmt = Math.sign(amount) * taxOf(Math.abs(amount), tax), excl = !!d.excl;
-    ls.push({ account: acc.account_code, sub, tax, amount, excl, taxAmt, gross: excl ? amount + taxAmt : amount, memoCode: text(l.memoCode, `${label}の摘要コード`, 7, { required: false, pattern: /^\d{1,7}$/ }), memo: text(l.memo, `${label}の摘要名`, 500, { required: false }) });
+    ls.push({ account: acc.account_code, sub, tax, amount, excl, taxAmt, gross: excl ? amount + taxAmt : amount, memoCode: text(l.memoCode, `${label}の摘要コード`, 7, { required: false, pattern: /^\d{1,7}$/ }), memo: text(l.memo, `${label}の摘要名`, 500, { required: false }), lineVendor: lv, linePayee: lpayee });
   }
   check(ls.length, '明細を入力してください'); check(ls.length <= 99, '明細は99行以内です');
   const advUse = -ls.filter(l => l.account === ADVANCE_ACCOUNT).reduce((n, l) => n + l.amount, 0);
@@ -257,10 +246,10 @@ export async function createExpense(c, ctx, p) {
     const m = await one(c, "SELECT MAX(CAST(bill_no AS INTEGER)) n FROM expense_document WHERE vendor_id=? AND bill_no ~ '^[0-9]+$'", [v.vendor_id]);
     billNo = String((Number(m?.n || 0) % 9999) + 1).padStart(4, '0');
   }
-  const [r] = await c.query("INSERT INTO expense_document (document_no,expense_kind,vendor_id,booked_on,due_on,gross_amount,memo,status,bill_no,payee) VALUES (?,?,?,?,?,?,?,'POSTED',?,?)", [no, kind, v?.vendor_id || null, date, due, amount, memo, billNo, kind === 'PETTY_CASH' ? payee || '' : null]); // payee NULL＝旧データ（支払先は1行目の摘要）
+  const [r] = await c.query("INSERT INTO expense_document (document_no,expense_kind,vendor_id,booked_on,due_on,gross_amount,memo,status,bill_no,payee) VALUES (?,?,?,?,?,?,?,'POSTED',?,?)", [no, kind, v?.vendor_id || null, date, due, amount, memo, billNo, kind === 'PETTY_CASH' ? (payee || [...new Set(ls.map(l => l.lineVendor?.vendor_name || l.linePayee).filter(Boolean))].join('・').slice(0, 100)) : null]); // payee NULL＝旧データ（支払先は1行目の摘要）
   for (const [i, l] of ls.entries())
-    await c.query('INSERT INTO expense_line (expense_id,line_no,account_code,sub_code,department_code,source_tax_code,net_amount,tax_amount,gross_amount,memo,memo_code) VALUES (?,?,?,?,?,?,?,?,?,?,?)',
-      [r.insertId, i + 1, l.account, l.sub, dept, l.tax, l.gross - l.taxAmt, l.taxAmt, l.gross, l.memo || memo, l.memoCode || null]);
+    await c.query('INSERT INTO expense_line (expense_id,line_no,account_code,sub_code,department_code,source_tax_code,net_amount,tax_amount,gross_amount,memo,memo_code,payee,vendor_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)',
+      [r.insertId, i + 1, l.account, l.sub, dept, l.tax, l.gross - l.taxAmt, l.taxAmt, l.gross, l.memo || memo, l.memoCode || null, l.linePayee || null, l.lineVendor?.vendor_id || null]);
   // 外税の明細は科目に税抜金額、消費税は仮払消費税 1465 に計上（推定）。内税・対象外は従来どおり科目に金額
   await postJournal(c, { date, pattern: kind === 'PAYABLE' ? 'D01' : 'E01', sourceType: 'expense_document', sourceId: r.insertId, lines: [
     ...ls.map(l => line(l.amount < 0 ? 'C' : 'D', l.account, Math.abs(l.amount), { sub: l.sub, dept, tax: l.tax, ...(l.account === ADVANCE_ACCOUNT ? { vendor: v.vendor_id } : {}) })), ...(extTax ? [line(extTax < 0 ? 'C' : 'D', '1465', Math.abs(extTax), { tax: '9' })] : []), kind === 'PAYABLE' ? line('C', '4121', amount, { vendor: v.vendor_id, tax: '9' }) : line('C', '1111', amount, { tax: '9' })] });
