@@ -154,7 +154,8 @@ export async function exportCsv(c, kind, q = {}) {
       ...l.map(r => [r.no, r.date, r.vendor, r.vendorName, r.amount, r.fromBank, r.payee?.bank, r.payee?.branch, r.payee?.type, r.payee?.account, r.payee?.holder, r.status])]; }
     case 'expenses': { const l = await listExpenses(c, { month }); return [['伝票No', '区分', '計上日', '支払予定日', '業者CD', '業者', '科目', '内訳', '部門', '税区分', '金額', '支払済', '残高', '摘要', '状態'],
       ...l.map(r => [r.no, r.kind === 'PAYABLE' ? '定時請求' : '小口現金', r.date, r.due, r.vendor, r.vendorName, r.account, r.sub, r.dept, r.taxCode, r.amount, r.paid, r.balance, r.memo, r.status])]; }
-    case 'purchases': { const l = await listPurchases(c, { month }); return [['伝票No', '仕入日', '業者CD', '業者', '商品CD', '商品', '数量', '単価', '金額', '税区分', '摘要'], ...l.map(r => [r.no, r.date, r.vendor, r.vendorName, r.item, r.itemName, r.quantity, r.price, r.net, r.taxCode, r.memo])]; }
+    // 商品仕入は摘要を持たない（現行の入力画面にない。2026-10-29）
+    case 'purchases': { const l = await listPurchases(c, { month }); return [['伝票No', '仕入日', '業者CD', '業者', '商品CD', '商品', '数量', '単価', '金額', '税区分'], ...l.map(r => [r.no, r.date, r.vendor, r.vendorName, r.item, r.itemName, r.quantity, r.price, r.net, r.taxCode])]; }
     case 'inventory': { const l = await listInventory(c, { month }); return [['計上月', '商品CD', '商品', '数量', '評価単価', '評価額', '状態'], ...l.map(r => [r.month, r.item, r.itemName, r.quantity, r.price, r.value, r.status])]; }
     case 'ar': { const l = await arReport(c); return [['得意先CD', '得意先', '締日', '開始残高', '請求累計', '入金累計', '売掛残高', '期日超過', '未請求(税抜)'], ...l.map(r => [r.customer, r.name, r.closing, r.opening, r.billed, r.received, r.balance, r.overdue, r.unbilled])]; }
     case 'ap': { const l = await apReport(c); return [['業者CD', '業者', '計上累計', '支払累計', '未払残高'], ...l.map(r => [r.vendor, r.name, r.billed, r.paid, r.balance])]; }
