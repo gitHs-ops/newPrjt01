@@ -1004,7 +1004,10 @@ VIEWS.receipts = async q => {
     const ym0 = q.ym === undefined ? lastClosing().slice(0, 7) : q.ym, ym = /^\d{4}-\d{2}$/.test(ym0 || '') ? ym0 : '';
     // 前残（10-29 画面レビュー No.4「10月をやる時に9月に請求残があれば9月・10月を出す」）：請求年月の指定時は、前月の消込残高が残っている行も同じ得意先の上に表示（前々月以前は確認事項No.18 で検討中のため出さない）
     const pm = ym ? new Date(Date.UTC(+ym.slice(0, 4), +ym.slice(5, 7) - 2, 1)).toISOString().slice(0, 7) : '';
-    const rows = all.rows.filter(r => (ym ? (r.prev && String(r.closing).slice(0, 7) === ym && (!only || r.remain > 0 || r.receipt)) || (String(r.closing).slice(0, 7) === pm && r.remain > 0) : r.prev && (!only || (r.latest && (r.remain > 0 || r.receipt)))) && (!cl || dayOf(r.closing) === cl)), sum = k => rows.reduce((n, r) => n + r[k], 0);
+    // 「消込対象のみ」＝［消込］／［修正］できる行（得意先の最新の請求年月で残高か入金がある行）だけ。前残の行は、その得意先が消込対象のときだけ表示（2026-10-29 ユーザー指摘）
+    const ymOf = r => String(r.closing).slice(0, 7), canClear = r => r.latest && (r.remain > 0 || r.receipt);
+    const tg = all.rows.filter(r => r.prev && (ym ? ymOf(r) === ym : true) && (!only || canClear(r)) && (ym || !only || r.latest) && (!cl || dayOf(r.closing) === cl)), tgc = new Set(tg.map(r => r.customer));
+    const rows = all.rows.filter(r => tg.includes(r) || (ym && ymOf(r) === pm && r.remain > 0 && tgc.has(r.customer) && (!cl || dayOf(r.closing) === cl))), sum = k => rows.reduce((n, r) => n + r[k], 0);
     const ymLabel = m => `${m.slice(0, 4)}年${Number(m.slice(5, 7))}月`, months = [...new Set(rows.map(r => String(r.closing).slice(0, 7)))].sort();
     const target = ym ? `${ymLabel(ym)}${months.includes(pm) ? `（前残 ${ymLabel(pm)} を含む）` : ''}` : !months.length ? '該当なし' : months.length === 1 ? ymLabel(months[0]) : `${ymLabel(months[0])}〜${ymLabel(months[months.length - 1])}（得意先ごとの最新）`;
     const d = { rows, totals: { current: sum('current'), cleared: sum('cleared'), remain: rows.filter(r => r.latest).reduce((n, r) => n + r.remain, 0) } };
