@@ -1402,7 +1402,8 @@ async function zenginDialog() {
 const monthLastDay = m => new Date(Date.UTC(+m.slice(0, 4), +m.slice(5, 7), 0)).toISOString().slice(0, 10);
 const rangeInputs = (id, label = '期間', from = `${thisMonth()}-01`, to = monthLastDay(thisMonth())) => `<label class="field">${label}（開始）<input type="date" id="${id}-from" value="${from}"></label><label class="field">${label}（終了）<input type="date" id="${id}-to" value="${to}"></label>`;
 // 直近の締日の月度（前月21日〜当月20日）
-const closingRange = () => { const to = lastClosing(), [y, m] = to.split('-').map(Number); return [new Date(Date.UTC(y, m - 2, 21)).toISOString().slice(0, 10), to]; };
+// 小口現金出納簿の期間の初期値：今日を含む月度（21日〜翌月20日）。入力したばかりの支払がすぐ出るように（2026-10-29。以前は締め済みの前月度）
+const closingRange = () => { const [y, m, d] = today().split('-').map(Number), k = d <= 20 ? -1 : 0, iso = (mm, dd) => new Date(Date.UTC(y, m - 1 + mm, dd)).toISOString().slice(0, 10); return [iso(k, 21), iso(k + 1, 20)]; };
 function miscCard(title, sub, inputs, buttons, note = '') {
   return `<section class="card glass"><div class="card-head"><h2>${title}</h2></div><div class="filters">${inputs}</div>${buttons ? `<div class="filters" style="margin-top:10px">${buttons}</div>` : ''}</section>`;
 }
