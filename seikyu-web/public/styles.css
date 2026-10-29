@@ -438,6 +438,7 @@ input.file-native { position: absolute; width: 1px; height: 1px; opacity: 0; poi
 /* 行番号は入力欄と同じ行に置く（左の余白に縦中央で表示し、各列の入力欄の高さをそろえる） */
 /* 2段の明細（定時請求）でも上段の入力欄と同じ高さにそろえるため上揃え。行番号は1段目の入力欄の中央（セル余白 8px＋入力欄の半分） */
 #ex-lines tbody td { vertical-align: top; }
+#ex-lines select[name=account] { min-width: 150px; } #ex-lines select[name=sub] { min-width: 90px; } #ex-lines select[name=taxCode] { min-width: 120px; } #ex-lines input[name=amount] { width: 100px !important; }
 #ex-lines tbody tr td:first-child { position: relative; padding-left: 2em; }
 #ex-lines tbody tr td:first-child::before { content: counter(hwrow); position: absolute; left: .5em; top: 25px; transform: translateY(-50%); color: var(--text-muted, #64748b); font-size: 12px; }
 .hw-sum { display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 10px 22px; margin-top: 10px; padding: 10px 14px; border-radius: 12px; background: rgba(99,102,241,.06); font-size: 14px; }

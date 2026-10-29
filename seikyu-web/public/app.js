@@ -1176,7 +1176,10 @@ function expenseView(kind) {
       { name: 'sub', label: '内訳／摘要コード', cell: () => '<div class="l2"><select name="sub"><option value="">（なし）</option></select><input name="memoCode" maxlength="7" placeholder="摘要コード（工事・7桁）"></div>' },
       { label: '科目名・内訳名／摘要', cell: () => '<div class="l2"><span class="hw-names muted small">科目を選択</span><input name="lmemo" maxlength="500" placeholder="摘要（自由入力）"></div>' },
       { name: 'amount', label: '支払金額／処税率', sum: 1, cell: () => `<div class="l2"><input name="amount" class="num" inputmode="numeric">${taxSelect('taxCode', '141')}</div>` }];
-    const cols = [{ name: 'account', label: '科目', cell: () => `<select name="account">${accOpts}</select>` }, { name: 'sub', label: '内訳', cell: () => '<select name="sub"><option value="">（なし）</option></select>' },
+    // 小口現金：支払先は明細の行ごと（2026-10-29）。業者コードか「コード 名称」なら業者、それ以外は自由入力。登録時に支払先ごとの伝票に分ける
+    const payeeCol = { name: 'lpayee', label: '支払先（業者／自由入力）', cell: () => '<input name="lpayee" list="dl-ex-payees" maxlength="100" placeholder="業者コード／支払先名" style="width:150px" autocomplete="off">' };
+    const payeeOf = t => { t = String(t || '').trim(); const v = active('vendors').find(x => x.code === t || `${x.code} ${x.name}` === t); return v ? { vendor: v.code } : { payee: t }; };
+    const cols = [payeeCol, { name: 'account', label: '科目', cell: () => `<select name="account">${accOpts}</select>` }, { name: 'sub', label: '内訳', cell: () => '<select name="sub"><option value="">（なし）</option></select>' },
       { name: 'taxCode', label: '処税率', cell: () => taxSelect('taxCode', '141') }, { name: 'amount', label: '金額（税込）', sum: 1, cell: () => '<input name="amount" class="num" style="width:120px">' },
       ...(payable ? [{ name: 'memoCode', label: '摘要コード', cell: () => '<input name="memoCode" maxlength="7" style="width:90px" placeholder="工事コード">' }] : []),
       // 10/19 打合せ（小口現金出納登録）：科目・内訳を選ぶと科目名／摘要名（内訳名）を表示し、その下に摘要名を手入力
@@ -1190,8 +1193,8 @@ function expenseView(kind) {
         ${field('支払繰延区分', '<output id="ex-defer" class="muted">業者を選択すると業者マスタから表示</output>')}${field('支払予定日', '<input type="date" name="due">')}${field('合計金額', '<input name="total" class="num" inputmode="numeric">', { req: 1, hint: '明細の合計と一致させる' })}
       </div>` : `<div class="form-grid">
       ${field('支払日（領収書の日付）', `<input type="date" name="date" value="${today()}">`, { req: 1 })}${field('組織（部門）', deptSel)}
-      ${field('支払先（業者）', `<select name="vendor">${options(active('vendors'), '', { blank: '（マスタにない支払先は右に入力）' })}</select>`) + field('支払先（自由入力）', '<input name="payee" maxlength="100" placeholder="例: 文具店">')}
-      ${field('伝票摘要', '<input name="memo" maxlength="500">', { wide: 1 })}</div>`;
+      ${field('伝票摘要', '<input name="memo" maxlength="500">', { wide: 1 })}</div>
+      <datalist id="dl-ex-payees">${active('vendors').map(x => `<option value="${esc(`${x.code} ${x.name}`)}"></option>`).join('')}</datalist>`;
     const sumBar = payable ? `<div class="hw-sum"><span>対象外 <b id="hw-out">0</b></span><span>内税 <b id="hw-in">0</b></span><span>外税 <b id="hw-ex">0</b></span>
       <label>外税消費税 <input name="extTax" class="num" value="0" inputmode="numeric" style="width:110px"></label><span>合計 <b id="hw-total">0</b> 円</span><span id="hw-check" class="small"></span></div>` : '';
     // 処税率の区分（1桁目 1＝内税、2・空白＝外税、税率0や対象外は対象外）
@@ -1227,7 +1230,7 @@ function expenseView(kind) {
           if (['account', 'sub'].includes(e.target.name)) names(e.target.closest('tr')); recalc(); });
         g.addEventListener('input', recalc); g.addEventListener('click', () => setTimeout(recalc)); recalc(); },
       onSubmit: async v => {
-        const lines = readLines('ex-lines').map(l => ({ ...l, memo: l.lmemo }));
+        const lines = readLines('ex-lines').map(({ lpayee, ...l }) => ({ ...l, memo: l.lmemo, ...(payable ? {} : payeeOf(lpayee)) }));
         let total, extTax;
         if (payable) {
           const raw = String(v.total || '').replace(/[,，\s]/g, ''); if (!raw) throw Error('合計金額を入力してください');
@@ -1237,7 +1240,7 @@ function expenseView(kind) {
           if (total !== t) throw Error(`合計金額（${yen(total)}円）と明細の合計（対象外＋内税＋外税＋外税消費税 ${yen(t)}円）が一致しません`);
         }
         const r = await post('/api/expenses', { kind, date: v.date, dept: v.dept, vendor: v.vendor, payee: v.payee, due: v.due, memo: v.memo, total, extTax, lines });
-        toast(`${r.no}${r.billNo ? '（請求No ' + r.billNo + '）' : ''} を登録しました${r.due ? '・支払予定日 ' + r.due : ''}（仕訳 ${payable ? 'D01' : 'E01'}）`); render(); } });
+        toast(`${r.no}${r.billNo ? '（請求No ' + r.billNo + '）' : ''}${r.docs > 1 ? `（支払先ごとに ${r.docs} 伝票）` : ''} を登録しました${r.due ? '・支払予定日 ' + r.due : ''}（仕訳 ${payable ? 'D01' : 'E01'}）`); render(); } });
     A.rev = d => confirmBox('伝票の取消', `${d.no} を取消し、逆仕訳を計上します。`, () => post('/api/expenses/reverse', { id: Number(d.id) }).then(() => { toast('取消しました'); render(); }), '取消する');
     A.lines = d => { const r = list.find(x => x.id === Number(d.id)); modal({ title: `${r.no} の明細`, wide: true, body: table([{ label: '行', value: l => l.no }, { label: '科目', value: l => `${l.account} ${l.accountName}` }, { label: '内訳', value: l => (l.sub ? `${l.sub} ${l.subName}` : '') },
       { label: '処税率', value: l => l.taxCode }, { label: '金額', num: 1, value: l => yen(l.amount) }, { label: 'うち消費税', num: 1, value: l => yen(l.tax) }, { label: '摘要コード', value: l => l.memoCode }, { label: '摘要名', value: l => l.memo }], r.lines) }); };

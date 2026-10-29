@@ -55,7 +55,7 @@ export async function pettyCashBook(c, q) {
   const payBefore = await sumBefore("SELECT COALESCE(SUM(gross_amount),0) FROM expense_document WHERE expense_kind='PETTY_CASH' AND status='POSTED' AND booked_on<?");
   const opening = fund + refBefore - payBefore;
   const refills = (await rows(c, "SELECT e.journal_date d, l.amount v FROM journal_entry e JOIN journal_line l ON l.journal_id=e.journal_id AND l.account_code='1111' AND l.side='D' WHERE e.source_type='petty_refill' AND e.reversal_of IS NULL AND e.status='POSTED' AND e.journal_date BETWEEN ? AND ?", [from, to])).map(r => ({ date: r.d, amount: num(r.v) }));
-  const ls = await rows(c, `SELECT d.document_no, d.booked_on, d.memo, d.gross_amount, l.account_code, l.sub_code, l.source_tax_code, l.memo line_memo, a.account_name, v.vendor_name FROM expense_document d JOIN expense_line l ON l.expense_id=d.expense_id AND l.line_no=1
+  const ls = await rows(c, `SELECT d.document_no, d.booked_on, d.memo, d.payee, d.gross_amount, l.account_code, l.sub_code, l.source_tax_code, l.memo line_memo, a.account_name, v.vendor_name FROM expense_document d JOIN expense_line l ON l.expense_id=d.expense_id AND l.line_no=1
     LEFT JOIN account_subject a ON a.account_code=l.account_code LEFT JOIN vendor v ON v.vendor_id=d.vendor_id WHERE d.expense_kind='PETTY_CASH' AND d.status='POSTED' AND d.booked_on BETWEEN ? AND ? ORDER BY d.booked_on, d.document_no`, [from, to]);
   let ms = null; try { ms = (await rows(c, "SELECT code_dtl code, code_dtl_nam name, category1 r, category2 seq FROM code_m WHERE code_key='JV' AND code_dtl_abr<>'0'")).map(m => ({ code: m.code, name: m.name, ratio: num(m.r) / 100, seq: num(m.seq) })).sort((a, b) => a.seq - b.seq); if (Math.round(ms.reduce((n, m) => n + m.ratio * 100, 0)) !== 10000) ms = null; } catch { ms = null; }
   const events = [...refills.map(r => ({ ...r, kind: 'in' })), ...ls.map(r => ({ kind: 'out', date: r.booked_on, r }))].sort((a, b) => a.date.localeCompare(b.date) || (a.kind === 'in' ? -1 : 1));
@@ -63,7 +63,7 @@ export async function pettyCashBook(c, q) {
   for (const e of events) {
     if (e.kind === 'in') { balance += e.amount; out.push({ date: e.date, no: '', payee: '', memo: '現金補充（受入）', account: '1111', sub: '', accountName: '現金', tax: '', received: e.amount, amount: 0, balance, parts: null }); continue; }
     const r = e.r, amount = num(r.gross_amount); balance -= amount;
-    out.push({ date: r.booked_on, no: r.document_no, payee: r.vendor_name || (r.line_memo && r.line_memo !== r.memo ? r.line_memo : ''), memo: r.memo, account: r.account_code, sub: r.sub_code || '', accountName: r.account_name, tax: r.source_tax_code, received: 0, amount, balance, parts: ms ? allocate(amount, ms) : null });
+    out.push({ date: r.booked_on, no: r.document_no, payee: r.vendor_name || (r.payee ?? (r.line_memo && r.line_memo !== r.memo ? r.line_memo : '')), memo: r.memo, account: r.account_code, sub: r.sub_code || '', accountName: r.account_name, tax: r.source_tax_code, received: 0, amount, balance, parts: ms ? allocate(amount, ms) : null });
   }
   const spent = out.reduce((n, r) => n + r.amount, 0), received = out.reduce((n, r) => n + r.received, 0);
   return { title: '小口現金出納簿', ref: 'NO33 / 添付帳票⑪（HAR051）', from, to, fund, opening, members: ms, rows: out, received, spent, closing: opening + received - spent, replenish: Math.max(0, fund - (opening + received - spent)),

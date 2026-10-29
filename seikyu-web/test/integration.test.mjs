@@ -288,6 +288,17 @@ test('workflow against PostgreSQL business tables', { skip, timeout: 900000 }, a
       ok(await a.call('/api/petty/refill', { date: d, amount: '5000', bankCode: 'B' + tag }));
       const pb = ok(await a.call('/api/reports/misc/petty-book?' + new URLSearchParams({ from: d, to: d })));
       assert.ok(pb.rows.some(r => r.received === 5000)); assert.equal(pb.closing, pb.opening + pb.received - pb.spent);
+      // 小口現金：明細ごとの支払先 → 支払先ごとの伝票（同じ支払先の行は1伝票）。行の摘要名は支払先で上書きしない
+      const pcm = ok(await a.call('/api/expenses', { kind: 'PETTY_CASH', date: d, dept: '063', lines: [
+        { payee: '文具店', account: '8231', taxCode: '141', amount: 1100, memo: 'ボールペン' }, { vendor: 'V' + tag, account: '8231', taxCode: '141', amount: 2200, memo: '部品' },
+        { payee: '文具店', account: '8231', taxCode: '141', amount: 330, memo: 'ノート' }, { payee: '', account: '', amount: '' }] }));
+      assert.equal(pcm.docs, 2);
+      const pcl = ok(await a.call('/api/expenses?' + new URLSearchParams({ kind: 'PETTY_CASH', month: d.slice(0, 7) }))).filter(r => pcm.no.split('・').includes(r.no));
+      const stat = pcl.find(r => r.payee === '文具店'); assert.equal(stat.amount, 1430); assert.deepEqual(stat.lines.map(l => l.memo), ['ボールペン', 'ノート']);
+      assert.ok(pcl.some(r => r.vendor === 'V' + tag && r.amount === 2200));
+      const pb2 = ok(await a.call('/api/reports/misc/petty-book?' + new URLSearchParams({ from: d, to: d })));
+      assert.ok(pb2.rows.some(r => r.payee === '文具店' && r.amount === 1430));
+      assert.equal((await a.call('/api/expenses', { kind: 'PETTY_CASH', date: d, lines: [{ payee: 'A', account: '8231', amount: 100 }, { payee: 'B', account: '0000', amount: 100 }] })).status, 400);
       // 金融機関 master names in transfer request / payment notice
       await a.call('/api/masters/bankdir', { mode: 'create', record: { bank: '0001', name: '試験銀行本体', kana: 'ｼｹﾝ', active: true } });
       await a.call('/api/masters/bankdir', { mode: 'create', record: { bank: '0001', branch: '001', name: '試験支店', kana: 'ｼﾃﾝ', active: true } });
