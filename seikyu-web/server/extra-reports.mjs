@@ -154,7 +154,8 @@ export async function extraBook(c, kind, q) {
   if (kind === 'petty-book') {
     const d = await pettyCashBook(c, q), out = head(d, `期間 ${d.from} 〜 ${d.to}`), mh = d.members ? d.members.map(m => `${m.name}（${m.ratio}%）`) : [];
     out.push(['支払日', '伝票No', '支払先', '摘要', '科目コード', '科目名', '税率', '受入', '支払額', '残高', ...mh].map(H), [d.from, '', '', '前期繰越', '', '', '', '', '', d.opening]);
-    for (const r of d.rows) out.push([r.date, r.no, r.payee, r.memo, `${r.account}${r.sub ? '-' + r.sub : ''}`, r.accountName, r.tax, r.received || '', r.amount || '', r.balance, ...(r.parts || [])]);
+    // 同じ伝票No（1伝票の複数明細）は先頭の行だけに表示（2026-10-29）
+    for (const [i, r] of d.rows.entries()) out.push([r.date, r.no && r.no === d.rows[i - 1]?.no ? '' : r.no, r.payee, r.memo, `${r.account}${r.sub ? '-' + r.sub : ''}`, r.accountName, r.tax, r.received || '', r.amount || '', r.balance, ...(r.parts || [])]);
     out.push(['', '', '', S('合計'), '', '', '', S(d.received), S(d.spent), S(d.closing)], ['', '', '', '次期補充額', '', '', '', '', d.replenish]);
     return { name: `小口現金出納簿_${d.from}_${d.to}.xlsx`, body: xlsx([{ name: '小口現金出納簿', rows: out, widths: [11, 12, 16, 24, 10, 14, 7, 11, 11, 11, 14, 14, 14] }]) };
   }

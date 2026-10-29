@@ -216,7 +216,10 @@ export async function createExpense(c, ctx, p) {
     const label = `${l.row || i + 1}行目`;
     if (!l.account && !l.amount) continue;
     const acc = await one(c, 'SELECT * FROM account_subject WHERE account_code=?', [String(l.account || '')]); check(acc?.active, `${label}: 有効な勘定科目を選択してください`);
-    const lv = kind === 'PETTY_CASH' && l.vendor ? await vendorOf(c, l.vendor) : null, lpayee = kind === 'PETTY_CASH' ? (lv ? '' : text(l.payee, `${label}の支払先`, 100, { required: false })) : '';
+    // 画面の明細入力では支払先は業者マスタのコード（自由入力ではない。2026-10-29 指摘）。明細なしの旧形式はそのまま
+    const lv = kind === 'PETTY_CASH' && l.vendor ? await one(c, 'SELECT * FROM vendor WHERE vendor_code=? AND active', [String(l.vendor).trim()]) : null;
+    if (kind === 'PETTY_CASH' && Array.isArray(p.lines)) check(lv, l.vendor ? `${label}: 支払先コード「${l.vendor}」は業者マスタにありません` : `${label}: 支払先（業者コード）を入力してください`);
+    const lpayee = kind === 'PETTY_CASH' ? (lv ? '' : text(l.payee, `${label}の支払先`, 100, { required: false })) : '';
     const sub = String(l.sub || '') || null;
     if (sub) check(await one(c, 'SELECT 1 x FROM account_subsubject WHERE account_code=? AND sub_code=? AND active', [acc.account_code, sub]), `${label}: 内訳科目が上位科目に登録されていません`);
     const amount = yen(l.amount, `${label}の金額`, { negative: true }); check(amount !== 0, `${label}: 金額を入力してください`); // マイナス行（戻し・値引）は貸方に計上

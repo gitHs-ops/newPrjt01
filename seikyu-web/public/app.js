@@ -1234,14 +1234,13 @@ function expenseView(kind) {
       { name: 'sub', label: '内訳／摘要コード', cell: () => '<div class="l2"><select name="sub"><option value="">（なし）</option></select><input name="memoCode" maxlength="7" placeholder="摘要コード（工事・7桁）"></div>' },
       { label: '科目名・内訳名／摘要', cell: () => '<div class="l2"><span class="hw-names muted small">科目を選択</span><input name="lmemo" maxlength="500" placeholder="摘要（自由入力）"></div>' },
       { name: 'amount', label: '支払金額／処税率', sum: 1, cell: () => `<div class="l2"><input name="amount" class="num" inputmode="numeric">${taxSelect('taxCode', '141')}</div>` }];
-    // 小口現金：支払先は明細の行ごと（2026-10-29）。業者コードか「コード 名称」なら業者、それ以外は自由入力。1支払日＝1伝票（支払先ごとに分けない。画面レビュー No.9）
-    const payeeCol = { name: 'lpayee', label: '支払先（業者／自由入力）', cell: () => '<input name="lpayee" list="dl-ex-payees" maxlength="100" placeholder="業者コード／支払先名" style="width:140px" autocomplete="off">' };
-    const payeeOf = t => { t = String(t || '').trim(); const v = active('vendors').find(x => x.code === t || `${x.code} ${x.name}` === t); return v ? { vendor: v.code } : { payee: t }; };
-    const cols = [payeeCol, { name: 'account', label: '科目', cell: () => `<select name="account">${accOpts}</select>` }, { name: 'sub', label: '内訳', cell: () => '<select name="sub"><option value="">（なし）</option></select>' },
-      { name: 'taxCode', label: '処税率', cell: () => taxSelect('taxCode', '141') }, { name: 'amount', label: '金額（税込）', sum: 1, cell: () => '<input name="amount" class="num" style="width:120px">' },
-      ...(payable ? [{ name: 'memoCode', label: '摘要コード', cell: () => '<input name="memoCode" maxlength="7" style="width:90px" placeholder="工事コード">' }] : []),
-      // 10/19 打合せ（小口現金出納登録）：科目・内訳を選ぶと科目名／摘要名（内訳名）を表示し、その下に摘要名を手入力
-      { label: '科目名・内訳名／摘要名', cell: () => '<div class="l2"><span class="hw-names muted small">科目を選択</span><input name="lmemo" maxlength="500" placeholder="摘要名（手入力）"></div>' }];
+    // 小口現金：支払先は明細の行ごと。1支払日＝1伝票（画面レビュー No.9）
+    // 2026-10-29 画面・帳票処理イメージ一覧 v4 の指摘：支払先は自由入力ではない（業者マスタのコード）・支払先名を表示・「金額」でなく「支払額」・右は科目名と摘要名（摘要コードがあればその名称、無ければ手入力）
+    const vendorName = code => active('vendors').find(x => x.code === String(code || '').trim())?.name;
+    const cols = [{ name: 'lvendor', label: '支払先コード', cell: () => '<input name="lvendor" list="dl-ex-payees" maxlength="12" placeholder="コード" style="width:84px" autocomplete="off">' }, { label: '支払先名', cell: () => '<span data-vname></span>' },
+      { name: 'account', label: '科目', cell: () => `<select name="account">${accOpts}</select>` }, { name: 'sub', label: '摘要コード（内訳）', cell: () => '<select name="sub"><option value="">（なし）</option></select>' },
+      { name: 'taxCode', label: '処税率', cell: () => taxSelect('taxCode', '141') }, { name: 'amount', label: '支払額（税込）', sum: 1, cell: () => '<input name="amount" class="num" style="width:120px">' },
+      { label: '科目名／摘要名', cell: () => '<div class="l2"><span class="hw-names muted small">科目を選ぶと科目名を表示</span><input name="lmemo" maxlength="500" placeholder="摘要名（コードが無ければ手入力）"></div>' }];
     // 定時請求データ入力は現行 HAW050（10/21 打合せ資料 スライド5）の並び：組織・締切日／請求No／業者／支払繰延区分・合計金額 → 明細（2段）→ 対象外・内税・外税・外税消費税・合計
     const deptSel = `<select name="dept">${options(active('depts').length ? active('depts') : [{ code: '063', name: '部門063' }], '063')}</select>`;
     const head = payable ? `<div class="hw-head">
@@ -1252,14 +1251,14 @@ function expenseView(kind) {
       </div>` : `<div class="form-grid">
       ${field('支払日（領収書の日付）', `<input type="date" name="date" value="${today()}">`, { req: 1 })}${field('組織（部門）', deptSel)}
 </div>
-      <datalist id="dl-ex-payees">${active('vendors').map(x => `<option value="${esc(`${x.code} ${x.name}`)}"></option>`).join('')}</datalist>`;
+      <datalist id="dl-ex-payees">${active('vendors').map(x => `<option value="${esc(x.code)}">${esc(x.name)}</option>`).join('')}</datalist>`;
     const sumBar = payable ? `<div class="hw-sum"><span>対象外 <b id="hw-out">0</b></span><span>内税 <b id="hw-in">0</b></span><span>外税 <b id="hw-ex">0</b></span>
       <label>外税消費税 <input name="extTax" class="num" value="0" inputmode="numeric" style="width:110px"></label><span>合計 <b id="hw-total">0</b> 円</span><span id="hw-check" class="small"></span></div>` : '';
     // 処税率の区分（1桁目 1＝内税、2・空白＝外税、税率0や対象外は対象外）
     const RATE = { 0: 0, 1: 10, 2: 3, 3: 6, 4: 2.8, 5: 5, 8: 8 }, taxClass = code => { const s3 = String(code || '').padStart(3, '0'), rate = RATE[s3[2]] || 0, taxable = rate > 0 && [1, 4, 5, 6].includes(Number(s3[1])); return { kind: !taxable ? 'out' : s3[0] === '1' ? 'in' : 'ex', rate }; };
     const num = v => Number(String(v || '').replace(/[,，\s]/g, '')) || 0;
     // 登録画面と詳細（R：登録済みの伝票）は同じ様式。詳細は値を入れて全項目を入力不可にする（2026-10-29）
-    const form = R => modal({ title: R ? `${R.no} の詳細` : payable ? '定時請求データ入力' : '小口現金出納登録', submit: R ? '' : payable ? '登録' : '登録する', wide: true, sample: R ? false : payable ? f => { f.total.value = $('#hw-total').textContent.replace(/[^\d-]/g, ''); f.total.dispatchEvent(new Event('input', { bubbles: true })); } : true, body: `${head}${lineGrid('ex-lines', payable ? hwCols : cols, R ? R.lines.map(() => ({})) : undefined)}${sumBar}
+    const form = R => modal({ title: R ? `${R.no} の詳細` : payable ? '定時請求データ入力' : '小口現金出納登録', submit: R ? '' : payable ? '登録' : '登録する', wide: true, sample: R ? false : payable ? f => { f.total.value = $('#hw-total').textContent.replace(/[^\d-]/g, ''); f.total.dispatchEvent(new Event('input', { bubbles: true })); } : f => { const el = f.querySelector('#ex-lines tbody tr [name=lvendor]'), vs = active('vendors'); if (el && vs.length && !vendorName(el.value)) { el.value = vs[Math.floor(Math.random() * vs.length)].code; el.dispatchEvent(new Event('input', { bubbles: true })); } }, body: `${head}${lineGrid('ex-lines', payable ? hwCols : cols, R ? R.lines.map(() => ({})) : undefined)}${sumBar}
       `,
       onOpen: () => { const g = $('#ex-lines'), f = $('#modal-body');
         const recalc = () => {
@@ -1272,7 +1271,13 @@ function expenseView(kind) {
           $('#hw-check').innerHTML = !head ? '<span class="muted">合計金額を入力してください</span>' : num(head) === total ? '<span class="check-ok">合計金額と一致</span>' : `<span class="check-ng">合計金額と ${yen(num(head) - total)} 円の差</span>`;
           return total;
         };
-        const names = tr => { const n = tr.querySelector('.hw-names'); if (!n) return; const acc = masters.accounts.find(a => a.code === tr.querySelector('[name=account]').value), sub = active('subaccounts').find(x => x.account === acc?.code && x.code === tr.querySelector('[name=sub]').value); n.textContent = acc ? `${acc.name}${sub ? '　' + sub.name : ''}` : '科目を選択'; };
+        const names = tr => { const n = tr.querySelector('.hw-names'); if (!n) return; const acc = masters.accounts.find(a => a.code === tr.querySelector('[name=account]').value), sub = active('subaccounts').find(x => x.account === acc?.code && x.code === tr.querySelector('[name=sub]').value); 
+          if (payable) { n.textContent = acc ? `${acc.name}${sub ? '　' + sub.name : ''}` : '科目を選択'; return; }
+          // 小口現金：上段は科目名、下段の摘要名は摘要コード（内訳）があればその名称（入力不可）、無ければ手入力
+          n.textContent = acc ? acc.name : '科目を選ぶと科目名を表示'; const m = tr.querySelector('[name=lmemo]');
+          if (sub) { m.value = sub.name; m.readOnly = true; } else if (m.readOnly) { m.value = ''; m.readOnly = false; } };
+        const vname = tr => { const el = tr.querySelector('[name=lvendor]'), s = tr.querySelector('[data-vname]'); if (!el || !s) return; const t = el.value.trim(), nm = vendorName(t); s.innerHTML = !t ? '' : nm ? esc(nm) : '<span class="check-ng">該当なし</span>'; };
+        g.addEventListener('input', e => { if (e.target.name === 'lvendor') vname(e.target.closest('tr')); });
         if (payable) {
           $('#ex-lines-total')?.parentElement && ($('#ex-lines-total').parentElement.hidden = true);
           const due = f.querySelector('[name=due]'); due.addEventListener('input', () => { due.dataset.manual = due.value ? '1' : ''; });
@@ -1290,7 +1295,7 @@ function expenseView(kind) {
         g.addEventListener('input', recalc); g.addEventListener('click', () => setTimeout(recalc)); recalc();
         if (R) showDoc(R, f); },
       onSubmit: async v => {
-        const lines = readLines('ex-lines').map(({ lpayee, ...l }) => ({ ...l, memo: l.lmemo, ...(payable ? {} : payeeOf(lpayee)) }));
+        const lines = readLines('ex-lines').map(({ lvendor, ...l }) => ({ ...l, memo: l.lmemo, ...(payable ? {} : { vendor: String(lvendor || '').trim() }) }));
         let total, extTax;
         if (payable) {
           const raw = String(v.total || '').replace(/[,，\s]/g, ''); if (!raw) throw Error('合計金額を入力してください');
@@ -1310,8 +1315,9 @@ function expenseView(kind) {
       const bill = $$('input', f).find(e => e.value.startsWith('自動採番')); if (bill) bill.value = R.billNo || '';
       if (payable) { set(q('vendor'), R.vendor); set(q('due'), R.due, 'input'); set(q('total'), R.amount, 'input'); }
       $$('#ex-lines tbody tr').forEach((tr, i) => { const l = R.lines[i], t = n => tr.querySelector(`[name=${n}]`);
-        set(t('lpayee'), l.vendor ? `${l.vendor} ${l.payee}` : l.payee, 'input'); set(t('account'), l.account); set(t('sub'), l.sub); set(t('taxCode'), l.taxCode);
-        set(t('amount'), taxClass(l.taxCode).kind === 'ex' ? l.net : l.amount, 'input'); set(t('memoCode'), l.memoCode, 'input'); set(t('lmemo'), l.memo, 'input'); });
+        // 行に支払先が無い旧データ（伝票の見出しに支払先）は見出しの業者・支払先を出す。自由入力の支払先は名称だけ
+        if (!payable) { set(t('lvendor'), l.vendor || (!l.payee && R.vendor) || '', 'input'); const vn = tr.querySelector('[data-vname]'); if (vn && !vn.textContent) vn.textContent = l.payee || R.payee || ''; } set(t('account'), l.account); set(t('sub'), l.sub); set(t('taxCode'), l.taxCode);
+        set(t('amount'), taxClass(l.taxCode).kind === 'ex' ? l.net : l.amount, 'input'); set(t('memoCode'), l.memoCode, 'input'); if (t('lmemo')) { t('lmemo').readOnly = false; set(t('lmemo'), l.memo, 'input'); } });
       if (payable) { const ext = q('extTax'); ext.dataset.manual = '1'; set(ext, R.lines.filter(l => taxClass(l.taxCode).kind === 'ex').reduce((n, l) => n + l.tax, 0), 'input'); }
       // 値を入れ終えてから（候補入力の欄は後から作られるため次の順番で）全項目を入力不可にし、行追加・行削除を隠す
       setTimeout(() => { $$('input, select, textarea', f).forEach(el => (el.disabled = true)); $$('[data-line]', f).forEach(b => (b.style.display = 'none')); });
