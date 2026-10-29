@@ -1087,6 +1087,8 @@ VIEWS.purchases = async q => {
       tr.querySelector('[data-unit]').textContent = it?.unit ? nameOf('units', it.unit) || it.unit : ''; f('amount').value = qn && pr ? Math.floor(qn * pr) : ''; f('amount').readOnly = true; f('quantity').disabled = false; f('price').disabled = false; }
     else { f('amount').readOnly = false; f('quantity').disabled = true; f('price').disabled = true; tr.querySelector('[data-unit]').textContent = ''; }
     return Number(f('amount').value || 0); };
+  // 伝票No.：5桁＋行番号2桁の枝番（10/28 打合せ No.21。例 53192-01）。サーバの purchaseNo と同じ
+  const pNo = (no, line) => String(no || '').replace(/\D/g, '').slice(-5).padStart(5, '0') + (line ? '-' + String(line).padStart(2, '0') : '');
   // ヘッダーも帳票と同じ順：業者 → 仕入日（納入日）・区分・伝票No（登録時に採番）
   const pickItem = f => { const it = active('items'), tr = f.querySelector('#pu-lines tbody tr'), el = tr?.querySelector('[name=item]'); if (el && it.length && !hit(el.value)) { el.value = it[Math.floor(Math.random() * it.length)].code; el.dispatchEvent(new Event('input', { bubbles: true })); } };
   const hit = code => masters.items.some(i => i.code === String(code || '').trim());
@@ -1095,13 +1097,13 @@ VIEWS.purchases = async q => {
       <datalist id="dl-pu-items">${active('items').map(i => `<option value="${esc(i.code)}">${esc(i.name)}</option>`).join('')}</datalist>
       ${lineGrid('pu-lines', cols, undefined, { lineNo: true })}`,
     onOpen: f => { const g = $('#pu-lines'); g.addEventListener('input', () => lineTotal('pu-lines', 'amount', calc)); g.addEventListener('change', () => lineTotal('pu-lines', 'amount', calc)); },
-    onSubmit: async v => { const lines = readLines('pu-lines').map(l => ({ ...l, item: String(l.item || '').trim(), memo: l.lmemo })); const r = await post('/api/purchases', { date: v.date, vendor: v.vendor, kind: v.kind, memo: v.memo, lines }); toast(`仕入 ${r.no}（${r.lines}行・${yen(r.net)}円）を登録しました`); render(); } });
-  A.del = d => confirmBox('仕入の取消', `仕入伝票 ${d.no} の全明細を削除します。`, () => post('/api/purchases/delete', { id: Number(d.id) }).then(() => { toast('取消しました'); render(); }), '取消する');
+    onSubmit: async v => { const lines = readLines('pu-lines').map(l => ({ ...l, item: String(l.item || '').trim(), memo: l.lmemo })); const r = await post('/api/purchases', { date: v.date, vendor: v.vendor, kind: v.kind, memo: v.memo, lines }); toast(`仕入 ${pNo(r.no)}（${r.lines}行・${yen(r.net)}円）を登録しました`); render(); } });
+  A.del = d => confirmBox('仕入の取消', `仕入伝票 ${pNo(d.no)} の全明細を削除します。`, () => post('/api/purchases/delete', { id: Number(d.id) }).then(() => { toast('取消しました'); render(); }), '取消する');
   return page('商品仕入', '業者からの商品仕入を伝票（複数明細）で記録します（purchase）。区分 1=仕入／2=他社納入、運賃行あり。', `${monthInput('month', month)}${filterSelect('vendor', masters.vendors, q.vendor, 'すべての業者')}${csvLink('purchases', { month })}${canWrite() ? '<button class="primary" data-act="new">＋ 仕入登録</button>' : ''}`,
-    `<section class="card glass">${table([{ label: '伝票No', value: r => r.line === 1 ? r.no : '' }, { label: '行', value: r => r.line }, { label: '仕入日', value: r => r.date }, { label: '区分', value: r => r.kindName }, { label: '業者', value: r => r.vendorName },
+    `<section class="card glass">${table([{ label: '伝票No.', value: r => pNo(r.no, r.line) }, { label: '仕入日', value: r => r.date }, { label: '区分', value: r => r.kindName }, { label: '業者', value: r => r.vendorName },
       { label: '商品', value: r => `${r.itemName || r.item}${r.lineKind === '2' ? '（運賃）' : ''}` }, { label: '数量', num: 1, value: r => (r.lineKind === '2' ? '' : `${r.quantity} ${r.unit || ''}`) },
       { label: '単価', num: 1, value: r => (r.lineKind === '2' ? '' : yen(r.price)) }, { label: '金額', num: 1, value: r => yen(r.net) }, { label: '処税率', value: r => r.taxCode }, { label: '摘要', value: r => r.memo },
-      { label: '', html: r => canWrite() && r.line === 1 ? `<button class="mini danger" data-act="del" data-id="${r.id}" data-no="${esc(r.no)}">取消</button>` : '' }], list, { foot: ['合計', '', '', '', '', '', '', '', yen(list.reduce((n, r) => n + r.net, 0)), '', '', ''] })}</section>
+      { label: '', html: r => canWrite() && r.line === 1 ? `<button class="mini danger" data-act="del" data-id="${r.id}" data-no="${esc(r.no)}">取消</button>` : '' }], list, { foot: ['合計', '', '', '', '', '', '', yen(list.reduce((n, r) => n + r.net, 0)), '', '', ''] })}</section>
     ${miscCard('商品仕入登録リスト', '業者別・伝票明細', rangeInputs('pl', '仕入日'), '<button data-act="misc" data-kind="purchase-register" data-src="pl">⇩ Excel</button>')}`);
 };
 

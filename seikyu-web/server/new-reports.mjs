@@ -10,6 +10,8 @@ const monthEnd = m => new Date(Date.UTC(+m.slice(0, 4), +m.slice(5, 7), 0)).toIS
 const sum = (list, k) => list.reduce((n, r) => n + num(r[k]), 0);
 
 // ⑭ 商品仕入登録リスト（現行 HAR011）：業者別・伝票明細
+// 伝票No.：10/28 打合せ（No.21）「伝票番号は5桁＋行番号2桁の枝番」（例 53192-01）。内部の仕入伝票No（P00000009）の下5桁で表示
+export const purchaseNo = (no, line) => `${String(no || '').replace(/\D/g, '').slice(-5).padStart(5, '0')}-${String(line || 1).padStart(2, '0')}`;
 export async function purchaseRegister(c, q) {
   const from = isoDate(q.from, '開始日'), to = isoDate(q.to, '終了日'); check(from <= to, '期間が不正です');
   const rs = await rows(c, `SELECT p.*, v.vendor_code, v.vendor_name, i.item_nam, unit_name(i.unit) unit FROM purchase p JOIN vendor v ON v.vendor_id=p.vendor_id LEFT JOIN item_m i ON i.item_cd=p.item_cd
@@ -17,14 +19,16 @@ export async function purchaseRegister(c, q) {
   const groups = [];
   for (const r of rs) {
     let g = groups.find(x => x.code === r.vendor_code); if (!g) groups.push(g = { code: r.vendor_code, title: `${r.vendor_code} ${r.vendor_name}`, rows: [] });
+    // 運賃の行は現行どおり数量・単価 0.00 で、処税率の右に「運賃」
     const fr = r.line_kind === '2';
-    g.rows.push({ date: r.purchase_date, kind: PURCHASE_KINDS[r.purchase_kb || '1'], no: `${r.source_document_no}-${r.line_no}`, item: `${r.item_cd} ${r.item_nam || ''}${fr ? '（運賃）' : ''}`,
-      qty: fr ? '' : num(r.quantity), unit: fr ? '' : r.unit || '', price: fr ? '' : num(r.unit_price), net: num(r.net_amount), tax: r.source_tax_code || '', memo: r.memo || '' });
+    g.rows.push({ date: r.purchase_date, kind: PURCHASE_KINDS[r.purchase_kb || '1'], no: purchaseNo(r.source_document_no, r.line_no), item: `${r.item_cd} ${r.item_nam || ''}`,
+      qty: fr ? 0 : num(r.quantity), unit: r.unit || '', price: fr ? 0 : num(r.unit_price), net: num(r.net_amount), account: '', subName: '', tax: `${r.source_tax_code || ''}${fr ? ' 運賃' : ''}` });
   }
   for (const g of groups) g.totals = { net: sum(g.rows, 'net') };
   return { title: '商品仕入登録リスト', ref: '帳票⑭（HAR011）', from, to, sub: `仕入日 ${from} 〜 ${to}`,
-    columns: [{ key: 'date', label: '仕入日' }, { key: 'kind', label: '区分' }, { key: 'no', label: '伝票No-行' }, { key: 'item', label: '商品' }, { key: 'qty', label: '数量', num: 1 }, { key: 'unit', label: '単位' },
-      { key: 'price', label: '単価', num: 1 }, { key: 'net', label: '仕入金額', num: 1 }, { key: 'tax', label: '処税率' }, { key: 'memo', label: '摘要' }],
+    // 項目名は現行の見本（HAR011・添付帳票⑭ p.1-2）どおり（2026-10-29）。単位は仕入数量の右で見出しなし。科目ｺｰﾄﾞ・内訳名は見本でも空欄。摘要は見本にないので出さない
+    columns: [{ key: 'date', label: '仕入日', w: 11 }, { key: 'kind', label: '区分', w: 8 }, { key: 'no', label: '伝票No.', w: 10 }, { key: 'item', label: '商品名', w: 30 }, { key: 'qty', label: '仕入数量', num: 1, w: 11 }, { key: 'unit', label: '', w: 4 },
+      { key: 'price', label: '仕入単価', num: 1, w: 11 }, { key: 'net', label: '仕入金額', num: 1, w: 13 }, { key: 'account', label: '科目ｺｰﾄﾞ', w: 9 }, { key: 'subName', label: '内訳名', w: 14 }, { key: 'tax', label: '処税率', w: 10 }],
     groups, totals: { net: groups.reduce((n, g) => n + g.totals.net, 0) } };
 }
 // ⑰ 在庫登録リスト（現行 HAR061）：月度の在庫数量
@@ -66,5 +70,5 @@ export async function genericBook(c, kind, q) {
   const totalRow = (label, t) => d.columns.map((col, i) => (i === 0 ? S(label) : t[col.key] !== undefined ? S(t[col.key]) : ''));
   for (const g of d.groups) { out.push([H(g.title)]); for (const r of g.rows) out.push(d.columns.map(col => r[col.key] ?? '')); out.push(totalRow('計', g.totals)); }
   out.push(totalRow('総合計', d.totals));
-  return { name: `${d.title}_${(d.from || d.month || d.to || today())}.xlsx`, body: xlsx([{ name: d.title, rows: out, widths: d.columns.map(col => (col.num ? 13 : 18)) }]) };
+  return { name: `${d.title}_${(d.from || d.month || d.to || today())}.xlsx`, body: xlsx([{ name: d.title, rows: out, widths: d.columns.map(col => col.w ?? (col.num ? 13 : 18)) }]) };
 }
