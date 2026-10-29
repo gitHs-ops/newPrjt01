@@ -2,6 +2,7 @@
 import { check, isoDate, isoMonth, toNum, fromNum, today, METHODS } from './domain.mjs';
 import { rows, one } from './db.mjs';
 import { xlsx } from './xlsx.mjs';
+import { decode as taxDecode } from './taxcode.mjs';
 import { allocate } from './misc-reports.mjs';
 import { customerSite, siteDue } from './sales.mjs';
 
@@ -65,7 +66,8 @@ export async function pettyCashBook(c, q) {
     if (e.kind === 'in') { balance += e.amount; out.push({ date: e.date, no: '', payee: '', memo: '現金補充（受入）', account: '1111', sub: '', accountName: '現金', tax: '', received: e.amount, amount: 0, balance, parts: null }); continue; }
     const r = e.r, amount = num(r.gross_amount); balance -= amount;
     const payee = r.line_vendor_name || r.line_payee || r.vendor_name || (r.payee ?? (r.line_memo && r.line_memo !== r.memo ? r.line_memo : ''));
-    out.push({ date: r.booked_on, no: r.document_no, payee, memo: r.line_memo || r.memo, account: r.account_code, sub: r.sub_code || '', accountName: r.account_name, tax: r.source_tax_code, received: 0, amount, balance, parts: ms ? allocate(amount, ms) : null });
+    const t = taxDecode(r.source_tax_code); // 税率は現行 HJR051 と同じ「10%」「0%」（非課税・対象外は 0%）
+    out.push({ date: r.booked_on, no: r.document_no, payee, memo: r.line_memo || r.memo, account: r.account_code, sub: r.sub_code || '', accountName: r.account_name, tax: r.source_tax_code, rate: `${t?.taxable ? t.rate : 0}%`, received: 0, amount, balance, parts: ms ? allocate(amount, ms) : null });
   }
   const spent = out.reduce((n, r) => n + r.amount, 0), received = out.reduce((n, r) => n + r.received, 0);
   return { title: '小口現金出納簿', ref: 'NO33 / 添付帳票⑪（HAR051）', from, to, fund, opening, members: ms, rows: out, received, spent, closing: opening + received - spent, replenish: Math.max(0, fund - (opening + received - spent)),
@@ -153,11 +155,11 @@ export async function extraBook(c, kind, q) {
   }
   if (kind === 'petty-book') {
     const d = await pettyCashBook(c, q), out = head(d, `期間 ${d.from} 〜 ${d.to}`), mh = d.members ? d.members.map(m => `${m.name}（${m.ratio}%）`) : [];
-    out.push(['支払日', '伝票No', '支払先', '摘要', '科目コード', '科目名', '税率', '受入', '支払額', '残高', ...mh].map(H), [d.from, '', '', '前期繰越', '', '', '', '', '', d.opening]);
-    // 同じ伝票No（1伝票の複数明細）は先頭の行だけに表示（2026-10-29）
-    for (const [i, r] of d.rows.entries()) out.push([r.date, r.no && r.no === d.rows[i - 1]?.no ? '' : r.no, r.payee, r.memo, `${r.account}${r.sub ? '-' + r.sub : ''}`, r.accountName, r.tax, r.received || '', r.amount || '', r.balance, ...(r.parts || [])]);
-    out.push(['', '', '', S('合計'), '', '', '', S(d.received), S(d.spent), S(d.closing)], ['', '', '', '次期補充額', '', '', '', '', d.replenish]);
-    return { name: `小口現金出納簿_${d.from}_${d.to}.xlsx`, body: xlsx([{ name: '小口現金出納簿', rows: out, widths: [11, 12, 16, 24, 10, 14, 7, 11, 11, 11, 14, 14, 14] }]) };
+    // 現行 HJR051 と同じ並び・表示（2026-10-29）：支払日・支払先・摘要・科目コード（科目 内訳）・科目名・税率（%）・支払額・構成員別。伝票No・受入・残高の列、前期繰越・現金補充の行は出さない
+    out.push(['支払日', '支払先', '摘要', '科目コード', '科目名', '税率', '支払額', ...mh].map(H));
+    for (const r of d.rows.filter(r => r.amount)) out.push([r.date, r.payee, r.memo, `${r.account}${r.sub ? ' ' + r.sub : ''}`, r.accountName, r.rate, r.amount, ...(r.parts || [])]);
+    out.push(['', '', S('合計'), '', '', '', S(d.spent)]);
+    return { name: `小口現金出納簿_${d.from}_${d.to}.xlsx`, body: xlsx([{ name: '小口現金出納簿', rows: out, widths: [11, 22, 26, 12, 16, 7, 12, 14, 14, 14] }]) };
   }
   if (kind === 'sales-register') {
     const d = await salesRegister(c, q), out = head(d, `期間 ${d.from} 〜 ${d.to}`);
