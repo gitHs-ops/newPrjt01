@@ -212,7 +212,8 @@ export async function createExpense(c, ctx, p) {
   // 小口現金：1支払日＝1伝票、明細の行ごとに支払先（業者コード または 自由入力）と科目（2026-10-29 画面レビュー No.9：「支払日を上に入れ、どこに払ったか・どの科目かを打ち込む。日付ごとにある」。支払先ごとに伝票を分けない。現行 HAR733 K02080 と同じ）
   const v = kind === 'PAYABLE' || p.vendor ? await vendorOf(c, p.vendor) : null;
   const payee = kind === 'PETTY_CASH' ? text(p.payee, '支払先', 100, { required: false }) : '';
-  const due = kind === 'PAYABLE' ? (p.due ? isoDate(p.due, '支払予定日') : await vendorDue(c, v.vendor_code, date)) : null;
+  // 支払予定日は常に業者マスタの支払繰延区分から計算（画面からの値は使わない。10-29 画面レビュー No.6）
+  const due = kind === 'PAYABLE' ? await vendorDue(c, v.vendor_code, date) : null;
   const dept = text(p.dept || '063', '組織（部門）', 20);
   const input = Array.isArray(p.lines) ? p.lines : [{ account: p.account, sub: p.sub, taxCode: p.taxCode, amount: p.amount, memo: p.memo }];
   const ls = [];

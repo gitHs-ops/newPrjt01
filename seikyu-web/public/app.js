@@ -1253,7 +1253,7 @@ function expenseView(kind) {
         ${field('組織', deptSel)}<div></div>${field('締切日', `<input type="date" name="date" value="${lastClosing()}">`, { req: 1 })}
         ${field('請求No', '<input value="自動採番（業者ごと4桁）" disabled>')}<div class="span2"></div>
         <div class="span2">${field('業者', `<select name="vendor">${options(active('vendors'), '', { blank: '選択してください' })}</select>`, { req: 1 })}</div><div></div>
-        ${field('支払繰延区分', '<output id="ex-defer" class="muted">業者を選択すると業者マスタから表示</output>')}${field('支払予定日', '<input type="date" name="due">')}${field('合計金額', '<input name="total" class="num" inputmode="numeric">', { req: 1, hint: '明細の合計と一致させる' })}
+        ${field('支払繰延区分', '<output id="ex-defer" class="muted">業者を選択すると業者マスタから表示</output>')}${field('支払予定日', '<input type="date" name="due" readonly tabindex="-1" style="background:transparent;border-style:dashed" title="業者マスタの支払繰延区分から自動計算（入力不可）">', { hint: '業者マスタから自動' })}${field('合計金額', '<input name="total" class="num" inputmode="numeric">', { req: 1, hint: '明細の合計と一致させる' })}
       </div>` : `<div class="form-grid">
       ${field('支払日（領収書の日付）', `<input type="date" name="date" value="${today()}">`, { req: 1 })}${field('組織（部門）', deptSel)}
 </div>
@@ -1284,9 +1284,10 @@ function expenseView(kind) {
         g.addEventListener('input', e => { if (e.target.name === 'lvendor') vname(e.target.closest('tr')); });
         if (payable) {
           $('#ex-lines-total')?.parentElement && ($('#ex-lines-total').parentElement.hidden = true);
-          const due = f.querySelector('[name=due]'); due.addEventListener('input', () => { due.dataset.manual = due.value ? '1' : ''; });
+          // 支払予定日は入力項目ではない（10-29 画面レビュー No.6）。業者マスタの支払繰延区分から計算して表示するだけ
+          const due = f.querySelector('[name=due]');
           const terms = () => { const v = (masters.vendors || []).find(x => x.code === f.querySelector('[name=vendor]').value), t = vendorTerms(v, f.querySelector('[name=date]').value);
-            $('#ex-defer').textContent = v ? t.label : '業者を選択すると業者マスタから表示'; if (!due.dataset.manual) due.value = v && t.due ? t.due : ''; };
+            $('#ex-defer').textContent = v ? t.label : '業者を選択すると業者マスタから表示'; due.value = v && t.due ? t.due : ''; };
           f.querySelector('[name=vendor]').addEventListener('change', terms); f.querySelector('[name=date]').addEventListener('change', terms);
           const ext = f.querySelector('[name=extTax]'); ext.addEventListener('input', () => { ext.dataset.manual = ext.value.trim() === '' ? '' : '1'; recalc(); });
           f.querySelector('[name=total]').addEventListener('input', recalc);
