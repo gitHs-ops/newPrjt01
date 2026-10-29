@@ -968,8 +968,8 @@ function printDocs(docs, site = null) {
 // ----- 入金消込 (NO17) -----
 const RC_KEYS = [['bank', 'BANK'], ['cash', 'CASH'], ['notes', 'NOTE'], ['fee', 'FEE'], ['coop', 'COOP'], ['deposit', 'DEPOSIT'], ['discount', 'DISCOUNT'], ['loss', 'LOSS']];
 // 提案書 スライド19・21：得意先×請求年月の 前回残高・当月請求金額・今回請求金額・消込金額・消込残高（得意先は部分一致）
-// 請求年月の「最新」＝得意先の最新の請求（［消込］できる行）。確認用のデモ表示で本番では消す（2026-10-30 ユーザー指示）
-const ledgerTable = (d, { clear = false } = {}) => table([{ label: '得意先', value: r => `${r.customer} ${r.name}` }, { label: '請求年月', html: r => `${r.from ? `<span title="この年月の請求なし（直近の請求 ${esc(r.from)} の残高）">${esc(r.month)}</span>` : esc(r.month)}${r.latest ? ' <span class="badge">最新</span>' : ''}` }, { label: '前回残高', num: 1, html: r => (r.prev ? `<b class="${r.prev > 0 ? 'check-ng' : ''}">${yen(r.prev)}</b>` : '0') },
+// 請求年月の「最新」＝得意先の最新の請求（実際の請求の行だけ。対象年月の請求が無い得意先の対象年月の行には付けない）。確認用のデモ表示で本番では消す（2026-10-30 ユーザー指示）
+const ledgerTable = (d, { clear = false } = {}) => table([{ label: '得意先', value: r => `${r.customer} ${r.name}` }, { label: '請求年月', html: r => `${r.from ? `<span title="この年月の請求なし（直近の請求 ${esc(r.from)} の残高）">${esc(r.month)}</span>` : esc(r.month)}${(r.latest && !r.from) || r.latestInv ? ' <span class="badge">最新</span>' : ''}` }, { label: '前回残高', num: 1, html: r => (r.prev ? `<b class="${r.prev > 0 ? 'check-ng' : ''}">${yen(r.prev)}</b>` : '0') },
   { label: '当月請求金額', num: 1, value: r => yen(r.current) }, { label: '今回請求金額', num: 1, value: r => yen(r.claim) }, { label: '消込金額', num: 1, value: r => yen(r.cleared) }, { label: '消込残高', num: 1, html: r => (r.remain ? `<b class="${r.latest ? '' : 'check-ng'}">${yen(r.remain)}</b>` : '0') },
   // 消込済みでも月次確定前は［修正］で選び直して入金を更新できる（2026-10-27）
   ...(clear ? [{ label: '', html: r => (r.latest && (r.remain > 0 || r.receipt) && canWrite() ? `<button class="mini ${r.receipt ? 'edit' : 'primary'}" data-act="clear" data-customer="${esc(r.customer)}" data-receipt="${r.receipt || ''}">${r.receipt ? '修正' : '消込'}</button>` : '') }] : [])], d.rows,
@@ -1015,7 +1015,7 @@ VIEWS.receipts = async q => {
     // その行は対象年月の行として表示：前回残高＝直近の請求の今回請求金額、当月請求金額 0（2026-10-30 ユーザー指示 C案。直近の請求の当月分を対象年月の出荷と見誤らないように）
     // 「消込対象のみ」を外したときは、直近の請求の実際の行も前残と同じく上に出す（［消込］は対象年月の行で）
     const asYm = r => ({ ...r, from: r.month, month: ym, closing: dayOf(r.closing) === 31 ? monthEnd(ym) : `${ym}-${String(r.closing).slice(8, 10)}`, prev: r.claim, current: 0 });
-    const rows = all.rows.filter(r => (tg.includes(r) || (!only && ym && ymOf(r) === pm && r.remain > 0 && tgc.has(r.customer)) || (lastBefore.get(r.customer) === r && r.remain > 0 && (!only || canClear(r)))) && (!cl || tg.includes(r) || dayOf(r.closing) === cl)).flatMap(r => (lastBefore.get(r.customer) !== r ? [r] : only ? [asYm(r)] : [{ ...r, latest: false }, asYm(r)])), sum = k => rows.reduce((n, r) => n + r[k], 0);
+    const rows = all.rows.filter(r => (tg.includes(r) || (!only && ym && ymOf(r) === pm && r.remain > 0 && tgc.has(r.customer)) || (lastBefore.get(r.customer) === r && r.remain > 0 && (!only || canClear(r)))) && (!cl || tg.includes(r) || dayOf(r.closing) === cl)).flatMap(r => (lastBefore.get(r.customer) !== r ? [r] : only ? [asYm(r)] : [{ ...r, latest: false, latestInv: r.latest }, asYm(r)])), sum = k => rows.reduce((n, r) => n + r[k], 0);
     const ymLabel = m => `${m.slice(0, 4)}年${Number(m.slice(5, 7))}月`, months = [...new Set(rows.map(r => String(r.closing).slice(0, 7)))].sort();
     const prior = months.filter(m => m < ym), target = ym ? `${ymLabel(ym)}${prior.length ? `（前残 ${prior.length === 1 ? ymLabel(prior[0]) : `${ymLabel(prior[0])}〜${ymLabel(prior[prior.length - 1])}`} を含む）` : ''}` : !months.length ? '該当なし' : months.length === 1 ? ymLabel(months[0]) : `${ymLabel(months[0])}〜${ymLabel(months[months.length - 1])}（得意先ごとの最新）`;
     const d = { rows, totals: { current: sum('current'), cleared: sum('cleared'), remain: rows.filter(r => r.latest).reduce((n, r) => n + r.remain, 0) } };
