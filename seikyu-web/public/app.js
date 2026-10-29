@@ -198,11 +198,10 @@ function comboize(sel) {
   Object.defineProperty(sel, 'selectedIndex', { configurable: true, get() { return SELECT_INDEX.get.call(this); }, set(v) { SELECT_INDEX.set.call(this, v); sync(); } });
   sel.addEventListener('change', () => { if (document.activeElement !== inp) sync(); });
   new MutationObserver(build).observe(sel, { childList: true, subtree: true, attributes: true, attributeFilter: ['disabled', 'selected'] });
-  // 候補を選んだ（全文一致）ときはすぐ反映。入力途中はフォーカスを外したとき・Enter で確定
+  // 候補を選んだ（全文一致）ときはすぐ反映。入力途中はフォーカスを外したとき（Tab・Enter で次の項目へ）に確定
   inp.addEventListener('input', () => { inp.classList.remove('combo-ng'); const t = inp.value.trim(), o = opts().find(x => text(x) === t); if (o) pick(o, false); });
   inp.addEventListener('focus', () => { if (inp.value) { inp.placeholder = inp.value; inp.value = ''; } });
   inp.addEventListener('blur', () => { if (!inp.value && inp.placeholder && cur()?.value !== '') return sync(); pick(find(inp.value), true); });
-  inp.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); pick(find(inp.value), true); } });
   build();
 }
 const comboizeIn = root => { if (root.matches?.(COMBO_SELECT)) comboize(root); root.querySelectorAll?.(COMBO_SELECT).forEach(comboize); };
@@ -343,6 +342,18 @@ document.addEventListener('click', e => {
 const search = () => { const q = { ...route.q }; for (const el of $$('[data-filter]')) { const v = el.dataset.combo ? comboCode(el) : el.value; if (v === null) return; q[el.name] = v; } freshNext = true; go(route.name, q); };
 document.addEventListener('change', e => { if (e.target.matches('[data-filter]')) $$('[data-search]').forEach(b => b.classList.add('pending')); });
 document.addEventListener('keydown', e => { if (e.key === 'Enter' && e.target.matches('input[data-filter]')) { e.preventDefault(); search(); } });
+// Enter で次の入力項目へ（Tab と同じ。Shift+Enter で前へ）。最後の項目からは登録ボタンへ移り、もう一度 Enter で登録（2026-10-29）
+// 対象外：日本語の変換中・テキストエリア（改行）・ボタン・検索条件（Enter＝検索）。移動先は入力欄だけ（無効・読取専用・行削除などのボタンは飛ばす）
+document.addEventListener('keydown', e => {
+  const t = e.target;
+  if (e.key !== 'Enter' || e.isComposing || e.keyCode === 229 || e.ctrlKey || e.altKey || e.metaKey || !t.matches?.('input, select') || t.matches('[data-filter], [type=button], [type=submit], [type=reset], [type=file]')) return;
+  const root = t.closest('dialog') || t.closest('main') || document;
+  const list = [...root.querySelectorAll('input, select, textarea')].filter(el => !el.disabled && !el.readOnly && el.type !== 'hidden' && el.tabIndex >= 0 && !el.matches('[data-filter]') && el.getClientRects().length);
+  e.preventDefault();
+  const next = list[list.indexOf(t) + (e.shiftKey ? -1 : 1)];
+  if (next) { next.focus(); if (next.select && /^(text|search|tel|number|email|)$/.test(next.type) && !next.classList.contains('combo-input')) next.select(); }
+  else if (!e.shiftKey) root.querySelector('#modal-submit, button[type=submit]')?.focus();
+});
 document.addEventListener('click', e => {
   if (e.target.closest('[data-search]')) { e.preventDefault(); search(); }
 });
