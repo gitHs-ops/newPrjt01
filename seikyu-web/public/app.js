@@ -968,7 +968,8 @@ function printDocs(docs, site = null) {
 // ----- 入金消込 (NO17) -----
 const RC_KEYS = [['bank', 'BANK'], ['cash', 'CASH'], ['notes', 'NOTE'], ['fee', 'FEE'], ['coop', 'COOP'], ['deposit', 'DEPOSIT'], ['discount', 'DISCOUNT'], ['loss', 'LOSS']];
 // 提案書 スライド19・21：得意先×請求年月の 前回残高・当月請求金額・今回請求金額・消込金額・消込残高（得意先は部分一致）
-const ledgerTable = (d, { clear = false } = {}) => table([{ label: '得意先', value: r => `${r.customer} ${r.name}` }, { label: '請求年月', value: r => r.month }, { label: '前回残高', num: 1, html: r => (r.prev ? `<b class="${r.prev > 0 ? 'check-ng' : ''}">${yen(r.prev)}</b>` : '0') },
+// 請求年月の「最新」＝得意先の最新の請求（［消込］できる行）。確認用のデモ表示で本番では消す（2026-10-30 ユーザー指示）
+const ledgerTable = (d, { clear = false } = {}) => table([{ label: '得意先', value: r => `${r.customer} ${r.name}` }, { label: '請求年月', html: r => `${esc(r.month)}${r.latest ? ' <span class="badge">最新</span>' : ''}` }, { label: '前回残高', num: 1, html: r => (r.prev ? `<b class="${r.prev > 0 ? 'check-ng' : ''}">${yen(r.prev)}</b>` : '0') },
   { label: '当月請求金額', num: 1, value: r => yen(r.current) }, { label: '今回請求金額', num: 1, value: r => yen(r.claim) }, { label: '消込金額', num: 1, value: r => yen(r.cleared) }, { label: '消込残高', num: 1, html: r => (r.remain ? `<b class="${r.latest ? '' : 'check-ng'}">${yen(r.remain)}</b>` : '0') },
   // 消込済みでも月次確定前は［修正］で選び直して入金を更新できる（2026-10-27）
   ...(clear ? [{ label: '', html: r => (r.latest && (r.remain > 0 || r.receipt) && canWrite() ? `<button class="mini ${r.receipt ? 'edit' : 'primary'}" data-act="clear" data-customer="${esc(r.customer)}" data-receipt="${r.receipt || ''}">${r.receipt ? '修正' : '消込'}</button>` : '') }] : [])], d.rows,
