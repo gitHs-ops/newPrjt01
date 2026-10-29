@@ -1135,12 +1135,14 @@ VIEWS.purchases = async q => {
   // 明細は現行の商品仕入登録リスト（帳票⑭）と同じ並び：行・商品コード・商品名・数量・単位・単価・金額・消費税率（2026-10-29）。商品コードは入力（候補は商品マスタ）
   // 2026-10-29 画面・帳票処理イメージ一覧の指摘：種別は置かず商品コードで決める（運賃の商品コードなら金額だけ入力）・摘要は現行の入力画面にないので置かない・単位にガイダンス
   const isFreight = it => /運賃/.test(it?.name || '');
+  // 値引き（88888 等）は商品仕入では使わない：候補に出さず、入力しても選べない（2026-10-29）
+  const noPurchase = it => /値引/.test(it?.name || ''), puItems = () => active('items').filter(i => !noPurchase(i));
   const cols = [{ name: 'item', label: '商品コード', cell: () => '<input name="item" list="dl-pu-items" maxlength="12" style="width:90px" autocomplete="off">' }, { name: 'iname', label: '商品名', cell: () => '<span data-iname class="muted small">商品コードを入力</span>' },
     { name: 'quantity', label: '数量', cell: () => '<input name="quantity" class="num" style="width:90px">' }, { name: 'unit', label: '単位', cell: () => '<span data-unit class="muted small">マスタの単位</span>' },
     { name: 'price', label: '単価', cell: () => '<input name="price" class="num" style="width:100px" placeholder="マスタ単価">' }, { name: 'amount', label: '金額', sum: 1, cell: () => '<input name="amount" class="num" style="width:120px" placeholder="自動">' },
     { name: 'taxCode', label: '消費税率', cell: () => taxSelect('taxCode', '241') }];
-  const calc = tr => { const f = n => tr.querySelector(`[name=${n}]`), code = f('item').value.trim(), hit = masters.items.find(i => i.code === code), fr = isFreight(hit), nm = tr.querySelector('[data-iname]'), un = tr.querySelector('[data-unit]');
-    nm.innerHTML = code && !hit ? '<span class="check-ng">該当なし</span>' : hit ? esc(hit.name) : '商品コードを入力'; nm.classList.toggle('muted', !hit);
+  const calc = tr => { const f = n => tr.querySelector(`[name=${n}]`), code = f('item').value.trim(), hit = masters.items.find(i => i.code === code && !noPurchase(i)), fr = isFreight(hit), nm = tr.querySelector('[data-iname]'), un = tr.querySelector('[data-unit]');
+    nm.innerHTML = code && !hit ? `<span class="check-ng">${masters.items.some(i => i.code === code) ? '仕入では使えない商品' : '該当なし'}</span>` : hit ? esc(hit.name) : '商品コードを入力'; nm.classList.toggle('muted', !hit);
     if (!fr) { const it = hit, qn = Number(f('quantity').value || 0), pr = f('price').value === '' ? Number(it?.price || 0) : Number(f('price').value);
       un.textContent = it?.unit ? nameOf('units', it.unit) || it.unit : 'マスタの単位'; un.classList.toggle('muted', !it?.unit); f('amount').value = qn && pr ? Math.floor(qn * pr) : ''; f('amount').readOnly = true; f('amount').placeholder = '自動'; f('quantity').disabled = false; f('price').disabled = false; }
     else { f('amount').readOnly = false; f('amount').placeholder = '運賃の金額'; f('quantity').disabled = true; f('price').disabled = true; un.textContent = '（金額のみ）'; un.classList.add('muted'); }
@@ -1149,11 +1151,11 @@ VIEWS.purchases = async q => {
   const pNo = (no, line) => String(no || '').replace(/\D/g, '').slice(-5).padStart(5, '0') + (line ? '-' + String(line).padStart(2, '0') : '');
   // ヘッダー：伝票No（キー。2026-10-29 指摘で先頭に）→ 業者 → 仕入日（納入日）・区分。伝票摘要は根拠がないため置かない
   // サンプル入力は通常の商品から選ぶ（値引き・運賃は選ばない）
-  const pickItem = f => { const it = active('items').filter(i => !/値引|運賃/.test(i.name)), tr = f.querySelector('#pu-lines tbody tr'), el = tr?.querySelector('[name=item]'); if (el && it.length && !hit(el.value)) { el.value = it[Math.floor(Math.random() * it.length)].code; el.dispatchEvent(new Event('input', { bubbles: true })); } };
-  const hit = code => masters.items.some(i => i.code === String(code || '').trim());
+  const pickItem = f => { const it = puItems().filter(i => !isFreight(i)), tr = f.querySelector('#pu-lines tbody tr'), el = tr?.querySelector('[name=item]'); if (el && it.length && !hit(el.value)) { el.value = it[Math.floor(Math.random() * it.length)].code; el.dispatchEvent(new Event('input', { bubbles: true })); } };
+  const hit = code => puItems().some(i => i.code === String(code || '').trim());
   A.new = () => modal({ title: '商品仕入の登録', submit: '登録する', wide: true, sample: pickItem, body: `<div class="form-grid">${field('伝票No', '<input value="（登録時に自動採番）" disabled>')}<div></div>${field('仕入先（業者）', `<select name="vendor">${options(active('vendors'), '', { blank: '選択してください' })}</select>`, { req: 1 })}${field('仕入日（納入日）', `<input type="date" name="date" value="${today()}">`, { req: 1 })}
       ${field('区分', `<select name="kind">${Object.entries(meta.purchaseKinds).map(([k, v]) => `<option value="${k}">${k} ${esc(v)}</option>`).join('')}</select>`)}</div>
-      <datalist id="dl-pu-items">${active('items').map(i => `<option value="${esc(i.code)}">${esc(i.name)}</option>`).join('')}</datalist>
+      <datalist id="dl-pu-items">${puItems().map(i => `<option value="${esc(i.code)}">${esc(i.name)}</option>`).join('')}</datalist>
       ${lineGrid('pu-lines', cols, undefined, { lineNo: true })}`,
     onOpen: f => { const g = $('#pu-lines'); g.addEventListener('input', () => lineTotal('pu-lines', 'amount', calc)); g.addEventListener('change', () => lineTotal('pu-lines', 'amount', calc)); },
     onSubmit: async v => { const lines = readLines('pu-lines').map(l => { const item = String(l.item || '').trim(); return { ...l, item, lineKind: isFreight(masters.items.find(i => i.code === item)) ? '2' : '1' }; }); const r = await post('/api/purchases', { date: v.date, vendor: v.vendor, kind: v.kind, memo: v.memo, lines }); toast(`仕入 ${pNo(r.no)}（${r.lines}行・${yen(r.net)}円）を登録しました`); render(); } });
