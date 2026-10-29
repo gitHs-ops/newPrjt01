@@ -965,7 +965,7 @@ function printDocs(docs, site = null) {
   setTimeout(() => window.print(), 300);
 }
 
-// ----- 入金・消込 (NO17) -----
+// ----- 入金消込 (NO17) -----
 const RC_KEYS = [['bank', 'BANK'], ['cash', 'CASH'], ['notes', 'NOTE'], ['fee', 'FEE'], ['coop', 'COOP'], ['deposit', 'DEPOSIT'], ['discount', 'DISCOUNT'], ['loss', 'LOSS']];
 // 提案書 スライド19・21：得意先×請求年月の 前回残高・当月請求金額・今回請求金額・消込金額・消込残高（得意先は部分一致）
 const ledgerTable = (d, { clear = false } = {}) => table([{ label: '得意先', value: r => `${r.customer} ${r.name}` }, { label: '請求年月', value: r => r.month }, { label: '前回残高', num: 1, html: r => (r.prev ? `<b class="${r.prev > 0 ? 'check-ng' : ''}">${yen(r.prev)}</b>` : '0') },
@@ -1002,20 +1002,22 @@ VIEWS.receipts = async q => {
     // 請求年月（2026-10-28 追加）：指定時はその年月の請求の行（「消込対象のみ」は残高か入金のある行）。空欄は従来どおり得意先ごとの最新の請求年月
     // 請求年月の初期値＝直近の締め（20日）の年月（2026-10-29）。空欄で検索したときは '-' を渡して空欄のまま
     const ym0 = q.ym === undefined ? lastClosing().slice(0, 7) : q.ym, ym = /^\d{4}-\d{2}$/.test(ym0 || '') ? ym0 : '';
-    const rows = all.rows.filter(r => r.prev && (ym ? String(r.closing).slice(0, 7) === ym && (!only || r.remain > 0 || r.receipt) : (!only || (r.latest && (r.remain > 0 || r.receipt)))) && (!cl || dayOf(r.closing) === cl)), sum = k => rows.reduce((n, r) => n + r[k], 0);
+    // 前残（10-29 画面レビュー No.4「10月をやる時に9月に請求残があれば9月・10月を出す」）：請求年月の指定時は、前月の消込残高が残っている行も同じ得意先の上に表示（前々月以前は確認事項No.18 で検討中のため出さない）
+    const pm = ym ? new Date(Date.UTC(+ym.slice(0, 4), +ym.slice(5, 7) - 2, 1)).toISOString().slice(0, 7) : '';
+    const rows = all.rows.filter(r => (ym ? (r.prev && String(r.closing).slice(0, 7) === ym && (!only || r.remain > 0 || r.receipt)) || (String(r.closing).slice(0, 7) === pm && r.remain > 0) : r.prev && (!only || (r.latest && (r.remain > 0 || r.receipt)))) && (!cl || dayOf(r.closing) === cl)), sum = k => rows.reduce((n, r) => n + r[k], 0);
     const ymLabel = m => `${m.slice(0, 4)}年${Number(m.slice(5, 7))}月`, months = [...new Set(rows.map(r => String(r.closing).slice(0, 7)))].sort();
-    const target = ym ? ymLabel(ym) : !months.length ? '該当なし' : months.length === 1 ? ymLabel(months[0]) : `${ymLabel(months[0])}〜${ymLabel(months[months.length - 1])}（得意先ごとの最新）`;
+    const target = ym ? `${ymLabel(ym)}${months.includes(pm) ? `（前残 ${ymLabel(pm)} を含む）` : ''}` : !months.length ? '該当なし' : months.length === 1 ? ymLabel(months[0]) : `${ymLabel(months[0])}〜${ymLabel(months[months.length - 1])}（得意先ごとの最新）`;
     const d = { rows, totals: { current: sum('current'), cleared: sum('cleared'), remain: rows.filter(r => r.latest).reduce((n, r) => n + r.remain, 0) } };
     A.search = () => go('receipts', { tab, customer: $('#rt-cust').value, all: q.all, cl: q.cl, ym: $('#rt-ym').value || '-' });
-    return page('入金・消込', '消込対象の選択：消込残高のある最新の請求年月から「消込」を押すと、その得意先の入金消込画面を開きます。消込済みでも月次確定前は「修正」で入金を更新できます。', `<input id="rt-cust" list="dl-pcust" autocomplete="off" placeholder="得意先（部分一致）" value="${esc(q.customer || '')}" style="width:200px">${custHints()}<label class="field">請求年月<input type="month" id="rt-ym" value="${esc(ym)}" title="空欄＝得意先ごとの最新の請求年月"></label><select id="rt-cl" title="締日">${options(STD_CLOSINGS.map(x => ({ code: String(x), name: closingLabel(x) })), cl ? String(cl) : '', { blank: 'すべての締日', label: x => x.name })}</select>
+    return page('入金消込', '対象年月の請求と、前月に消込残高が残っている請求（前残）を得意先ごとに表示します。［消込］を押すと、その得意先の入金消込画面を開きます（請求の古い順に消し込みます）。消込済みでも月次確定前は［修正］で入金を更新できます。', `<input id="rt-cust" list="dl-pcust" autocomplete="off" placeholder="得意先（部分一致）" value="${esc(q.customer || '')}" style="width:200px">${custHints()}<label class="field">請求年月<input type="month" id="rt-ym" value="${esc(ym)}" title="空欄＝得意先ごとの最新の請求年月"></label><select id="rt-cl" title="締日">${options(STD_CLOSINGS.map(x => ({ code: String(x), name: closingLabel(x) })), cl ? String(cl) : '', { blank: 'すべての締日', label: x => x.name })}</select>
        <button class="primary" data-act="search">検索</button><label class="small"><input type="checkbox" id="rt-only" ${only ? 'checked' : ''}> 消込対象のみ</label>`,
-      `<section class="card glass"><div class="card-head"><h2>消込対象 ${esc(target)}</h2><span class="muted small">${ym ? '請求年月で指定' : '請求年月が空欄のため、得意先ごとの最新の請求年月を表示'}${cl ? `・締日 ${esc(closingLabel(cl))}` : ''}</span></div>${ledgerTable(d, { clear: true })}</section>`);
+      `<section class="card glass"><div class="card-head"><h2>消込対象 ${esc(target)}</h2><span class="muted small">${ym ? '対象年月の請求＋前月の消込残高（前残）' : '請求年月が空欄のため、得意先ごとの最新の請求年月を表示'}${cl ? `・締日 ${esc(closingLabel(cl))}` : ''}</span></div>${ledgerTable(d, { clear: true })}</section>`);
   }
   const month = q.month || thisMonth(), all = await api('/api/receipts?' + qs({ month, customer: q.customer }));
   // 状態の絞込（すべて／計上済／取消済。2026-10-27 チェック「計上済のみ」から変更）
   const RSTATES = { POSTED: '計上済', REVERSED: '取消済' }, rst = RSTATES[q.rstate] ? q.rstate : q.posted === '1' ? 'POSTED' : '', list = rst ? all.filter(r => r.status === rst) : all;
   A.rev = d => confirmBox('入金の取消', `入金No ${d.no} を取消します。消込が解除され、逆仕訳を計上します。`, () => post('/api/receipts/reverse', { id: Number(d.id) }).then(() => { toast('取消しました'); render(); }), '取消する');
-  return page('入金・消込', '得意先ごとに、請求（得意先×請求年月）に対する入金を消し込みます。当座預金・現金・手形・振込手数料・協力会費・預り金充当・値引を処理します（receipt / receipt_component / receipt_allocation）。',
+  return page('入金消込', '得意先ごとに、請求（得意先×請求年月）に対する入金を消し込みます。当座預金・現金・手形・振込手数料・協力会費・預り金充当・値引を処理します（receipt / receipt_component / receipt_allocation）。',
     `${monthInput('month', month)}${comboFilter('customer', 'customers', q.customer || '', '得意先（コード・名称）')}<select id="rec-state" title="状態">${options(Object.entries(RSTATES).map(([code, name]) => ({ code, name })), rst, { blank: 'すべて', label: x => x.name })}</select>${csvLink('receipts', { month })}`,
     `<section class="card glass" data-sub="list">${table([{ label: '入金No', value: r => r.no }, { label: '入金日', value: r => r.date }, { label: '得意先', value: r => r.customerName }, { label: '振込', num: 1, value: r => yen(r.bank) }, { label: '銀行', value: r => nameOf('banks', r.bankCode) },
       { label: '現金', num: 1, value: r => yen(r.cash) }, { label: '手形', num: 1, value: r => yen(r.notes) }, { label: '手数料', num: 1, value: r => yen(r.fee) }, { label: '協力会費', num: 1, value: r => yen(r.coop) }, { label: '預り金', num: 1, value: r => yen(r.deposit) }, { label: '値引', num: 1, value: r => yen(r.discount) }, { label: '雑損失', num: 1, value: r => yen(r.loss) }, { label: '消込額', num: 1, value: r => yen(r.settlement) },
