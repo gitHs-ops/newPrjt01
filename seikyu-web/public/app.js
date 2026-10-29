@@ -52,7 +52,7 @@ const post = async (url, body) => { busy(true); try { return await api(url, { me
 // 進捗ダイアログ（件数のわかる一括処理）：progress.open(題名, 件数) → progress.step(完了数, 処理中の名称) → progress.close()
 const progress = {
   open(title, total) { const d = $('#progress-dialog'); $('#progress-title').textContent = title; this.total = total; this.step(0, ''); if (!d.open) d.showModal(); },
-  step(done, label) { const pct = this.total ? Math.round(done * 100 / this.total) : 0; $('#progress-fill').style.width = pct + '%'; $('#progress-count').textContent = `${done} / ${this.total} 件（${pct}%）`; $('#progress-label').textContent = label || ''; },
+  step(done, label) { const pct = this.total ? Math.round(done * 100 / this.total) : 0; $('#progress-fill').style.width = pct + '%'; $('#progress-count').textContent = `${pct}%`; /* 件数は出さない（2026-10-29） */ $('#progress-label').textContent = label || ''; },
   close() { const d = $('#progress-dialog'); if (d.open) d.close(); },
 };
 $('#progress-dialog')?.addEventListener('cancel', e => e.preventDefault()); // 処理中は Esc で閉じない
@@ -695,8 +695,9 @@ VIEWS.invoices = async q => {
     if (p.end > today()) return alertBox(`締日（${p.end}）が到来していないため、${month} ${closingLabel(closing)}締の請求データは作成できません。`);
     const targets = p.customers.filter(r => r.count && !(r.created && r.locked));
     const held = p.customers.filter(r => r.count && r.created && r.locked), done = p.customers.filter(r => r.created && !r.count).length;
-    const heldNote = held.length ? `発行済みのため次回締めで請求 ${held.length}得意先（${held.map(r => `${r.customer} ${r.name} ${r.count}件`).join('、')}）` : '';
-    if (!targets.length) return alertBox(`作成する請求データはありません（${month} ${closingLabel(closing)}締：請求期間 ${p.start}〜${p.end}${done ? `、作成済み ${done}得意先` : ''}）${heldNote ? `
+    // メッセージに件数は出さない（2026-10-29）
+    const heldNote = held.length ? `発行済みのため次回締めで請求する得意先：${held.map(r => `${r.customer} ${r.name}`).join('、')}` : '';
+    if (!targets.length) return alertBox(`作成する請求データはありません（${month} ${closingLabel(closing)}締：請求期間 ${p.start}〜${p.end}${done ? '、作成済み' : ''}）${heldNote ? `
 ${heldNote}` : ''}`);
     // 確認のポップアップは出さずにそのまま作成し、終わったら請求書発行確認表（未発行を含む）の Excel を出す（2026-10-27。10/27 打合せ「メッセージはいらない、処理中→終了でよい」）
     const sum = { created: 0, appended: 0, skipped: [], failed: [] }; let slip = ''; // 売掛金計上の伝票番号（1伝票45得意先まで同じ番号、Q08）
@@ -709,7 +710,7 @@ ${heldNote}` : ''}`);
     }
     progress.step(targets.length, '完了'); progress.close(); if (btn) btn.disabled = false;
     // 作成できなかった得意先・次回締めに回る得意先があるときだけ知らせる
-    if (sum.failed.length || heldNote) alertBox([sum.failed.length ? `作成できなかった得意先（${sum.failed.length}件）：\n${sum.failed.join('\n')}` : '', heldNote].filter(Boolean).join('\n\n'));
+    if (sum.failed.length || heldNote) alertBox([sum.failed.length ? `作成できなかった得意先：\n${sum.failed.join('\n')}` : '', heldNote].filter(Boolean).join('\n\n'));
     freshNext = true; location.hash = '#invoices/list?' + qs({ month, closing });
     if (sum.created || sum.appended) await billingReport('confirm', month, closing, true).catch(e => toast(e.message, true));
   };
