@@ -1005,21 +1005,21 @@ VIEWS.receipts = async q => {
     const ym0 = q.ym === undefined ? lastClosing().slice(0, 7) : q.ym, ym = /^\d{4}-\d{2}$/.test(ym0 || '') ? ym0 : '';
     // 前残（10-29 画面レビュー No.4「10月をやる時に9月に請求残があれば9月・10月を出す」）：請求年月の指定時は、前月の消込残高が残っている行も同じ得意先の上に表示（前々月以前は確認事項No.18 で検討中のため出さない）
     const pm = ym ? new Date(Date.UTC(+ym.slice(0, 4), +ym.slice(5, 7) - 2, 1)).toISOString().slice(0, 7) : '';
-    // 「消込対象のみ」＝［消込］／［修正］できる行（得意先の最新の請求年月で残高か入金がある行）だけ。前残の行は、その得意先が消込対象のときだけ表示（2026-10-29 ユーザー指摘）
+    // 「消込対象のみ」＝［消込］／［修正］できる行（得意先の最新の請求年月で残高か入金がある行）だけ。前残の行は出さない（2026-10-30 ユーザー指摘。チェックを外すと前残も表示）
     const ymOf = r => String(r.closing).slice(0, 7), canClear = r => r.latest && (r.remain > 0 || r.receipt);
     const tg = all.rows.filter(r => r.prev && (ym ? ymOf(r) === ym : true) && (!only || canClear(r)) && (ym || !only || r.latest) && (!cl || dayOf(r.closing) === cl)), tgc = new Set(tg.map(r => r.customer));
     // 対象年月の請求が無い得意先も、対象年月より前の直近の請求に消込残高があればその1行を表示（2026-10-30 ユーザー指摘「当月の請求が無くても未収金は回収（消込）できる」。
     // 最新の請求なら［消込］できる。「消込対象のみ」では消込できる行だけ）
     const ymc = new Set(all.rows.filter(r => ymOf(r) === ym).map(r => r.customer)), lastBefore = new Map();
     if (ym) for (const r of all.rows) if (ymOf(r) < ym && !ymc.has(r.customer)) lastBefore.set(r.customer, r);
-    const rows = all.rows.filter(r => (tg.includes(r) || (ym && ymOf(r) === pm && r.remain > 0 && tgc.has(r.customer)) || (lastBefore.get(r.customer) === r && r.remain > 0 && (!only || canClear(r)))) && (!cl || tg.includes(r) || dayOf(r.closing) === cl)), sum = k => rows.reduce((n, r) => n + r[k], 0);
+    const rows = all.rows.filter(r => (tg.includes(r) || (!only && ym && ymOf(r) === pm && r.remain > 0 && tgc.has(r.customer)) || (lastBefore.get(r.customer) === r && r.remain > 0 && (!only || canClear(r)))) && (!cl || tg.includes(r) || dayOf(r.closing) === cl)), sum = k => rows.reduce((n, r) => n + r[k], 0);
     const ymLabel = m => `${m.slice(0, 4)}年${Number(m.slice(5, 7))}月`, months = [...new Set(rows.map(r => String(r.closing).slice(0, 7)))].sort();
     const prior = months.filter(m => m < ym), target = ym ? `${ymLabel(ym)}${prior.length ? `（前残 ${prior.length === 1 ? ymLabel(prior[0]) : `${ymLabel(prior[0])}〜${ymLabel(prior[prior.length - 1])}`} を含む）` : ''}` : !months.length ? '該当なし' : months.length === 1 ? ymLabel(months[0]) : `${ymLabel(months[0])}〜${ymLabel(months[months.length - 1])}（得意先ごとの最新）`;
     const d = { rows, totals: { current: sum('current'), cleared: sum('cleared'), remain: rows.filter(r => r.latest).reduce((n, r) => n + r.remain, 0) } };
     A.search = () => go('receipts', { tab, customer: $('#rt-cust').value, all: q.all, cl: q.cl, ym: $('#rt-ym').value || '-' });
     return page('入金消込', '対象年月の請求と、前月に消込残高が残っている請求（前残）を得意先ごとに表示します。対象年月の請求が無い得意先も、直近の請求に消込残高があれば表示し、［消込］できます。［消込］を押すと、その得意先の入金消込画面を開きます（請求の古い順に消し込みます）。消込済みでも月次確定前は［修正］で入金を更新できます。', `<input id="rt-cust" list="dl-pcust" autocomplete="off" placeholder="得意先（部分一致）" value="${esc(q.customer || '')}" style="width:200px">${custHints()}<label class="field">請求年月<input type="month" id="rt-ym" value="${esc(ym)}" title="空欄＝得意先ごとの最新の請求年月"></label><select id="rt-cl" title="締日">${options(STD_CLOSINGS.map(x => ({ code: String(x), name: closingLabel(x) })), cl ? String(cl) : '', { blank: 'すべての締日', label: x => x.name })}</select>
        <button class="primary" data-act="search">検索</button><label class="small"><input type="checkbox" id="rt-only" ${only ? 'checked' : ''}> 消込対象のみ</label>`,
-      `<section class="card glass"><div class="card-head"><h2>消込対象 ${esc(target)}</h2><span class="muted small">${ym ? '対象年月の請求＋前月の消込残高（前残）・対象年月の請求が無い得意先は直近の請求' : '請求年月が空欄のため、得意先ごとの最新の請求年月を表示'}${cl ? `・締日 ${esc(closingLabel(cl))}` : ''}</span></div>${ledgerTable(d, { clear: true })}</section>`);
+      `<section class="card glass"><div class="card-head"><h2>消込対象 ${esc(target)}</h2><span class="muted small">${ym ? (only ? '［消込］できる行（得意先の最新の請求）だけ・対象年月の請求が無い得意先は直近の請求' : '対象年月の請求＋前月の消込残高（前残）・対象年月の請求が無い得意先は直近の請求') : '請求年月が空欄のため、得意先ごとの最新の請求年月を表示'}${cl ? `・締日 ${esc(closingLabel(cl))}` : ''}</span></div>${ledgerTable(d, { clear: true })}</section>`);
   }
   const month = q.month || thisMonth(), all = await api('/api/receipts?' + qs({ month, customer: q.customer }));
   // 状態の絞込（すべて／計上済／取消済。2026-10-27 チェック「計上済のみ」から変更）
