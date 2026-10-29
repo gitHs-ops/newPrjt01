@@ -1125,7 +1125,8 @@ document.addEventListener('click', e => {
   $$('td.line-no', tbody).forEach((td, i) => (td.textContent = String(i + 1).padStart(2, '0')));
   tbody.dispatchEvent(new Event('input', { bubbles: true }));
 });
-const taxSelect = (name, value) => `<select name="${name}">${meta.taxCodes.map(t => `<option value="${t.code}" ${t.code === value ? 'selected' : ''}>${esc(t.code + ' ' + t.name)}</option>`).join('')}</select>`;
+// 処税率は3桁のコードだけ表示（10-29 画面レビュー No.15b「解説は不要、241 などコードだけ」）。名称はマウスを重ねると表示
+const taxSelect = (name, value) => `<select name="${name}">${meta.taxCodes.map(t => `<option value="${t.code}" title="${esc(t.name)}" ${t.code === value ? 'selected' : ''}>${esc(t.code)}</option>`).join('')}</select>`;
 
 // ----- 商品仕入（10/19 打合せ・帳票⑭）-----
 VIEWS.purchases = async q => {
@@ -1139,12 +1140,12 @@ VIEWS.purchases = async q => {
   const noPurchase = it => /値引/.test(it?.name || ''), puItems = () => active('items').filter(i => !noPurchase(i));
   const cols = [{ name: 'item', label: '商品コード', cell: () => '<input name="item" list="dl-pu-items" maxlength="12" style="width:90px" autocomplete="off">' }, { name: 'iname', label: '商品名', cell: () => '<span data-iname class="muted small">商品コードを入力</span>' },
     { name: 'quantity', label: '数量', cell: () => '<input name="quantity" class="num" style="width:90px">' }, { name: 'unit', label: '単位', cell: () => '<span data-unit class="muted small">マスタの単位</span>' },
-    { name: 'price', label: '単価', cell: () => '<input name="price" class="num" style="width:100px" placeholder="マスタ単価">' }, { name: 'amount', label: '金額', sum: 1, cell: () => '<input name="amount" class="num" style="width:120px" placeholder="自動">' },
+    { name: 'price', label: '単価', cell: () => '<input name="price" class="num" style="width:100px" inputmode="decimal" placeholder="マスタ単価" title="小数2桁まで（例 2267.40）">' }, { name: 'amount', label: '金額', sum: 1, cell: () => '<input name="amount" class="num" style="width:120px" placeholder="自動">' },
     { name: 'taxCode', label: '処税率', cell: () => taxSelect('taxCode', '241') }];
   const calc = tr => { const f = n => tr.querySelector(`[name=${n}]`), code = f('item').value.trim(), hit = masters.items.find(i => i.code === code && !noPurchase(i)), fr = isFreight(hit), nm = tr.querySelector('[data-iname]'), un = tr.querySelector('[data-unit]');
     nm.innerHTML = code && !hit ? `<span class="check-ng">${masters.items.some(i => i.code === code) ? '仕入では使えない商品' : '該当なし'}</span>` : hit ? esc(hit.name) : '商品コードを入力'; nm.classList.toggle('muted', !hit);
-    if (!fr) { const it = hit, qn = Number(f('quantity').value || 0), pr = f('price').value === '' ? Number(it?.price || 0) : Number(f('price').value);
-      un.textContent = it?.unit ? nameOf('units', it.unit) || it.unit : 'マスタの単位'; un.classList.toggle('muted', !it?.unit); f('amount').value = qn && pr ? Math.floor(qn * pr) : ''; f('amount').readOnly = true; f('amount').placeholder = '自動'; f('quantity').disabled = false; f('price').disabled = false; }
+    if (!fr) { const it = hit, qn = Number(f('quantity').value || 0), pr = f('price').value === '' ? Number(it?.price || 0) : Number(f('price').value.replace(/,/g, ''));
+      un.textContent = it?.unit ? nameOf('units', it.unit) || it.unit : 'マスタの単位'; un.classList.toggle('muted', !it?.unit); f('amount').value = qn && pr ? Math.trunc(Math.round(qn * 100) * Math.round(pr * 100) / 10000) : ''; f('amount').readOnly = true; f('amount').placeholder = '自動'; f('quantity').disabled = false; f('price').disabled = false; }
     else { f('amount').readOnly = false; f('amount').placeholder = '運賃の金額'; f('quantity').disabled = true; f('price').disabled = true; un.textContent = '（金額のみ）'; un.classList.add('muted'); }
     return Number(f('amount').value || 0); };
   // 伝票No.：5桁＋行番号2桁の枝番（10/28 打合せ No.21。例 53192-01）。サーバの purchaseNo と同じ
@@ -1163,7 +1164,7 @@ VIEWS.purchases = async q => {
   return page('商品仕入', '業者からの商品仕入を伝票（複数明細）で記録します（purchase）。区分 1=仕入／2=他社納入、運賃行あり。', `${monthInput('month', month)}${filterSelect('vendor', masters.vendors, q.vendor, 'すべての業者')}${csvLink('purchases', { month })}${canWrite() ? '<button class="primary" data-act="new">＋ 仕入登録</button>' : ''}`,
     `<section class="card glass" data-sub="list">${table([{ label: '伝票No.', value: r => pNo(r.no, r.line) }, { label: '仕入日', value: r => r.date }, { label: '区分', value: r => r.kindName }, { label: '業者', value: r => r.vendorName },
       { label: '商品', value: r => `${r.itemName || r.item}${r.lineKind === '2' && !/運賃/.test(r.itemName || '') ? '（運賃）' : ''}` }, { label: '数量', num: 1, value: r => (r.lineKind === '2' ? '' : `${r.quantity} ${r.unit || ''}`) },
-      { label: '単価', num: 1, value: r => (r.lineKind === '2' ? '' : yen(r.price)) }, { label: '金額', num: 1, value: r => yen(r.net) }, { label: '処税率', value: r => r.taxCode },
+      { label: '単価', num: 1, value: r => (r.lineKind === '2' ? '' : Number(r.price).toLocaleString('ja-JP', { minimumFractionDigits: 2, maximumFractionDigits: 2 })) }, { label: '金額', num: 1, value: r => yen(r.net) }, { label: '処税率', value: r => r.taxCode },
       { label: '', html: r => canWrite() && r.line === 1 ? `<button class="mini danger" data-act="del" data-id="${r.id}" data-no="${esc(r.no)}">取消</button>` : '' }], list, { foot: ['合計', '', '', '', '', '', '', yen(list.reduce((n, r) => n + r.net, 0)), '', ''] })}</section>
     <div data-sub="reports">${miscCard('商品仕入登録リスト', '業者別・伝票明細', rangeInputs('pl', '仕入日'), '<button data-act="misc" data-kind="purchase-register" data-src="pl">⇩ Excel</button>')}</div>`);
 };
@@ -1548,7 +1549,7 @@ async function miscReport(kind, src) {
   if (kind === 'receipt-schedule') body = `` + (d.customers.length ? d.customers.map(cu => `<h3 style="margin:10px 0 4px">${esc(cu.customer)} ${esc(cu.name)} <span class="muted small">入金方法: ${esc(cu.method)} ／ 入金先: ${esc(cu.bank)}</span></h3>` + table([{ label: '工事（現場）', value: r => `${r.site} ${r.siteName}` }, { label: '請求締日', value: r => r.closing }, { label: '請求No', value: r => r.invoiceId }, { label: '発行', value: r => (r.issued ? '発行済' : '未発行') },
     { label: '請求金額', num: 1, value: r => yen(r.billed) }, { label: '入金予定日', html: r => `${r.overdue ? `<span class="check-ng">${esc(r.dueDate)} 超過</span>` : esc(r.dueDate)}${r.computed ? ' <span class="muted small" title="支払期日がないため得意先マスタの回収条件から計算">※</span>' : ''}` }, { label: '入金予定額', num: 1, value: r => yen(r.due) }], cu.rows, { foot: ['得意先計', '', '', '', yen(cu.billed), '', yen(cu.due)] })).join('') + `<p class="right"><b>入金予定合計 ${yen(d.total)} 円</b></p>` : '<div class="empty">入金予定（残高あり）の請求はありません</div>');
   // 共通形式（server/new-reports.mjs）：columns＋groups
-  if (d.columns) { const cell = (col, v) => (col.num && typeof v === 'number' ? yen(v) : esc(v ?? '')); const tot = (label, t) => `<tr class="subtotal">${d.columns.map((col, i) => `<td class="${col.num ? 'num' : ''}">${i === 0 ? esc(label) : t[col.key] !== undefined ? yen(t[col.key]) : ''}</td>`).join('')}</tr>`;
+  if (d.columns) { const cell = (col, v) => (col.num && typeof v === 'number' ? (col.dec ? v.toLocaleString('ja-JP', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : yen(v)) : esc(v ?? '')); const tot = (label, t) => `<tr class="subtotal">${d.columns.map((col, i) => `<td class="${col.num ? 'num' : ''}">${i === 0 ? esc(label) : t[col.key] !== undefined ? yen(t[col.key]) : ''}</td>`).join('')}</tr>`;
     body = d.groups.length ? `<div class="table-wrap"><table class="jl"><thead><tr>${d.columns.map(col => `<th class="${col.num ? 'num' : ''}">${esc(col.label)}</th>`).join('')}</tr></thead><tbody>${d.groups.map(g => (g.head ? `<tr class="kb-group"><td colspan="${d.columns.length}" style="font-size:1.05em;padding-top:10px"><b>${esc(g.head)}</b></td></tr>` : '') + `<tr class="kb-group"><td colspan="${d.columns.length}"><b>${esc(g.title)}</b></td></tr>`
       + g.rows.map(r => `<tr>${d.columns.map(col => `<td class="${col.num ? 'num' : ''}">${cell(col, r[col.key])}</td>`).join('')}</tr>`).join('') + tot(g.label || '計', g.totals) + (g.foot ? tot(g.foot.label, g.foot.totals) : '')).join('')}${tot('総合計', d.totals)}</tbody></table></div>` : '<div class="empty">対象データがありません</div>'; }
   if (reportCount(body)) { await saveXlsx(url + '&format=xlsx'); return toast(`${d.title} を Excel で出力しました`); } // 選択のポップアップは出さない（2026-10-27）

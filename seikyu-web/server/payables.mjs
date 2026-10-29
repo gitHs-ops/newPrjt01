@@ -44,8 +44,9 @@ export async function createPurchase(c, ctx, p) {
       out.push({ item: it.item_cd, qty: '0.00', price: 0, net: amount, tax, lineKind: '2', memo: text(l.memo, `${label}の摘要`, 500, { required: false }) || '運賃' });
     } else {
       const q = qty(l.quantity, `${label}の数量`, { max: 9999999, positive: false, allowNegative: true });
-      const price = l.price === '' || l.price === undefined ? Number(it.tanka) : yen(l.price, `${label}の単価`, { max: 99999999 });
-      out.push({ item: it.item_cd, qty: q.text, price, net: lineAmount(q, price), tax, lineKind: '1', memo: text(l.memo, `${label}の摘要`, 500, { required: false }) });
+      // 単価は小数2桁まで（10-29 画面レビュー No.15：現行の画面どおり 2,267.40 など）。金額＝数量×単価の円未満切り捨て
+      const p = qty(l.price === '' || l.price === undefined ? Number(it.tanka).toFixed(2) : String(l.price).replace(/,/g, ''), `${label}の単価`, { max: 99999999, positive: false });
+      out.push({ item: it.item_cd, qty: q.text, price: Number(p.text), net: Number((q.scaled * p.scaled) / 10000n), tax, lineKind: '1', memo: text(l.memo, `${label}の摘要`, 500, { required: false }) });
     }
   }
   check(out.length, '明細を入力してください'); check(out.length <= 99, '明細は99行以内です');
