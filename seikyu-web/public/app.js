@@ -1007,7 +1007,9 @@ VIEWS.receipts = async q => {
     // 「消込対象のみ」＝［消込］／［修正］できる行（得意先の最新の請求年月で残高か入金がある行）だけ。前残の行は、その得意先が消込対象のときだけ表示（2026-10-29 ユーザー指摘）
     const ymOf = r => String(r.closing).slice(0, 7), canClear = r => r.latest && (r.remain > 0 || r.receipt);
     const tg = all.rows.filter(r => r.prev && (ym ? ymOf(r) === ym : true) && (!only || canClear(r)) && (ym || !only || r.latest) && (!cl || dayOf(r.closing) === cl)), tgc = new Set(tg.map(r => r.customer));
-    const rows = all.rows.filter(r => tg.includes(r) || (ym && ymOf(r) === pm && r.remain > 0 && tgc.has(r.customer) && (!cl || dayOf(r.closing) === cl))), sum = k => rows.reduce((n, r) => n + r[k], 0);
+    // 対象年月の請求が無い得意先も、前月の消込残高（前残）があれば表示（2026-10-30 ユーザー指摘「4月に請求が無くても3月以前の残は出す」。「消込対象のみ」では消込できる行だけ）
+    const ymc = new Set(all.rows.filter(r => ymOf(r) === ym).map(r => r.customer));
+    const rows = all.rows.filter(r => tg.includes(r) || (ym && ymOf(r) === pm && r.remain > 0 && (tgc.has(r.customer) || (!ymc.has(r.customer) && (!only || canClear(r)))) && (!cl || dayOf(r.closing) === cl))), sum = k => rows.reduce((n, r) => n + r[k], 0);
     const ymLabel = m => `${m.slice(0, 4)}年${Number(m.slice(5, 7))}月`, months = [...new Set(rows.map(r => String(r.closing).slice(0, 7)))].sort();
     const target = ym ? `${ymLabel(ym)}${months.includes(pm) ? `（前残 ${ymLabel(pm)} を含む）` : ''}` : !months.length ? '該当なし' : months.length === 1 ? ymLabel(months[0]) : `${ymLabel(months[0])}〜${ymLabel(months[months.length - 1])}（得意先ごとの最新）`;
     const d = { rows, totals: { current: sum('current'), cleared: sum('cleared'), remain: rows.filter(r => r.latest).reduce((n, r) => n + r.remain, 0) } };
