@@ -183,7 +183,7 @@ export async function listExpenses(c, q = {}) {
   return rs.map(r => ({ id: r.expense_id, no: r.document_no, billNo: r.bill_no || '', kind: r.expense_kind, date: r.booked_on, due: r.due_on || '', vendor: r.vendor_code || '', vendorName: r.vendor_name || '', payee: r.vendor_name || (r.payee ?? (r.line_memo && r.line_memo !== r.memo ? r.line_memo : '')), account: r.account_code, accountName: r.account_name, sub: r.sub_code || '',
     dept: r.department_code, taxCode: r.source_tax_code, amount: Number(r.gross_amount), paid: Number(r.paid), balance: r.status === 'POSTED' ? Number(r.gross_amount) - Number(r.paid) : 0, memo: r.memo, status: r.status,
     lines: ls.filter(l => l.expense_id === r.expense_id).map(l => ({ no: Number(l.line_no), account: l.account_code, accountName: l.account_name || '', sub: l.sub_code || '', subName: l.sub_name || '', dept: l.department_code, taxCode: l.source_tax_code,
-      amount: Number(l.gross_amount), tax: Number(l.tax_amount || 0), memoCode: l.memo_code || '', memo: l.memo || '', payee: l.line_vendor_name || l.payee || '' })) }));
+      amount: Number(l.gross_amount), net: Number(l.net_amount), tax: Number(l.tax_amount || 0), memoCode: l.memo_code || '', memo: l.memo || '', payee: l.line_vendor_name || l.payee || '', vendor: l.line_vendor_code || '' })) }));
 }
 // 支払予定日：業者マスタの支払繰延区分（code_m VPAY：○か月後・日、31=月末）。未設定は締切日の翌月末。
 export async function vendorDue(c, vendorCode, date) {
