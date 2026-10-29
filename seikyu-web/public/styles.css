@@ -430,6 +430,8 @@ input.file-native { position: absolute; width: 1px; height: 1px; opacity: 0; poi
 .hw-head { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px 16px; margin-bottom: 10px; }
 .hw-head .span2 { grid-column: span 2; }
 .line-grid .l2 { display: flex; flex-direction: column; gap: 6px; }
+.line-grid .line-no { width: 36px; text-align: center; color: var(--text-secondary); font-variant-numeric: tabular-nums; }
+.line-grid [data-iname] { display: inline-block; min-width: 150px; white-space: nowrap; }
 .line-grid .l2 .hw-names { min-height: 34px; display: flex; align-items: center; }
 #ex-lines tbody { counter-reset: hwrow; }
 #ex-lines tbody tr { counter-increment: hwrow; }
