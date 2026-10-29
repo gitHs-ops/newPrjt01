@@ -135,7 +135,7 @@ function modal({ title, body, submit, onSubmit, wide = false, onOpen, danger = f
 function fillSampleForm(f) {
   const rnd = (a, b) => a + Math.floor(Math.random() * (b - a + 1));
   for (const el of f.elements) {
-    if (!el.name || el.disabled || el.readOnly || ['hidden', 'password', 'file', 'checkbox', 'radio'].includes(el.type) || el.offsetParent === null) continue;
+    if (!el.name || el.disabled || el.readOnly || ['hidden', 'password', 'file', 'checkbox', 'radio'].includes(el.type) || (el._combo || el).offsetParent === null) continue;
     const tr = el.closest('tbody tr'); if (tr && tr !== tr.parentElement.firstElementChild) continue;
     const label = el.closest('label')?.querySelector('span')?.textContent || el.closest('td')?.dataset.label || '', key = `${el.name} ${label}`.toLowerCase(), max = el.maxLength > 0 ? el.maxLength : 20;
     if (el.tagName === 'SELECT') { if (el.value) continue; const o = [...el.options].filter(x => x.value); if (!o.length) continue; el.value = o[rnd(0, o.length - 1)].value; }
@@ -164,6 +164,49 @@ function fillSampleForm(f) {
 }
 const confirmBox = (title, message, run, label = '実行') => modal({ title, body: `<p>${esc(message)}</p>`, submit: label, danger: true, onSubmit: async () => { await run(); } });
 async function act(fn, msg) { try { const r = await fn(); if (msg) toast(typeof msg === 'function' ? msg(r) : msg); await render(); return r; } catch (e) { toast(e.message, true); } }
+
+// ---------- マスタの選択リスト：直接入力もできるコンボ（2026-10-29） ----------
+// マスタ由来の <select> の前に入力欄（datalist で候補）を置き、select は隠して値・change イベントをそのまま使う。
+// コード（例 V002）・「コード 名称」・名称の一部（候補が1件）で決まる。フォーカスすると全候補を出す（入力済みの値は placeholder に退避）
+const COMBO_SELECT = ['customer', 'otherCustomer', 'vendor', 'item', 'product', 'material', 'account', 'sub', 'dept', 'site', 'sitePick', 'operator', 'bankCode', 'payBank', 'invoiceBank', 'deliveryKbn', 'weather', 'unit', 'taxCode']
+  .map(n => `select[name="${n}"]`).concat('select[data-pick]', '#pi-dept', '#pr-bank').join(',');
+const SELECT_VALUE = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value'), SELECT_INDEX = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'selectedIndex');
+let comboSeq = 0;
+function comboize(sel) {
+  if (sel._combo || sel.multiple) return;
+  const id = `cmb-${++comboSeq}`, inp = document.createElement('input'), dl = document.createElement('datalist');
+  inp.type = 'text'; inp.className = 'combo-input'; inp.autocomplete = 'off'; inp.setAttribute('list', id); inp.dataset.for = sel.name || sel.id; dl.id = id;
+  if (sel.title) inp.title = sel.title; if (sel.getAttribute('style')) inp.setAttribute('style', sel.getAttribute('style')); if (sel.getAttribute('aria-label')) inp.setAttribute('aria-label', sel.getAttribute('aria-label'));
+  // 欄の幅：.field・帳票入力欄の中は 100%（CSS）、それ以外（表の行・検索条件）は select の表示幅
+  const w = sel.getBoundingClientRect().width; if (w && !sel.closest('.field, .sv') && !sel.style.width) inp.style.width = Math.max(w, 90) + 'px';
+  if (sel.required) { inp.required = true; sel.required = false; }
+  sel._combo = inp; sel.classList.add('combo-select'); sel.before(inp, dl);
+  const opts = () => [...sel.options], text = o => o.textContent.trim(), cur = () => sel.options[SELECT_INDEX.get.call(sel)];
+  const sync = () => { const o = cur(); inp.value = o && o.value !== '' ? text(o) : ''; inp.placeholder = o && o.value === '' ? text(o) : ''; inp.disabled = sel.disabled; inp.classList.remove('combo-ng'); };
+  const build = () => { dl.innerHTML = opts().map(o => `<option value="${esc(text(o))}"></option>`).join(''); sync(); };
+  const find = t => { t = t.trim(); const os = opts(), lt = t.toLowerCase(); if (!t) return os.find(o => o.value === '') || null;
+    const hit = os.find(o => text(o) === t) || os.find(o => o.value === t) || os.find(o => o.value !== '' && text(o).startsWith(t + ' ')); if (hit) return hit;
+    const part = os.filter(o => o.value !== '' && text(o).toLowerCase().includes(lt)); return part.length === 1 ? part[0] : null; };
+  const pick = (o, final) => {
+    if (!o) { if (!final) return; const blank = opts().find(x => x.value === '');
+      if (blank && SELECT_VALUE.get.call(sel) !== '') { SELECT_VALUE.set.call(sel, ''); sel.dispatchEvent(new Event('change', { bubbles: true })); }
+      inp.classList.add('combo-ng'); if (!blank) { sync(); toast('候補にありません。一覧から選んでください', true); } return; }
+    const changed = SELECT_VALUE.get.call(sel) !== o.value; SELECT_VALUE.set.call(sel, o.value); if (final) sync();
+    if (changed) sel.dispatchEvent(new Event('change', { bubbles: true }));
+  };
+  Object.defineProperty(sel, 'value', { configurable: true, get() { return SELECT_VALUE.get.call(this); }, set(v) { SELECT_VALUE.set.call(this, v); sync(); } });
+  Object.defineProperty(sel, 'selectedIndex', { configurable: true, get() { return SELECT_INDEX.get.call(this); }, set(v) { SELECT_INDEX.set.call(this, v); sync(); } });
+  sel.addEventListener('change', () => { if (document.activeElement !== inp) sync(); });
+  new MutationObserver(build).observe(sel, { childList: true, subtree: true, attributes: true, attributeFilter: ['disabled', 'selected'] });
+  // 候補を選んだ（全文一致）ときはすぐ反映。入力途中はフォーカスを外したとき・Enter で確定
+  inp.addEventListener('input', () => { inp.classList.remove('combo-ng'); const t = inp.value.trim(), o = opts().find(x => text(x) === t); if (o) pick(o, false); });
+  inp.addEventListener('focus', () => { if (inp.value) { inp.placeholder = inp.value; inp.value = ''; } });
+  inp.addEventListener('blur', () => { if (!inp.value && inp.placeholder && cur()?.value !== '') return sync(); pick(find(inp.value), true); });
+  inp.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); pick(find(inp.value), true); } });
+  build();
+}
+const comboizeIn = root => { if (root.matches?.(COMBO_SELECT)) comboize(root); root.querySelectorAll?.(COMBO_SELECT).forEach(comboize); };
+new MutationObserver(ms => { for (const m of ms) for (const n of m.addedNodes) if (n.nodeType === 1) comboizeIn(n); }).observe(document.documentElement, { childList: true, subtree: true });
 
 // ---------- navigation ----------
 // 小メニュー（サイドバー）：#画面/小メニュー で直接開ける。q＝従来のタブ等の条件、tools＝上部の検索・登録ボタンを出すか（既定は先頭と q 付きのみ）
@@ -1614,8 +1657,8 @@ function masterInput(f, r, isNew) {
   let input;
   if (f.readonly) return field(f.label, `<input value="${esc(v)}" disabled>`, { hint: f.hint });
   // 参照先にないコード（商品マスタ差し替え前の登録など）もそのまま表示する
-  if (f.type === 'ref') input = `<select name="${f.name}" ${dis}>${v && !(masters[f.ref] || []).some(x => x.code === v) ? `<option value="${esc(v)}" selected>${esc(v)}（マスタ未登録）</option>` : ''}${options(isNew ? active(f.ref) : masters[f.ref], v, { blank: '選択してください' })}</select>`;
-  else if (f.type === 'site') input = `<select name="${f.name}" ${dis}>${siteOptions(r?.customer || '', v, '（得意先共通）')}</select>`;
+  if (f.type === 'ref') input = `<select name="${f.name}" data-pick ${dis}>${v && !(masters[f.ref] || []).some(x => x.code === v) ? `<option value="${esc(v)}" selected>${esc(v)}（マスタ未登録）</option>` : ''}${options(isNew ? active(f.ref) : masters[f.ref], v, { blank: '選択してください' })}</select>`;
+  else if (f.type === 'site') input = `<select name="${f.name}" data-pick ${dis}>${siteOptions(r?.customer || '', v, '（得意先共通）')}</select>`;
   // 選択肢に無い登録済みの値（移行データの規定外の締日など）は「（規定外）」として残し、黙って先頭の選択肢に変わらないようにする
   else if (f.type === 'select') { const opts = f.options.map(([code, name]) => ({ code, name })); if (v !== undefined && v !== null && v !== '' && !opts.some(o => o.code === String(v))) opts.push({ code: String(v), name: `${v}（規定外）` }); input = `<select name="${f.name}">${options(opts, v || f.options[0][0], { label: x => x.name })}</select>`; }
   else input = `<input name="${f.name}" type="${f.type === 'date' || f.type === 'month' ? f.type : 'text'}" class="${f.type === 'int' || f.type === 'dec' ? 'num' : ''}" value="${esc(v)}" ${f.max ? `maxlength="${f.max}"` : ''} ${dis}>`;
