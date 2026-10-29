@@ -1144,11 +1144,11 @@ VIEWS.purchases = async q => {
     return Number(f('amount').value || 0); };
   // 伝票No.：5桁＋行番号2桁の枝番（10/28 打合せ No.21。例 53192-01）。サーバの purchaseNo と同じ
   const pNo = (no, line) => String(no || '').replace(/\D/g, '').slice(-5).padStart(5, '0') + (line ? '-' + String(line).padStart(2, '0') : '');
-  // ヘッダーも帳票と同じ順：業者 → 仕入日（納入日）・区分・伝票No（登録時に採番）
+  // ヘッダーも帳票と同じ順：業者 → 仕入日（納入日）・区分・伝票No（登録時に採番）。伝票摘要は根拠がないため置かない（2026-10-29、摘要は行ごと）
   const pickItem = f => { const it = active('items'), tr = f.querySelector('#pu-lines tbody tr'), el = tr?.querySelector('[name=item]'); if (el && it.length && !hit(el.value)) { el.value = it[Math.floor(Math.random() * it.length)].code; el.dispatchEvent(new Event('input', { bubbles: true })); } };
   const hit = code => masters.items.some(i => i.code === String(code || '').trim());
   A.new = () => modal({ title: '商品仕入の登録', submit: '登録する', wide: true, sample: pickItem, body: `<div class="form-grid">${field('仕入先（業者）', `<select name="vendor">${options(active('vendors'), '', { blank: '選択してください' })}</select>`, { req: 1 })}${field('仕入日（納入日）', `<input type="date" name="date" value="${today()}">`, { req: 1 })}
-      ${field('区分', `<select name="kind">${Object.entries(meta.purchaseKinds).map(([k, v]) => `<option value="${k}">${k} ${esc(v)}</option>`).join('')}</select>`)}${field('伝票No', '<input value="（登録時に自動採番）" disabled>')}${field('伝票摘要', '<input name="memo" maxlength="500">', { wide: 1 })}</div>
+      ${field('区分', `<select name="kind">${Object.entries(meta.purchaseKinds).map(([k, v]) => `<option value="${k}">${k} ${esc(v)}</option>`).join('')}</select>`)}${field('伝票No', '<input value="（登録時に自動採番）" disabled>')}</div>
       <datalist id="dl-pu-items">${active('items').map(i => `<option value="${esc(i.code)}">${esc(i.name)}</option>`).join('')}</datalist>
       ${lineGrid('pu-lines', cols, undefined, { lineNo: true })}`,
     onOpen: f => { const g = $('#pu-lines'); g.addEventListener('input', () => lineTotal('pu-lines', 'amount', calc)); g.addEventListener('change', () => lineTotal('pu-lines', 'amount', calc)); },
@@ -1250,7 +1250,7 @@ function expenseView(kind) {
         ${field('支払繰延区分', '<output id="ex-defer" class="muted">業者を選択すると業者マスタから表示</output>')}${field('支払予定日', '<input type="date" name="due">')}${field('合計金額', '<input name="total" class="num" inputmode="numeric">', { req: 1, hint: '明細の合計と一致させる' })}
       </div>` : `<div class="form-grid">
       ${field('支払日（領収書の日付）', `<input type="date" name="date" value="${today()}">`, { req: 1 })}${field('組織（部門）', deptSel)}
-      ${field('伝票摘要', '<input name="memo" maxlength="500">', { wide: 1 })}</div>
+</div>
       <datalist id="dl-ex-payees">${active('vendors').map(x => `<option value="${esc(`${x.code} ${x.name}`)}"></option>`).join('')}</datalist>`;
     const sumBar = payable ? `<div class="hw-sum"><span>対象外 <b id="hw-out">0</b></span><span>内税 <b id="hw-in">0</b></span><span>外税 <b id="hw-ex">0</b></span>
       <label>外税消費税 <input name="extTax" class="num" value="0" inputmode="numeric" style="width:110px"></label><span>合計 <b id="hw-total">0</b> 円</span><span id="hw-check" class="small"></span></div>` : '';
