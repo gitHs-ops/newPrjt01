@@ -221,6 +221,7 @@ const SUBMENUS = {
   receipts: [{ k: 'targets', l: '入金消込', q: { tab: 'targets' } }, { k: 'list', l: '入金一覧', tools: true, hidden: true }, { k: 'schedule', l: '入金予定チェックリスト', hidden: true }],
   // 10/21 打合せの処理順（実在庫登録 → 配合計算 → 材料受払表 → 在庫計上）に並べる
   inventory: [{ k: 'count', l: '実在庫登録', tools: false }, { k: 'reports', l: '在庫登録リスト・配合計算・材料受払表' }, { k: 'post', l: '在庫計上', tools: false }, { k: 'list', l: '在庫一覧', tools: true }],
+  purchases: [{ k: 'list', l: '商品仕入一覧・登録' }, { k: 'reports', l: '商品仕入登録リスト' }], // 2026-10-29 帳票を小メニューに分けた
   payables: [{ k: 'list', l: '定時請求一覧・入力' }, { k: 'reports', l: '定時請求入力明細表' }],
   cash: [{ k: 'list', l: '小口現金一覧・登録' }, { k: 'book', l: '出納簿・定額資金・現金補充' }],
   payments: [{ k: 'list', l: '支払一覧・登録' }, { k: 'reports', l: '支払帳票・全銀データ' }, { k: 'transfer', l: '振込先一覧' }, { k: 'bank', l: '銀行別随時支払一覧表' }],
@@ -1155,11 +1156,11 @@ VIEWS.purchases = async q => {
     onSubmit: async v => { const lines = readLines('pu-lines').map(l => ({ ...l, item: String(l.item || '').trim(), memo: l.lmemo })); const r = await post('/api/purchases', { date: v.date, vendor: v.vendor, kind: v.kind, memo: v.memo, lines }); toast(`仕入 ${pNo(r.no)}（${r.lines}行・${yen(r.net)}円）を登録しました`); render(); } });
   A.del = d => confirmBox('仕入の取消', `仕入伝票 ${pNo(d.no)} の全明細を削除します。`, () => post('/api/purchases/delete', { id: Number(d.id) }).then(() => { toast('取消しました'); render(); }), '取消する');
   return page('商品仕入', '業者からの商品仕入を伝票（複数明細）で記録します（purchase）。区分 1=仕入／2=他社納入、運賃行あり。', `${monthInput('month', month)}${filterSelect('vendor', masters.vendors, q.vendor, 'すべての業者')}${csvLink('purchases', { month })}${canWrite() ? '<button class="primary" data-act="new">＋ 仕入登録</button>' : ''}`,
-    `<section class="card glass">${table([{ label: '伝票No.', value: r => pNo(r.no, r.line) }, { label: '仕入日', value: r => r.date }, { label: '区分', value: r => r.kindName }, { label: '業者', value: r => r.vendorName },
+    `<section class="card glass" data-sub="list">${table([{ label: '伝票No.', value: r => pNo(r.no, r.line) }, { label: '仕入日', value: r => r.date }, { label: '区分', value: r => r.kindName }, { label: '業者', value: r => r.vendorName },
       { label: '商品', value: r => `${r.itemName || r.item}${r.lineKind === '2' ? '（運賃）' : ''}` }, { label: '数量', num: 1, value: r => (r.lineKind === '2' ? '' : `${r.quantity} ${r.unit || ''}`) },
       { label: '単価', num: 1, value: r => (r.lineKind === '2' ? '' : yen(r.price)) }, { label: '金額', num: 1, value: r => yen(r.net) }, { label: '処税率', value: r => r.taxCode }, { label: '摘要', value: r => r.memo },
       { label: '', html: r => canWrite() && r.line === 1 ? `<button class="mini danger" data-act="del" data-id="${r.id}" data-no="${esc(r.no)}">取消</button>` : '' }], list, { foot: ['合計', '', '', '', '', '', '', yen(list.reduce((n, r) => n + r.net, 0)), '', '', ''] })}</section>
-    ${miscCard('商品仕入登録リスト', '業者別・伝票明細', rangeInputs('pl', '仕入日'), '<button data-act="misc" data-kind="purchase-register" data-src="pl">⇩ Excel</button>')}`);
+    <div data-sub="reports">${miscCard('商品仕入登録リスト', '業者別・伝票明細', rangeInputs('pl', '仕入日'), '<button data-act="misc" data-kind="purchase-register" data-src="pl">⇩ Excel</button>')}</div>`);
 };
 
 // ----- 在庫計上 -----
