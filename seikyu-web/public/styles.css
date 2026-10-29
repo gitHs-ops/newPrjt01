@@ -99,7 +99,7 @@ select.combo-select { display: none !important; }
 .combo-input::-webkit-calendar-picker-indicator { opacity: 0; }
 .combo-input.combo-ng { border-color: var(--danger, #dc2626); box-shadow: 0 0 0 3px rgba(220,38,38,.15); }
 .filters .combo-input { min-width: 130px; max-width: 220px; }
-#ex-lines .combo-input[data-for=account] { min-width: 150px; } #ex-lines .combo-input[data-for=sub] { min-width: 90px; } #ex-lines .combo-input[data-for=taxCode] { min-width: 120px; }
+#ex-lines .combo-input[data-for=account] { min-width: 150px; } #ex-lines .combo-input[data-for=sub] { min-width: 100px; } #ex-lines .combo-input[data-for=taxCode] { min-width: 140px; }
 input:focus, select:focus, textarea:focus { outline: none; border-color: var(--accent-primary); box-shadow: 0 0 0 3px var(--accent-glow); }
 input[type=checkbox] { width: 16px; height: 16px; accent-color: var(--accent-primary); }
 input.num { text-align: right; }
@@ -133,7 +133,7 @@ td { padding: 8px 10px; border-bottom: 1px solid rgba(148,163,184,.16); vertical
 tr:hover td { background: rgba(255,255,255,.55); }
 td.num, th.num { text-align: right; white-space: nowrap; }
 tfoot td { font-weight: 700; background: rgba(255,255,255,.4); }
-tr.reversed td { color: #94a3b8; text-decoration: line-through; }
+/* 訂正済・赤・取消済の行も通常どおり表示（削除線・灰色なし。状態はバッジで示す、2026-10-29） */
 .empty { padding: 26px; text-align: center; color: var(--text-secondary); }
 .badge { display: inline-block; padding: 2px 9px; border-radius: 99px; font-size: 11.5px; font-weight: 600; background: rgba(99,102,241,.1); color: var(--accent-secondary); white-space: nowrap; }
 .badge.green { background: rgba(16,185,129,.12); color: var(--success); }
@@ -437,6 +437,8 @@ input.file-native { position: absolute; width: 1px; height: 1px; opacity: 0; poi
 .hw-head { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px 16px; margin-bottom: 10px; }
 .hw-head .span2 { grid-column: span 2; }
 .line-grid .l2 { display: flex; flex-direction: column; gap: 6px; }
+/* ヘッダー項目（伝票摘要など）と明細の表の間をあける（2026-10-29） */
+.table-wrap:has(> table.line-grid) { margin-top: 18px; }
 .line-grid .line-no { width: 36px; text-align: center; color: var(--text-secondary); font-variant-numeric: tabular-nums; }
 .line-grid [data-iname] { display: inline-block; min-width: 150px; white-space: nowrap; }
 .line-grid .l2 .hw-names { min-height: 34px; display: flex; align-items: center; }

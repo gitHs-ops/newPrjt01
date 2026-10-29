@@ -1233,7 +1233,7 @@ function expenseView(kind) {
       { label: '科目名・内訳名／摘要', cell: () => '<div class="l2"><span class="hw-names muted small">科目を選択</span><input name="lmemo" maxlength="500" placeholder="摘要（自由入力）"></div>' },
       { name: 'amount', label: '支払金額／処税率', sum: 1, cell: () => `<div class="l2"><input name="amount" class="num" inputmode="numeric">${taxSelect('taxCode', '141')}</div>` }];
     // 小口現金：支払先は明細の行ごと（2026-10-29）。業者コードか「コード 名称」なら業者、それ以外は自由入力。登録時に支払先ごとの伝票に分ける
-    const payeeCol = { name: 'lpayee', label: '支払先（業者／自由入力）', cell: () => '<input name="lpayee" list="dl-ex-payees" maxlength="100" placeholder="業者コード／支払先名" style="width:150px" autocomplete="off">' };
+    const payeeCol = { name: 'lpayee', label: '支払先（業者／自由入力）', cell: () => '<input name="lpayee" list="dl-ex-payees" maxlength="100" placeholder="業者コード／支払先名" style="width:140px" autocomplete="off">' };
     const payeeOf = t => { t = String(t || '').trim(); const v = active('vendors').find(x => x.code === t || `${x.code} ${x.name}` === t); return v ? { vendor: v.code } : { payee: t }; };
     const cols = [payeeCol, { name: 'account', label: '科目', cell: () => `<select name="account">${accOpts}</select>` }, { name: 'sub', label: '内訳', cell: () => '<select name="sub"><option value="">（なし）</option></select>' },
       { name: 'taxCode', label: '処税率', cell: () => taxSelect('taxCode', '141') }, { name: 'amount', label: '金額（税込）', sum: 1, cell: () => '<input name="amount" class="num" style="width:120px">' },
