@@ -330,7 +330,7 @@ dialog.modal.wide:has(#ex-lines [name=lvendor]) { width: min(1240px, calc(100vw 
 #ex-lines tr:has([name=lvendor]) [name=lmemo] { min-width: 200px; } #ex-lines tr:has([name=lvendor]) .combo-input[data-for=account] { width: 165px !important; } #ex-lines tr:has([name=lvendor]) .combo-input[data-for=taxCode] { width: 150px !important; }
 #pu-lines select[name=lineKind] { min-width: 92px; }
 #pu-lines thead th { text-align: center; } /* 商品仕入：明細の見出しは列の中央（2026-10-29） */
-#ex-lines:has([name=lvendor]) thead th { text-align: center; } /* 小口現金出納登録：明細の見出しは列の中央（2026-10-29） */
+#ex-lines thead th { text-align: center; } /* 小口現金出納登録・定時請求データ入力：明細の見出しは列の中央（2026-10-29） */
 
 /* 請求書発行確認表（現行 HAR430） */
 .har430-head { display: flex; flex-wrap: wrap; gap: 6px 22px; margin-bottom: 10px; font-size: 13px; }
