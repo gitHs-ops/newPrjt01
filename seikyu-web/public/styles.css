@@ -500,3 +500,5 @@ input:disabled, select:disabled, textarea:disabled { background: rgba(120,130,15
 #lr-detail .lr-detail { margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--field-border); }
 .lr-grid .lr-taxname { display: block; margin-top: 4px; white-space: normal; line-height: 1.3; }
 .lr-fixed { min-height: 38px; }
+/* 請求先：ラベル・コード・名称・預り金残高を1行に（2026-10-31） */
+.lr-bill { margin-bottom: 10px; }
