@@ -485,7 +485,6 @@ input:disabled, select:disabled, textarea:disabled { background: rgba(120,130,15
 .alert-dialog.ok .alert-icon { background: #dcfce7; color: #15803d; }
 .alert-dialog.ok #alert-msg { color: var(--text-primary); font-weight: 500; }
 /* 現行入金処理（AS400 HAW110 の流れ） */
-.lr-head { display: flex; flex-wrap: wrap; gap: 24px; margin-bottom: 12px; }
 .lr-keys { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
 .lr-grid select, .lr-grid input { width: 100%; min-width: 96px; }
 .lr-grid td.lr-ro { color: var(--text-secondary); text-align: center; }
