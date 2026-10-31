@@ -1150,14 +1150,13 @@ const lrNameOf = code => masters.customers.find(c => c.code === code)?.name || '
 const lrName = () => lrNameOf(lr.customer);
 const lrKeys = keys => `<div class="lr-keys">${keys.map(([act, label, primary]) => `<button type="button" class="${primary ? 'primary' : ''}" data-act="${act}">${esc(label)}</button>`).join('')}</div>`;
 function lrStep1() {
-  // 入金日・得意先（コード＋名称）は1行に並べる。「実行」で次画面（借方）の内容をこの下に出す（2026-10-31）
+  // 入金日・得意先（コード＋名称）は1行に並べる。「実行」で次画面（借方）の内容をこの下に出す。最初の画面にはファンクションキーのボタンを置かない（2026-10-31）
   // 「実行」の後は現行 HAW110 と同じく入金日・得意先は表示だけ（直すときは F12 前画面）
   if (lr.step > 1) return `<div class="inline-fields lr-step1 lr-fixed"><span>入金日：<b>${esc(lr.date)}</b></span><span>得意先：<b>${esc(lr.customer)} ${esc(lrName())}</b></span>${custHints()}</div>
     <div id="lr-detail">${lr.step === 2 ? lrStep2() : lrStep3()}</div>`;
   return `<div class="inline-fields lr-step1">${field('入金日', `<input type="date" id="lr-date" value="${esc(lr.date)}">`, { req: 1 })}${field('得意先', `<input id="lr-cust" list="dl-pcust" autocomplete="off" value="${esc(lr.customer)}" placeholder="得意先コード" style="width:140px">${custHints()}<small id="lr-cname" class="muted">${esc(lrName())}</small>`, { req: 1 })}<button type="button" data-act="lrSearch">実行</button></div>
-    <div id="lr-detail">${lrStep1Keys()}</div>`;
+    <div id="lr-detail"></div>`;
 }
-const lrStep1Keys = () => lrKeys([['lrNext', 'F10 次画面', 1], ['lrEnd', 'F3 終了'], ['lrFind', 'F9 検索']]);
 // 得意先はコードのほか「コード＋名称」・名称の一部（1件に決まるとき）でも受け付ける
 const lrResolve = t => { t = String(t || '').trim(); if (!t) return ''; const cs = masters.customers;
   const hit = cs.find(c => c.code === t) || cs.filter(c => t.startsWith(c.code)).sort((a, b) => b.code.length - a.code.length)[0]; if (hit) return hit.code;
