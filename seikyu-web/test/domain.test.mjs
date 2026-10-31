@@ -44,7 +44,8 @@ test('A01 slip numbers: one closing run shares a number, split every 45 customer
   let last = 828; const saved = [];
   const c = { query: async (sql, args) => {
     if (sql.startsWith('SELECT last_no')) return [[{ last_no: last }]];
-    if (sql.startsWith('INSERT INTO app_slip_series')) { last = args[1]; return [[]]; }
+    if (sql.startsWith('INSERT IGNORE INTO app_slip_series')) return [[]];
+    if (sql.startsWith('UPDATE app_slip_series')) { last = args[0]; return [[]]; }
     if (sql.startsWith('SELECT closing_m')) return [[{ closing_m: 10, closing_d: 20 }]]; // 決算 10月20日（期首 10月21日）
     saved.push(args[1]); return [[]];
   } };

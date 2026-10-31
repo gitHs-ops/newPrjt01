@@ -194,10 +194,13 @@ test('workflow against PostgreSQL business tables', { skip, timeout: 900000 }, a
       ok(await a.call('/api/masters/items', { mode: 'update', record: { ...it, kind: '1' } })); // 1=材料（現行 Java）
       ok(await a.call('/api/masters/items', { mode: 'create', record: { code: 'G' + tag, name: '試験合材', unit: '01', price: 9000, kind: '2', active: true } })); // 2=製品
       ok(await a.call('/api/purchases', { date: d, vendor: 'V' + tag, item: 'I' + tag, quantity: '10', price: 1000, taxCode: '10%' }));
-      // 商品仕入登録リスト：現行 HAR011 の項目名、伝票No.＝5桁＋行番号2桁
+      // 商品仕入登録リスト：現行 HAR011 の項目名、伝票No.＝P＋年度4桁＋5桁連番＋行番号2桁
       const prr = await a.call('/api/reports/misc/purchase-register?' + new URLSearchParams({ from: d, to: d })); ok(prr); const pr = prr.data;
       assert.deepEqual(pr.columns.map(x => x.label), ['仕入日', '区分', '伝票No.', '商品名', '仕入数量', '', '仕入単価', '仕入金額', '科目ｺｰﾄﾞ', '内訳名', '処税率']);
-      assert.match(pr.groups.find(g => g.code === 'V' + tag).rows[0].no, /^\d{5}-01$/);
+      assert.match(pr.groups.find(g => g.code === 'V' + tag).rows[0].no, /^P\d{9}-01$/);
+      // 年度の最初の仕入が同時に来ても番号は重複せず、P＋年度＋連番で振られる
+      const pus = await Promise.all([1, 2, 3, 4].map(() => a.call('/api/purchases', { date: '2031-01-10', vendor: 'V' + tag, item: 'I' + tag, quantity: '1', price: 1000, taxCode: '10%' })));
+      pus.forEach(ok); assert.deepEqual(pus.map(x => x.data.no).sort(), ['P203000001', 'P203000002', 'P203000003', 'P203000004']);
       const ml = (await a.call('/api/reports/misc/material-ledger?closing=31&month=' + d.slice(0, 7))).data.items.find(x => x.item === 'I' + tag);
       assert.equal(ml.purchase.qty, 10); assert.equal(ml.purchase.value, 10000);
       ok(await a.call('/api/masters/mixes', { mode: 'create', record: { product: 'G' + tag, material: 'I' + tag, ratio: '60', active: true } }));

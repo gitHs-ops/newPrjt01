@@ -10,8 +10,8 @@ const monthEnd = m => new Date(Date.UTC(+m.slice(0, 4), +m.slice(5, 7), 0)).toIS
 const sum = (list, k) => list.reduce((n, r) => n + num(r[k]), 0);
 
 // ⑭ 商品仕入登録リスト（現行 HAR011）：仕入日 → 仕入先 の2段ブレイク（10-29 画面レビュー No.14）・伝票明細
-// 伝票No.：10/28 打合せ（No.21）「伝票番号は5桁＋行番号2桁の枝番」（例 53192-01）。内部の仕入伝票No（P00000009）の下5桁で表示
-export const purchaseNo = (no, line) => `${String(no || '').replace(/\D/g, '').slice(-5).padStart(5, '0')}-${String(line || 1).padStart(2, '0')}`;
+// 伝票No.：P＋処理年度4桁＋5桁連番（10/24 大西さん回答）＋行番号2桁の枝番（10/28 打合せ No.21）。例 P202600001-01
+export const purchaseNo = (no, line) => `${no || ''}-${String(line || 1).padStart(2, '0')}`;
 export async function purchaseRegister(c, q) {
   const from = isoDate(q.from, '開始日'), to = isoDate(q.to, '終了日'); check(from <= to, '期間が不正です');
   const rs = await rows(c, `SELECT p.*, v.vendor_code, v.vendor_name, i.item_nam, unit_name(i.unit) unit FROM purchase p JOIN vendor v ON v.vendor_id=p.vendor_id LEFT JOIN item_m i ON i.item_cd=p.item_cd
@@ -33,7 +33,7 @@ export async function purchaseRegister(c, q) {
   });
   return { title: '商品仕入登録リスト', ref: '帳票⑭（HAR011）', from, to, sub: `仕入日 ${from} 〜 ${to}`,
     // 項目名は現行の見本（HAR011・添付帳票⑭ p.1-2）どおり（2026-10-29）。単位は仕入数量の右で見出しなし。科目ｺｰﾄﾞ・内訳名は見本でも空欄。摘要は見本にないので出さない
-    columns: [{ key: 'date', label: '仕入日', w: 11 }, { key: 'kind', label: '区分', w: 8 }, { key: 'no', label: '伝票No.', w: 10 }, { key: 'item', label: '商品名', w: 30 }, { key: 'qty', label: '仕入数量', num: 1, w: 11 }, { key: 'unit', label: '', w: 4 },
+    columns: [{ key: 'date', label: '仕入日', w: 11 }, { key: 'kind', label: '区分', w: 8 }, { key: 'no', label: '伝票No.', w: 15 }, { key: 'item', label: '商品名', w: 30 }, { key: 'qty', label: '仕入数量', num: 1, w: 11 }, { key: 'unit', label: '', w: 4 },
       { key: 'price', label: '仕入単価', num: 1, dec: 1, w: 11 }, { key: 'net', label: '仕入金額', num: 1, w: 13 }, { key: 'account', label: '科目ｺｰﾄﾞ', w: 9 }, { key: 'subName', label: '内訳名', w: 14 }, { key: 'tax', label: '処税率', w: 10 }],
     groups, totals: { net: groups.reduce((n, g) => n + g.totals.net, 0) } };
 }

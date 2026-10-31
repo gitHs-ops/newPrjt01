@@ -1,5 +1,5 @@
 import { check, Conflict, yen, qty, lineAmount, isoDate, isoMonth, text, dueDate, nextBusinessDay } from './domain.mjs';
-import { rows, one, nextNo, assertOpen, audit, postJournal, reverseJournal, line } from './db.mjs';
+import { rows, one, nextNo, nextSlipNoFy, assertOpen, audit, postJournal, reverseJournal, line } from './db.mjs';
 import { mustDecode, taxOf, CATALOG, decode } from './taxcode.mjs';
 import { companyPeriod } from './period.mjs';
 
@@ -50,7 +50,7 @@ export async function createPurchase(c, ctx, p) {
     }
   }
   check(out.length, '明細を入力してください'); check(out.length <= 99, '明細は99行以内です');
-  const no = await nextNo(c, 'purchase'), memo = text(p.memo, '摘要', 500, { required: false });
+  const no = await nextSlipNoFy(c, 'P', date), memo = text(p.memo, '摘要', 500, { required: false });
   for (const [i, l] of out.entries())
     await c.query('INSERT INTO purchase (source_document_no,line_no,vendor_id,purchase_date,item_cd,quantity,unit_price,net_amount,source_tax_code,memo,purchase_kb,line_kind) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)',
       [no, i + 1, v.vendor_id, date, l.item, l.qty, l.price, l.net, l.tax, l.memo || memo, kind, l.lineKind]);

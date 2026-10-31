@@ -14,7 +14,7 @@ export const one = async (c, sql, args = []) => (await c.query(sql, args))[0][0]
 
 // numbering_m: one row per document type; present_value holds the last issued sequence.
 // numbering_m のキー 1〜6 は現行 Java（出荷予定・出荷・修正再発行・カード等、値はタブ区切り YY・MM・連番）が使うため、本システムは 101 番台を使う
-export const NUMBERING = { sales: [101, 'S', '売上No'], receipt: [102, 'R', '入金No'], payment: [103, 'T', '支払No'], expense: [104, 'E', '経費伝票No'], purchase: [105, 'P', '仕入伝票No'] };
+export const NUMBERING = { sales: [101, 'S', '売上No'], receipt: [102, 'R', '入金No'], payment: [103, 'T', '支払No'], expense: [104, 'E', '経費伝票No'] };
 export async function nextNo(c, kind) {
   const [key, prefix] = NUMBERING[kind];
   const r = await one(c, 'SELECT present_value FROM numbering_m WHERE numbering_key=? FOR UPDATE', [key]);
@@ -42,6 +42,14 @@ export const SLIP_SERIES = { A01: 'R', B01: 'B', D01: 'S', E01: 'K', F01: 'U', C
 export const formatSlipNo = (series, n) => series + String(n).padStart(series ? 5 : 6, '0'); // 現行（移行データ）の形式
 // 10/26 打合せ「伝票番号の採番」：伝票別に頭1桁の英数＋処理西暦年度（4桁）＋5桁連番。連番は伝票の種類×年度ごとに 1 から（2026-10-28）
 export const formatSlipNoFy = (series, fy, n) => `${series}${fy}${String(n).padStart(5, '0')}`;
+// 年度の最初の1件が同時に来ても重複しないよう、行を確保してからロックする
+export async function nextSlipNoFy(c, series, date) {
+  const fy = (await companyPeriod(c)).fyOf(date instanceof Date ? date.toISOString().slice(0, 10) : String(date || today()).slice(0, 10)), key = `${series}${fy}`; // 処理年度＝日付の会計年度（期首の西暦）
+  await c.query('INSERT IGNORE INTO app_slip_series (series,last_no) VALUES (?,0)', [key]);
+  const r = await one(c, 'SELECT last_no FROM app_slip_series WHERE series=? FOR UPDATE', [key]), n = Number(r?.last_no ?? 0) + 1;
+  await c.query('UPDATE app_slip_series SET last_no=? WHERE series=?', [n, key]);
+  return formatSlipNoFy(series, fy, n);
+}
 // 売掛金計上（A01）は締日単位で一括計上し、1伝票に45得意先（1請求＝1得意先）まで載せて分割する（Q08：現行 R00829・R00830 が借方45行、R00831 が残り）。
 export const AR_SLIP_MAX = 45;
 // slip … 同じ伝票にまとめる仕訳の共有状態 { no, count, max }（請求締め1回分）。省略時は1仕訳＝1伝票。
@@ -49,10 +57,7 @@ export async function assignSlipNo(c, journalId, pattern, slip, date) {
   const series = SLIP_SERIES[pattern]; if (series === undefined) return '';
   let no = slip?.no && slip.count < slip.max ? slip.no : '';
   if (!no) {
-    const fy = (await companyPeriod(c)).fyOf(date instanceof Date ? date.toISOString().slice(0, 10) : String(date || today()).slice(0, 10)), key = `${series}${fy}`; // 処理年度＝仕訳日付の会計年度（期首の西暦）
-    const r = await one(c, 'SELECT last_no FROM app_slip_series WHERE series=? FOR UPDATE', [key]), n = Number(r?.last_no ?? 0) + 1;
-    await c.query('INSERT INTO app_slip_series (series,last_no) VALUES (?,?) ON DUPLICATE KEY UPDATE last_no=VALUES(last_no)', [key, n]);
-    no = formatSlipNoFy(series, fy, n);
+    no = await nextSlipNoFy(c, series, date);
     if (slip) Object.assign(slip, { no, count: 0 });
   }
   if (slip) slip.count++;

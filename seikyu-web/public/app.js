@@ -1339,8 +1339,8 @@ VIEWS.purchases = async q => {
       un.textContent = it?.unit ? nameOf('units', it.unit) || it.unit : 'マスタの単位'; un.classList.toggle('muted', !it?.unit); f('amount').value = qn && pr ? Math.trunc(Math.round(qn * 100) * Math.round(pr * 100) / 10000) : ''; f('amount').readOnly = true; f('amount').placeholder = '自動'; f('quantity').disabled = false; f('price').disabled = false; }
     else { f('amount').readOnly = false; f('amount').placeholder = '運賃の金額'; f('quantity').disabled = true; f('price').disabled = true; un.textContent = '（金額のみ）'; un.classList.add('muted'); }
     return Number(f('amount').value || 0); };
-  // 伝票No.：5桁＋行番号2桁の枝番（10/28 打合せ No.21。例 53192-01）。サーバの purchaseNo と同じ
-  const pNo = (no, line) => String(no || '').replace(/\D/g, '').slice(-5).padStart(5, '0') + (line ? '-' + String(line).padStart(2, '0') : '');
+  // 伝票No.：P＋処理年度4桁＋5桁連番＋行番号2桁の枝番（例 P202600001-01）。サーバの purchaseNo と同じ
+  const pNo = (no, line) => String(no || '') + (line ? '-' + String(line).padStart(2, '0') : '');
   // ヘッダー：伝票No（キー。2026-10-29 指摘で先頭に）→ 仕入日（納入日）→ 仕入先（業者）→ 区分（10-29 画面レビュー No.11）。伝票摘要は根拠がないため置かない。4項目は1行に並べる（2026-10-31）
   // サンプル入力は通常の商品から選ぶ（値引き・運賃は選ばない）
   const pickItem = f => { const it = puItems().filter(i => !isFreight(i)), tr = f.querySelector('#pu-lines tbody tr'), el = tr?.querySelector('[name=item]'); if (el && it.length && !hit(el.value)) { el.value = it[Math.floor(Math.random() * it.length)].code; el.dispatchEvent(new Event('input', { bubbles: true })); } };
