@@ -1150,9 +1150,12 @@ const lrNameOf = code => masters.customers.find(c => c.code === code)?.name || '
 const lrName = () => lrNameOf(lr.customer);
 const lrKeys = keys => `<div class="lr-keys">${keys.map(([act, label, primary]) => `<button type="button" class="${primary ? 'primary' : ''}" data-act="${act}">${esc(label)}</button>`).join('')}</div>`;
 function lrStep1() {
-  // 入金日・得意先（コード＋名称）は1行に並べる。「実行」で次画面（借方）の内容をこの下に出す。請求ごとの画面でも入金日・得意先は入力項目のまま（2026-10-31）
+  // 入金日・得意先（コード＋名称）は1行に並べる。「実行」で次画面（借方）の内容をこの下に出す（2026-10-31）
+  // 「実行」の後は現行 HAW110 と同じく入金日・得意先は表示だけ（直すときは F12 前画面）
+  if (lr.step > 1) return `<div class="inline-fields lr-step1 lr-fixed"><span>入金日：<b>${esc(lr.date)}</b></span><span>得意先：<b>${esc(lr.customer)} ${esc(lrName())}</b></span>${custHints()}</div>
+    <div id="lr-detail">${lr.step === 2 ? lrStep2() : lrStep3()}</div>`;
   return `<div class="inline-fields lr-step1">${field('入金日', `<input type="date" id="lr-date" value="${esc(lr.date)}">`, { req: 1 })}${field('得意先', `<input id="lr-cust" list="dl-pcust" autocomplete="off" value="${esc(lr.customer)}" placeholder="得意先コード" style="width:140px">${custHints()}<small id="lr-cname" class="muted">${esc(lrName())}</small>`, { req: 1 })}<button type="button" data-act="lrSearch">実行</button></div>
-    <div id="lr-detail">${lr.step === 2 ? lrStep2() : lr.step === 3 ? lrStep3() : lrStep1Keys()}</div>`;
+    <div id="lr-detail">${lrStep1Keys()}</div>`;
 }
 const lrStep1Keys = () => lrKeys([['lrNext', 'F10 次画面', 1], ['lrEnd', 'F3 終了'], ['lrFind', 'F9 検索']]);
 // 得意先はコードのほか「コード＋名称」・名称の一部（1件に決まるとき）でも受け付ける
@@ -1263,8 +1266,6 @@ function legacyReceiptView() {
 }
 document.addEventListener('input', e => {
   const t = e.target; if (!t.closest?.('#lr-body')) return;
-  // 入金日・得意先を直したら下の借方・請求は閉じる（もう一度「実行」で出す。入力済みの借方は残る）
-  if (['lr-date', 'lr-cust'].includes(t.id) && lr.step > 1) { lr.step = 1; $('#lr-detail').innerHTML = lrStep1Keys(); }
   if (t.id === 'lr-date') lr.date = t.value;
   else if (t.id === 'lr-cust') { lr.customer = t.value.trim(); lr.billInput = ''; lr.billTo = ''; lr.invoices = []; $('#lr-cname').textContent = lrName(); }
   else if (t.id === 'lr-bill') {

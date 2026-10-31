@@ -499,3 +499,4 @@ input:disabled, select:disabled, textarea:disabled { background: rgba(120,130,15
 /* 現行入金処理：検索で出す借方（次画面の内容）は入金日・得意先の下に区切って表示 */
 #lr-detail .lr-detail { margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--field-border); }
 .lr-grid .lr-taxname { display: block; margin-top: 4px; white-space: normal; line-height: 1.3; }
+.lr-fixed { min-height: 38px; }
