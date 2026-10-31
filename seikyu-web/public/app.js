@@ -1419,13 +1419,15 @@ function expenseView(kind) {
       { label: '科目名・内訳名／摘要名', cell: () => '<div class="l2"><span class="hw-names muted small">科目を選ぶと科目名・内訳名を表示</span><input name="lmemo" maxlength="500" placeholder="摘要名（手入力）"></div>' }];
     // 定時請求データ入力は現行 HAW050（10/21 打合せ資料 スライド5）の並び：組織・締切日／請求No／業者／支払繰延区分・合計金額 → 明細（2段）→ 対象外・内税・外税・外税消費税・合計
     const deptSel = `<select name="dept">${options(active('depts').length ? active('depts') : [{ code: '063', name: '部門063' }], '063')}</select>`;
+    // 小口現金の組織（部門）は表示のみ。現行 HAW150 に入力欄がなく、HAR733 の部は 063（登録時はサーバーの既定値 063）
+    const deptLabel = (code = '063') => { const d = (masters.depts || []).find(x => x.code === code); return d ? `${d.code} ${d.name}` : code; };
     const head = payable ? `<div class="hw-head">
         ${field('組織', deptSel)}<div></div>${field('締切日', `<input type="date" name="date" value="${lastClosing()}">`, { req: 1 })}
         ${field('請求No', '<input value="自動採番（業者ごと4桁）" disabled>')}<div class="span2"></div>
         <div class="span2">${field('業者', `<select name="vendor">${options(active('vendors'), '', { blank: '選択してください' })}</select>`, { req: 1 })}</div><div></div>
         ${field('支払繰延区分', '<output id="ex-defer" class="muted">業者を選択すると業者マスタから表示</output>')}${field('支払予定日', '<input type="date" name="due" readonly tabindex="-1" style="background:transparent;border-style:dashed" title="業者マスタの支払繰延区分から自動計算（入力不可）">', { hint: '業者マスタから自動' })}${field('合計金額', '<input name="total" class="num" inputmode="numeric">', { req: 1, hint: '明細の合計と一致させる' })}
       </div>` : `<div class="inline-fields">
-      ${field('支払日（領収書の日付）', `<input type="date" name="date" value="${today()}">`, { req: 1 })}${field('組織（部門）', deptSel)}
+      ${field('支払日（領収書の日付）', `<input type="date" name="date" value="${today()}">`, { req: 1 })}${field('組織（部門）', `<output id="ex-dept">${esc(deptLabel())}</output>`)}
 </div>
       <datalist id="dl-ex-payees">${active('vendors').map(x => `<option value="${esc(x.code)}">${esc(x.name)}</option>`).join('')}</datalist>`;
     const sumBar = payable ? `<div class="hw-sum"><span>対象外 <b id="hw-out">0</b></span><span>内税 <b id="hw-in">0</b></span><span>外税 <b id="hw-ex">0</b></span>
@@ -1487,6 +1489,7 @@ function expenseView(kind) {
       const set = (el, v, ev = 'change') => { if (!el) return; if (el._flatpickr) el._flatpickr.setDate(v || '', false); el.value = v ?? ''; el.dispatchEvent(new Event(ev, { bubbles: true })); };
       const q = n => f.querySelector(`[name=${n}]`);
       set(q('date'), R.date); set(q('dept'), R.dept);
+      const deptOut = f.querySelector('#ex-dept'); if (deptOut) deptOut.textContent = deptLabel(R.dept || undefined);
       const bill = $$('input', f).find(e => e.value.startsWith('自動採番')); if (bill) bill.value = R.billNo || '';
       if (payable) { set(q('vendor'), R.vendor); set(q('due'), R.due, 'input'); set(q('total'), R.amount, 'input'); }
       $$('#ex-lines tbody tr').forEach((tr, i) => { const l = R.lines[i], t = n => tr.querySelector(`[name=${n}]`);
