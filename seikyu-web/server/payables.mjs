@@ -1,6 +1,6 @@
 import { check, Conflict, yen, qty, lineAmount, isoDate, isoMonth, text, dueDate, nextBusinessDay } from './domain.mjs';
 import { rows, one, nextNo, assertOpen, audit, postJournal, reverseJournal, line } from './db.mjs';
-import { mustDecode, taxOf, CATALOG } from './taxcode.mjs';
+import { mustDecode, taxOf, CATALOG, decode } from './taxcode.mjs';
 import { companyPeriod } from './period.mjs';
 
 const monthWhere = (col, q, w, args) => { if (q.month) { isoMonth(q.month); w.push(`to_char(${col},'YYYY-MM')=?`); args.push(q.month); } };
@@ -185,7 +185,7 @@ export async function listExpenses(c, q = {}) {
   const ls = rs.length ? await rows(c, `SELECT l.*, a.account_name, s.sub_name, lv.vendor_code line_vendor_code, lv.vendor_name line_vendor_name FROM expense_line l LEFT JOIN vendor lv ON lv.vendor_id=l.vendor_id LEFT JOIN account_subject a ON a.account_code=l.account_code LEFT JOIN account_subsubject s ON s.account_code=l.account_code AND s.sub_code=l.sub_code
     WHERE l.expense_id IN (${rs.map(() => '?').join(',')}) ORDER BY l.expense_id, l.line_no`, rs.map(r => r.expense_id)) : [];
   return rs.map(r => ({ id: r.expense_id, no: r.document_no, billNo: r.bill_no || '', kind: r.expense_kind, date: r.booked_on, due: r.due_on || '', vendor: r.vendor_code || '', vendorName: r.vendor_name || '', payee: r.vendor_name || (r.payee ?? (r.line_memo && r.line_memo !== r.memo ? r.line_memo : '')), account: r.account_code, accountName: r.account_name, sub: r.sub_code || '',
-    dept: r.department_code, taxCode: r.source_tax_code, amount: Number(r.gross_amount), paid: Number(r.paid), balance: r.status === 'POSTED' ? Number(r.gross_amount) - Number(r.paid) : 0, memo: r.memo, status: r.status,
+    dept: r.department_code, taxCode: r.source_tax_code, taxRate: decode(r.source_tax_code)?.rate ?? null, amount: Number(r.gross_amount), paid: Number(r.paid), balance: r.status === 'POSTED' ? Number(r.gross_amount) - Number(r.paid) : 0, memo: r.memo, status: r.status,
     lines: ls.filter(l => l.expense_id === r.expense_id).map(l => ({ no: Number(l.line_no), account: l.account_code, accountName: l.account_name || '', sub: l.sub_code || '', subName: l.sub_name || '', dept: l.department_code, taxCode: l.source_tax_code,
       amount: Number(l.gross_amount), net: Number(l.net_amount), tax: Number(l.tax_amount || 0), memoCode: l.memo_code || '', memo: l.memo || '', payee: l.line_vendor_name || l.payee || '', vendor: l.line_vendor_code || '' })) }));
 }

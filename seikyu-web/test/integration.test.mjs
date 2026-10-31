@@ -308,7 +308,7 @@ test('workflow against PostgreSQL business tables', { skip, timeout: 900000 }, a
       const pcm = ok(await a.call('/api/expenses', { kind: 'PETTY_CASH', date: d, dept: '063', lines: [
         { vendor: 'V' + tag, account: '8231', taxCode: '141', amount: 1100, memo: 'ボールペン' }, { vendor: 'V' + tag, account: '8231', taxCode: '141', amount: 2200, memo: '部品' }, { vendor: '', account: '', amount: '' }] }));
       const pcl = ok(await a.call('/api/expenses?' + new URLSearchParams({ kind: 'PETTY_CASH', month: d.slice(0, 7) }))).filter(r => r.id === pcm.id);
-      assert.equal(pcl.length, 1); assert.equal(pcl[0].amount, 3300); assert.deepEqual(pcl[0].lines.map(l => [l.vendor, l.memo]), [['V' + tag, 'ボールペン'], ['V' + tag, '部品']]);
+      assert.equal(pcl.length, 1); assert.equal(pcl[0].amount, 3300); assert.equal(pcl[0].taxRate, 10); assert.deepEqual(pcl[0].lines.map(l => [l.vendor, l.memo]), [['V' + tag, 'ボールペン'], ['V' + tag, '部品']]);
       const pb2 = ok(await a.call('/api/reports/misc/petty-book?' + new URLSearchParams({ from: d, to: d })));
       assert.ok(pb2.rows.some(r => r.amount === 1100 && r.payee));
       assert.equal((await a.call('/api/expenses', { kind: 'PETTY_CASH', date: d, lines: [{ payee: '文具店', account: '8231', amount: 100 }] })).status, 400);
