@@ -1161,7 +1161,7 @@ const lrTotals = () => { const used = lrUsed(), fund = used.filter(l => ['bank',
 function lrStep2() {
   return `${lrHead()}<div class="table-wrap"><table class="lr-grid"><thead><tr><th>行</th><th>部門</th><th>科目</th><th>内訳1</th><th>内訳2</th><th>工種</th><th class="num">入金額</th><th>処税率</th><th class="num">消費税額</th></tr></thead>${lr.lines.map(lrLine).join('')}</table></div>
     <p>${lr.lines.length < LR_MAX_LINES ? '<button type="button" class="mini" data-act="lrAddLine">＋ 行追加</button>' : ''}</p><div id="lr-totals">${lrTotals()}</div>
-    ${lrKeys([['lrNext', 'F10 次画面', 1], ['lrBack', 'F12 前画面'], ['lrEnd', 'F3 終了']])}`;
+    ${lrKeys([['lrNext', 'F10 次画面', 1], ['lrNext', 'F2 貸方'], ['lrBack', 'F12 前画面'], ['lrEnd', 'F3 終了']])}`;
 }
 const lrPayTotal = () => Object.values(lr.pay).reduce((n, v) => n + (lrNum(v) || 0), 0);
 const lrPayFoot = () => `<th colspan="5">合計</th><td class="num"><b>${yen(lrPayTotal())}</b></td>`;
@@ -1245,7 +1245,8 @@ document.addEventListener('change', e => {
 document.addEventListener('keydown', e => {
   if (route.name !== 'receipts' || route.sub !== 'legacy' || !$('#lr-body') || $('dialog[open]')) return;
   const k = e.key === 'F11' && e.shiftKey ? 'F23' : e.key;
-  const map = { F3: lrEnd, F9: () => { if (lr.step === 1) lrFind(); }, F10: () => { if (lr.step < 3 || canWrite()) lrRun(lrNext); }, F12: lrBack, F23: lrClear };
+  // F2 貸方：現行の F2 の画面は資料に無いため、当面は F10 と同じ請求ごとの今回入金額の画面を開く（2026-10-31 ユーザー指示）
+  const map = { F2: () => { if (lr.step === 2) lrRun(lrNext); }, F3: lrEnd, F9: () => { if (lr.step === 1) lrFind(); }, F10: () => { if (lr.step < 3 || canWrite()) lrRun(lrNext); }, F12: lrBack, F23: lrClear };
   if (!map[k]) return;
   e.preventDefault(); map[k]();
 });
