@@ -350,6 +350,19 @@ export const MASTERS = {
       else await c.query("UPDATE code_m SET code_dtl_nam=?,code_dtl_abr=?,category1=?,category3=? WHERE code_key='A0007' AND code_dtl=?", [r.rate + '%', r.rate + '%', String(r.rate), r.active ? ' ' : '0', k]);
     },
   },
+  // カレンダー（休日）：土日は自動で休日、祝日・銀行休業日・会社休日をここに登録する。支払予定日・全銀データの振込指定日が休日なら前営業日（2026-10-31 定時請求・支払データ作成の打合せ）
+  holidays: {
+    label: 'カレンダー（休日）', table: 'code_m',
+    fields: [F('code', '日付', { type: 'date', key: true, hint: '土日は登録しなくても休日' }), F('name', '名称', { max: 40, hint: '祝日名・銀行休業日・会社休日など' }), F('active', '有効', { type: 'bool' })],
+    select: "SELECT * FROM code_m WHERE code_key='HOL'", where: 'code_dtl=?', keyOf: r => [String(r.code || '').replaceAll('-', '')],
+    decode: r => ({ code: fromNum(r.code_dtl), name: r.code_dtl_nam, active: r.category3 !== '0' }),
+    validate: r => ({ code: isoDate(r.code, '日付'), name: text(r.name, '名称', 40), active: bool(r.active ?? true) }),
+    async write(c, r, old) {
+      const k = r.code.replaceAll('-', '');
+      if (!old) await c.query("INSERT INTO code_m (code_key,code_key_nam,code_dtl,code_dtl_nam,code_dtl_abr,category1,category2,category3) VALUES ('HOL','カレンダー（休日）',?,?,?,' ',' ',?)", [k, r.name, r.name.slice(0, 26), r.active ? ' ' : '0']);
+      else await c.query("UPDATE code_m SET code_dtl_nam=?,code_dtl_abr=?,category3=? WHERE code_key='HOL' AND code_dtl=?", [r.name, r.name.slice(0, 26), r.active ? ' ' : '0', k]);
+    },
+  },
   // 担当者（現行 Java operator_m・MA003〜008）：出荷の担当者（必須）。利用者IDを紐付けるとその利用者の出荷登録の初期値になる
   operators: {
     label: '担当者', table: 'operator_m',
@@ -456,6 +469,7 @@ const REMOVE = {
     del: ["DELETE FROM code_m WHERE code_key='A0010' AND code_dtl=?"] },
   units: { refs: [['商品マスタ', 'SELECT 1 x FROM item_m WHERE unit=? LIMIT 1'], ['出荷伝票', 'SELECT 1 x FROM shipment_slip WHERE unit_cd=? LIMIT 1'], ['出荷予定', 'SELECT 1 x FROM shipment_plan WHERE unit_cd=? LIMIT 1']],
     del: ["DELETE FROM code_m WHERE code_key='A0003' AND code_dtl=?"] },
+  holidays: { refs: [], del: ["DELETE FROM code_m WHERE code_key='HOL' AND code_dtl=?"] },
   taxRates: { refs: [['最後の1件', "SELECT 1 x FROM (SELECT COUNT(*) n FROM code_m WHERE code_key='A0007' AND code_dtl<>?) t WHERE t.n=0"],
     ['この税率期間の出荷・売上', "SELECT 1 x FROM sales_trn WHERE sales_date>=CAST(? AS INTEGER) AND sales_date<COALESCE((SELECT MIN(CAST(code_dtl AS INTEGER)) FROM code_m WHERE code_key='A0007' AND code_dtl>?),99999999) LIMIT 1"]], del: ["DELETE FROM code_m WHERE code_key='A0007' AND code_dtl=?"] },
   operators: { refs: [['出荷伝票', "SELECT 1 x FROM shipment_slip WHERE person_in_charge_cd=lpad(CAST(? AS TEXT),6,'0') LIMIT 1"], ['出荷予定', "SELECT 1 x FROM shipment_plan WHERE person_in_charge_cd=lpad(CAST(? AS TEXT),6,'0') LIMIT 1"]],

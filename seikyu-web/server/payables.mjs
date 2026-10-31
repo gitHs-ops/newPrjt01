@@ -1,4 +1,4 @@
-import { check, Conflict, yen, qty, lineAmount, isoDate, isoMonth, text, dueDate } from './domain.mjs';
+import { check, Conflict, yen, qty, lineAmount, isoDate, isoMonth, text, dueDate, prevBusinessDay } from './domain.mjs';
 import { rows, one, nextNo, assertOpen, audit, postJournal, reverseJournal, line } from './db.mjs';
 import { mustDecode, taxOf, CATALOG } from './taxcode.mjs';
 import { companyPeriod } from './period.mjs';
@@ -189,13 +189,19 @@ export async function listExpenses(c, q = {}) {
     lines: ls.filter(l => l.expense_id === r.expense_id).map(l => ({ no: Number(l.line_no), account: l.account_code, accountName: l.account_name || '', sub: l.sub_code || '', subName: l.sub_name || '', dept: l.department_code, taxCode: l.source_tax_code,
       amount: Number(l.gross_amount), net: Number(l.net_amount), tax: Number(l.tax_amount || 0), memoCode: l.memo_code || '', memo: l.memo || '', payee: l.line_vendor_name || l.payee || '', vendor: l.line_vendor_code || '' })) }));
 }
-// 支払予定日：業者マスタの支払繰延区分（code_m VPAY：○か月後・日、31=月末）。未設定は締切日の翌月末。
+// 休日（カレンダーマスタ code_m HOL の有効な日付。土日は isHoliday が判定）
+export const holidaySet = async c => new Set((await rows(c, "SELECT code_dtl FROM code_m WHERE code_key='HOL' AND category3<>'0'")).map(r => `${r.code_dtl.slice(0, 4)}-${r.code_dtl.slice(4, 6)}-${r.code_dtl.slice(6, 8)}`));
+// 支払予定日：業者マスタの支払繰延区分（code_m VPAY：○か月後・日、31=月末）。未設定は締切日の翌月末。休日なら前営業日（2026-10-31）
 export async function vendorDue(c, vendorCode, date) {
   const t = await one(c, "SELECT category1 m, category2 d FROM code_m WHERE code_key='VPAY' AND code_dtl=?", [vendorCode]);
-  if (!t || (t.m === '' && t.d === '')) return dueDate(date);
-  const [y, mo] = date.split('-').map(Number), months = t.m === '' ? 1 : Number(t.m), day = t.d === '' ? 31 : Number(t.d);
-  const last = new Date(Date.UTC(y, mo - 1 + months + 1, 0)).getUTCDate();
-  return new Date(Date.UTC(y, mo - 1 + months, Math.min(day, last))).toISOString().slice(0, 10);
+  let due;
+  if (!t || (t.m === '' && t.d === '')) due = dueDate(date);
+  else {
+    const [y, mo] = date.split('-').map(Number), months = t.m === '' ? 1 : Number(t.m), day = t.d === '' ? 31 : Number(t.d);
+    const last = new Date(Date.UTC(y, mo - 1 + months + 1, 0)).getUTCDate();
+    due = new Date(Date.UTC(y, mo - 1 + months, Math.min(day, last))).toISOString().slice(0, 10);
+  }
+  return prevBusinessDay(due, await holidaySet(c));
 }
 // 業者立替金（1431）の残高＝開始残高（業者マスタ）＋仕訳の借方−貸方（業者ごと。取消は逆仕訳で戻る）
 export const ADVANCE_ACCOUNT = '1431';

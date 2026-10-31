@@ -2,6 +2,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createPool } from '../server/pg.mjs';
+import { isHoliday, prevBusinessDay } from '../server/domain.mjs';
 import { prepare } from '../server/schema.mjs';
 import { createApp } from '../server/http.mjs';
 
@@ -155,10 +156,21 @@ test('workflow against PostgreSQL business tables', { skip, timeout: 900000 }, a
       assert.equal((await a.call('/api/masters/banks', { mode: 'update', record: { ...bk, zgBank: '0001', zgBranch: '100', zgType: '2', zgAccount: '7777777', zgCode: '1234567890', zgName: '山田' } })).status, 400, 'kanji requester name rejected');
       assert.equal((await a.call('/api/masters/banks', { mode: 'update', record: { ...bk, zgBank: '0001', zgBranch: '100', zgType: '2', zgAccount: '7777777', zgCode: '1234567890', zgName: 'さんぷるけんざい' } })).status, 200);
       const z = await a.call('/api/reports/zengin?' + new URLSearchParams({ date: d, bank: 'B' + tag }));
-      assert.equal(z.status, 200); assert.deepEqual(z.data.errors, []); assert.equal(z.data.count, 1); assert.equal(z.data.total, 50000);
+      // 振込指定日が休日（土日）なら作成しない。試験日（当日）が土日のときはその確認になる
+      const wk = isHoliday(d, new Set()), holidayMsg = `振込指定日 ${d} は休日です（前営業日は ${prevBusinessDay(d, new Set())}）`;
+      assert.equal(z.status, 200); assert.deepEqual(z.data.errors, wk ? [holidayMsg] : []); assert.equal(z.data.count, 1); assert.equal(z.data.total, 50000);
       assert.ok(z.data.records.every(r => r.length === 120)); assert.ok(z.data.records[0].includes('ｻﾝﾌﾟﾙｹﾝｻﾞｲ'));
       const file = await fetch(base + '/api/reports/zengin?' + new URLSearchParams({ date: d, bank: 'B' + tag, format: 'file' }), { headers: { cookie: a.cookie } });
-      const bytes = Buffer.from(await file.arrayBuffer()); assert.equal(file.status, 200); assert.equal(bytes.length, 4 * 122); assert.equal(bytes[0], 0x31);
+      const bytes = Buffer.from(await file.arrayBuffer());
+      if (wk) assert.equal(file.status, 400); else { assert.equal(file.status, 200); assert.equal(bytes.length, 4 * 122); assert.equal(bytes[0], 0x31); }
+      // カレンダーマスタに登録した休日も同じく作成しない
+      if (!wk) {
+        assert.equal((await a.call('/api/masters/holidays', { mode: 'create', record: { code: d, name: '試験休日', active: true } })).status, 200);
+        const zh = await a.call('/api/reports/zengin?' + new URLSearchParams({ date: d, bank: 'B' + tag }));
+        assert.ok(zh.data.errors.some(e => e.startsWith(`振込指定日 ${d} は休日です`)));
+        const hol = (await a.call('/api/masters/holidays')).data.find(x => x.code === d);
+        assert.equal((await a.call('/api/masters/holidays/delete', { record: hol })).status, 200);
+      }
       const vp = await a.call('/api/reports/payments/vendor-payments?' + new URLSearchParams({ from: pm + '-01', to: d }));
       assert.ok(vp.data.vendors.some(v => v.vendor === 'V' + tag && v.total === 50000));
       const tr = await a.call('/api/reports/payments/transfer-request?date=' + d); assert.ok(tr.data.groups.some(g => g.rows.some(r => r.vendor === 'V' + tag)));

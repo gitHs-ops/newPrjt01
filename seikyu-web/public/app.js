@@ -1362,12 +1362,15 @@ function icFilter() { const t = ($('#ic-search')?.value || '').trim().toLowerCas
 
 // 当月度の締切日（20日締め：21日以降は翌月20日）
 // 業者マスタの支払繰延区分（「1 15」＝翌月15日、「3 31」＝3か月後の月末）と支払予定日。サーバの vendorDue と同じ計算
+// 営業日（サーバ domain.mjs と同じ）：土日とカレンダーマスタ（休日）の有効な日付は休日。休日なら前営業日（2026-10-31）
+const isHoliday = iso => { const w = new Date(iso + 'T00:00:00Z').getUTCDay(); return w === 0 || w === 6 || active('holidays').some(h => h.code === iso); };
+const prevBusinessDay = iso => { const d = new Date(iso + 'T00:00:00Z'); for (let i = 0; i < 60 && isHoliday(d.toISOString().slice(0, 10)); i++) d.setUTCDate(d.getUTCDate() - 1); return d.toISOString().slice(0, 10); };
 function vendorTerms(v, date) {
   if (!v || !/^\d{4}-\d{2}-\d{2}$/.test(date || '')) return { label: '', due: '' };
   const set = v.payMonths !== '' || v.payDay !== '', months = v.payMonths === '' ? 1 : Number(v.payMonths), day = v.payDay === '' ? 31 : Number(v.payDay), [y, mo] = date.split('-').map(Number);
-  const last = new Date(Date.UTC(y, mo - 1 + months + 1, 0)).getUTCDate(), due = new Date(Date.UTC(y, mo - 1 + months, Math.min(day, last))).toISOString().slice(0, 10);
-  const when = `${months === 0 ? '当月' : months === 1 ? '翌月' : months + 'か月後の'}${day >= 31 ? '月末' : day + '日'}`;
-  return { due, label: set ? `${months} ${day}（${when}支払）→ 支払予定日 ${due}` : `未設定（翌月末支払）→ 支払予定日 ${due}` };
+  const last = new Date(Date.UTC(y, mo - 1 + months + 1, 0)).getUTCDate(), raw = new Date(Date.UTC(y, mo - 1 + months, Math.min(day, last))).toISOString().slice(0, 10), due = prevBusinessDay(raw);
+  const when = `${months === 0 ? '当月' : months === 1 ? '翌月' : months + 'か月後の'}${day >= 31 ? '月末' : day + '日'}`, moved = due !== raw ? `（${raw} は休日のため前営業日）` : '';
+  return { due, label: set ? `${months} ${day}（${when}支払）→ 支払予定日 ${due}${moved}` : `未設定（翌月末支払）→ 支払予定日 ${due}${moved}` };
 }
 // ----- 定時請求 / 小口現金（10/19 打合せ：ヘッダー＋複数明細、合計自動、請求No＝業者ごと4桁連番、支払予定日＝業者マスタの支払繰延区分）-----
 // 小口現金出納登録で先頭に出す科目（一般管理費 → 製造経費の順、2026-10-28）

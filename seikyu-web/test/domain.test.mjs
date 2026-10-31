@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { yen, qty, lineAmount, taxOf, period, dueDate, isoDate, csv, parseCsv, DomainError, closingDay } from '../server/domain.mjs';
+import { yen, qty, lineAmount, taxOf, period, dueDate, isoDate, csv, parseCsv, DomainError, closingDay, isHoliday, prevBusinessDay } from '../server/domain.mjs';
 
 test('money and quantity use exact integer arithmetic', () => {
   assert.equal(lineAmount(qty('0.1'), 3), 0);
@@ -63,4 +63,14 @@ test('単価・運賃：出荷伝票と売上の単価が合わない移行デ�
   assert.deepEqual(priceOf('9300', '9300', '1500'), { price: 9300, freight: 0 });
   assert.deepEqual(priceOf('10300', '9300', '1000'), { price: 9300, freight: 1000 });
   assert.deepEqual(priceOf('5000', null, null), { price: 5000, freight: 0 });
+});
+
+test('prevBusinessDay skips weekends and registered holidays', () => {
+  const h = new Set(['2026-11-23', '2026-12-31']);
+  assert.equal(prevBusinessDay('2026-11-27', h), '2026-11-27'); // 金
+  assert.equal(prevBusinessDay('2026-11-29', h), '2026-11-27'); // 日 → 金
+  assert.equal(prevBusinessDay('2026-11-23', h), '2026-11-20'); // 勤労感謝の日（月）→ 金
+  assert.equal(prevBusinessDay('2027-01-02', new Set(['2027-01-01', '2026-12-31'])), '2026-12-30');
+  assert.equal(isHoliday('2026-11-28', h), true);
+  assert.equal(isHoliday('2026-11-24', h), false);
 });
