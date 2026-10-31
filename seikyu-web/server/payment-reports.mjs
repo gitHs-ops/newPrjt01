@@ -1,5 +1,5 @@
 // ③ 支払帳票: NO37 支払データ作成（全銀）、NO45 業者別支払内訳表、NO46 振込依頼書、NO47 支払繰越一覧表、NO48 支払案内書
-import { check, isoDate, today, addMonths, isHoliday, prevBusinessDay } from './domain.mjs';
+import { check, isoDate, today, addMonths, isHoliday, nextBusinessDay } from './domain.mjs';
 import { rows, one, audit } from './db.mjs';
 import { xlsx } from './xlsx.mjs';
 import { zenginFile } from './zengin.mjs';
@@ -42,7 +42,7 @@ export async function zenginData(c, q, ctx) {
   if (!transfers.length) f.errors.push('この振込指定日・振込元口座の支払がありません');
   // 振込指定日が休日（土日・カレンダーマスタ）なら作成しない（2026-10-31。テキストエディタで日付を直さなくて済むように）
   const hs = await holidaySet(c);
-  if (isHoliday(date, hs)) f.errors.push(`振込指定日 ${date} は休日です（前営業日は ${prevBusinessDay(date, hs)}）`);
+  if (isHoliday(date, hs)) f.errors.push(`振込指定日 ${date} は休日です（翌営業日は ${nextBusinessDay(date, hs)}）`);
   if (q.format === 'file') {
     check(!f.errors.length, '全銀データを作成できません: ' + f.errors.join(' / '));
     await audit(c, ctx, 'payment', date, 'zengin.export', { bank: bankCode, count: f.count, total: f.total, payments: transfers.flatMap(t => t.nos) });

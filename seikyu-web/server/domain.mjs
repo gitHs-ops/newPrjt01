@@ -51,11 +51,11 @@ export function period(month, closing) {
 }
 // Default payment due date: end of the month following the closing date (assumption, see README).
 export function dueDate(end) { const [y, m] = end.split('-').map(Number); return new Date(Date.UTC(y, m + 1, 0)).toISOString().slice(0, 10); }
-// 営業日：土日は休日、ほかにカレンダーマスタ（code_m HOL）の登録日も休日。休日なら前営業日へ（2026-10-31 ユーザー指示）
+// 営業日：土日は休日、ほかにカレンダーマスタ（code_m HOL）の登録日も休日。休日なら翌営業日へ（2026-10-31 ユーザー指示）
 export const isHoliday = (iso, holidays) => { const w = new Date(iso + 'T00:00:00Z').getUTCDay(); return w === 0 || w === 6 || holidays.has(iso); };
-export function prevBusinessDay(iso, holidays) {
+export function nextBusinessDay(iso, holidays) {
   const d = new Date(iso + 'T00:00:00Z');
-  for (let i = 0; i < 60 && isHoliday(d.toISOString().slice(0, 10), holidays); i++) d.setUTCDate(d.getUTCDate() - 1);
+  for (let i = 0; i < 60 && isHoliday(d.toISOString().slice(0, 10), holidays); i++) d.setUTCDate(d.getUTCDate() + 1);
   return d.toISOString().slice(0, 10);
 }
 export const today = () => new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Tokyo' }).format(new Date());

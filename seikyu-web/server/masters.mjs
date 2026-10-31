@@ -350,7 +350,7 @@ export const MASTERS = {
       else await c.query("UPDATE code_m SET code_dtl_nam=?,code_dtl_abr=?,category1=?,category3=? WHERE code_key='A0007' AND code_dtl=?", [r.rate + '%', r.rate + '%', String(r.rate), r.active ? ' ' : '0', k]);
     },
   },
-  // カレンダー（休日）：土日は自動で休日、祝日・銀行休業日・会社休日をここに登録する。支払予定日・全銀データの振込指定日が休日なら前営業日（2026-10-31 定時請求・支払データ作成の打合せ）
+  // カレンダー（休日）：土日は自動で休日、祝日・銀行休業日・会社休日をここに登録する。支払予定日・全銀データの振込指定日が休日なら翌営業日（2026-10-31 定時請求・支払データ作成の打合せ）
   holidays: {
     label: 'カレンダー（休日）', table: 'code_m',
     fields: [F('code', '日付', { type: 'date', key: true, hint: '土日は登録しなくても休日' }), F('name', '名称', { max: 40, hint: '祝日名・銀行休業日・会社休日など' }), F('active', '有効', { type: 'bool' })],

@@ -2,7 +2,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createPool } from '../server/pg.mjs';
-import { isHoliday, prevBusinessDay } from '../server/domain.mjs';
+import { isHoliday, nextBusinessDay } from '../server/domain.mjs';
 import { prepare } from '../server/schema.mjs';
 import { createApp } from '../server/http.mjs';
 
@@ -157,7 +157,7 @@ test('workflow against PostgreSQL business tables', { skip, timeout: 900000 }, a
       assert.equal((await a.call('/api/masters/banks', { mode: 'update', record: { ...bk, zgBank: '0001', zgBranch: '100', zgType: '2', zgAccount: '7777777', zgCode: '1234567890', zgName: 'さんぷるけんざい' } })).status, 200);
       const z = await a.call('/api/reports/zengin?' + new URLSearchParams({ date: d, bank: 'B' + tag }));
       // 振込指定日が休日（土日）なら作成しない。試験日（当日）が土日のときはその確認になる
-      const wk = isHoliday(d, new Set()), holidayMsg = `振込指定日 ${d} は休日です（前営業日は ${prevBusinessDay(d, new Set())}）`;
+      const wk = isHoliday(d, new Set()), holidayMsg = `振込指定日 ${d} は休日です（翌営業日は ${nextBusinessDay(d, new Set())}）`;
       assert.equal(z.status, 200); assert.deepEqual(z.data.errors, wk ? [holidayMsg] : []); assert.equal(z.data.count, 1); assert.equal(z.data.total, 50000);
       assert.ok(z.data.records.every(r => r.length === 120)); assert.ok(z.data.records[0].includes('ｻﾝﾌﾟﾙｹﾝｻﾞｲ'));
       const file = await fetch(base + '/api/reports/zengin?' + new URLSearchParams({ date: d, bank: 'B' + tag, format: 'file' }), { headers: { cookie: a.cookie } });
