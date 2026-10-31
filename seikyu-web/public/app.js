@@ -1144,10 +1144,15 @@ const lrName = () => lrNameOf(lr.customer);
 const lrHead = () => `<div class="lr-head"><span>入金日：<b>${esc(lr.date)}</b></span><span>得意先：<b>${esc(lr.customer)} ${esc(lrName())}</b></span></div>`;
 const lrKeys = keys => `<div class="lr-keys">${keys.map(([act, label, primary]) => `<button type="button" class="${primary ? 'primary' : ''}" data-act="${act}">${esc(label)}</button>`).join('')}</div>`;
 function lrStep1() {
-  // 入金日・得意先（コード＋名称）は1行に並べる（2026-10-31）
-  return `<div class="inline-fields lr-step1">${field('入金日', `<input type="date" id="lr-date" value="${esc(lr.date)}">`, { req: 1 })}${field('得意先', `<input id="lr-cust" list="dl-pcust" autocomplete="off" value="${esc(lr.customer)}" placeholder="得意先コード" style="width:140px">${custHints()}<small id="lr-cname" class="muted">${esc(lrName())}</small>`, { req: 1 })}</div>
-    ${lrKeys([['lrNext', 'F10 次画面', 1], ['lrEnd', 'F3 終了'], ['lrFind', 'F9 検索']])}`;
+  // 入金日・得意先（コード＋名称）は1行に並べる。「検索」で次画面（借方）の内容をこの下に出す（2026-10-31）
+  return `<div class="inline-fields lr-step1">${field('入金日', `<input type="date" id="lr-date" value="${esc(lr.date)}">`, { req: 1 })}${field('得意先', `<input id="lr-cust" list="dl-pcust" autocomplete="off" value="${esc(lr.customer)}" placeholder="得意先コード" style="width:140px">${custHints()}<small id="lr-cname" class="muted">${esc(lrName())}</small>`, { req: 1 })}<button type="button" data-act="lrSearch">検索</button></div>
+    <div id="lr-detail">${lr.step === 2 ? lrStep2() : lrStep1Keys()}</div>`;
 }
+const lrStep1Keys = () => lrKeys([['lrNext', 'F10 次画面', 1], ['lrEnd', 'F3 終了'], ['lrFind', 'F9 検索']]);
+// 得意先はコードのほか「コード＋名称」・名称の一部（1件に決まるとき）でも受け付ける
+const lrResolve = t => { t = String(t || '').trim(); if (!t) return ''; const cs = masters.customers;
+  const hit = cs.find(c => c.code === t) || cs.filter(c => t.startsWith(c.code)).sort((a, b) => b.code.length - a.code.length)[0]; if (hit) return hit.code;
+  const part = cs.filter(c => c.name.includes(t)); return part.length === 1 ? part[0].code : ''; };
 function lrLine(l, i) {
   const a = LR_ACC[l.acc], kind = lrKind(l);
   const sub = l.acc === '1112' ? `<select data-lr="sub" data-i="${i}" aria-label="内訳1">${options(active('banks'), l.sub, { blank: '口座を選択' })}</select>`
@@ -1161,7 +1166,7 @@ function lrLine(l, i) {
 }
 const lrTotals = () => { const used = lrUsed(), fund = used.filter(l => ['bank', 'cash'].includes(lrKind(l))).reduce((n, l) => n + (lrNum(l.amount) || 0), 0), tax = used.reduce((n, l) => n + lrTax(l), 0); return `<div class="lr-totals"><span>借方合計 <b>${yen(lrSum())}</b></span><span>貸方合計 <b>0</b></span><span>仮払消費税 <b>${yen(tax)}</b></span><span>仮受消費税 <b>0</b></span><span>資金残高 <b>${yen(fund)}</b></span></div>`; };
 function lrStep2() {
-  return `${lrHead()}<div class="table-wrap"><table class="lr-grid"><thead><tr><th>行</th><th>部門</th><th>科目</th><th>内訳1</th><th>内訳2</th><th>工種</th><th class="num">入金額</th><th>処税率</th><th class="num">消費税額</th></tr></thead>${lr.lines.map(lrLine).join('')}</table></div>
+  return `<div class="table-wrap lr-detail"><table class="lr-grid"><thead><tr><th>行</th><th>部門</th><th>科目</th><th>内訳1</th><th>内訳2</th><th>工種</th><th class="num">入金額</th><th>処税率</th><th class="num">消費税額</th></tr></thead>${lr.lines.map(lrLine).join('')}</table></div>
     <p>${lr.lines.length < LR_MAX_LINES ? '<button type="button" class="mini" data-act="lrAddLine">＋ 行追加</button>' : ''}</p><div id="lr-totals">${lrTotals()}</div>
     ${lrKeys([['lrNext', 'F10 次画面', 1], ['lrNext', 'F2 貸方'], ['lrBack', 'F12 前画面'], ['lrEnd', 'F3 終了']])}`;
 }
@@ -1186,7 +1191,7 @@ function lrStep3() {
       <tfoot><tr id="lr-foot">${lrPayFoot()}</tr></tfoot></table></div>
     ${canWrite() ? '' : '<p class="check-ng small">この利用者は登録できません</p>'}${lrKeys([...(canWrite() ? [['lrNext', 'F10 登録', 1]] : []), ['lrBack', 'F12 前画面'], ['lrEnd', 'F3 終了']])}`;
 }
-const lrDraw = () => { const b = $('#lr-body'); if (!b) return; b.innerHTML = lr.step === 1 ? lrStep1() : lr.step === 2 ? lrStep2() : lrStep3(); };
+const lrDraw = () => { const b = $('#lr-body'); if (!b) return; b.innerHTML = lr.step < 3 ? lrStep1() : lrStep3(); };
 function lrCheckLines() {
   const used = lrUsed(); if (!used.length) throw Error('科目と入金額を入力してください');
   const kinds = new Set();
@@ -1223,8 +1228,9 @@ const lrPaintRows = () => { const b = $('#lr-rows'); if (!b) return; b.innerHTML
 async function lrNext() {
   if (lr.step === 1) {
     if (!lr.date) throw Error('入金日を入力してください');
-    if (!masters.customers.some(c => c.code === lr.customer)) throw Error('得意先コードを正しく入力してください');
-    lr.step = 2; return lrDraw();
+    const code = lrResolve(lr.customer); if (!code) throw Error('得意先コードを正しく入力してください');
+    if (code !== lr.customer) { lr.customer = code; lr.billInput = ''; lr.billTo = ''; lr.invoices = []; }
+    lr.step = 2; lrDraw(); return $('#lr-detail [data-lr=acc]')?.focus();
   }
   if (lr.step === 2) {
     lrCheckLines();
@@ -1241,12 +1247,14 @@ const lrFind = () => { const i = $('#lr-cust'); if (!i) return; i.focus(); try {
 const lrRun = fn => Promise.resolve().then(fn).catch(e => toast(e.message, true));
 function legacyReceiptView() {
   const A = actions;
-  A.lrNext = () => lrRun(lrNext); A.lrBack = lrBack; A.lrEnd = lrEnd; A.lrFind = lrFind;
+  A.lrNext = () => lrRun(lrNext); A.lrSearch = () => lrRun(() => { lr.step = 1; return lrNext(); }); A.lrBack = lrBack; A.lrEnd = lrEnd; A.lrFind = lrFind;
   A.lrAddLine = () => { if (lr.lines.length < LR_MAX_LINES) { lr.lines.push(lrBlank()); lrDraw(); } };
-  return page('現行入金処理', '', '', `<section class="card glass lr" id="lr-body">${lr.step === 1 ? lrStep1() : lr.step === 2 ? lrStep2() : lrStep3()}</section>`);
+  return page('現行入金処理', '', '', `<section class="card glass lr" id="lr-body">${lr.step < 3 ? lrStep1() : lrStep3()}</section>`);
 }
 document.addEventListener('input', e => {
   const t = e.target; if (!t.closest?.('#lr-body')) return;
+  // 入金日・得意先を直したら下の借方は閉じる（もう一度「検索」で出す）
+  if (['lr-date', 'lr-cust'].includes(t.id) && lr.step === 2) { lr.step = 1; $('#lr-detail').innerHTML = lrStep1Keys(); }
   if (t.id === 'lr-date') lr.date = t.value;
   else if (t.id === 'lr-cust') { lr.customer = t.value.trim(); lr.billInput = ''; lr.billTo = ''; lr.invoices = []; $('#lr-cname').textContent = lrName(); }
   else if (t.id === 'lr-bill') {
@@ -1269,7 +1277,7 @@ document.addEventListener('keydown', e => {
   if (route.name !== 'receipts' || route.sub !== 'legacy' || !$('#lr-body') || $('dialog[open]')) return;
   const k = e.key;
   // F2 貸方：現行の F2 の画面は資料に無いため、当面は F10 と同じ請求ごとの今回入金額の画面を開く（2026-10-31 ユーザー指示）
-  const map = { F2: () => { if (lr.step === 2) lrRun(lrNext); }, F3: lrEnd, F9: () => { if (lr.step === 1) lrFind(); }, F10: () => { if (lr.step < 3 || canWrite()) lrRun(lrNext); }, F12: lrBack };
+  const map = { F2: () => { if (lr.step === 2) lrRun(lrNext); }, F3: lrEnd, F9: () => { if (lr.step < 3) lrFind(); }, F10: () => { if (lr.step < 3 || canWrite()) lrRun(lrNext); }, F12: lrBack };
   if (!map[k]) return;
   e.preventDefault(); map[k]();
 });
