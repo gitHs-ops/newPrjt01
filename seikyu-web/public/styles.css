@@ -480,3 +480,14 @@ input:disabled, select:disabled, textarea:disabled { background: rgba(120,130,15
 /* 完了報告のポップアップ（alertBox ok） */
 .alert-dialog.ok .alert-icon { background: #dcfce7; color: #15803d; }
 .alert-dialog.ok #alert-msg { color: var(--text-primary); font-weight: 500; }
+/* 現行入金処理（AS400 HAW110 の流れ） */
+.lr-head { display: flex; flex-wrap: wrap; gap: 24px; margin-bottom: 12px; }
+.lr-keys { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
+.lr-grid select, .lr-grid input { width: 100%; min-width: 96px; }
+.lr-grid td.lr-ro { color: var(--text-secondary); text-align: center; }
+.lr-grid tbody.lr-line th { font-weight: 500; text-align: left; white-space: nowrap; color: var(--text-secondary); }
+.lr-grid tbody.lr-line tr:first-child td { border-top: 2px solid var(--field-border); }
+.lr-totals { display: flex; flex-wrap: wrap; gap: 8px 28px; margin-top: 8px; }
+.lr-amount { text-align: right; margin-bottom: 8px; }
+.lr-range { justify-content: flex-start; align-items: flex-end; margin-bottom: 8px; }
+.lr-pay input { width: 140px; }

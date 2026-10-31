@@ -218,7 +218,7 @@ const SUBMENUS = {
   invoices: [{ k: 'precheck', l: '発行前確認一覧', q: { view: 'precheck' }, hidden: true }, { k: 'create', l: '請求データ作成', tools: false }, { k: 'list', l: '請求一覧照会', tools: true }, { k: 'issue', l: '請求書発行', q: { view: 'issue' } }, { k: 'reports', l: '請求帳票' }, { k: 'balance', l: '得意先別残高照会', q: { view: 'balance' } }, { k: 'ledger', l: '請求残高照会', q: { view: 'ledger' } }],
   // 入金予定一覧は 2026-10-27 削除（機能一覧 NO16 対象外。入金予定は入金予定チェックリストで確認）
   // 入金一覧・入金予定チェックリストは 2026-10-27 非表示（10/27 打合せ：消込の結果は入金消込の一覧で確認、入金予定チェックリストは不要。画面・API は残す）
-  receipts: [{ k: 'targets', l: '入金消込', q: { tab: 'targets' } }, { k: 'list', l: '入金一覧', tools: true, hidden: true }, { k: 'schedule', l: '入金予定チェックリスト', hidden: true }],
+  receipts: [{ k: 'targets', l: '入金消込', q: { tab: 'targets' } }, { k: 'legacy', l: '現行入金処理', q: { tab: 'legacy' }, tools: false }, { k: 'list', l: '入金一覧', tools: true, hidden: true }, { k: 'schedule', l: '入金予定チェックリスト', hidden: true }],
   // 10/21 打合せの処理順（実在庫登録 → 配合計算 → 材料受払表 → 在庫計上）に並べる
   inventory: [{ k: 'count', l: '実在庫登録', tools: false }, { k: 'reports', l: '在庫登録リスト・配合計算・材料受払表' }, { k: 'post', l: '在庫計上', tools: false }, { k: 'list', l: '在庫一覧', tools: true }],
   purchases: [{ k: 'list', l: '商品仕入一覧・登録' }, { k: 'reports', l: '商品仕入登録リスト' }], // 2026-10-29 帳票を小メニューに分けた
@@ -989,7 +989,8 @@ async function arLedgerView(q) {
 VIEWS.receipts = async q => {
   const A = actions;
   A.misc = d => miscReport(d.kind, d.src).catch(e => toast(e.message, true));
-  const tab = ['targets'].includes(q.tab) ? q.tab : 'list'; // 'plan'（入金予定一覧）は 2026-10-27 削除
+  const tab = ['targets', 'legacy'].includes(q.tab) ? q.tab : 'list'; // 'plan'（入金予定一覧）は 2026-10-27 削除
+  if (tab === 'legacy') return legacyReceiptView();
   A.tab = d => go('receipts', { tab: d.tab });
   A.clear = d => receiptForm(d.customer, Number(d.receipt) || 0);
   if (tab === 'targets') {
@@ -1117,6 +1118,137 @@ function receiptForm(customer, receiptId = 0) {
       const r = await post('/api/receipts', body); toast(`入金 ${r.no} を登録しました（仕訳 B01）`); render();
     } });
 }
+
+// ----- 現行入金処理（AS400 HAW110 入金登録の流れ。2026-10-31 ユーザー指示。出典：山田様資料 システム移行.xlsx「入金処理」）-----
+// ① 入金日・得意先 → ② 借方（科目・内訳・入金額）→ ③ 請求ごとの今回入金額 → 登録。登録は入金消込と同じ API（receipt・仕訳 B01）。
+// 入力できるのは科目・内訳・入金額・手形期日だけ。部門・処税率・消費税額・摘要は createReceipt の仕訳に合わせて表示するだけ。
+const LR_MAX_LINES = 8, LR_TAX_RATE = 10;
+const LR_ACC = {
+  1112: { name: '当座預金', kind: () => 'bank', tax: '9', dept: '' }, 1111: { name: '現金', kind: () => 'cash', tax: '9', dept: '' }, 1120: { name: '受取手形', kind: () => 'notes', tax: '9', dept: '' },
+  8330: { name: '雑費', subs: [['101', '各種手数料', 'fee', '手数料'], ['107', 'その他雑品', 'coop', '協力費']], tax: '141', dept: '063' }, 4170: { name: '預り金', kind: () => 'deposit', tax: '9', dept: '' },
+  8850: { name: '値引・雑損失', subs: [['D', '値引き', 'discount', '値引き'], ['L', '雑損失', 'loss', '雑損失']], dept: '063' },
+};
+const lrBlank = () => ({ acc: '', sub: '', amount: '', due: '' });
+const lrNew = () => ({ step: 1, date: '', customer: '', lines: [lrBlank(), lrBlank(), lrBlank(), lrBlank()], invoices: [], deposit: 0, pay: {}, from: '', to: '', key: uuid() });
+let lr = lrNew();
+const lrNum = v => { const n = Number(String(v ?? '').replace(/,/g, '').trim()); return Number.isFinite(n) ? n : NaN; };
+const lrSub = l => LR_ACC[l.acc]?.subs?.find(s => s[0] === l.sub);
+const lrKind = l => (LR_ACC[l.acc]?.subs ? lrSub(l)?.[2] : LR_ACC[l.acc]?.kind?.());
+const lrTaxCode = l => (l.acc === '8850' ? (l.sub === 'D' ? '141' : l.sub === 'L' ? '9' : '') : LR_ACC[l.acc]?.tax || '');
+const lrTax = l => (lrTaxCode(l) === '141' ? Math.floor((lrNum(l.amount) || 0) * LR_TAX_RATE / (100 + LR_TAX_RATE)) : 0);
+const lrUsed = () => lr.lines.filter(l => l.acc);
+const lrSum = () => lrUsed().reduce((n, l) => n + (lrNum(l.amount) || 0), 0);
+const lrName = () => masters.customers.find(c => c.code === lr.customer)?.name || '';
+const lrHead = () => `<div class="lr-head"><span>入金日：<b>${esc(lr.date)}</b></span><span>得意先：<b>${esc(lr.customer)} ${esc(lrName())}</b></span></div>`;
+const lrKeys = keys => `<div class="lr-keys">${keys.map(([act, label, primary]) => `<button type="button" class="${primary ? 'primary' : ''}" data-act="${act}">${esc(label)}</button>`).join('')}</div>`;
+function lrStep1() {
+  return `<div class="form-grid">${field('入金日', `<input type="date" id="lr-date" value="${esc(lr.date)}">`, { req: 1 })}${field('得意先', `<input id="lr-cust" list="dl-pcust" autocomplete="off" value="${esc(lr.customer)}" placeholder="得意先コード">${custHints()}<small id="lr-cname" class="muted">${esc(lrName())}</small>`, { req: 1 })}</div>
+    ${lrKeys([['lrNext', 'F10 次画面', 1], ['lrEnd', 'F3 終了'], ['lrFind', 'F9 検索']])}`;
+}
+function lrLine(l, i) {
+  const a = LR_ACC[l.acc], kind = lrKind(l);
+  const sub = l.acc === '1112' ? `<select data-lr="sub" data-i="${i}" aria-label="内訳1">${options(active('banks'), l.sub, { blank: '口座を選択' })}</select>`
+    : a?.subs ? `<select data-lr="sub" data-i="${i}" aria-label="内訳1"><option value="">選択</option>${a.subs.map(s => `<option value="${s[0]}" ${s[0] === l.sub ? 'selected' : ''}>${esc(s[0].length > 1 ? s[0] + ' ' + s[1] : s[1])}</option>`).join('')}</select>` : '';
+  const note = kind === 'deposit' ? `預り金残高 ${yen(lr.deposit)} 円` : '';
+  return `<tbody class="lr-line"><tr><td class="line-no" rowspan="3">${String(i + 1).padStart(3, '0')}</td><td class="lr-ro">${esc(a?.dept || '')}</td>
+      <td><select data-lr="acc" data-i="${i}" aria-label="科目"><option value=""></option>${Object.entries(LR_ACC).map(([k, x]) => `<option value="${k}" ${k === l.acc ? 'selected' : ''}>${k} ${esc(x.name)}</option>`).join('')}</select></td>
+      <td>${sub}</td><td>${kind === 'notes' ? `<input type="date" data-lr="due" data-i="${i}" value="${esc(l.due)}" title="手形期日" aria-label="手形期日">` : ''}</td><td class="lr-ro"></td>
+      <td><input class="num" data-lr="amount" data-i="${i}" value="${esc(l.amount)}" inputmode="numeric" aria-label="入金額" ${l.acc ? '' : 'disabled'}></td><td class="lr-ro">${esc(lrTaxCode(l))}</td><td class="num lr-ro" data-lr-tax="${i}">${l.acc && lrTax(l) ? yen(lrTax(l)) : ''}</td></tr>
+    <tr><th>摘要1</th><td colspan="7">${l.acc ? `${esc(lr.customer)} ${esc(lrName())}` : ''}${note ? `<span class="muted small">　${esc(note)}</span>` : ''}</td></tr>
+    <tr><th>摘要2</th><td colspan="7">${esc(lrSub(l)?.[3] || (kind === 'notes' ? '手形期日を内訳2に入力' : ''))}</td></tr></tbody>`;
+}
+const lrTotals = () => { const used = lrUsed(), fund = used.filter(l => ['bank', 'cash'].includes(lrKind(l))).reduce((n, l) => n + (lrNum(l.amount) || 0), 0), tax = used.reduce((n, l) => n + lrTax(l), 0); return `<div class="lr-totals"><span>借方合計 <b>${yen(lrSum())}</b></span><span>貸方合計 <b>0</b></span><span>仮払消費税 <b>${yen(tax)}</b></span><span>仮受消費税 <b>0</b></span><span>資金残高 <b>${yen(fund)}</b></span></div>`; };
+function lrStep2() {
+  return `${lrHead()}<div class="table-wrap"><table class="lr-grid"><thead><tr><th>行</th><th>部門</th><th>科目</th><th>内訳1</th><th>内訳2</th><th>工種</th><th class="num">入金額</th><th>処税率</th><th class="num">消費税額</th></tr></thead>${lr.lines.map(lrLine).join('')}</table></div>
+    <p>${lr.lines.length < LR_MAX_LINES ? '<button type="button" class="mini" data-act="lrAddLine">＋ 行追加</button>' : ''}</p><div id="lr-totals">${lrTotals()}</div>
+    ${lrKeys([['lrNext', 'F10 次画面', 1], ['lrBack', 'F12 前画面'], ['lrEnd', 'F3 終了']])}`;
+}
+const lrPayTotal = () => Object.values(lr.pay).reduce((n, v) => n + (lrNum(v) || 0), 0);
+const lrPayFoot = () => `<th colspan="5">合計</th><td class="num"><b>${yen(lrPayTotal())}</b></td>`;
+function lrStep3() {
+  const shown = lr.invoices.filter(r => (!lr.from || r.closing >= lr.from) && (!lr.to || r.closing <= lr.to));
+  return `${lrHead()}<div class="lr-amount">入金額 <b>${yen(lrSum())}</b></div>
+    <div class="filters lr-range"><label class="field">請求日<input type="date" id="lr-from" value="${esc(lr.from)}"></label><span>〜</span><label class="field">　<input type="date" id="lr-to" value="${esc(lr.to)}" aria-label="請求日（至）"></label></div>
+    <div class="table-wrap"><table class="lr-pay"><thead><tr><th>請求先</th><th>請求日</th><th>請求No</th><th>予定日</th><th class="num">入金予定額</th><th class="num">今回入金額</th></tr></thead>
+      <tbody>${shown.length ? shown.map(r => `<tr><td>${esc(lr.customer)} ${esc(lrName())}</td><td>${esc(r.closing)}</td><td>${r.id}</td><td>${esc(r.due || '')}</td><td class="num">${yen(r.balance)}</td><td class="num"><input class="num" data-lr="pay" data-id="${r.id}" value="${esc(lr.pay[r.id] ?? '')}" inputmode="numeric" aria-label="今回入金額"></td></tr>`).join('') : '<tr><td colspan="6" class="muted">この請求日の請求はありません</td></tr>'}</tbody>
+      <tfoot><tr id="lr-foot">${lrPayFoot()}</tr></tfoot></table></div>
+    ${canWrite() ? '' : '<p class="check-ng small">この利用者は登録できません</p>'}${lrKeys([...(canWrite() ? [['lrNext', 'F10 登録', 1]] : []), ['lrBack', 'F12 前画面'], ['lrEnd', 'F3 終了'], ['lrClear', 'F23 全削除']])}`;
+}
+const lrDraw = () => { const b = $('#lr-body'); if (!b) return; b.innerHTML = lr.step === 1 ? lrStep1() : lr.step === 2 ? lrStep2() : lrStep3(); };
+function lrCheckLines() {
+  const used = lrUsed(); if (!used.length) throw Error('科目と入金額を入力してください');
+  const kinds = new Set();
+  for (const l of used) {
+    const n = lrNum(l.amount), name = LR_ACC[l.acc].name;
+    if (!Number.isInteger(n) || n <= 0) throw Error(`${name}の入金額を正しく入力してください`);
+    if (LR_ACC[l.acc].subs && !lrSub(l)) throw Error(`${name}の内訳を選択してください`);
+    if (l.acc === '1112' && !l.sub) throw Error('当座預金の口座を選択してください');
+    if (lrKind(l) === 'notes' && !l.due) throw Error('手形期日を入力してください');
+    if (kinds.has(lrKind(l))) throw Error(`${lrSub(l)?.[1] || name}は 1 行にまとめて入力してください`);
+    kinds.add(lrKind(l));
+  }
+  const dep = used.find(l => lrKind(l) === 'deposit');
+  if (dep && lrNum(dep.amount) > lr.deposit) throw Error(`預り金残高（${yen(lr.deposit)}円）を超えて充当できません`);
+}
+async function lrRegister() {
+  const pays = lr.invoices.map(r => ({ r, n: String(lr.pay[r.id] ?? '').trim() === '' ? 0 : lrNum(lr.pay[r.id]) })).filter(x => x.n !== 0);
+  for (const { r, n } of pays) {
+    if (!Number.isInteger(n) || n < 0) throw Error(`請求No ${r.id} の今回入金額を正しく入力してください`);
+    if (n > r.balance) throw Error(`請求No ${r.id}：今回入金額が入金予定額（${yen(r.balance)}円）を超えているため登録できません`);
+  }
+  if (!pays.length) throw Error('今回入金額を入力してください');
+  const total = pays.reduce((a, x) => a + x.n, 0), sum = lrSum();
+  if (total !== sum) throw Error(`今回入金額の合計（${yen(total)}円）が入金額（${yen(sum)}円）と一致しません`);
+  const body = { idempotencyKey: lr.key, date: lr.date, customer: lr.customer, allocations: pays.map(x => ({ invoiceId: x.r.id, amount: x.n })) };
+  for (const l of lrUsed()) { const k = lrKind(l); body[k] = lrNum(l.amount); if (k === 'bank') body.bankCode = l.sub; if (k === 'notes') body.noteDue = l.due; }
+  const r = await post('/api/receipts', body);
+  toast(`入金 ${r.no} を登録しました（仕訳 B01）`); lr = lrNew(); lrDraw();
+}
+async function lrNext() {
+  if (lr.step === 1) {
+    if (!lr.date) throw Error('入金日を入力してください');
+    if (!masters.customers.some(c => c.code === lr.customer)) throw Error('得意先コードを正しく入力してください');
+    const ctx = await api('/api/receipt-context?' + qs({ customer: lr.customer }));
+    lr.invoices = ctx.invoices.filter(r => r.closing <= lr.date); lr.deposit = ctx.deposit;
+    if (!lr.invoices.length) throw Error('この入金日までに締めた、残高のある請求がありません');
+    lr.pay = {}; lr.step = 2; return lrDraw();
+  }
+  if (lr.step === 2) { lrCheckLines(); lr.key = uuid(); lr.step = 3; return lrDraw(); }
+  await lrRegister();
+}
+const lrBack = () => { if (lr.step > 1) { lr.step -= 1; lrDraw(); } };
+const lrEnd = () => { lr = lrNew(); lrDraw(); };
+const lrClear = () => { if (lr.step === 3) { lr.pay = {}; lrDraw(); } };
+const lrFind = () => { const i = $('#lr-cust'); if (!i) return; i.focus(); try { i.showPicker(); } catch {} };
+const lrRun = fn => Promise.resolve().then(fn).catch(e => toast(e.message, true));
+function legacyReceiptView() {
+  const A = actions;
+  A.lrNext = () => lrRun(lrNext); A.lrBack = lrBack; A.lrEnd = lrEnd; A.lrClear = lrClear; A.lrFind = lrFind;
+  A.lrAddLine = () => { if (lr.lines.length < LR_MAX_LINES) { lr.lines.push(lrBlank()); lrDraw(); } };
+  return page('現行入金処理', '', '', `<section class="card glass lr" id="lr-body">${lr.step === 1 ? lrStep1() : lr.step === 2 ? lrStep2() : lrStep3()}</section>`);
+}
+document.addEventListener('input', e => {
+  const t = e.target; if (!t.closest?.('#lr-body')) return;
+  if (t.id === 'lr-date') lr.date = t.value;
+  else if (t.id === 'lr-cust') { lr.customer = t.value.trim(); $('#lr-cname').textContent = lrName(); }
+  else if (t.dataset.lr === 'amount') { lr.lines[t.dataset.i].amount = t.value; const c = $(`[data-lr-tax="${t.dataset.i}"]`), v = lrTax(lr.lines[t.dataset.i]); if (c) c.textContent = v ? yen(v) : ''; $('#lr-totals').innerHTML = lrTotals(); }
+  else if (t.dataset.lr === 'due') lr.lines[t.dataset.i].due = t.value;
+  else if (t.dataset.lr === 'pay') { lr.pay[t.dataset.id] = t.value; $('#lr-foot').innerHTML = lrPayFoot(); }
+});
+document.addEventListener('change', e => {
+  const t = e.target; if (!t.closest?.('#lr-body')) return;
+  if (t.dataset.lr === 'acc') { const l = lr.lines[t.dataset.i]; l.acc = t.value; l.sub = ''; l.due = ''; if (!t.value) l.amount = ''; lrDraw(); }
+  else if (t.dataset.lr === 'sub') { lr.lines[t.dataset.i].sub = t.value; lrDraw(); }
+  else if (t.id === 'lr-from' || t.id === 'lr-to') { lr[t.id === 'lr-from' ? 'from' : 'to'] = t.value; lrDraw(); }
+});
+// ファンクションキーはこの画面だけ。F23 は PC では Shift+F11
+document.addEventListener('keydown', e => {
+  if (route.name !== 'receipts' || route.sub !== 'legacy' || !$('#lr-body') || $('dialog[open]')) return;
+  const k = e.key === 'F11' && e.shiftKey ? 'F23' : e.key;
+  const map = { F3: lrEnd, F9: () => { if (lr.step === 1) lrFind(); }, F10: () => { if (lr.step < 3 || canWrite()) lrRun(lrNext); }, F12: lrBack, F23: lrClear };
+  if (!map[k]) return;
+  e.preventDefault(); map[k]();
+});
 
 // ----- 明細行の入力表（仕入・定時請求・小口現金で共用） -----
 // cols: [{ name, label, cell: row => input html, sum?: true }]。行の値は readLines で読む（ヘッダー項目と name が重ならないこと）。
