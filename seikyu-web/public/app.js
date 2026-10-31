@@ -1129,7 +1129,7 @@ const LR_ACC = {
   8850: { name: '値引・雑損失', subs: [['D', '値引き', 'discount', '値引き'], ['L', '雑損失', 'loss', '雑損失']], dept: '063' },
 };
 const lrBlank = () => ({ acc: '', sub: '', amount: '', due: '' });
-const lrNew = () => ({ step: 1, date: '', customer: '', lines: [lrBlank(), lrBlank(), lrBlank(), lrBlank()], billTo: '', billInput: '', invoices: [], deposit: 0, pay: {}, from: '', to: '', key: uuid() });
+const lrNew = () => ({ step: 1, date: '', customer: '', lines: [lrBlank(), lrBlank(), lrBlank(), lrBlank()], billTo: '', billInput: '', invoices: [], deposit: 0, from: '', to: '', key: uuid() });
 let lr = lrNew();
 const lrNum = v => { const n = Number(String(v ?? '').replace(/,/g, '').trim()); return Number.isFinite(n) ? n : NaN; };
 const lrSub = l => LR_ACC[l.acc]?.subs?.find(s => s[0] === l.sub);
@@ -1163,13 +1163,16 @@ function lrStep2() {
     <p>${lr.lines.length < LR_MAX_LINES ? '<button type="button" class="mini" data-act="lrAddLine">＋ 行追加</button>' : ''}</p><div id="lr-totals">${lrTotals()}</div>
     ${lrKeys([['lrNext', 'F10 次画面', 1], ['lrNext', 'F2 貸方'], ['lrBack', 'F12 前画面'], ['lrEnd', 'F3 終了']])}`;
 }
-const lrPayTotal = () => Object.values(lr.pay).reduce((n, v) => n + (lrNum(v) || 0), 0);
+// 今回入金額は表示のみ（2026-10-31 ユーザー指示：現場別の入力を決めるまで）。入金額を表示中の請求へ請求No の古い順に配分する（入金消込の自動配分と同じ）
+const lrShown = () => lr.invoices.filter(r => (!lr.from || r.closing >= lr.from) && (!lr.to || r.closing <= lr.to)).sort((a, b) => a.id - b.id);
+const lrAlloc = () => { let rest = lrSum(); return lrShown().map(r => { const n = Math.min(rest, r.balance); rest -= n; return { r, n }; }); };
+const lrPayTotal = () => lrAlloc().reduce((a, x) => a + x.n, 0);
 const lrPayFoot = () => `<th colspan="5">合計</th><td class="num"><b>${yen(lrPayTotal())}</b></td>`;
 const lrRows = () => {
-  const shown = lr.invoices.filter(r => (!lr.from || r.closing >= lr.from) && (!lr.to || r.closing <= lr.to));
+  const shown = lrAlloc();
   if (!lr.billTo) return '<tr><td colspan="6" class="muted">請求先を選択してください</td></tr>';
   if (!shown.length) return `<tr><td colspan="6" class="muted">${lr.invoices.length ? 'この請求日の請求はありません' : 'この入金日までに締めた、残高のある請求がありません'}</td></tr>`;
-  return shown.map(r => `<tr><td>${esc(lr.billTo)} ${esc(lrNameOf(lr.billTo))}</td><td>${esc(r.closing)}</td><td>${r.id}</td><td>${esc(r.due || '')}</td><td class="num">${yen(r.balance)}</td><td class="num"><input class="num" data-lr="pay" data-id="${r.id}" value="${esc(lr.pay[r.id] ?? '')}" inputmode="numeric" aria-label="今回入金額"></td></tr>`).join('');
+  return shown.map(({ r, n }) => `<tr><td>${esc(lr.billTo)} ${esc(lrNameOf(lr.billTo))}</td><td>${esc(r.closing)}</td><td>${r.id}</td><td>${esc(r.due || '')}</td><td class="num">${yen(r.balance)}</td><td class="num">${n ? yen(n) : ''}</td></tr>`).join('');
 };
 const lrDepNote = () => (lrUsed().some(l => lrKind(l) === 'deposit') && lr.billTo ? `請求先の預り金残高 ${yen(lr.deposit)} 円` : '');
 function lrStep3() {
@@ -1179,7 +1182,7 @@ function lrStep3() {
     <div class="table-wrap"><table class="lr-pay"><thead><tr><th>請求先</th><th>請求日</th><th>請求No</th><th>予定日</th><th class="num">入金予定額</th><th class="num">今回入金額</th></tr></thead>
       <tbody id="lr-rows">${lrRows()}</tbody>
       <tfoot><tr id="lr-foot">${lrPayFoot()}</tr></tfoot></table></div>
-    ${canWrite() ? '' : '<p class="check-ng small">この利用者は登録できません</p>'}${lrKeys([...(canWrite() ? [['lrNext', 'F10 登録', 1]] : []), ['lrBack', 'F12 前画面'], ['lrEnd', 'F3 終了'], ['lrClear', 'F23 全削除']])}`;
+    ${canWrite() ? '' : '<p class="check-ng small">この利用者は登録できません</p>'}${lrKeys([...(canWrite() ? [['lrNext', 'F10 登録', 1]] : []), ['lrBack', 'F12 前画面'], ['lrEnd', 'F3 終了']])}`;
 }
 const lrDraw = () => { const b = $('#lr-body'); if (!b) return; b.innerHTML = lr.step === 1 ? lrStep1() : lr.step === 2 ? lrStep2() : lrStep3(); };
 function lrCheckLines() {
@@ -1197,14 +1200,10 @@ function lrCheckLines() {
 }
 async function lrRegister() {
   if (!lr.billTo) throw Error('請求先を選択してください');
-  const pays = lr.invoices.map(r => ({ r, n: String(lr.pay[r.id] ?? '').trim() === '' ? 0 : lrNum(lr.pay[r.id]) })).filter(x => x.n !== 0);
-  for (const { r, n } of pays) {
-    if (!Number.isInteger(n) || n < 0) throw Error(`請求No ${r.id} の今回入金額を正しく入力してください`);
-    if (n > r.balance) throw Error(`請求No ${r.id}：今回入金額が入金予定額（${yen(r.balance)}円）を超えているため登録できません`);
-  }
-  if (!pays.length) throw Error('今回入金額を入力してください');
+  const pays = lrAlloc().filter(x => x.n > 0);
+  if (!pays.length) throw Error('入金できる請求がありません');
   const total = pays.reduce((a, x) => a + x.n, 0), sum = lrSum();
-  if (total !== sum) throw Error(`今回入金額の合計（${yen(total)}円）が入金額（${yen(sum)}円）と一致しません`);
+  if (total !== sum) throw Error(`入金額（${yen(sum)}円）が入金予定額の合計（${yen(total)}円）を超えているため登録できません`);
   const body = { idempotencyKey: lr.key, date: lr.date, customer: lr.billTo, allocations: pays.map(x => ({ invoiceId: x.r.id, amount: x.n })) };
   for (const l of lrUsed()) { const k = lrKind(l); body[k] = lrNum(l.amount); if (k === 'bank') body.bankCode = l.sub; if (k === 'notes') body.noteDue = l.due; }
   const r = await post('/api/receipts', body);
@@ -1236,28 +1235,26 @@ async function lrNext() {
 }
 const lrBack = () => { if (lr.step > 1) { lr.step -= 1; lrDraw(); } };
 const lrEnd = () => { lr = lrNew(); lrDraw(); };
-const lrClear = () => { if (lr.step === 3) { lr.pay = {}; lrDraw(); } };
 const lrFind = () => { const i = $('#lr-cust'); if (!i) return; i.focus(); try { i.showPicker(); } catch {} };
 const lrRun = fn => Promise.resolve().then(fn).catch(e => toast(e.message, true));
 function legacyReceiptView() {
   const A = actions;
-  A.lrNext = () => lrRun(lrNext); A.lrBack = lrBack; A.lrEnd = lrEnd; A.lrClear = lrClear; A.lrFind = lrFind;
+  A.lrNext = () => lrRun(lrNext); A.lrBack = lrBack; A.lrEnd = lrEnd; A.lrFind = lrFind;
   A.lrAddLine = () => { if (lr.lines.length < LR_MAX_LINES) { lr.lines.push(lrBlank()); lrDraw(); } };
   return page('現行入金処理', '', '', `<section class="card glass lr" id="lr-body">${lr.step === 1 ? lrStep1() : lr.step === 2 ? lrStep2() : lrStep3()}</section>`);
 }
 document.addEventListener('input', e => {
   const t = e.target; if (!t.closest?.('#lr-body')) return;
   if (t.id === 'lr-date') lr.date = t.value;
-  else if (t.id === 'lr-cust') { lr.customer = t.value.trim(); lr.billInput = ''; lr.billTo = ''; lr.invoices = []; lr.pay = {}; $('#lr-cname').textContent = lrName(); }
+  else if (t.id === 'lr-cust') { lr.customer = t.value.trim(); lr.billInput = ''; lr.billTo = ''; lr.invoices = []; $('#lr-cname').textContent = lrName(); }
   else if (t.id === 'lr-bill') {
-    // 請求先を変えたら今回入金額はやり直し（1 回の登録で請求先は 1 つ）
-    lr.billInput = t.value.trim(); lr.pay = {}; lr.key = uuid(); lr.invoices = []; lr.billTo = ''; lrLoadSeq++;
+    // 1 回の登録で請求先は 1 つ
+    lr.billInput = t.value.trim(); lr.key = uuid(); lr.invoices = []; lr.billTo = ''; lrLoadSeq++;
     $('#lr-bname').textContent = lrNameOf(lr.billInput); lrPaintRows();
     if (masters.customers.some(c => c.code === lr.billInput)) lrRun(() => lrLoadBill(lr.billInput).then(ok => { if (ok) lrPaintRows(); }));
   }
   else if (t.dataset.lr === 'amount') { lr.lines[t.dataset.i].amount = t.value; const c = $(`[data-lr-tax="${t.dataset.i}"]`), v = lrTax(lr.lines[t.dataset.i]); if (c) c.textContent = v ? yen(v) : ''; $('#lr-totals').innerHTML = lrTotals(); }
   else if (t.dataset.lr === 'due') lr.lines[t.dataset.i].due = t.value;
-  else if (t.dataset.lr === 'pay') { lr.pay[t.dataset.id] = t.value; $('#lr-foot').innerHTML = lrPayFoot(); }
 });
 document.addEventListener('change', e => {
   const t = e.target; if (!t.closest?.('#lr-body')) return;
@@ -1265,12 +1262,12 @@ document.addEventListener('change', e => {
   else if (t.dataset.lr === 'sub') { lr.lines[t.dataset.i].sub = t.value; lrDraw(); }
   else if (t.id === 'lr-from' || t.id === 'lr-to') { lr[t.id === 'lr-from' ? 'from' : 'to'] = t.value; lrDraw(); }
 });
-// ファンクションキーはこの画面だけ。F23 は PC では Shift+F11
+// ファンクションキーはこの画面だけ
 document.addEventListener('keydown', e => {
   if (route.name !== 'receipts' || route.sub !== 'legacy' || !$('#lr-body') || $('dialog[open]')) return;
-  const k = e.key === 'F11' && e.shiftKey ? 'F23' : e.key;
+  const k = e.key;
   // F2 貸方：現行の F2 の画面は資料に無いため、当面は F10 と同じ請求ごとの今回入金額の画面を開く（2026-10-31 ユーザー指示）
-  const map = { F2: () => { if (lr.step === 2) lrRun(lrNext); }, F3: lrEnd, F9: () => { if (lr.step === 1) lrFind(); }, F10: () => { if (lr.step < 3 || canWrite()) lrRun(lrNext); }, F12: lrBack, F23: lrClear };
+  const map = { F2: () => { if (lr.step === 2) lrRun(lrNext); }, F3: lrEnd, F9: () => { if (lr.step === 1) lrFind(); }, F10: () => { if (lr.step < 3 || canWrite()) lrRun(lrNext); }, F12: lrBack };
   if (!map[k]) return;
   e.preventDefault(); map[k]();
 });
