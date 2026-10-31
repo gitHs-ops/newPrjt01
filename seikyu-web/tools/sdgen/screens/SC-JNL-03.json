@@ -1,0 +1,20 @@
+{
+ "views": [
+  {
+   "id": "SC-JNL-03",
+   "name": "自動仕訳リスト（帳票）",
+   "steps": [
+    {
+     "go": "#journals/lists"
+    },
+    {
+     "extract": {
+      "area": "〔検索条件〕",
+      "root": "#content .page-head .filters",
+      "mode": "controls"
+     }
+    }
+   ]
+  }
+ ]
+}

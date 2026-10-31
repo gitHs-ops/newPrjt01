@@ -1,0 +1,20 @@
+{
+ "views": [
+  {
+   "id": "SC-JNL-04",
+   "name": "出力指示画面",
+   "steps": [
+    {
+     "go": "#journals/export"
+    },
+    {
+     "extract": {
+      "area": "〔出力条件〕",
+      "root": "#content [data-sub=export] .filters",
+      "mode": "fields"
+     }
+    }
+   ]
+  }
+ ]
+}

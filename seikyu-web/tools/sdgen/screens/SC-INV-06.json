@@ -1,0 +1,40 @@
+{
+ "views": [
+  {
+   "id": "SC-INV-06",
+   "name": "一覧画面",
+   "steps": [
+    {
+     "go": "#invoices/issue"
+    },
+    {
+     "extract": {
+      "area": "〔検索条件〕",
+      "root": "#content .page-head .filters",
+      "mode": "controls"
+     }
+    },
+    {
+     "go": "#invoices/issue?month=2026-09"
+    },
+    {
+     "search": true
+    },
+    {
+     "extract": {
+      "area": "〔一覧〕",
+      "root": "#content section[data-sub=issue] thead th:first-child",
+      "mode": "controls"
+     }
+    },
+    {
+     "extract": {
+      "area": "〔一覧〕",
+      "root": "#content section[data-sub=issue] table",
+      "mode": "thead"
+     }
+    }
+   ]
+  }
+ ]
+}

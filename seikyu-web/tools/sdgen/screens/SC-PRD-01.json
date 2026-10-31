@@ -1,0 +1,100 @@
+{
+ "views": [
+  {
+   "id": "SC-PRD-01",
+   "name": "一覧画面",
+   "steps": [
+    {
+     "go": "#periods"
+    },
+    {
+     "extract": {
+      "area": "〔一覧〕",
+      "root": "#content section.card table",
+      "mode": "thead"
+     }
+    }
+   ]
+  },
+  {
+   "id": "SC-PRD-01-D1",
+   "name": "詳細画面（確認「月次確定」：未処理なし）",
+   "steps": [
+    {
+     "go": "#periods"
+    },
+    {
+     "click": "#content [data-act=close][data-month='2026-09']"
+    },
+    {
+     "extract": {
+      "area": "〔確認メッセージ〕",
+      "root": "dialog[open] .modal-body",
+      "mode": "message"
+     }
+    },
+    {
+     "escape": true
+    }
+   ]
+  },
+  {
+   "id": "SC-PRD-01-D2",
+   "name": "詳細画面（月次確定（YYYY-MM）：未処理あり）",
+   "steps": [
+    {
+     "go": "#periods"
+    },
+    {
+     "click": "#content [data-act=close][data-month='2026-10']"
+    },
+    {
+     "extract": {
+      "area": "〔確定前チェックの結果〕",
+      "root": "dialog[open] .modal-body",
+      "mode": "message"
+     }
+    },
+    {
+     "extract": {
+      "area": "〔未請求の出荷がある得意先（折りたたみ）〕",
+      "root": "dialog[open] details",
+      "mode": "thead"
+     }
+    },
+    {
+     "extract": {
+      "area": "〔入力〕",
+      "root": "dialog[open] .modal-body",
+      "mode": "fields"
+     }
+    },
+    {
+     "escape": true
+    }
+   ]
+  },
+  {
+   "id": "SC-PRD-01-D3",
+   "name": "詳細画面（確認「確定解除」）",
+   "steps": [
+    {
+     "go": "#periods"
+    },
+    {
+     "click": "#content [data-act=reopen]"
+    },
+    {
+     "extract": {
+      "area": "〔確認メッセージ〕",
+      "root": "dialog[open] .modal-body",
+      "mode": "message"
+     }
+    },
+    {
+     "escape": true
+    }
+   ]
+  }
+ ]
+}

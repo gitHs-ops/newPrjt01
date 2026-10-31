@@ -1,0 +1,14 @@
+{
+ "views": [
+  {
+   "id": "SC-STK-03",
+   "name": "入力画面",
+   "steps": [
+    {"go": "#inventory/count"},
+    {"extract": {"area": "〔検索条件〕", "root": "#content section.card[data-sub=count] > div.filters:has(#ic-date)", "mode": "fields"}},
+    {"search": true},
+    {"extract": {"area": "〔一覧（品目）〕", "root": "#ic-grid", "mode": "linegrid"}}
+   ]
+  }
+ ]
+}

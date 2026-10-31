@@ -1,0 +1,154 @@
+{
+ "views": [
+  {
+   "id": "SC-CSH-01",
+   "name": "一覧画面",
+   "steps": [
+    {
+     "go": "#cash/list"
+    },
+    {
+     "extract": {
+      "area": "〔検索条件〕",
+      "root": "#content .page-head .filters",
+      "mode": "controls"
+     }
+    },
+    {
+     "go": "#cash/list?month=2026-10"
+    },
+    {
+     "search": true
+    },
+    {
+     "extract": {
+      "area": "〔一覧〕",
+      "root": "#content [data-sub=list] table",
+      "mode": "linegrid"
+     }
+    },
+    {
+     "extract": {
+      "area": "〔一覧〕",
+      "root": "#content [data-sub=list] tbody tr:first-child td:nth-last-child(2)",
+      "mode": "controls",
+      "buttons": true
+     }
+    }
+   ]
+  },
+  {
+   "id": "SC-CSH-01-D1",
+   "name": "詳細画面（小口現金出納登録モーダル）",
+   "steps": [
+    {
+     "go": "#cash/list?month=2026-10"
+    },
+    {
+     "search": true
+    },
+    {
+     "click": "#content button[data-act=new]"
+    },
+    {
+     "extract": {
+      "area": "〔入力フォーム（小口現金出納登録）〕",
+      "root": "dialog[open] .inline-fields",
+      "mode": "fields"
+     }
+    },
+    {
+     "extract": {
+      "area": "〔入力フォーム（小口現金出納登録）〕",
+      "root": "dialog[open] #ex-dept",
+      "mode": "message"
+     }
+    },
+    {
+     "extract": {
+      "area": "〔入力フォーム（小口現金出納登録）〕",
+      "root": "#ex-lines tbody tr:first-child td:nth-child(1)",
+      "mode": "controls"
+     }
+    },
+    {
+     "extract": {
+      "area": "〔入力フォーム（小口現金出納登録）・明細〕",
+      "root": "#ex-lines tbody tr:first-child td:nth-child(3)",
+      "mode": "controls"
+     }
+    },
+    {
+     "extract": {
+      "area": "〔入力フォーム（小口現金出納登録）・明細〕",
+      "root": "#ex-lines tbody tr:first-child td:nth-child(4)",
+      "mode": "controls"
+     }
+    },
+    {
+     "extract": {
+      "area": "〔入力フォーム（小口現金出納登録）・明細〕",
+      "root": "#ex-lines tbody tr:first-child td:nth-child(6)",
+      "mode": "controls"
+     }
+    },
+    {
+     "extract": {
+      "area": "〔入力フォーム（小口現金出納登録）・明細〕",
+      "root": "#ex-lines tbody tr:first-child td:nth-child(5)",
+      "mode": "controls"
+     }
+    },
+    {
+     "extract": {
+      "area": "〔入力フォーム（小口現金出納登録）・明細〕",
+      "root": "#ex-lines tbody tr:first-child .hw-names",
+      "mode": "message"
+     }
+    },
+    {
+     "extract": {
+      "area": "〔入力フォーム（小口現金出納登録）・明細〕",
+      "root": "#ex-lines tbody tr:first-child td:nth-child(7)",
+      "mode": "controls"
+     }
+    },
+    {
+     "extract": {
+      "area": "〔入力フォーム（小口現金出納登録）・明細〕",
+      "root": "#ex-lines-total",
+      "mode": "message"
+     }
+    },
+    {
+     "escape": true
+    }
+   ]
+  },
+  {
+   "id": "SC-CSH-01-D2",
+   "name": "詳細画面（明細モーダル）",
+   "steps": [
+    {
+     "go": "#cash/list?month=2026-10"
+    },
+    {
+     "search": true
+    },
+    {
+     "click": "#content button[data-act=lines]"
+    },
+    {
+     "extract": {
+      "area": "〔明細モーダル〕",
+      "root": "dialog[open] #modal-body thead",
+      "mode": "message"
+     }
+    },
+    {
+     "escape": true
+    }
+   ]
+  }
+ ]
+}

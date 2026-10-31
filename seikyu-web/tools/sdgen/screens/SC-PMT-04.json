@@ -1,0 +1,27 @@
+{
+ "views": [
+  {
+   "id": "SC-PMT-04",
+   "name": "出力指示画面（銀行別随時支払一覧表）",
+   "steps": [
+    {"go": "#payments/bank"},
+    {"extract": {"area": "〔出力条件〕", "root": "#content [data-sub=bank] section", "mode": "controls", "buttons": true}}
+   ]
+  },
+  {
+   "id": "SC-PMT-04-D1",
+   "name": "一覧画面（銀行別随時支払一覧表）",
+   "steps": [
+    {"go": "#payments/bank"},
+    {"set": ["#bp-from", "2026-10-01"]},
+    {"set": ["#bp-to", "2026-10-31"]},
+    {"click": "#content button[data-act=bankList]"},
+    {"search": true},
+    {"extract": {"area": "〔検索条件〕", "root": "#content .page-head .filters", "mode": "controls"}},
+    {"extract": {"area": "〔一覧（支払日→支払元口座ごと）〕", "root": "#jl-body > h3:first-of-type", "mode": "message"}},
+    {"extract": {"area": "〔一覧（支払日→支払元口座ごと）〕", "root": "#jl-body > p.small:first-of-type", "mode": "message"}},
+    {"extract": {"area": "〔一覧（支払日→支払元口座ごと）〕", "root": "#jl-body > div.table-wrap:first-of-type", "mode": "thead"}}
+   ]
+  }
+ ]
+}

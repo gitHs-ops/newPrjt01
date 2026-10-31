@@ -1,4 +1,4 @@
-# 2 画面の取り出し：screens.json の手順でローカル検証サーバの画面を開き、区画ごとの項目（DOM）と画面図（PNG）を work\ に保存する
+# 1 画面の取り出し：screens\<画面ID>.json の手順でローカル検証サーバの画面を開き、区画ごとの項目（DOM）と画面図（PNG）を work\ に保存する
 #   python capture.py            … 全画面
 #   python capture.py SC-PUR-01  … 1画面
 import json, sys
@@ -55,7 +55,7 @@ EXTRACT_JS = r"""
 
 
 def run(only=None):
-    screens = json.loads(cfg.SCREENS.read_text(encoding='utf-8'))
+    screens = {f.stem: json.loads(f.read_text(encoding='utf-8')) for f in sorted(cfg.SCREENS.glob('SC-*.json'))}
     out_dir = cfg.WORK / 'capture'; (out_dir / 'png').mkdir(parents=True, exist_ok=True)
     with sync_playwright() as pw:
         b = pw.chromium.launch(executable_path=cfg.chromium(), args=['--lang=ja-JP'])
@@ -73,7 +73,7 @@ def run(only=None):
             p.wait_for_timeout(200)
 
         for sc, spec in screens.items():
-            if sc.startswith('_') or (only and sc != only): continue
+            if only and sc != only: continue
             result = {'screen': sc, 'views': []}
             for v in spec['views']:
                 view = {'id': v['id'], 'name': v['name'], 'areas': [], 'shots': []}

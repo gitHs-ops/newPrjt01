@@ -1,0 +1,21 @@
+{
+ "views": [
+  {
+   "id": "SC-INV-01",
+   "name": "一覧画面（請求データ作成）",
+   "steps": [
+    {
+     "go": "#invoices/create"
+    },
+    {
+     "extract": {
+      "area": "〔入力フォーム（請求データ作成）〕",
+      "root": "#content section[data-sub=create] .filters",
+      "mode": "controls",
+      "buttons": true
+     }
+    }
+   ]
+  }
+ ]
+}

@@ -1,0 +1,479 @@
+{
+ "views": [
+  {
+   "id": "SC-SHP-01",
+   "name": "一覧画面",
+   "steps": [
+    {
+     "go": "#shipments"
+    },
+    {
+     "extract": {
+      "area": "〔検索条件〕",
+      "root": "#content .page-head .filters",
+      "mode": "controls"
+     }
+    },
+    {
+     "go": "#shipments?month=2026-10"
+    },
+    {
+     "search": true
+    },
+    {
+     "extract": {
+      "area": "〔一覧〕",
+      "root": "#content section[data-sub=slips] thead th:nth-child(1)",
+      "mode": "message"
+     }
+    },
+    {
+     "extract": {
+      "area": "〔一覧〕",
+      "root": "#content section[data-sub=slips] thead th:nth-child(2)",
+      "mode": "message"
+     }
+    },
+    {
+     "extract": {
+      "area": "〔一覧〕",
+      "root": "#content section[data-sub=slips] thead th:nth-child(3)",
+      "mode": "message"
+     }
+    },
+    {
+     "extract": {
+      "area": "〔一覧〕",
+      "root": "#content section[data-sub=slips] thead th:nth-child(4)",
+      "mode": "message"
+     }
+    },
+    {
+     "extract": {
+      "area": "〔一覧〕",
+      "root": "#content section[data-sub=slips] thead th:nth-child(5)",
+      "mode": "message"
+     }
+    },
+    {
+     "extract": {
+      "area": "〔一覧〕",
+      "root": "#content section[data-sub=slips] thead th:nth-child(6)",
+      "mode": "message"
+     }
+    },
+    {
+     "extract": {
+      "area": "〔一覧〕",
+      "root": "#content section[data-sub=slips] thead th:nth-child(7)",
+      "mode": "message"
+     }
+    },
+    {
+     "extract": {
+      "area": "〔一覧〕",
+      "root": "#content section[data-sub=slips] thead th:nth-child(8)",
+      "mode": "message"
+     }
+    },
+    {
+     "extract": {
+      "area": "〔一覧〕",
+      "root": "#content section[data-sub=slips] thead th:nth-child(9)",
+      "mode": "message"
+     }
+    },
+    {
+     "extract": {
+      "area": "〔一覧〕",
+      "root": "#content section[data-sub=slips] thead th:nth-child(10)",
+      "mode": "message"
+     }
+    },
+    {
+     "extract": {
+      "area": "〔一覧〕",
+      "root": "#content section[data-sub=slips] thead th:nth-child(11)",
+      "mode": "message"
+     }
+    },
+    {
+     "extract": {
+      "area": "〔一覧〕",
+      "root": "#content section[data-sub=slips] thead th:nth-child(12)",
+      "mode": "message"
+     }
+    },
+    {
+     "extract": {
+      "area": "〔一覧〕",
+      "root": "#content section[data-sub=slips] thead th:nth-child(13)",
+      "mode": "message"
+     }
+    }
+   ]
+  },
+  {
+   "id": "SC-SHP-01-D1",
+   "name": "詳細画面（出荷伝票照会）",
+   "steps": [
+    {
+     "go": "#shipments?month=2026-09"
+    },
+    {
+     "search": true
+    },
+    {
+     "click": "#content tbody tr:has-text(\"請求済\") button[data-act=detail]"
+    },
+    {
+     "extract": {
+      "area": "〔照会（出荷伝票照会）〕",
+      "root": "dialog[open] .slip-sheet",
+      "mode": "message"
+     }
+    },
+    {
+     "escape": true
+    }
+   ]
+  },
+  {
+   "id": "SC-SHP-01-D2",
+   "name": "詳細画面（出荷伝票登録）",
+   "steps": [
+    {
+     "go": "#shipments?month=2026-10"
+    },
+    {
+     "search": true
+    },
+    {
+     "click": "#content button[data-act=new]"
+    },
+    {
+     "extract": {
+      "area": "〔入力フォーム（出荷伝票登録／修正）〕",
+      "root": "dialog[open] .slip-sheet > .sl:first-child + .sv",
+      "mode": "message"
+     }
+    },
+    {
+     "extract": {
+      "area": "〔入力フォーム（出荷伝票登録／修正）〕",
+      "root": "dialog[open] .slip-sheet .sv:has(> [name=shipKb])",
+      "mode": "controls"
+     }
+    },
+    {
+     "extract": {
+      "area": "〔入力フォーム（出荷伝票登録／修正）〕",
+      "root": "dialog[open] .slip-sheet .sv:has(> [name=date])",
+      "mode": "controls"
+     }
+    },
+    {
+     "extract": {
+      "area": "〔入力フォーム（出荷伝票登録／修正）〕",
+      "root": "dialog[open] .slip-sheet .sv:has(> [name=weather])",
+      "mode": "controls"
+     }
+    },
+    {
+     "extract": {
+      "area": "〔入力フォーム（出荷伝票登録／修正）〕",
+      "root": "dialog[open] .slip-sheet .sv:has(> [name=customer])",
+      "mode": "controls"
+     }
+    },
+    {
+     "extract": {
+      "area": "〔入力フォーム（出荷伝票登録／修正）〕",
+      "root": "dialog[open] .slip-sheet #sf-cname",
+      "mode": "message"
+     }
+    },
+    {
+     "extract": {
+      "area": "〔入力フォーム（出荷伝票登録／修正）〕",
+      "root": "dialog[open] .slip-sheet .sv:has(> [name=otherCustomer])",
+      "mode": "controls"
+     }
+    },
+    {
+     "extract": {
+      "area": "〔入力フォーム（出荷伝票登録／修正）〕",
+      "root": "dialog[open] .slip-sheet #sf-oname",
+      "mode": "message"
+     }
+    },
+    {
+     "extract": {
+      "area": "〔入力フォーム（出荷伝票登録／修正）〕",
+      "root": "dialog[open] .slip-sheet .sv-site",
+      "mode": "controls"
+     }
+    },
+    {
+     "extract": {
+      "area": "〔入力フォーム（出荷伝票登録／修正）〕",
+      "root": "dialog[open] .slip-sheet .sv:has(> [name=item])",
+      "mode": "controls"
+     }
+    },
+    {
+     "extract": {
+      "area": "〔入力フォーム（出荷伝票登録／修正）〕",
+      "root": "dialog[open] .slip-sheet #sf-iname",
+      "mode": "message"
+     }
+    },
+    {
+     "extract": {
+      "area": "〔入力フォーム（出荷伝票登録／修正）〕",
+      "root": "dialog[open] .slip-sheet .sv:has(> [name=deliveryKbn])",
+      "mode": "controls"
+     }
+    },
+    {
+     "extract": {
+      "area": "〔入力フォーム（出荷伝票登録／修正）〕",
+      "root": "dialog[open] .slip-sheet .sv:has(> [name=quantity])",
+      "mode": "controls"
+     }
+    },
+    {
+     "extract": {
+      "area": "〔入力フォーム（出荷伝票登録／修正）〕",
+      "root": "dialog[open] .slip-sheet #sf-unit",
+      "mode": "message"
+     }
+    },
+    {
+     "extract": {
+      "area": "〔入力フォーム（出荷伝票登録／修正）〕",
+      "root": "dialog[open] .slip-sheet #sf-cq",
+      "mode": "message"
+     }
+    },
+    {
+     "extract": {
+      "area": "〔入力フォーム（出荷伝票登録／修正）〕",
+      "root": "dialog[open] .slip-sheet #sf-pq",
+      "mode": "message"
+     }
+    },
+    {
+     "extract": {
+      "area": "〔入力フォーム（出荷伝票登録／修正）〕",
+      "root": "dialog[open] .slip-sheet .sv:has(> [name=method])",
+      "mode": "controls"
+     }
+    },
+    {
+     "extract": {
+      "area": "〔入力フォーム（出荷伝票登録／修正）〕",
+      "root": "dialog[open] .slip-sheet .sv:has(> [name=price])",
+      "mode": "controls"
+     }
+    },
+    {
+     "extract": {
+      "area": "〔入力フォーム（出荷伝票登録／修正）〕",
+      "root": "dialog[open] .slip-sheet .sv:has(> [name=freight])",
+      "mode": "controls"
+     }
+    },
+    {
+     "extract": {
+      "area": "〔入力フォーム（出荷伝票登録／修正）〕",
+      "root": "dialog[open] .slip-sheet #sf-net",
+      "mode": "message"
+     }
+    },
+    {
+     "extract": {
+      "area": "〔入力フォーム（出荷伝票登録／修正）〕",
+      "root": "dialog[open] .slip-sheet .sv:has(> [name=taxRate])",
+      "mode": "controls"
+     }
+    },
+    {
+     "extract": {
+      "area": "〔入力フォーム（出荷伝票登録／修正）〕",
+      "root": "dialog[open] .slip-sheet #sf-tax",
+      "mode": "message"
+     }
+    },
+    {
+     "extract": {
+      "area": "〔入力フォーム（出荷伝票登録／修正）〕",
+      "root": "dialog[open] .slip-sheet #sf-pay",
+      "mode": "message"
+     }
+    },
+    {
+     "extract": {
+      "area": "〔入力フォーム（出荷伝票登録／修正）〕",
+      "root": "dialog[open] .slip-sheet .sv:has(> [name=vehicle])",
+      "mode": "controls"
+     }
+    },
+    {
+     "extract": {
+      "area": "〔入力フォーム（出荷伝票登録／修正）〕",
+      "root": "dialog[open] .slip-sheet #sf-cn",
+      "mode": "message"
+     }
+    },
+    {
+     "extract": {
+      "area": "〔入力フォーム（出荷伝票登録／修正）〕",
+      "root": "dialog[open] .slip-sheet .sv:has(> [name=startTime])",
+      "mode": "controls"
+     }
+    },
+    {
+     "extract": {
+      "area": "〔入力フォーム（出荷伝票登録／修正）〕",
+      "root": "dialog[open] .slip-sheet #sf-pt",
+      "mode": "message"
+     }
+    },
+    {
+     "extract": {
+      "area": "〔入力フォーム（出荷伝票登録／修正）〕",
+      "root": "dialog[open] .slip-sheet .sv:has(> [name=startTemp])",
+      "mode": "controls"
+     }
+    },
+    {
+     "extract": {
+      "area": "〔入力フォーム（出荷伝票登録／修正）〕",
+      "root": "dialog[open] .slip-sheet .sv:has(> [name=operator])",
+      "mode": "controls"
+     }
+    },
+    {
+     "extract": {
+      "area": "〔入力フォーム（出荷伝票登録／修正）〕",
+      "root": "dialog[open] .slip-sheet .sv:has(> [name=remarks])",
+      "mode": "controls"
+     }
+    },
+    {
+     "escape": true
+    }
+   ]
+  },
+  {
+   "id": "SC-SHP-01-D3",
+   "name": "詳細画面（赤黒訂正）",
+   "steps": [
+    {
+     "go": "#shipments?month=2026-10"
+    },
+    {
+     "search": true
+    },
+    {
+     "click": "#content button[data-act=correct]"
+    },
+    {
+     "extract": {
+      "area": "〔入力フォーム（赤黒訂正）〕",
+      "root": "dialog[open] .slip-sheet .sv:has(> [name=date])",
+      "mode": "controls"
+     }
+    },
+    {
+     "extract": {
+      "area": "〔入力フォーム（赤黒訂正）〕",
+      "root": "dialog[open] .slip-sheet .sv:has(> [name=customer])",
+      "mode": "controls"
+     }
+    },
+    {
+     "extract": {
+      "area": "〔入力フォーム（赤黒訂正）〕",
+      "root": "dialog[open] .corr-fixed tr:nth-child(2) > td:nth-of-type(1)",
+      "mode": "message"
+     }
+    },
+    {
+     "extract": {
+      "area": "〔入力フォーム（赤黒訂正）〕",
+      "root": "dialog[open] .corr-fixed tr:nth-child(2) > td:nth-of-type(2)",
+      "mode": "message"
+     }
+    },
+    {
+     "extract": {
+      "area": "〔入力フォーム（赤黒訂正）〕",
+      "root": "dialog[open] .corr-fixed tr:nth-child(2) > td:nth-of-type(3)",
+      "mode": "message"
+     }
+    },
+    {
+     "extract": {
+      "area": "〔入力フォーム（赤黒訂正）〕",
+      "root": "dialog[open] .slip-sheet .sv:has(> [name=item])",
+      "mode": "controls"
+     }
+    },
+    {
+     "extract": {
+      "area": "〔入力フォーム（赤黒訂正）〕",
+      "root": "dialog[open] .slip-sheet .sv:has(> [name=quantity])",
+      "mode": "controls"
+     }
+    },
+    {
+     "extract": {
+      "area": "〔入力フォーム（赤黒訂正）〕",
+      "root": "dialog[open] .slip-sheet .sv:has(> [name=price])",
+      "mode": "controls"
+     }
+    },
+    {
+     "extract": {
+      "area": "〔入力フォーム（赤黒訂正）〕",
+      "root": "dialog[open] .slip-sheet .sv:has(> [name=freight])",
+      "mode": "controls"
+     }
+    },
+    {
+     "extract": {
+      "area": "〔入力フォーム（赤黒訂正）〕",
+      "root": "dialog[open] .slip-sheet .sv:has(> [name=operator])",
+      "mode": "controls"
+     }
+    },
+    {
+     "extract": {
+      "area": "〔入力フォーム（赤黒訂正）〕",
+      "root": "dialog[open] .slip-sheet .sv:has(> [name=deliveryKbn])",
+      "mode": "controls"
+     }
+    },
+    {
+     "extract": {
+      "area": "〔入力フォーム（赤黒訂正）〕",
+      "root": "dialog[open] .slip-sheet .sv:has(> [name=remarks])",
+      "mode": "controls"
+     }
+    },
+    {
+     "extract": {
+      "area": "〔入力フォーム（赤黒訂正）〕",
+      "root": "dialog[open] #corr-preview",
+      "mode": "message"
+     }
+    },
+    {
+     "escape": true
+    }
+   ]
+  }
+ ]
+}

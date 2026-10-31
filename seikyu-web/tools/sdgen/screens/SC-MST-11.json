@@ -1,0 +1,49 @@
+{
+ "views": [
+  {
+   "id": "SC-MST-11",
+   "name": "一覧画面",
+   "steps": [
+    {
+     "go": "#masters?kind=mixes"
+    },
+    {
+     "extract": {
+      "area": "〔検索条件〕",
+      "root": "#content .page-head .filters",
+      "mode": "controls"
+     }
+    },
+    {
+     "extract": {
+      "area": "〔一覧〕",
+      "root": "#content section.master-list table",
+      "mode": "linegrid"
+     }
+    }
+   ]
+  },
+  {
+   "id": "SC-MST-11-D",
+   "name": "詳細画面（配合（製品の材料構成）の新規登録・編集モーダル）",
+   "steps": [
+    {
+     "go": "#masters?kind=mixes"
+    },
+    {
+     "click": "#content button[data-act=new]"
+    },
+    {
+     "extract": {
+      "area": "〔入力フォーム（配合（製品の材料構成）の新規登録・編集モーダル）〕",
+      "root": "dialog[open] .form-grid",
+      "mode": "fields"
+     }
+    },
+    {
+     "escape": true
+    }
+   ]
+  }
+ ]
+}

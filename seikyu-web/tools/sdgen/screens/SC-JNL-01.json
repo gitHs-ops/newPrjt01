@@ -1,0 +1,33 @@
+{
+ "views": [
+  {
+   "id": "SC-JNL-01",
+   "name": "一覧画面",
+   "steps": [
+    {
+     "go": "#journals/list"
+    },
+    {
+     "extract": {
+      "area": "〔検索条件〕",
+      "root": "#content .page-head .filters",
+      "mode": "controls"
+     }
+    },
+    {
+     "go": "#journals/list?month=2026-10"
+    },
+    {
+     "search": true
+    },
+    {
+     "extract": {
+      "area": "〔一覧（仕訳明細）〕",
+      "root": "#content section.card > div:first-child .table-wrap > table",
+      "mode": "thead"
+     }
+    }
+   ]
+  }
+ ]
+}

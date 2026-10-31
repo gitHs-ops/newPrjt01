@@ -1,0 +1,23 @@
+{
+ "views": [
+  {
+   "id": "SC-PMT-03",
+   "name": "出力指示画面（振込先一覧）",
+   "steps": [
+    {"go": "#payments/transfer"},
+    {"extract": {"area": "〔出力条件〕", "root": "#content [data-sub=transfer] .filters", "mode": "controls"}}
+   ]
+  },
+  {
+   "id": "SC-PMT-03-D1",
+   "name": "メッセージ（データがありません）",
+   "steps": [
+    {"go": "#payments/transfer"},
+    {"set": ["#tl-to", "2000-01-01"]},
+    {"click": "#content button[data-act=misc][data-kind=transfer-list]"},
+    {"extract": {"area": "〔メッセージ〕", "root": "dialog[open] #modal-body", "mode": "message"}},
+    {"escape": true}
+   ]
+  }
+ ]
+}

@@ -1,0 +1,181 @@
+{
+ "views": [
+  {
+   "id": "SC-PUR-01",
+   "name": "一覧画面",
+   "steps": [
+    {
+     "go": "#purchases/list"
+    },
+    {
+     "extract": {
+      "area": "〔検索条件〕",
+      "root": "#content .page-head .filters",
+      "mode": "controls"
+     }
+    },
+    {
+     "go": "#purchases/list?month=2026-10"
+    },
+    {
+     "search": true
+    },
+    {
+     "extract": {
+      "area": "〔一覧〕",
+      "root": "#content section.card table",
+      "mode": "thead"
+     }
+    },
+    {
+     "shot": {
+      "name": "SC-PUR-01_一覧",
+      "viewport": [
+       1172,
+       900
+      ]
+     }
+    },
+    {
+     "go": "#purchases/reports"
+    },
+    {
+     "extract": {
+      "area": "〔帳票⑭（商品仕入登録リスト）・小メニュー［商品仕入登録リスト］〕",
+      "root": "#content [data-sub=reports]",
+      "mode": "controls",
+      "buttons": true
+     }
+    },
+    {
+     "shot": {
+      "name": "SC-PUR-01_帳票メニュー",
+      "viewport": [
+       1172,
+       900
+      ],
+      "clip": [
+       0,
+       0,
+       1172,
+       250
+      ]
+     }
+    },
+    {
+     "set": [
+      "#pl-from",
+      "2026-10-01"
+     ]
+    },
+    {
+     "set": [
+      "#pl-to",
+      "2026-10-31"
+     ]
+    },
+    {
+     "download": {
+      "click": "#content button[data-kind=purchase-register]",
+      "name": "SC-PUR-01_帳票.xlsx"
+     }
+    }
+   ]
+  },
+  {
+   "id": "SC-PUR-01-D1",
+   "name": "詳細画面（商品仕入の登録モーダル）",
+   "steps": [
+    {
+     "go": "#purchases/list?month=2026-10"
+    },
+    {
+     "search": true
+    },
+    {
+     "click": "#content button[data-act=new]"
+    },
+    {
+     "extract": {
+      "area": "〔入力フォーム（商品仕入の登録）〕",
+      "root": "dialog[open] .form-grid",
+      "mode": "fields"
+     }
+    },
+    {
+     "extract": {
+      "area": "〔入力フォーム（商品仕入の登録）・明細〕",
+      "root": "#pu-lines",
+      "mode": "linegrid"
+     }
+    },
+    {
+     "fill": [
+      "#pu-lines tbody tr:first-child [name=item]",
+      "10109"
+     ]
+    },
+    {
+     "fill": [
+      "#pu-lines tbody tr:first-child [name=quantity]",
+      "12"
+     ]
+    },
+    {
+     "fill": [
+      "#pu-lines tbody tr:first-child [name=price]",
+      "1460"
+     ]
+    },
+    {
+     "shot": {
+      "name": "SC-PUR-01_登録",
+      "viewport": [
+       1440,
+       900
+      ],
+      "el": "dialog[open]"
+     }
+    },
+    {
+     "escape": true
+    }
+   ]
+  },
+  {
+   "id": "SC-PUR-01-D2",
+   "name": "詳細画面（確認「仕入の取消」）",
+   "steps": [
+    {
+     "go": "#purchases/list?month=2026-10"
+    },
+    {
+     "search": true
+    },
+    {
+     "click": "#content button[data-act=del]"
+    },
+    {
+     "extract": {
+      "area": "〔確認モーダル〕",
+      "root": "dialog[open] .modal-body",
+      "mode": "message"
+     }
+    },
+    {
+     "shot": {
+      "name": "SC-PUR-01_取消",
+      "viewport": [
+       1440,
+       900
+      ],
+      "el": "dialog[open]"
+     }
+    },
+    {
+     "escape": true
+    }
+   ]
+  }
+ ]
+}

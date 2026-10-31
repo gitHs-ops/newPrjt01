@@ -1,0 +1,86 @@
+{
+ "views": [
+  {
+   "id": "SC-KB-07",
+   "name": "一覧画面",
+   "steps": [
+    {
+     "go": "#kb-setup"
+    },
+    {
+     "extract": {
+      "area": "〔勘定科目タブ〕",
+      "root": "#content section.card > .table-wrap:first-of-type > table",
+      "mode": "thead"
+     }
+    },
+    {
+     "click": "#content .tabs [data-tab=opening]"
+    },
+    {
+     "extract": {
+      "area": "〔期首残高タブ〕",
+      "root": "#kb-op",
+      "mode": "linegrid"
+     }
+    },
+    {
+     "click": "#content .tabs [data-tab=period]"
+    },
+    {
+     "extract": {
+      "area": "〔会計期間・入力制限タブ〕",
+      "root": "#content section.card .form-grid",
+      "mode": "fields"
+     }
+    },
+    {
+     "click": "#content .tabs [data-tab=bugyo]"
+    },
+    {
+     "extract": {
+      "area": "〔勘定奉行連携タブ〕",
+      "root": "#content section.card .grid2 > div:first-child",
+      "mode": "linegrid"
+     }
+    },
+    {
+     "extract": {
+      "area": "〔勘定奉行連携タブ〕",
+      "root": "#content section.card .grid2 > div:last-child",
+      "mode": "linegrid"
+     }
+    },
+    {
+     "extract": {
+      "area": "〔勘定奉行連携タブ〕",
+      "root": "#content section.card .grid2 > div:last-child",
+      "mode": "fields"
+     }
+    }
+   ]
+  },
+  {
+   "id": "SC-KB-07-D1",
+   "name": "詳細画面（勘定科目の追加・編集モーダル）",
+   "steps": [
+    {
+     "go": "#kb-setup"
+    },
+    {
+     "click": "#content [data-act=newAcc]"
+    },
+    {
+     "extract": {
+      "area": "〔入力フォーム（勘定科目の追加・編集）〕",
+      "root": "dialog[open] .form-grid",
+      "mode": "fields"
+     }
+    },
+    {
+     "escape": true
+    }
+   ]
+  }
+ ]
+}

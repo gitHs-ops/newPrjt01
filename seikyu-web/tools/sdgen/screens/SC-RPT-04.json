@@ -1,0 +1,35 @@
+{
+ "views": [
+  {
+   "id": "SC-RPT-04",
+   "name": "一覧画面",
+   "steps": [
+    {
+     "go": "#reports/jv"
+    },
+    {
+     "extract": {
+      "area": "〔検索条件〕",
+      "root": "#content [data-sub=jv] .filters",
+      "mode": "fields"
+     }
+    }
+   ]
+  },
+  {
+   "id": "SC-RPT-04-D",
+   "name": "詳細画面（入金額配賦登録）",
+   "steps": [
+    {
+     "go": "#reports/jv"
+    },
+    {
+     "click": "#content [data-sub=jv] button[data-act=jvAlloc]"
+    },
+    {
+     "escape": true
+    }
+   ]
+  }
+ ]
+}

@@ -1,0 +1,12 @@
+{
+ "views": [
+  {
+   "id": "SC-PAY-02",
+   "name": "出力指示画面（定時請求入力明細表）",
+   "steps": [
+    {"go": "#payables/reports"},
+    {"extract": {"area": "〔検索条件〕", "root": "#content [data-sub=reports] .filters", "mode": "controls"}}
+   ]
+  }
+ ]
+}

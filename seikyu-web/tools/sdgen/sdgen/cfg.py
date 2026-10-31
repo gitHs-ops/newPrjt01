@@ -5,9 +5,9 @@ from pathlib import Path
 TOOLS = Path(__file__).resolve().parent.parent              # tools/sdgen
 WORK = Path(os.environ.get('SDGEN_WORK', TOOLS / 'work'))     # 生成物・中間ファイル（git に入れない）
 DOC_DIR = Path(os.environ.get('SDGEN_DOC_DIR', r'C:\myPrjt01\seikyuPrjt01'))   # 画面設計書の置き場所
-SUPPLEMENT = Path(os.environ.get('SDGEN_SUPPLEMENT', TOOLS / '補足入力.xlsx'))  # 人が書く入力
-SCREENS = TOOLS / 'screens.json'                              # 画面の開き方と取り出す区画
-FIXED = TOOLS / 'fixed'                                       # 固定画像（補足入力の「図」で指定）
+SUPPLEMENT = Path(os.environ.get('SDGEN_SUPPLEMENT', TOOLS / '補足入力'))  # 人が書く入力（1画面＝1ファイル）
+SCREENS = TOOLS / 'screens'                                   # 画面の開き方と取り出す区画（1画面＝1ファイル）
+FIXED = Path(os.environ.get('SDGEN_FIXED', DOC_DIR / 'sdgen_fixed'))   # 固定画像（補足入力の「図」で指定）。大きいので git ではなく設計書の横に置く
 SCHEMA = TOOLS.parent.parent / 'test' / 'schema' / 'schema.sql'  # DB 定義（桁数の規則で使う）
 
 # 画面を取り出すローカル検証サーバ（本番には接続しない）

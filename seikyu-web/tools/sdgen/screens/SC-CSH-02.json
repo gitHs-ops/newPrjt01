@@ -1,0 +1,34 @@
+{
+ "views": [
+  {
+   "id": "SC-CSH-02",
+   "name": "出力指示画面（小口現金出納簿）",
+   "steps": [
+    {"go": "#cash/book"},
+    {"extract": {"area": "〔出力条件〕", "root": "#content [data-sub=book] .filters", "mode": "controls"}},
+    {"extract": {"area": "〔ボタン〕", "root": "#content [data-sub=book] .filters[style]", "mode": "controls", "buttons": true}}
+   ]
+  },
+  {
+   "id": "SC-CSH-02-D1",
+   "name": "詳細画面（定額資金の設定モーダル）",
+   "steps": [
+    {"go": "#cash/book"},
+    {"click": "#content button[data-act=fund]"},
+    {"extract": {"area": "〔入力フォーム（定額資金の設定）〕", "root": "dialog[open] .form-grid", "mode": "fields"}},
+    {"escape": true}
+   ]
+  },
+  {
+   "id": "SC-CSH-02-D2",
+   "name": "詳細画面（現金補充モーダル）",
+   "steps": [
+    {"go": "#cash/book"},
+    {"click": "#content button[data-act=refill]"},
+    {"extract": {"area": "〔入力フォーム（現金補充）〕", "root": "dialog[open] .form-grid", "mode": "fields"}},
+    {"extract": {"area": "〔補充履歴〕", "root": "dialog[open] #modal-body > .table-wrap", "mode": "thead"}},
+    {"escape": true}
+   ]
+  }
+ ]
+}

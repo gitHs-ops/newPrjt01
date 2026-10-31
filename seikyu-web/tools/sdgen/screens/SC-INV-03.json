@@ -1,0 +1,56 @@
+{
+ "views": [
+  {
+   "id": "SC-INV-03",
+   "name": "一覧画面",
+   "steps": [
+    {
+     "go": "#invoices/reports"
+    },
+    {
+     "extract": {
+      "area": "〔検索条件（帳票条件）〕",
+      "root": "#content section[data-sub=reports] .filters label.field",
+      "mode": "controls"
+     }
+    }
+   ]
+  },
+  {
+   "id": "SC-INV-03-D",
+   "name": "詳細画面（データなしの案内）",
+   "steps": [
+    {
+     "go": "#invoices/reports"
+    },
+    {
+     "set": [
+      "#rep-month",
+      "2030-01"
+     ]
+    },
+    {
+     "click": "#content section[data-sub=reports] button[data-act=report]"
+    },
+    {
+     "extract": {
+      "area": "〔データなしの案内（2026-10-27 確認ポップアップは廃止）〕",
+      "root": "dialog[open] #modal-title",
+      "mode": "message"
+     }
+    },
+    {
+     "extract": {
+      "area": "〔データなしの案内（2026-10-27 確認ポップアップは廃止）〕",
+      "root": "dialog[open] #modal-foot",
+      "mode": "controls",
+      "buttons": true
+     }
+    },
+    {
+     "escape": true
+    }
+   ]
+  }
+ ]
+}

@@ -1,0 +1,49 @@
+{
+ "views": [
+  {
+   "id": "SC-MST-19",
+   "name": "一覧画面",
+   "steps": [
+    {
+     "go": "#masters?kind=matPrices"
+    },
+    {
+     "extract": {
+      "area": "〔検索条件〕",
+      "root": "#content .page-head .filters",
+      "mode": "controls"
+     }
+    },
+    {
+     "extract": {
+      "area": "〔一覧〕",
+      "root": "#content section.master-list table",
+      "mode": "linegrid"
+     }
+    }
+   ]
+  },
+  {
+   "id": "SC-MST-19-D",
+   "name": "詳細画面（材料単価（配合計算用・手入力）の新規登録・編集モーダル）",
+   "steps": [
+    {
+     "go": "#masters?kind=matPrices"
+    },
+    {
+     "click": "#content button[data-act=new]"
+    },
+    {
+     "extract": {
+      "area": "〔入力フォーム（材料単価（配合計算用・手入力）の新規登録・編集モーダル）〕",
+      "root": "dialog[open] .form-grid",
+      "mode": "fields"
+     }
+    },
+    {
+     "escape": true
+    }
+   ]
+  }
+ ]
+}

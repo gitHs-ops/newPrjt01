@@ -1,0 +1,36 @@
+{
+ "views": [
+  {
+   "id": "SC-INV-04",
+   "name": "一覧画面",
+   "steps": [
+    {
+     "go": "#invoices/balance"
+    },
+    {
+     "extract": {
+      "area": "〔検索条件〕",
+      "root": "#content .page-head .filters",
+      "mode": "controls"
+     }
+    },
+    {
+     "go": "#invoices/balance?bmonth=2026-10&bclosing=31&bstate=none"
+    },
+    {
+     "search": true
+    },
+    {
+     "click": "#content section.card thead th:nth-child(2)"
+    },
+    {
+     "extract": {
+      "area": "〔一覧〕",
+      "root": "#content section.card table",
+      "mode": "thead"
+     }
+    }
+   ]
+  }
+ ]
+}

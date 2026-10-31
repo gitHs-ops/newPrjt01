@@ -1,0 +1,140 @@
+{
+ "views": [
+  {
+   "id": "SC-PAY-01",
+   "name": "一覧画面",
+   "steps": [
+    {
+     "go": "#payables/list"
+    },
+    {
+     "extract": {
+      "area": "〔検索条件〕",
+      "root": "#content .page-head .filters",
+      "mode": "controls"
+     }
+    },
+    {
+     "go": "#payables/list?month=2026-10"
+    },
+    {
+     "search": true
+    },
+    {
+     "extract": {
+      "area": "〔一覧〕",
+      "root": "#content [data-sub=list] table",
+      "mode": "linegrid"
+     }
+    },
+    {
+     "extract": {
+      "area": "〔一覧〕",
+      "root": "#content [data-sub=list] tbody tr:first-child td:nth-last-child(2)",
+      "mode": "controls",
+      "buttons": true
+     }
+    }
+   ]
+  },
+  {
+   "id": "SC-PAY-01-D1",
+   "name": "詳細画面（定時請求データ入力モーダル）",
+   "steps": [
+    {
+     "go": "#payables/list?month=2026-10"
+    },
+    {
+     "search": true
+    },
+    {
+     "click": "#content button[data-act=new]"
+    },
+    {
+     "extract": {
+      "area": "〔入力フォーム（定時請求データ入力）〕",
+      "root": "dialog[open] .hw-head",
+      "mode": "fields"
+     }
+    },
+    {
+     "extract": {
+      "area": "〔入力フォーム（定時請求データ入力）〕",
+      "root": "dialog[open] #ex-defer",
+      "mode": "message"
+     }
+    },
+    {
+     "extract": {
+      "area": "〔入力フォーム（定時請求データ入力）・区分別合計〕",
+      "root": "dialog[open] #hw-out",
+      "mode": "message"
+     }
+    },
+    {
+     "extract": {
+      "area": "〔入力フォーム（定時請求データ入力）・区分別合計〕",
+      "root": "dialog[open] #hw-in",
+      "mode": "message"
+     }
+    },
+    {
+     "extract": {
+      "area": "〔入力フォーム（定時請求データ入力）・区分別合計〕",
+      "root": "dialog[open] #hw-ex",
+      "mode": "message"
+     }
+    },
+    {
+     "extract": {
+      "area": "〔入力フォーム（定時請求データ入力）・区分別合計〕",
+      "root": "dialog[open] .hw-sum label",
+      "mode": "controls"
+     }
+    },
+    {
+     "extract": {
+      "area": "〔入力フォーム（定時請求データ入力）・区分別合計〕",
+      "root": "dialog[open] #hw-total",
+      "mode": "message"
+     }
+    },
+    {
+     "extract": {
+      "area": "〔入力フォーム（定時請求データ入力）・区分別合計〕",
+      "root": "dialog[open] #hw-check",
+      "mode": "message"
+     }
+    },
+    {
+     "escape": true
+    }
+   ]
+  },
+  {
+   "id": "SC-PAY-01-D2",
+   "name": "詳細画面（明細モーダル）",
+   "steps": [
+    {
+     "go": "#payables/list?month=2026-10"
+    },
+    {
+     "search": true
+    },
+    {
+     "click": "#content button[data-act=lines]"
+    },
+    {
+     "extract": {
+      "area": "〔明細モーダル〕",
+      "root": "dialog[open] #modal-body thead",
+      "mode": "message"
+     }
+    },
+    {
+     "escape": true
+    }
+   ]
+  }
+ ]
+}

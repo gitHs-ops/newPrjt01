@@ -6,8 +6,8 @@ from sdgen import cfg
 sys.stdout.reconfigure(encoding='utf-8')
 
 
-def main():
-    meta = json.loads((cfg.WORK / 'build' / 'build.json').read_text(encoding='utf-8'))
+def main(meta_path=None):
+    meta = json.loads(cfg.Path(meta_path or cfg.WORK / 'build' / 'build.json').read_text(encoding='utf-8'))
     todo = [m for m in meta['sheets'] if m['arrows']]
     if not todo: print('矢印なし'); return
     xl = w.DispatchEx('Excel.Application'); xl.Visible = False; xl.DisplayAlerts = False
@@ -29,4 +29,4 @@ def main():
 
 
 if __name__ == '__main__':
-    main()
+    main(*sys.argv[1:2])

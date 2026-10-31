@@ -1,0 +1,32 @@
+{
+ "views": [
+  {
+   "id": "SC-STK-04",
+   "name": "指示画面",
+   "steps": [
+    {"go": "#inventory/post"},
+    {"extract": {"area": "〔入力（在庫計上）〕", "root": "#content section.card[data-sub=post] .filters", "mode": "controls", "buttons": true}}
+   ]
+  },
+  {
+   "id": "SC-STK-04-D1",
+   "name": "詳細画面（確認「在庫計上」）",
+   "steps": [
+    {"go": "#inventory/post"},
+    {"click": "#content button[data-act=post]"},
+    {"extract": {"area": "〔確認モーダル〕", "root": "dialog[open] .modal-body", "mode": "message"}},
+    {"escape": true}
+   ]
+  },
+  {
+   "id": "SC-STK-04-D2",
+   "name": "詳細画面（確認「在庫計上の取消」）",
+   "steps": [
+    {"go": "#inventory/post"},
+    {"click": "#content button[data-act=unpost]"},
+    {"extract": {"area": "〔確認モーダル〕", "root": "dialog[open] .modal-body", "mode": "message"}},
+    {"escape": true}
+   ]
+  }
+ ]
+}

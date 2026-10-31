@@ -1,0 +1,72 @@
+{
+ "views": [
+  {
+   "id": "SC-INV-02",
+   "name": "一覧画面",
+   "steps": [
+    {
+     "go": "#invoices/list"
+    },
+    {
+     "extract": {
+      "area": "〔検索条件〕",
+      "root": "#content .page-head .filters",
+      "mode": "controls"
+     }
+    },
+    {
+     "go": "#invoices/list?month=2026-09"
+    },
+    {
+     "search": true
+    },
+    {
+     "extract": {
+      "area": "〔一覧〕",
+      "root": "#content section[data-sub=list] table",
+      "mode": "thead"
+     }
+    }
+   ]
+  },
+  {
+   "id": "SC-INV-02-D1",
+   "name": "詳細画面（請求詳細モーダル）",
+   "steps": [
+    {
+     "go": "#invoices/list?month=2026-09"
+    },
+    {
+     "search": true
+    },
+    {
+     "click": "#content section[data-sub=list] button[data-act=detail]"
+    },
+    {
+     "extract": {
+      "area": "〔詳細（請求詳細モーダル）〕",
+      "root": "dialog[open] #modal-body > .grid3:first-child > div:nth-child(1)",
+      "mode": "message"
+     }
+    },
+    {
+     "extract": {
+      "area": "〔詳細（請求詳細モーダル）〕",
+      "root": "dialog[open] #modal-body > .grid3:first-child > div:nth-child(2)",
+      "mode": "message"
+     }
+    },
+    {
+     "extract": {
+      "area": "〔詳細（請求詳細モーダル）〕",
+      "root": "dialog[open] #modal-body > .grid3:nth-child(2)",
+      "mode": "message"
+     }
+    },
+    {
+     "escape": true
+    }
+   ]
+  }
+ ]
+}

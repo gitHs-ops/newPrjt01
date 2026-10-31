@@ -1,0 +1,41 @@
+{
+ "views": [
+  {
+   "id": "SC-PMT-02",
+   "name": "出力指示画面（支払帳票・支払データ）",
+   "steps": [
+    {"go": "#payments/reports"},
+    {"extract": {"area": "〔出力条件〕", "root": "#content [data-sub=reports] .filters", "mode": "controls"}},
+    {"extract": {"area": "〔出力ボタン〕", "root": "#content [data-sub=reports] .filters[style]", "mode": "controls", "buttons": true}}
+   ]
+  },
+  {
+   "id": "SC-PMT-02-D1",
+   "name": "詳細画面（支払データ作成（全銀）モーダル）",
+   "steps": [
+    {"go": "#payments/reports"},
+    {"set": ["#pr-date", "2026-10-28"]},
+    {"set": ["#pr-bank", "041"]},
+    {"click": "#content button[data-act=zengin]"},
+    {"extract": {"area": "〔集計〕", "root": "dialog[open] .grid3 .sum-line", "mode": "message"}},
+    {"extract": {"area": "〔集計〕", "root": "dialog[open] .note.warn", "mode": "message"}},
+    {"extract": {"area": "〔振込一覧〕", "root": "dialog[open] #modal-body > .table-wrap", "mode": "thead"}},
+    {"extract": {"area": "〔レコードプレビュー〕", "root": "dialog[open] pre.zengin-pre", "mode": "message"}},
+    {"extract": {"area": "〔レコードプレビュー〕", "root": "dialog[open] #modal-body > .filters", "mode": "controls", "buttons": true}},
+    {"escape": true}
+   ]
+  },
+  {
+   "id": "SC-PMT-02-D2",
+   "name": "メッセージ（データがありません）",
+   "steps": [
+    {"go": "#payments/reports"},
+    {"set": ["#pr-from", "2000-01-01"]},
+    {"set": ["#pr-to", "2000-01-31"]},
+    {"click": "#content button[data-act=prep][data-kind=vendor-payments]"},
+    {"extract": {"area": "〔メッセージ〕", "root": "dialog[open] #modal-body", "mode": "message"}},
+    {"escape": true}
+   ]
+  }
+ ]
+}

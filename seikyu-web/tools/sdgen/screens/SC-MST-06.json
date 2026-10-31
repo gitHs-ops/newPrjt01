@@ -1,0 +1,42 @@
+{
+ "views": [
+  {
+   "id": "SC-MST-06",
+   "name": "一覧画面",
+   "steps": [
+    {
+     "go": "#masters?kind=vendors"
+    },
+    {
+     "extract": {
+      "area": "〔検索条件〕",
+      "root": "#content .page-head .filters",
+      "mode": "controls"
+     }
+    }
+   ]
+  },
+  {
+   "id": "SC-MST-06-D",
+   "name": "詳細画面（業者の新規登録・編集モーダル）",
+   "steps": [
+    {
+     "go": "#masters?kind=vendors"
+    },
+    {
+     "click": "#content button[data-act=new]"
+    },
+    {
+     "extract": {
+      "area": "〔入力フォーム（業者の新規登録・編集モーダル）〕",
+      "root": "dialog[open] .form-grid",
+      "mode": "fields"
+     }
+    },
+    {
+     "escape": true
+    }
+   ]
+  }
+ ]
+}
