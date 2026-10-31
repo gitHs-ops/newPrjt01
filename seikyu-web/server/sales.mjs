@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { check, Conflict, yen, qty, taxOf, isoDate, isoMonth, toNum, fromNum, period, dueDate, closingDay, text, RATES, METHODS, CREDIT, today } from './domain.mjs';
 import { rows, one, nextNo, assertOpen, audit, stamp, postJournal, reverseJournal, line, AR_SLIP_MAX } from './db.mjs';
+import { mustDecode, decode } from './taxcode.mjs';
 
 const site = s => { const [code = '', suffix = ''] = String(s || '').split('|'); return { code, suffix }; };
 const monthRange = m => { isoMonth(m); return [toNum(m + '-01'), toNum(m + '-31')]; };
@@ -692,10 +693,15 @@ export async function createReceipt(c, ctx, p) {
   if (overpay) await c.query('INSERT INTO receipt_component (receipt_id,component_no,component_kind,amount) VALUES (?,?,?,?)', [r.insertId, ++n, 'OVERPAY', overpay]);
   for (const a of allocs) await c.query('INSERT INTO receipt_allocation (receipt_id,invoice_id,customers_cd,amount) VALUES (?,?,?,?)', [r.insertId, a.id, cust.customers_cd, a.amount]);
   // 仕訳パターン分析 B-01〜B-06（処税率: 協力会費は141/41混在のため141で仮置き Q04）
+  // 現行入金処理では借方の処税率を入力できる（p.tax：{ FEE: '041', … }。2026-10-31）。指定が無ければ既定値
+  // 外税の処税率を選んだときは、入金額（税込）を科目の税抜金額と仮払消費税 1465 に分ける（定時請求・小口現金の外税と同じ）
+  const tx = (k, d) => (p.tax?.[k] ? mustDecode(p.tax[k], `${RECEIPT_PARTS[k]}の処税率`).code : d);
+  const dr = (acc, k, def, opt = {}) => { const amt = parts[k], code = tx(k, def), d = decode(code), r = d?.excl ? Math.round(d.rate * 10) : 0, t = amt && r ? Math.floor(amt * r / (1000 + r)) : 0;
+    return [line('D', acc, amt - t, { ...opt, tax: code }), line('D', '1465', t, { tax: '9' })]; };
   await postJournal(c, { date, pattern: 'B01', sourceType: 'receipt', sourceId: r.insertId, lines: [
-    line('D', '1112', parts.BANK, { sub: bankCode, tax: '9' }), line('D', '1111', parts.CASH, { tax: '9' }), line('D', '1120', parts.NOTE, { customer: cust.customers_cd, tax: '9' }),
-    line('D', '8330', parts.FEE, { sub: '101', dept: '063', tax: '141' }), line('D', '8330', parts.COOP, { sub: '107', dept: '063', tax: '141' }),
-    line('D', '4170', parts.DEPOSIT, { customer: cust.customers_cd, tax: '9' }), line('D', '8850', parts.DISCOUNT, { dept: '063', tax: '141' }), line('D', '8850', parts.LOSS, { dept: '063', tax: '9' }),
+    ...dr('1112', 'BANK', '9', { sub: bankCode }), ...dr('1111', 'CASH', '9'), ...dr('1120', 'NOTE', '9', { customer: cust.customers_cd }),
+    ...dr('8330', 'FEE', '141', { sub: '101', dept: '063' }), ...dr('8330', 'COOP', '141', { sub: '107', dept: '063' }),
+    ...dr('4170', 'DEPOSIT', '9', { customer: cust.customers_cd }), ...dr('8850', 'DISCOUNT', '141', { dept: '063' }), ...dr('8850', 'LOSS', '9', { dept: '063' }),
     ...allocs.map(a => line('C', '1131', a.amount, { customer: cust.customers_cd, tax: '9' })), line('C', '4170', overpay, { customer: cust.customers_cd, tax: '9' }) ] });
   await audit(c, ctx, 'receipt', r.insertId, 'receipt.create', { no, customer: cust.customers_cd, received, settlement, parts: Object.fromEntries(Object.entries(parts).filter(([, v]) => v)), invoices: allocs.map(a => a.id) });
   return { id: r.insertId, no };

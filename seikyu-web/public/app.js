@@ -1122,29 +1122,33 @@ function receiptForm(customer, receiptId = 0) {
 
 // ----- 現行入金処理（AS400 HAW110 入金登録の流れ。2026-10-31 ユーザー指示。出典：山田様資料 システム移行.xlsx「入金処理」）-----
 // ① 入金日・得意先 → ② 借方（科目・内訳・入金額）→ ③ 請求ごとの今回入金額 → 登録。登録は入金消込と同じ API（receipt・仕訳 B01）。
-// 入力できるのは科目・内訳・入金額・手形期日だけ。部門・処税率・消費税額・摘要は createReceipt の仕訳に合わせて表示するだけ。
-const LR_MAX_LINES = 8, LR_TAX_RATE = 10;
+// 入力できるのは科目・内訳・入金額・手形期日・処税率（2026-10-31 追加。初期値は createReceipt の仕訳と同じ）。部門・消費税額・摘要は表示するだけ。
+const LR_MAX_LINES = 8;
 const LR_ACC = {
   1112: { name: '当座預金', kind: () => 'bank', tax: '9', dept: '' }, 1111: { name: '現金', kind: () => 'cash', tax: '9', dept: '' }, 1120: { name: '受取手形', kind: () => 'notes', tax: '9', dept: '' },
   8330: { name: '雑費', subs: [['101', '各種手数料', 'fee', '手数料'], ['107', 'その他雑品', 'coop', '協力費']], tax: '141', dept: '063' }, 4170: { name: '預り金', kind: () => 'deposit', tax: '9', dept: '' },
   8850: { name: '値引・雑損失', subs: [['D', '値引き', 'discount', '値引き'], ['L', '雑損失', 'loss', '雑損失']], dept: '063' },
 };
-const lrBlank = () => ({ acc: '', sub: '', amount: '', due: '' });
+const lrBlank = () => ({ acc: '', sub: '', amount: '', due: '', tax: '' });
 const lrNew = () => ({ step: 1, date: '', customer: '', lines: [lrBlank(), lrBlank(), lrBlank(), lrBlank()], billTo: '', billInput: '', invoices: [], deposit: 0, from: '', to: '', key: uuid() });
 let lr = lrNew();
 const lrNum = v => { const n = Number(String(v ?? '').replace(/,/g, '').trim()); return Number.isFinite(n) ? n : NaN; };
 const lrSub = l => LR_ACC[l.acc]?.subs?.find(s => s[0] === l.sub);
 const lrKind = l => (LR_ACC[l.acc]?.subs ? lrSub(l)?.[2] : LR_ACC[l.acc]?.kind?.());
 const lrTaxCode = l => (l.acc === '8850' ? (l.sub === 'D' ? '141' : l.sub === 'L' ? '9' : '') : LR_ACC[l.acc]?.tax || '');
-const lrTax = l => (lrTaxCode(l) === '141' ? Math.floor((lrNum(l.amount) || 0) * LR_TAX_RATE / (100 + LR_TAX_RATE)) : 0);
+// 処税率：入力が無ければ既定値（'9' は対象外 090）。入金額は税込なので、税額は内税・外税とも入金額から割り戻す（外税は登録時に仮払消費税 1465 へ分ける）
+const lrTaxDef = l => { const c = lrTaxCode(l); return c === '9' ? '090' : c; };
+const lrTaxEff = l => l.tax || lrTaxDef(l);
+const lrTax = l => { const s = lrTaxEff(l), rate = { 1: 10, 2: 3, 3: 6, 4: 2.8, 5: 5, 8: 8 }[s[2]] || 0, r = Math.round(rate * 10), a = lrNum(l.amount) || 0;
+  return s.length === 3 && r && [1, 4, 5, 6].includes(Number(s[1])) ? Math.floor(a * r / (1000 + r)) : 0; };
 const lrUsed = () => lr.lines.filter(l => l.acc);
 const lrSum = () => lrUsed().reduce((n, l) => n + (lrNum(l.amount) || 0), 0);
 const lrNameOf = code => masters.customers.find(c => c.code === code)?.name || '';
 const lrName = () => lrNameOf(lr.customer);
 const lrKeys = keys => `<div class="lr-keys">${keys.map(([act, label, primary]) => `<button type="button" class="${primary ? 'primary' : ''}" data-act="${act}">${esc(label)}</button>`).join('')}</div>`;
 function lrStep1() {
-  // 入金日・得意先（コード＋名称）は1行に並べる。「検索」で次画面（借方）の内容をこの下に出す。請求ごとの画面でも入金日・得意先は入力項目のまま（2026-10-31）
-  return `<div class="inline-fields lr-step1">${field('入金日', `<input type="date" id="lr-date" value="${esc(lr.date)}">`, { req: 1 })}${field('得意先', `<input id="lr-cust" list="dl-pcust" autocomplete="off" value="${esc(lr.customer)}" placeholder="得意先コード" style="width:140px">${custHints()}<small id="lr-cname" class="muted">${esc(lrName())}</small>`, { req: 1 })}<button type="button" data-act="lrSearch">検索</button></div>
+  // 入金日・得意先（コード＋名称）は1行に並べる。「実行」で次画面（借方）の内容をこの下に出す。請求ごとの画面でも入金日・得意先は入力項目のまま（2026-10-31）
+  return `<div class="inline-fields lr-step1">${field('入金日', `<input type="date" id="lr-date" value="${esc(lr.date)}">`, { req: 1 })}${field('得意先', `<input id="lr-cust" list="dl-pcust" autocomplete="off" value="${esc(lr.customer)}" placeholder="得意先コード" style="width:140px">${custHints()}<small id="lr-cname" class="muted">${esc(lrName())}</small>`, { req: 1 })}<button type="button" data-act="lrSearch">実行</button></div>
     <div id="lr-detail">${lr.step === 2 ? lrStep2() : lr.step === 3 ? lrStep3() : lrStep1Keys()}</div>`;
 }
 const lrStep1Keys = () => lrKeys([['lrNext', 'F10 次画面', 1], ['lrEnd', 'F3 終了'], ['lrFind', 'F9 検索']]);
@@ -1159,7 +1163,7 @@ function lrLine(l, i) {
   return `<tbody class="lr-line"><tr><td class="line-no" rowspan="3">${String(i + 1).padStart(3, '0')}</td><td class="lr-ro">${esc(a?.dept || '')}</td>
       <td><select data-lr="acc" data-i="${i}" aria-label="科目"><option value=""></option>${Object.entries(LR_ACC).map(([k, x]) => `<option value="${k}" ${k === l.acc ? 'selected' : ''}>${k} ${esc(x.name)}</option>`).join('')}</select></td>
       <td>${sub}</td><td>${kind === 'notes' ? `<input type="date" data-lr="due" data-i="${i}" value="${esc(l.due)}" title="手形期日" aria-label="手形期日">` : ''}</td><td class="lr-ro"></td>
-      <td><input class="num" data-lr="amount" data-i="${i}" value="${esc(l.amount)}" inputmode="numeric" aria-label="入金額" ${l.acc ? '' : 'disabled'}></td><td class="lr-ro">${esc(lrTaxCode(l))}</td><td class="num lr-ro" data-lr-tax="${i}">${l.acc && lrTax(l) ? yen(lrTax(l)) : ''}</td></tr>
+      <td><input class="num" data-lr="amount" data-i="${i}" value="${esc(l.amount)}" inputmode="numeric" aria-label="入金額" ${l.acc ? '' : 'disabled'}></td><td>${l.acc ? `<select name="taxCode" data-lr="tax" data-i="${i}" aria-label="処税率" style="width:130px">${lrTaxDef(l) ? '' : '<option value="">選択</option>'}${meta.taxCodes.map(t => `<option value="${t.code}" title="${esc(t.name)}" ${t.code === lrTaxEff(l) ? 'selected' : ''}>${esc(t.code)}</option>`).join('')}</select><small class="muted lr-taxname">${esc(meta.taxCodes.find(t => t.code === lrTaxEff(l))?.name || '')}</small>` : ''}</td><td class="num lr-ro" data-lr-tax="${i}">${l.acc && lrTax(l) ? yen(lrTax(l)) : ''}</td></tr>
     <tr><th>摘要1</th><td colspan="7">${l.acc ? `${esc(lr.customer)} ${esc(lrName())}` : ''}</td></tr>
     <tr><th>摘要2</th><td colspan="7">${esc(lrSub(l)?.[3] || (kind === 'notes' ? '手形期日を内訳2に入力' : ''))}</td></tr></tbody>`;
 }
@@ -1211,7 +1215,8 @@ async function lrRegister() {
   const total = pays.reduce((a, x) => a + x.n, 0), sum = lrSum();
   if (total !== sum) throw Error(`入金額（${yen(sum)}円）が入金予定額の合計（${yen(total)}円）を超えているため登録できません`);
   const body = { idempotencyKey: lr.key, date: lr.date, customer: lr.billTo, allocations: pays.map(x => ({ invoiceId: x.r.id, amount: x.n })) };
-  for (const l of lrUsed()) { const k = lrKind(l); body[k] = lrNum(l.amount); if (k === 'bank') body.bankCode = l.sub; if (k === 'notes') body.noteDue = l.due; }
+  const PART = { bank: 'BANK', cash: 'CASH', notes: 'NOTE', fee: 'FEE', coop: 'COOP', deposit: 'DEPOSIT', discount: 'DISCOUNT', loss: 'LOSS' };
+  for (const l of lrUsed()) { const k = lrKind(l); body[k] = lrNum(l.amount); if (k === 'bank') body.bankCode = l.sub; if (k === 'notes') body.noteDue = l.due; if (l.tax && l.tax !== lrTaxDef(l)) (body.tax ||= {})[PART[k]] = l.tax; }
   const r = await post('/api/receipts', body);
   toast(`入金 ${r.no} を登録しました（請求先 ${lr.billTo}・仕訳 B01）`); lr = lrNew(); lrDraw();
 }
@@ -1252,7 +1257,7 @@ function legacyReceiptView() {
 }
 document.addEventListener('input', e => {
   const t = e.target; if (!t.closest?.('#lr-body')) return;
-  // 入金日・得意先を直したら下の借方・請求は閉じる（もう一度「検索」で出す。入力済みの借方は残る）
+  // 入金日・得意先を直したら下の借方・請求は閉じる（もう一度「実行」で出す。入力済みの借方は残る）
   if (['lr-date', 'lr-cust'].includes(t.id) && lr.step > 1) { lr.step = 1; $('#lr-detail').innerHTML = lrStep1Keys(); }
   if (t.id === 'lr-date') lr.date = t.value;
   else if (t.id === 'lr-cust') { lr.customer = t.value.trim(); lr.billInput = ''; lr.billTo = ''; lr.invoices = []; $('#lr-cname').textContent = lrName(); }
@@ -1267,8 +1272,9 @@ document.addEventListener('input', e => {
 });
 document.addEventListener('change', e => {
   const t = e.target; if (!t.closest?.('#lr-body')) return;
-  if (t.dataset.lr === 'acc') { const l = lr.lines[t.dataset.i]; l.acc = t.value; l.sub = ''; l.due = ''; if (!t.value) l.amount = ''; lrDraw(); }
-  else if (t.dataset.lr === 'sub') { lr.lines[t.dataset.i].sub = t.value; lrDraw(); }
+  if (t.dataset.lr === 'acc') { const l = lr.lines[t.dataset.i]; l.acc = t.value; l.sub = ''; l.due = ''; l.tax = ''; if (!t.value) l.amount = ''; lrDraw(); }
+  else if (t.dataset.lr === 'sub') { const l = lr.lines[t.dataset.i]; l.sub = t.value; l.tax = ''; lrDraw(); }
+  else if (t.dataset.lr === 'tax') { lr.lines[t.dataset.i].tax = t.value; lrDraw(); }
   else if (t.id === 'lr-from' || t.id === 'lr-to') { lr[t.id === 'lr-from' ? 'from' : 'to'] = t.value; lrDraw(); }
 });
 // ファンクションキーはこの画面だけ
