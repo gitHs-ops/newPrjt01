@@ -183,10 +183,11 @@ function comboize(sel) {
   sel._combo = inp; sel.classList.add('combo-select'); sel.before(inp, dl);
   const opts = () => [...sel.options], text = o => o.textContent.trim(), cur = () => sel.options[SELECT_INDEX.get.call(sel)];
   const sync = () => { const o = cur(); inp.value = o && o.value !== '' ? text(o) : ''; inp.placeholder = o && o.value === '' ? text(o) : ''; inp.disabled = sel.disabled; inp.classList.remove('combo-ng'); };
-  const build = () => { dl.innerHTML = opts().map(o => `<option value="${esc(text(o))}"></option>`).join(''); sync(); };
+  // option の title（処税率の内容など）は候補一覧に label として並べて表示する（2026-10-31）
+  const build = () => { dl.innerHTML = opts().map(o => `<option value="${esc(text(o))}"${o.title ? ` label="${esc(o.title)}"` : ''}></option>`).join(''); sync(); };
   const find = t => { t = t.trim(); const os = opts(), lt = t.toLowerCase(); if (!t) return os.find(o => o.value === '') || null;
     const hit = os.find(o => text(o) === t) || os.find(o => o.value === t) || os.find(o => o.value !== '' && text(o).startsWith(t + ' ')); if (hit) return hit;
-    const part = os.filter(o => o.value !== '' && text(o).toLowerCase().includes(lt)); return part.length === 1 ? part[0] : null; };
+    const part = os.filter(o => o.value !== '' && `${text(o)} ${o.title}`.toLowerCase().includes(lt)); return part.length === 1 ? part[0] : null; };
   const pick = (o, final) => {
     if (!o) { if (!final) return; const blank = opts().find(x => x.value === '');
       if (blank && SELECT_VALUE.get.call(sel) !== '') { SELECT_VALUE.set.call(sel, ''); sel.dispatchEvent(new Event('change', { bubbles: true })); }
