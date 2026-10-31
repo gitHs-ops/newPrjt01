@@ -1144,7 +1144,8 @@ const lrName = () => lrNameOf(lr.customer);
 const lrHead = () => `<div class="lr-head"><span>入金日：<b>${esc(lr.date)}</b></span><span>得意先：<b>${esc(lr.customer)} ${esc(lrName())}</b></span></div>`;
 const lrKeys = keys => `<div class="lr-keys">${keys.map(([act, label, primary]) => `<button type="button" class="${primary ? 'primary' : ''}" data-act="${act}">${esc(label)}</button>`).join('')}</div>`;
 function lrStep1() {
-  return `<div class="form-grid">${field('入金日', `<input type="date" id="lr-date" value="${esc(lr.date)}">`, { req: 1 })}${field('得意先', `<input id="lr-cust" list="dl-pcust" autocomplete="off" value="${esc(lr.customer)}" placeholder="得意先コード">${custHints()}<small id="lr-cname" class="muted">${esc(lrName())}</small>`, { req: 1 })}</div>
+  // 入金日・得意先（コード＋名称）は1行に並べる（2026-10-31）
+  return `<div class="inline-fields lr-step1">${field('入金日', `<input type="date" id="lr-date" value="${esc(lr.date)}">`, { req: 1 })}${field('得意先', `<input id="lr-cust" list="dl-pcust" autocomplete="off" value="${esc(lr.customer)}" placeholder="得意先コード" style="width:140px">${custHints()}<small id="lr-cname" class="muted">${esc(lrName())}</small>`, { req: 1 })}</div>
     ${lrKeys([['lrNext', 'F10 次画面', 1], ['lrEnd', 'F3 終了'], ['lrFind', 'F9 検索']])}`;
 }
 function lrLine(l, i) {
