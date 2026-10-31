@@ -1317,7 +1317,8 @@ document.addEventListener('click', e => {
 });
 // 処税率は3桁のコードだけ表示（10-29 画面レビュー No.15b「解説は不要、241 などコードだけ」）。名称はマウスを重ねると表示
 const taxLabel = c => { const t = meta.taxCodes.find(x => x.code === String(c ?? '')); return t ? `${t.code} ${t.name}` : (c ?? ''); };
-const taxSelect = (name, value) => `<select name="${name}">${meta.taxCodes.map(t => `<option value="${t.code}" title="${esc(t.name)}" ${t.code === value ? 'selected' : ''}>${esc(t.code)}</option>`).join('')}</select>`;
+// 幅は固定（コンボの入力欄は select の幅を写す。表の中で測ると前の行の幅が次の行に積み重なって行ごとに広がっていた。2026-11-01）
+const taxSelect = (name, value) => `<select name="${name}" style="width:130px">${meta.taxCodes.map(t => `<option value="${t.code}" title="${esc(t.name)}" ${t.code === value ? 'selected' : ''}>${esc(t.code)}</option>`).join('')}</select>`;
 
 // ----- 商品仕入（10/19 打合せ・帳票⑭）-----
 VIEWS.purchases = async q => {
