@@ -140,7 +140,7 @@ const yn = b => (b ? '1' : '0');
 export async function exportCsv(c, kind, q = {}) {
   const month = q.month ? isoMonth(q.month) : undefined;
   switch (kind) {
-    case 'shipments': { const l = await listShipments(c, { month: month || today().slice(0, 7) }); return [['売上No', '区分', '訂正元', '出荷日', '得意先CD', '得意先', '現場', '商品CD', '商品', '数量', '単位', '単価', '金額', '税率', '消費税', '決済', '請求済', '車番', '備考'],
+    case 'shipments': { const l = await listShipments(c, { month: month || today().slice(0, 7) }); return [['売上No', '区分', '訂正元', '出荷日', '得意先CD', '得意先', '現場', '商品CD', '商品', '数量', '単位', '単価', '金額', '処税率', '消費税', '決済', '請求済', '車番', '備考'],
       ...l.map(r => [r.orderNo, r.shipKb === 5 ? '訂正' : '売上', r.originalNo, r.date, r.customer, r.customerName, r.siteName, r.item, r.itemName, r.quantity, r.unit, r.price, r.net, r.taxRate, r.tax, r.methodName, yn(r.billed), r.vehicle, r.remarks])]; }
     case 'invoices': { const l = await listInvoices(c, { month }); return [['請求ID', '請求年月', '締日', '支払期日', '得意先CD', '得意先', '現場', '税抜金額', '消費税', '請求額', '入金済', '残高', '発行回数', '状態'],
       ...l.map(r => [r.id, r.month, r.closing, r.due, r.customer, r.customerName, r.siteName, r.net, r.tax, r.total, r.paid, r.balance, r.issues, r.status])]; }

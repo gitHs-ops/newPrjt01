@@ -11,7 +11,7 @@ export async function billingPrecheckBook(c, q) {
   const d = await billingPrecheck(c, q), clOf = n => (Number(n) === 31 ? '月末' : n + '日'), all = d.closing === 'all', cl = all ? 'すべて' : clOf(d.closing), ymd = iso => iso.slice(2).replaceAll('-', '/');
   const out = [[T('発行前確認一覧'), '', '', '', '', '', '', '', '', '', '', d.company], [all ? `締日 すべて（${d.month}）　作成日 ${ymd(today())}` : `締日 ${cl}　請求期間 ${ymd(d.start)}〜${ymd(d.end)}　売上締切日 ${ymd(d.end)}　作成日 ${ymd(today())}`], []];
   for (const x of d.rows) {
-    out.push([H(`${x.customer} ${x.name}`), '', '', H(PRECHECK_PLAN[x.plan]), '', ...(all ? [H(`${clOf(x.closing)}締　請求期間 ${ymd(x.start)}〜${ymd(x.end)}`)] : [])], ['売上日', '伝票No', '区分', '商品CD', '商品名', '数量', '単位', '単価', '金額', '税率', '運送', '現場名']);
+    out.push([H(`${x.customer} ${x.name}`), '', '', H(PRECHECK_PLAN[x.plan]), '', ...(all ? [H(`${clOf(x.closing)}締　請求期間 ${ymd(x.start)}〜${ymd(x.end)}`)] : [])], ['売上日', '伝票No', '区分', '商品CD', '商品名', '数量', '単位', '単価', '金額', '処税率', '運送', '現場名']);
     for (const l of x.lines) out.push([ymd(l.date), l.orderNo, kindOf(l), l.item, l.itemName, { v: l.quantity, s: 'qty' }, l.unit, l.price, l.net, `${l.taxRate}%`, l.carry, l.siteName]);
     out.push(['', S('（売上額）'), S(x.net), '', S('（消費税額）'), S(x.tax), '', S('（値引額）'), S(0), '', S('（今回請求額）'), S(x.current)]);
     for (const r of x.byRate || []) out.push(['', `${r.rate} %`, r.net, '', '', r.tax]);
@@ -43,7 +43,7 @@ export async function billingConfirmBook(c, q) {
   merges.push(ref(title, 0, 8), ref(title, 9, 11));
   const sub = push([st(`締日 ${cl}　　請求日付 ${ymd(d.end)}　　売上締切日 ${ymd(d.end)}　　作成日 ${ymd(today())}　　対象 ${d.rows.length} 社`, 'rSub')], 18);
   merges.push(ref(sub, 0, 11)); push([], 8);
-  const HEAD = ['売上日', '伝票No', '区分', '商品CD', '商品名', '数量', '単位', '単価', '金額', '税率', '運送', '備考'];
+  const HEAD = ['売上日', '伝票No', '区分', '商品CD', '商品名', '数量', '単位', '単価', '金額', '処税率', '運送', '備考'];
   const sumRow = (label, v, ls, ns) => { const r = push(['', '', '', '', '', st(label, ls), st('', ls), st('', ls), st(v, ns)], 20); merges.push(ref(r, 5, 7)); };
   for (const x of d.rows) {
     const b = push(fill('rBand', { 0: `${x.customer}　${x.name}` }), 24);
