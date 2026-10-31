@@ -1424,7 +1424,7 @@ function expenseView(kind) {
         ${field('請求No', '<input value="自動採番（業者ごと4桁）" disabled>')}<div class="span2"></div>
         <div class="span2">${field('業者', `<select name="vendor">${options(active('vendors'), '', { blank: '選択してください' })}</select>`, { req: 1 })}</div><div></div>
         ${field('支払繰延区分', '<output id="ex-defer" class="muted">業者を選択すると業者マスタから表示</output>')}${field('支払予定日', '<input type="date" name="due" readonly tabindex="-1" style="background:transparent;border-style:dashed" title="業者マスタの支払繰延区分から自動計算（入力不可）">', { hint: '業者マスタから自動' })}${field('合計金額', '<input name="total" class="num" inputmode="numeric">', { req: 1, hint: '明細の合計と一致させる' })}
-      </div>` : `<div class="form-grid">
+      </div>` : `<div class="inline-fields">
       ${field('支払日（領収書の日付）', `<input type="date" name="date" value="${today()}">`, { req: 1 })}${field('組織（部門）', deptSel)}
 </div>
       <datalist id="dl-ex-payees">${active('vendors').map(x => `<option value="${esc(x.code)}">${esc(x.name)}</option>`).join('')}</datalist>`;

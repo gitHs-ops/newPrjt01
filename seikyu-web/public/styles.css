@@ -120,6 +120,10 @@ label.field small { font-weight: 400; color: var(--text-secondary); }
 label.field.req > span::after { content: ' *'; color: var(--danger); }
 .form-grid { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 12px 14px; }
 .form-grid .wide { grid-column: 1 / -1; }
+/* 入力ダイアログの見出し行：ラベルを入力欄の左に置き、複数項目を一行に並べる */
+.inline-fields { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 28px; }
+.inline-fields label.field { display: inline-flex; align-items: center; gap: 8px; white-space: nowrap; }
+.inline-fields input[type=date], .inline-fields input.flatpickr-input { width: 150px; }
 .tabs { display: flex; gap: 4px; flex-wrap: wrap; padding: 4px; background: rgba(255,255,255,.45); border-radius: 12px; width: fit-content; }
 .tabs button { border: none; background: transparent; }
 .tabs button.active { background: #fff; color: var(--accent-secondary); box-shadow: 0 4px 12px rgba(15,23,42,.08); }
