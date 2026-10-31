@@ -1415,7 +1415,7 @@ function expenseView(kind) {
     const vendorName = code => active('vendors').find(x => x.code === String(code || '').trim())?.name;
     const cols = [{ name: 'lvendor', label: '支払先コード', cell: () => '<input name="lvendor" list="dl-ex-payees" maxlength="12" placeholder="コード" style="width:84px" autocomplete="off">' }, { label: '支払先名', cell: () => '<span data-vname></span>' },
       { name: 'account', label: '科目', cell: () => `<select name="account">${accOpts}</select>` }, { name: 'sub', label: '内訳', cell: () => '<select name="sub"><option value="">（なし）</option></select>' },
-      { name: 'taxCode', label: '処税率', cell: () => taxSelect('taxCode', '141') }, { name: 'amount', label: '支払額（税込）', sum: 1, cell: () => '<input name="amount" class="num" style="width:120px">' },
+      { name: 'amount', label: '支払額（税込）', sum: 1, cell: () => '<input name="amount" class="num" style="width:120px">' }, { name: 'taxCode', label: '処税率', cell: () => taxSelect('taxCode', '141') },
       { label: '科目名・内訳名／摘要名', cell: () => '<div class="l2"><span class="hw-names muted small">科目を選ぶと科目名・内訳名を表示</span><input name="lmemo" maxlength="500" placeholder="摘要名（手入力）"></div>' }];
     // 定時請求データ入力は現行 HAW050（10/21 打合せ資料 スライド5）の並び：組織・締切日／請求No／業者／支払繰延区分・合計金額 → 明細（2段）→ 対象外・内税・外税・外税消費税・合計
     const deptSel = `<select name="dept">${options(active('depts').length ? active('depts') : [{ code: '063', name: '部門063' }], '063')}</select>`;
