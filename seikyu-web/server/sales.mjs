@@ -689,11 +689,11 @@ export async function createReceipt(c, ctx, p) {
   const no = await nextNo(c, 'receipt');
   const [r] = await c.query("INSERT INTO receipt (receipt_no,customers_cd,receipt_date,received_amount,settlement_amount,status,idempotency_key,created_at) VALUES (?,?,?,?,?,'POSTED',?,UTC_TIMESTAMP(6))", [no, cust.customers_cd, date, received, settlement, idem]);
   let n = 0;
-  // 現行入金処理の内訳2・工種・消費税額（p.detail：{ FEE: { sub2, work, taxAmt }, … }）。消費税額は 0〜入金額
+  // 現行入金処理の内訳2・工種・消費税額・摘要2（p.detail：{ FEE: { sub2, work, taxAmt, memo2 }, … }）。消費税額は 0〜入金額
   const det = k => { const d = p.detail?.[k] || {}, t = d.taxAmt === undefined || d.taxAmt === '' || d.taxAmt === null ? null : yen(d.taxAmt, `${RECEIPT_PARTS[k]}の消費税額`);
     check(t === null || (t >= 0 && t <= parts[k]), `${RECEIPT_PARTS[k]}の消費税額は入金額以下で入力してください`);
-    return { sub2: String(d.sub2 ?? '').trim().slice(0, 20) || null, work: String(d.work ?? '').trim().slice(0, 20) || null, taxAmt: t }; };
-  for (const [k, v] of Object.entries(parts)) if (v) { const d = det(k); await c.query('INSERT INTO receipt_component (receipt_id,component_no,component_kind,amount,maturity_date,sub2,work_type,tax_amount) VALUES (?,?,?,?,?,?,?,?)', [r.insertId, ++n, k, v, k === 'NOTE' ? noteDue : null, d.sub2, d.work, d.taxAmt]); }
+    return { sub2: String(d.sub2 ?? '').trim().slice(0, 20) || null, work: String(d.work ?? '').trim().slice(0, 20) || null, taxAmt: t, memo2: String(d.memo2 ?? '').trim().slice(0, 100) || null }; };
+  for (const [k, v] of Object.entries(parts)) if (v) { const d = det(k); await c.query('INSERT INTO receipt_component (receipt_id,component_no,component_kind,amount,maturity_date,sub2,work_type,tax_amount,memo2) VALUES (?,?,?,?,?,?,?,?,?)', [r.insertId, ++n, k, v, k === 'NOTE' ? noteDue : null, d.sub2, d.work, d.taxAmt, d.memo2]); }
   if (overpay) await c.query('INSERT INTO receipt_component (receipt_id,component_no,component_kind,amount) VALUES (?,?,?,?)', [r.insertId, ++n, 'OVERPAY', overpay]);
   for (const a of allocs) await c.query('INSERT INTO receipt_allocation (receipt_id,invoice_id,customers_cd,amount) VALUES (?,?,?,?)', [r.insertId, a.id, cust.customers_cd, a.amount]);
   // 仕訳パターン分析 B-01〜B-06（処税率: 協力会費は141/41混在のため141で仮置き Q04）

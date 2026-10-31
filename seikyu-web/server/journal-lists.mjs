@@ -37,6 +37,8 @@ export async function journalList(c, q) {
       for (const r of await rows(c, `SELECT receipt_id id, receipt_no FROM receipt WHERE receipt_id IN (${ph(srcIds)})`, srcIds)) src.set(r.id, { no: r.receipt_no, closings: [], note: '' });
       for (const a of await rows(c, `SELECT a.receipt_id, h.closing_date FROM receipt_allocation a JOIN billing_head h ON h.invoice_id=a.invoice_id WHERE a.receipt_id IN (${ph(srcIds)}) ORDER BY a.receipt_id, a.invoice_id`, srcIds)) src.get(a.receipt_id)?.closings.push(fromNum(a.closing_date));
       for (const k of await rows(c, `SELECT receipt_id, maturity_date FROM receipt_component WHERE component_kind='NOTE' AND receipt_id IN (${ph(srcIds)})`, srcIds)) if (src.get(k.receipt_id)) src.get(k.receipt_id).note = `手形 期日${k.maturity_date || ''}`;
+      // 現行入金処理で入力した摘要2（借方の内訳ごと。2026-11-01）
+      for (const k of await rows(c, `SELECT receipt_id, component_kind, memo2 FROM receipt_component WHERE memo2 IS NOT NULL AND receipt_id IN (${ph(srcIds)})`, srcIds)) if (src.get(k.receipt_id)) (src.get(k.receipt_id).memo2Of ||= {})[k.component_kind] = k.memo2;
     }
     if (def.source === 'inventory_count') for (const r of await rows(c, `SELECT n.inventory_id id, n.item_cd, i.item_nam FROM inventory_count n LEFT JOIN item_m i ON i.item_cd=n.item_cd WHERE n.inventory_id IN (${ph(srcIds)})`, srcIds)) src.set(r.id, { no: 'V' + r.id, item: `${r.item_cd} ${r.item_nam || ''}` });
     if (def.source === 'expense_document') {
@@ -50,7 +52,9 @@ export async function journalList(c, q) {
   const slips = es.map(e => {
     const s = e.source_type === 'inventory_month' ? { no: `棚卸 ${e.source_id.slice(0, 4)}-${e.source_id.slice(4)}月度` } : src.get(Number(e.source_id)) || { no: '' }, lines = ls.filter(l => l.journal_id === e.journal_id);
     const partnerLine = lines.find(l => l.customers_cd || l.vendor_id), partner = partnerLine ? { code: partnerLine.customers_cd || partnerLine.vendor_code, name: partnerLine.customers_name || partnerLine.vendor_name } : null;
-    let creditNo = 0, debitNo = 0;
+    let creditNo = 0, debitNo = 0; const usedKind = new Set();
+    // 入金（B01）の借方の行 → 入金の内訳（receipt_component）。8850 は値引き → 雑損失の順
+    const kindOf = l => { const k = { 1112: 'BANK', 1111: 'CASH', 1120: 'NOTE', 4170: 'DEPOSIT' }[l.account_code] || (l.account_code === '8330' ? { 101: 'FEE', 107: 'COOP' }[l.sub_code] : l.account_code === '8850' ? ['DISCOUNT', 'LOSS'].find(x => !usedKind.has(x) && s.memo2Of?.[x] !== undefined) || (usedKind.has('DISCOUNT') ? 'LOSS' : 'DISCOUNT') : null); if (k) usedKind.add(k); return k; };
     const side = l => {
       if (!l) return null;
       let sub = l.sub_code || '', subName = l.sub_name || '';
@@ -60,6 +64,7 @@ export async function journalList(c, q) {
       let memo2 = s.memo2 || '';
       if (e.pattern_code === 'B01') {
         memo2 = DEDUCT[`${l.account_code}|${l.sub_code || ''}`] || (l.account_code === '1120' ? s.note : '');
+        if (l.side === 'D') { const k = kindOf(l); if (k && s.memo2Of?.[k]) memo2 = s.memo2Of[k]; }
         if (l.side === 'C' && l.account_code === '1131') memo2 = s.closings?.[creditNo++] || '';
       }
       // 在庫計上（C01）：現行 HAR463 と同じく 摘要1＝前月末在庫／当月末在庫（商品は 1360 の内訳1）。2026-10-28 摘要1＝商品・摘要2＝前月末在庫 から変更

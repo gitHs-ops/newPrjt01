@@ -1122,14 +1122,14 @@ function receiptForm(customer, receiptId = 0) {
 
 // ----- 現行入金処理（AS400 HAW110 入金登録の流れ。2026-10-31 ユーザー指示。出典：山田様資料 システム移行.xlsx「入金処理」）-----
 // ① 入金日・得意先 → ② 借方（科目・内訳・入金額）→ ③ 請求ごとの今回入金額 → 登録。登録は入金消込と同じ API（receipt・仕訳 B01）。
-// 入力できるのは科目・内訳1・内訳2（手形は手形期日）・工種・入金額・処税率・消費税額（2026-10-31 現行画面に合わせて追加。処税率の初期値は createReceipt の仕訳と同じ、消費税額は入金額から自動計算）。部門・摘要は表示するだけ。
+// 入力できるのは科目・内訳1・内訳2（手形は手形期日）・工種・入金額・処税率・消費税額・摘要2（2026-10-31・11-01 現行画面に合わせて追加。摘要2の初期値は内訳の名称（手数料など）。処税率の初期値は createReceipt の仕訳と同じ、消費税額は入金額から自動計算）。部門・摘要は表示するだけ。
 const LR_MAX_LINES = 8;
 const LR_ACC = {
   1112: { name: '当座預金', kind: () => 'bank', tax: '9', dept: '' }, 1111: { name: '現金', kind: () => 'cash', tax: '9', dept: '' }, 1120: { name: '受取手形', kind: () => 'notes', tax: '9', dept: '' },
   8330: { name: '雑費', subs: [['101', '各種手数料', 'fee', '手数料'], ['107', 'その他雑品', 'coop', '協力費']], tax: '141', dept: '063' }, 4170: { name: '預り金', kind: () => 'deposit', tax: '9', dept: '' },
   8850: { name: '値引・雑損失', subs: [['D', '値引き', 'discount', '値引き'], ['L', '雑損失', 'loss', '雑損失']], dept: '063' },
 };
-const lrBlank = () => ({ acc: '', sub: '', amount: '', due: '', tax: '', sub2: '', work: '', taxAmt: '' });
+const lrBlank = () => ({ acc: '', sub: '', amount: '', due: '', tax: '', sub2: '', work: '', taxAmt: '', memo2: '' });
 const lrNew = () => ({ step: 1, date: '', customer: '', lines: [lrBlank(), lrBlank(), lrBlank(), lrBlank()], billTo: '', billInput: '', invoices: [], deposit: 0, from: '', to: '', key: uuid() });
 let lr = lrNew();
 const lrNum = v => { const n = Number(String(v ?? '').replace(/,/g, '').trim()); return Number.isFinite(n) ? n : NaN; };
@@ -1171,7 +1171,7 @@ function lrLine(l, i) {
       <td><input data-lr="work" data-i="${i}" value="${esc(l.work)}" maxlength="20" aria-label="工種" ${l.acc ? '' : 'disabled'}></td>
       <td><input class="num" data-lr="amount" data-i="${i}" value="${esc(l.amount)}" inputmode="numeric" aria-label="入金額" ${l.acc ? '' : 'disabled'}></td><td>${l.acc ? `<select name="taxCode" data-lr="tax" data-i="${i}" aria-label="処税率" style="width:130px">${lrTaxDef(l) ? '' : '<option value="">選択</option>'}${meta.taxCodes.map(t => `<option value="${t.code}" title="${esc(t.name)}" ${t.code === lrTaxEff(l) ? 'selected' : ''}>${esc(t.code)}</option>`).join('')}</select><small class="muted lr-taxname">${esc(meta.taxCodes.find(t => t.code === lrTaxEff(l))?.name || '')}</small>` : ''}</td><td><input class="num" data-lr="taxamt" data-i="${i}" value="${l.acc && lrTaxable(l) ? esc(l.taxAmt !== '' ? l.taxAmt : String(lrTax(l))) : ''}" inputmode="numeric" aria-label="消費税額" ${l.acc && lrTaxable(l) ? '' : 'disabled'}></td></tr>
     <tr><th>摘要1</th><td colspan="7">${l.acc ? `${esc(lr.customer)} ${esc(lrName())}` : ''}</td></tr>
-    <tr><th>摘要2</th><td colspan="7">${esc(lrSub(l)?.[3] || (kind === 'notes' ? '手形期日を内訳2に入力' : ''))}</td></tr></tbody>`;
+    <tr><th>摘要2</th><td colspan="7">${l.acc ? `<input data-lr="memo2" data-i="${i}" value="${esc(l.memo2 || lrSub(l)?.[3] || '')}" maxlength="100" placeholder="${kind === 'notes' ? '空欄なら「手形 期日…」' : ''}" aria-label="摘要2" style="width:100%">` : ''}</td></tr></tbody>`;
 }
 const lrTotals = () => { const used = lrUsed(), fund = used.filter(l => ['bank', 'cash'].includes(lrKind(l))).reduce((n, l) => n + (lrNum(l.amount) || 0), 0), tax = used.reduce((n, l) => n + lrTax(l), 0); return `<div class="lr-totals"><span>借方合計 <b>${yen(lrSum())}</b></span><span>貸方合計 <b>0</b></span><span>仮払消費税 <b>${yen(tax)}</b></span><span>仮受消費税 <b>0</b></span><span>資金残高 <b>${yen(fund)}</b></span></div>`; };
 function lrStep2() {
@@ -1224,7 +1224,7 @@ async function lrRegister() {
   const body = { idempotencyKey: lr.key, date: lr.date, customer: lr.billTo, allocations: pays.map(x => ({ invoiceId: x.r.id, amount: x.n })) };
   const PART = { bank: 'BANK', cash: 'CASH', notes: 'NOTE', fee: 'FEE', coop: 'COOP', deposit: 'DEPOSIT', discount: 'DISCOUNT', loss: 'LOSS' };
   for (const l of lrUsed()) { const k = lrKind(l); body[k] = lrNum(l.amount); if (k === 'bank') body.bankCode = l.sub; if (k === 'notes') body.noteDue = l.due; if (l.tax && l.tax !== lrTaxDef(l)) (body.tax ||= {})[PART[k]] = l.tax;
-    (body.detail ||= {})[PART[k]] = { sub2: k === 'notes' ? '' : l.sub2, work: l.work, ...(lrTaxable(l) ? { taxAmt: lrTax(l) } : {}) }; }
+    (body.detail ||= {})[PART[k]] = { sub2: k === 'notes' ? '' : l.sub2, work: l.work, memo2: l.memo2 && l.memo2 !== lrSub(l)?.[3] ? l.memo2 : '', ...(lrTaxable(l) ? { taxAmt: lrTax(l) } : {}) }; }
   const r = await post('/api/receipts', body);
   toast(`入金 ${r.no} を登録しました（請求先 ${lr.billTo}・仕訳 B01）`); lr = lrNew(); lrDraw();
 }
@@ -1276,11 +1276,11 @@ document.addEventListener('input', e => {
   else if (t.dataset.lr === 'amount') { const l = lr.lines[t.dataset.i], c = $(`[data-lr="taxamt"][data-i="${t.dataset.i}"]`); l.amount = t.value; if (c && l.taxAmt === '') c.value = lrTaxable(l) ? String(lrTax(l)) : ''; $('#lr-totals').innerHTML = lrTotals(); }
   // 消費税額を空にすると自動計算に戻す
   else if (t.dataset.lr === 'taxamt') { lr.lines[t.dataset.i].taxAmt = t.value.trim(); $('#lr-totals').innerHTML = lrTotals(); }
-  else if (['due', 'sub2', 'work'].includes(t.dataset.lr)) lr.lines[t.dataset.i][t.dataset.lr] = t.value;
+  else if (['due', 'sub2', 'work', 'memo2'].includes(t.dataset.lr)) lr.lines[t.dataset.i][t.dataset.lr] = t.value;
 });
 document.addEventListener('change', e => {
   const t = e.target; if (!t.closest?.('#lr-body')) return;
-  if (t.dataset.lr === 'acc') { const l = lr.lines[t.dataset.i]; l.acc = t.value; l.sub = ''; l.due = ''; l.tax = ''; l.taxAmt = ''; if (!t.value) Object.assign(l, { amount: '', sub2: '', work: '' }); lrDraw(); }
+  if (t.dataset.lr === 'acc') { const l = lr.lines[t.dataset.i]; l.acc = t.value; l.sub = ''; l.due = ''; l.tax = ''; l.taxAmt = ''; l.memo2 = ''; if (!t.value) Object.assign(l, { amount: '', sub2: '', work: '' }); lrDraw(); }
   else if (t.dataset.lr === 'sub') { const l = lr.lines[t.dataset.i]; l.sub = t.value; l.tax = ''; l.taxAmt = ''; lrDraw(); }
   else if (t.dataset.lr === 'tax') { const l = lr.lines[t.dataset.i]; l.tax = t.value; l.taxAmt = ''; lrDraw(); }
   else if (t.id === 'lr-from' || t.id === 'lr-to') { lr[t.id === 'lr-from' ? 'from' : 'to'] = t.value; lrDraw(); }
