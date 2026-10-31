@@ -689,14 +689,18 @@ export async function createReceipt(c, ctx, p) {
   const no = await nextNo(c, 'receipt');
   const [r] = await c.query("INSERT INTO receipt (receipt_no,customers_cd,receipt_date,received_amount,settlement_amount,status,idempotency_key,created_at) VALUES (?,?,?,?,?,'POSTED',?,UTC_TIMESTAMP(6))", [no, cust.customers_cd, date, received, settlement, idem]);
   let n = 0;
-  for (const [k, v] of Object.entries(parts)) if (v) await c.query('INSERT INTO receipt_component (receipt_id,component_no,component_kind,amount,maturity_date) VALUES (?,?,?,?,?)', [r.insertId, ++n, k, v, k === 'NOTE' ? noteDue : null]);
+  // 現行入金処理の内訳2・工種・消費税額（p.detail：{ FEE: { sub2, work, taxAmt }, … }）。消費税額は 0〜入金額
+  const det = k => { const d = p.detail?.[k] || {}, t = d.taxAmt === undefined || d.taxAmt === '' || d.taxAmt === null ? null : yen(d.taxAmt, `${RECEIPT_PARTS[k]}の消費税額`);
+    check(t === null || (t >= 0 && t <= parts[k]), `${RECEIPT_PARTS[k]}の消費税額は入金額以下で入力してください`);
+    return { sub2: String(d.sub2 ?? '').trim().slice(0, 20) || null, work: String(d.work ?? '').trim().slice(0, 20) || null, taxAmt: t }; };
+  for (const [k, v] of Object.entries(parts)) if (v) { const d = det(k); await c.query('INSERT INTO receipt_component (receipt_id,component_no,component_kind,amount,maturity_date,sub2,work_type,tax_amount) VALUES (?,?,?,?,?,?,?,?)', [r.insertId, ++n, k, v, k === 'NOTE' ? noteDue : null, d.sub2, d.work, d.taxAmt]); }
   if (overpay) await c.query('INSERT INTO receipt_component (receipt_id,component_no,component_kind,amount) VALUES (?,?,?,?)', [r.insertId, ++n, 'OVERPAY', overpay]);
   for (const a of allocs) await c.query('INSERT INTO receipt_allocation (receipt_id,invoice_id,customers_cd,amount) VALUES (?,?,?,?)', [r.insertId, a.id, cust.customers_cd, a.amount]);
   // 仕訳パターン分析 B-01〜B-06（処税率: 協力会費は141/41混在のため141で仮置き Q04）
   // 現行入金処理では借方の処税率を入力できる（p.tax：{ FEE: '041', … }。2026-10-31）。指定が無ければ既定値
   // 外税の処税率を選んだときは、入金額（税込）を科目の税抜金額と仮払消費税 1465 に分ける（定時請求・小口現金の外税と同じ）
   const tx = (k, d) => (p.tax?.[k] ? mustDecode(p.tax[k], `${RECEIPT_PARTS[k]}の処税率`).code : d);
-  const dr = (acc, k, def, opt = {}) => { const amt = parts[k], code = tx(k, def), d = decode(code), r = d?.excl ? Math.round(d.rate * 10) : 0, t = amt && r ? Math.floor(amt * r / (1000 + r)) : 0;
+  const dr = (acc, k, def, opt = {}) => { const amt = parts[k], code = tx(k, def), d = decode(code), r = d?.excl ? Math.round(d.rate * 10) : 0, given = amt ? det(k).taxAmt : null, t = !r ? 0 : given ?? (amt ? Math.floor(amt * r / (1000 + r)) : 0);
     return [line('D', acc, amt - t, { ...opt, tax: code }), line('D', '1465', t, { tax: '9' })]; };
   await postJournal(c, { date, pattern: 'B01', sourceType: 'receipt', sourceId: r.insertId, lines: [
     ...dr('1112', 'BANK', '9', { sub: bankCode }), ...dr('1111', 'CASH', '9'), ...dr('1120', 'NOTE', '9', { customer: cust.customers_cd }),

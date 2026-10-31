@@ -157,6 +157,10 @@ export async function prepare(pool, env = process.env) {
   // 小口現金：明細の行ごとの支払先（2026-10-29 画面レビュー）。業者マスタの業者は vendor_id、それ以外は payee（自由入力）
   await pool.query(`ALTER TABLE expense_line ADD COLUMN IF NOT EXISTS payee varchar(100) COLLATE "C"`);
   await pool.query(`ALTER TABLE expense_line ADD COLUMN IF NOT EXISTS vendor_id integer`);
+  // 現行入金処理（HAW110）の借方の内訳2・工種・消費税額（2026-10-31 ユーザー指示：現行画面と同じく入力項目にする）
+  await pool.query(`ALTER TABLE receipt_component ADD COLUMN IF NOT EXISTS sub2 varchar(20) COLLATE "C"`);
+  await pool.query(`ALTER TABLE receipt_component ADD COLUMN IF NOT EXISTS work_type varchar(20) COLLATE "C"`);
+  await pool.query('ALTER TABLE receipt_component ADD COLUMN IF NOT EXISTS tax_amount numeric(18,0)');
   // 2026-10-22 請求No 未設定の定時請求（移行データ・追加前の登録分）に業者ごとの4桁連番を計上日順で振る（10/19：請求No は業者の伝票単位に4桁連番）
   await pool.query(`UPDATE expense_document d SET bill_no=LPAD(CAST(((x.base + x.rn - 1) % 9999) + 1 AS TEXT), 4, '0')
     FROM (SELECT e.expense_id, ROW_NUMBER() OVER (PARTITION BY e.vendor_id ORDER BY e.booked_on, e.document_no) rn,
