@@ -120,6 +120,8 @@ label.field small { font-weight: 400; color: var(--text-secondary); }
 label.field.req > span::after { content: ' *'; color: var(--danger); }
 .form-grid { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 12px 14px; }
 .form-grid .wide { grid-column: 1 / -1; }
+/* 商品仕入の登録：伝票No・仕入日・仕入先・区分を1行に（2026-10-31） */
+.form-grid.pu-head { grid-template-columns: 170px 170px minmax(0, 1fr) 170px; }
 /* 入力ダイアログの見出し行：ラベルを入力欄の左に置き、複数項目を一行に並べる */
 .inline-fields { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 28px; }
 .inline-fields label.field { display: inline-flex; align-items: center; gap: 8px; white-space: nowrap; }
@@ -207,7 +209,7 @@ dialog.modal[open] { animation: rise .35s var(--ease) both; display: flex; flex-
   .menu-toggle { display: inline-flex; }
   .grid2, .grid3 { grid-template-columns: 1fr; }
   .kpis { grid-template-columns: repeat(2, minmax(0,1fr)); }
-  .form-grid { grid-template-columns: 1fr; }
+  .form-grid, .form-grid.pu-head { grid-template-columns: 1fr; }
   .demo-banner a { display: none; }
   .top-actions .uname { display: none; }
 }
