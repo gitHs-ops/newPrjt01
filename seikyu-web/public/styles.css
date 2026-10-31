@@ -495,3 +495,5 @@ input:disabled, select:disabled, textarea:disabled { background: rgba(120,130,15
 .lr-amount { text-align: right; margin-bottom: 8px; }
 .lr-range { justify-content: flex-start; align-items: flex-end; margin-bottom: 8px; }
 .lr-pay input { width: 140px; }
+/* 小口現金：処税率の内容（選択した行に表示） */
+.line-grid [data-taxname] { display: block; max-width: 180px; white-space: normal; line-height: 1.3; }
