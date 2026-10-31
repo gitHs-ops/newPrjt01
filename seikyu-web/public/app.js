@@ -1129,7 +1129,7 @@ const LR_ACC = {
   8850: { name: '値引・雑損失', subs: [['D', '値引き', 'discount', '値引き'], ['L', '雑損失', 'loss', '雑損失']], dept: '063' },
 };
 const lrBlank = () => ({ acc: '', sub: '', amount: '', due: '' });
-const lrNew = () => ({ step: 1, date: '', customer: '', lines: [lrBlank(), lrBlank(), lrBlank(), lrBlank()], billTo: '', billInput: '', invoices: [], deposit: 0, from: '', to: '', key: uuid() });
+const lrNew = () => ({ step: 1, date: '', dateNote: '', customer: '', lines: [lrBlank(), lrBlank(), lrBlank(), lrBlank()], billTo: '', billInput: '', invoices: [], deposit: 0, from: '', to: '', key: uuid() });
 let lr = lrNew();
 const lrNum = v => { const n = Number(String(v ?? '').replace(/,/g, '').trim()); return Number.isFinite(n) ? n : NaN; };
 const lrSub = l => LR_ACC[l.acc]?.subs?.find(s => s[0] === l.sub);
@@ -1140,10 +1140,16 @@ const lrUsed = () => lr.lines.filter(l => l.acc);
 const lrSum = () => lrUsed().reduce((n, l) => n + (lrNum(l.amount) || 0), 0);
 const lrNameOf = code => masters.customers.find(c => c.code === code)?.name || '';
 const lrName = () => lrNameOf(lr.customer);
-const lrHead = () => `<div class="lr-head"><span>入金日：<b>${esc(lr.date)}</b></span><span>得意先：<b>${esc(lr.customer)} ${esc(lrName())}</b></span></div>`;
+// 入金日が休日（土日・カレンダーマスタ）なら翌営業日にする（2026-10-31 ユーザー指示）
+const lrMoveDate = () => {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(lr.date)) return;
+  const d = nextBusinessDay(lr.date); if (d === lr.date) return;
+  lr.dateNote = `${lr.date} は休日のため翌営業日に変更しました`; lr.date = d;
+};
+const lrHead = () => `<div class="lr-head"><span>入金日：<b>${esc(lr.date)}</b>${lr.dateNote ? `<small class="muted">　${esc(lr.dateNote)}</small>` : ''}</span><span>得意先：<b>${esc(lr.customer)} ${esc(lrName())}</b></span></div>`;
 const lrKeys = keys => `<div class="lr-keys">${keys.map(([act, label, primary]) => `<button type="button" class="${primary ? 'primary' : ''}" data-act="${act}">${esc(label)}</button>`).join('')}</div>`;
 function lrStep1() {
-  return `<div class="form-grid">${field('入金日', `<input type="date" id="lr-date" value="${esc(lr.date)}">`, { req: 1 })}${field('得意先', `<input id="lr-cust" list="dl-pcust" autocomplete="off" value="${esc(lr.customer)}" placeholder="得意先コード">${custHints()}<small id="lr-cname" class="muted">${esc(lrName())}</small>`, { req: 1 })}</div>
+  return `<div class="form-grid">${field('入金日', `<input type="date" id="lr-date" value="${esc(lr.date)}"><small id="lr-dnote" class="muted">${esc(lr.dateNote)}</small>`, { req: 1 })}${field('得意先', `<input id="lr-cust" list="dl-pcust" autocomplete="off" value="${esc(lr.customer)}" placeholder="得意先コード">${custHints()}<small id="lr-cname" class="muted">${esc(lrName())}</small>`, { req: 1 })}</div>
     ${lrKeys([['lrNext', 'F10 次画面', 1], ['lrEnd', 'F3 終了'], ['lrFind', 'F9 検索']])}`;
 }
 function lrLine(l, i) {
@@ -1221,7 +1227,8 @@ const lrPaintRows = () => { const b = $('#lr-rows'); if (!b) return; b.innerHTML
 async function lrNext() {
   if (lr.step === 1) {
     if (!lr.date) throw Error('入金日を入力してください');
-    if (!masters.customers.some(c => c.code === lr.customer)) throw Error('得意先コードを正しく入力してください');
+    lrMoveDate();
+    if (!masters.customers.some(c => c.code === lr.customer)) { lrDraw(); throw Error('得意先コードを正しく入力してください'); }
     lr.step = 2; return lrDraw();
   }
   if (lr.step === 2) {
@@ -1245,7 +1252,7 @@ function legacyReceiptView() {
 }
 document.addEventListener('input', e => {
   const t = e.target; if (!t.closest?.('#lr-body')) return;
-  if (t.id === 'lr-date') lr.date = t.value;
+  if (t.id === 'lr-date') { if (t.value !== lr.date) { lr.date = t.value; lr.dateNote = ''; $('#lr-dnote').textContent = ''; } } // カレンダーは change の後に input も出す
   else if (t.id === 'lr-cust') { lr.customer = t.value.trim(); lr.billInput = ''; lr.billTo = ''; lr.invoices = []; $('#lr-cname').textContent = lrName(); }
   else if (t.id === 'lr-bill') {
     // 1 回の登録で請求先は 1 つ
@@ -1258,7 +1265,8 @@ document.addEventListener('input', e => {
 });
 document.addEventListener('change', e => {
   const t = e.target; if (!t.closest?.('#lr-body')) return;
-  if (t.dataset.lr === 'acc') { const l = lr.lines[t.dataset.i]; l.acc = t.value; l.sub = ''; l.due = ''; if (!t.value) l.amount = ''; lrDraw(); }
+  if (t.id === 'lr-date') { lr.date = t.value; lrMoveDate(); t.value = lr.date; $('#lr-dnote').textContent = lr.dateNote; }
+  else if (t.dataset.lr === 'acc') { const l = lr.lines[t.dataset.i]; l.acc = t.value; l.sub = ''; l.due = ''; if (!t.value) l.amount = ''; lrDraw(); }
   else if (t.dataset.lr === 'sub') { lr.lines[t.dataset.i].sub = t.value; lrDraw(); }
   else if (t.id === 'lr-from' || t.id === 'lr-to') { lr[t.id === 'lr-from' ? 'from' : 'to'] = t.value; lrDraw(); }
 });
@@ -1386,6 +1394,7 @@ function icFilter() { const t = ($('#ic-search')?.value || '').trim().toLowerCas
 // 業者マスタの支払繰延区分（「1 15」＝翌月15日、「3 31」＝3か月後の月末）と支払予定日。サーバの vendorDue と同じ計算
 // 営業日（サーバ domain.mjs と同じ）：土日とカレンダーマスタ（休日）の有効な日付は休日。休日なら前営業日（2026-10-31）
 const isHoliday = iso => { const w = new Date(iso + 'T00:00:00Z').getUTCDay(); return w === 0 || w === 6 || active('holidays').some(h => h.code === iso); };
+const nextBusinessDay = iso => { const d = new Date(iso + 'T00:00:00Z'); for (let i = 0; i < 60 && isHoliday(d.toISOString().slice(0, 10)); i++) d.setUTCDate(d.getUTCDate() + 1); return d.toISOString().slice(0, 10); };
 const prevBusinessDay = iso => { const d = new Date(iso + 'T00:00:00Z'); for (let i = 0; i < 60 && isHoliday(d.toISOString().slice(0, 10)); i++) d.setUTCDate(d.getUTCDate() - 1); return d.toISOString().slice(0, 10); };
 function vendorTerms(v, date) {
   if (!v || !/^\d{4}-\d{2}-\d{2}$/.test(date || '')) return { label: '', due: '' };
