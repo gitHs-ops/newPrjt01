@@ -36,7 +36,8 @@ export async function createPurchase(c, ctx, p) {
     if (!l.item && !l.quantity && !l.amount && !l.price) continue;
     const it = await one(c, 'SELECT * FROM item_m WHERE item_cd=?', [String(l.item || '')]); check(it && it.delete_f !== '1', `${label}: 有効な商品を選択してください`);
     check(!/値引/.test(it.item_nam || ''), `${label}: 「${it.item_nam}」は商品仕入では選択できません`); // 値引き（88888 等）は仕入で使わない（2026-10-29）
-    // 運賃行は商品コードで決める（運賃の商品なら金額だけ。2026-10-29 指摘「種別→商品コード」）。旧 API の lineKind=2 も受ける
+    // 運賃行は商品コードで決める（運賃の商品なら金額だけ。2026-10-29 指摘「種別→商品コード」）。
+    // 材料の運賃（現行⑭ 10900 アスファルト 0.00 … 運賃）は、画面で数量を空欄にして金額を入れた行が lineKind=2 で来る（2026-11-01）
     const freight = /運賃/.test(it.item_nam || '') || String(l.lineKind || '1') === '2';
     const tax = mustDecode(l.taxCode || '241', `${label}の処税率`).code;
     if (freight) {
