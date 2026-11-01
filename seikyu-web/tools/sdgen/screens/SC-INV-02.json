@@ -26,6 +26,33 @@
       "root": "#content section[data-sub=list] table",
       "mode": "thead"
      }
+    },
+    {
+     "go": "#invoices/list?month=2026-09&closing=31"
+    },
+    {
+     "search": true
+    },
+    {
+     "shot": {
+      "name": "SC-INV-02_一覧",
+      "viewport": [
+       1440,
+       900
+      ],
+      "clip": [
+       278,
+       78,
+       1144,
+       822
+      ]
+     }
+    },
+    {
+     "download": {
+      "click": "#content button[data-act=listBook]",
+      "name": "SC-INV-02_請求一覧表.xlsx"
+     }
     }
    ]
   },

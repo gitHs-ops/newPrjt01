@@ -31,7 +31,7 @@ EXTRACT_JS = r"""
       for (const el of root.querySelectorAll('label.field, input:not(.combo-input), select, textarea, button, a.button')) {
         if (seen.has(el)) continue;
         const lb = el.tagName === 'LABEL' ? el : el.closest('label.field');
-        if (lb && root.contains(lb)) { if (seen.has(lb) || !vis(lb)) continue; seen.add(lb); const c = control(lb); if (c) { seen.add(c); const name = txt(lb.querySelector('span')) || txt(lb).replace(txt(c), ''); out.push(info(c, name, name)); } continue; }
+        if (lb && root.contains(lb)) { if (seen.has(lb) || !vis(lb)) continue; seen.add(lb); const c = control(lb); if (c) { seen.add(c); const name = txt(lb.querySelector('span')) || txt(lb).replace(txt(c), '') || c.getAttribute('aria-label') || ''; out.push(info(c, name, name)); } continue; }   // ラベルが空白だけの欄は aria-label
         if (el.tagName === 'BUTTON' || el.tagName === 'A') { if (opt.buttons && vis(el)) out.push({ key: txt(el), label: txt(el), tag: 'button', act: el.dataset.act || '' }); continue; }
         if (!vis(el) && !el.classList.contains('combo-select')) continue;
         out.push(info(el, '', el.name || el.id || el.title || el.placeholder));

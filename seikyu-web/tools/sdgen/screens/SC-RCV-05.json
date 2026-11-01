@@ -1,0 +1,44 @@
+{
+ "views": [
+  {
+   "id": "SC-RCV-05",
+   "name": "一覧画面",
+   "steps": [
+    {
+     "go": "#receipts/plan"
+    },
+    {
+     "extract": {
+      "area": "〔検索条件〕",
+      "root": "#content .page-head .filters",
+      "mode": "controls",
+      "buttons": true
+     }
+    },
+    {
+     "go": "#receipts/plan?r=1&from=2026-10&to=2026-11&customer=ｲ10"
+    },
+    {
+     "search": true
+    },
+    {
+     "extract": {
+      "area": "〔一覧〕",
+      "root": "#content section.card table",
+      "mode": "thead"
+     }
+    },
+    {
+     "shot": {
+      "name": "SC-RCV-05_一覧",
+      "viewport": [
+       1440,
+       900
+      ],
+      "el": "#content .page"
+     }
+    }
+   ]
+  }
+ ]
+}
