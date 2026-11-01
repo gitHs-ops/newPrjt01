@@ -125,7 +125,7 @@
     {
      "extract": {
       "area": "〔請求先・請求日〕",
-      "root": "#lr-detail .lr-bill, #lr-detail .lr-range",
+      "root": "#lr-body .lr-range, #lr-detail .lr-bill",
       "mode": "controls"
      }
     },
