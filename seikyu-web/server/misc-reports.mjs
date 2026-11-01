@@ -182,18 +182,25 @@ export async function jvExpenses(c, q) {
   return { title: summary ? '出資金請求合計表（定時請求分）' : '出資金請求明細表（定時請求分）', ref: 'NO35 / 添付帳票⑫', layout: summary ? 'summary' : 'detail', closing, from, to, members: ms, accounts, days, totals,
     note: `締切日 ${closing || to} の月度（${from}〜${to}）の定時請求を、支払日ごと・科目ごとに${summary ? '集計して' : '明細行単位で'}出資比率で按分。各社切捨て、端数は第1構成員。端数調整の入力（現行の「データの読込 0/1」）は要検討。` };
 }
-const PART_ACCOUNT = { BANK: '当座預金（振込）', NOTE: '受取手形', FEE: '雑費（手数料）' };
+const PART_ACCOUNT = { BANK: '当座預金（振込）', NOTE: '受取手形', FEE: '雑費（手数料）', COOP: '雑費（協力費）' };
+const PART_MEMO = { FEE: '入金時の手数料', COOP: '入金時の協力費' };
 // NO36 入金明細及び配分表
 // 10/21 打合せ：対象は当座預金に入金されるもの（振込・受取手形）、入金に付随する手数料（雑費）、現金売上。指示画面は締切日。
+// 2026-11-01：雑費に協力費（8330-107）も含める（現行 HJW030 の見本で雑費の行が 手数料＋協力費 の金額。例 新晃 550）
+// 入金額配賦登録（HJW030）の表示用に 区分（売掛金入金／受取手形／現金売上）と 請求締日（消し込んだ請求の締日）を返す
 export async function jvReceipts(c, q) {
   const { from, to, closing } = await jvRange(c, q), ms = await members(c);
   const rs = await rows(c, `SELECT r.receipt_id, r.receipt_no, r.receipt_date, c.customers_name, k.component_no, k.component_kind, k.amount FROM receipt r JOIN receipt_component k ON k.receipt_id=r.receipt_id LEFT JOIN client_m c ON c.customers_cd=r.customers_cd
-    WHERE r.status='POSTED' AND r.receipt_date BETWEEN ? AND ? AND k.component_kind IN ('BANK','NOTE','FEE') ORDER BY r.receipt_date, r.receipt_id, k.component_no`, [from, to]);
-  const lines = rs.map(r => { const amount = num(r.amount); return { key: `R:${r.receipt_id}:${r.component_no}`, date: String(r.receipt_date).slice(0, 10), no: r.receipt_no, account: PART_ACCOUNT[r.component_kind] || r.component_kind, memo: r.component_kind === 'FEE' ? '入金時の手数料' : '売掛金入金', customer: r.customers_name, amount, parts: allocate(amount, ms) }; });
+    WHERE r.status='POSTED' AND r.receipt_date BETWEEN ? AND ? AND k.component_kind IN ('BANK','NOTE','FEE','COOP') ORDER BY r.receipt_date, r.receipt_id, k.component_no`, [from, to]);
+  const lines = rs.map(r => { const amount = num(r.amount); return { key: `R:${r.receipt_id}:${r.component_no}`, date: String(r.receipt_date).slice(0, 10), no: r.receipt_no, account: PART_ACCOUNT[r.component_kind] || r.component_kind, memo: PART_MEMO[r.component_kind] || '売掛金入金', kbn: r.component_kind === 'NOTE' ? '受取手形' : '売掛金入金', customer: r.customers_name, amount, parts: allocate(amount, ms) }; });
+  const ids = [...new Set(rs.map(r => r.receipt_id))], billed = {};
+  if (ids.length) for (const a of await rows(c, `SELECT DISTINCT a.receipt_id, h.closing_date FROM receipt_allocation a JOIN billing_head h ON h.invoice_id=a.invoice_id WHERE a.receipt_id IN (${ids.map(() => '?').join(',')}) ORDER BY h.closing_date`, ids)) (billed[a.receipt_id] ||= []).push(fromNum(a.closing_date));
+  const span = ds => (ds.length > 2 ? `${ds[0]}〜${ds[ds.length - 1]}（${ds.length}件）` : ds.join('・'));   // 何か月分もまとめて消し込んだ入金は 最初〜最後（件数）
+  for (const l of lines) l.billed = span(billed[l.key.split(':')[1]] || []);
   // 現金売上（決済方法 1＝現金）：売上日・得意先ごとに集計
   const cash = await rows(c, `SELECT s.sales_date d, s.customers_cd, c.customers_name, COUNT(*) n, SUM(s.money + s.consumption_tax) v FROM sales_trn s LEFT JOIN client_m c ON c.customers_cd=s.customers_cd
     WHERE s.payment_method_cd=1 AND s.sales_date BETWEEN ? AND ? GROUP BY s.sales_date, s.customers_cd, c.customers_name ORDER BY s.sales_date, s.customers_cd`, [toNum(from), toNum(to)]);
-  for (const r of cash) { const amount = num(r.v); if (amount) lines.push({ key: `C:${fromNum(r.d)}:${r.customers_cd}`, date: fromNum(r.d), no: `${num(r.n)}件`, account: '現金売上', memo: '現金売上', customer: r.customers_name || r.customers_cd, amount, parts: allocate(amount, ms) }); }
+  for (const r of cash) { const amount = num(r.v); if (amount) lines.push({ key: `C:${fromNum(r.d)}:${r.customers_cd}`, date: fromNum(r.d), no: `${num(r.n)}件`, account: '現金売上', memo: '現金売上', kbn: '現金売上', billed: '', customer: r.customers_name || r.customers_cd, amount, parts: allocate(amount, ms) }); }
   lines.sort((a, b) => a.date.localeCompare(b.date));
   // 入金額配賦登録（端数調整）の値があれば使う。金額が変わった行（合計が一致しない）は自動配分に戻す
   const adj = lines.length ? Object.fromEntries((await rows(c, `SELECT alloc_key, parts FROM app_jv_alloc WHERE alloc_key IN (${lines.map(() => '?').join(',')})`, lines.map(l => l.key))).map(r => [r.alloc_key, JSON.parse(r.parts)])) : {};
@@ -203,7 +210,7 @@ export async function jvReceipts(c, q) {
     if (parts.every(Number.isSafeInteger) && parts.reduce((n, v) => n + v, 0) === l.amount) { l.parts = parts; l.adjusted = true; }
   }
   return { title: '入金明細及び配分表', ref: 'NO36 / 添付帳票⑬', closing, from, to, members: ms, lines, totals: { amount: lines.reduce((n, l) => n + l.amount, 0), parts: ms.map((_, k) => lines.reduce((n, l) => n + l.parts[k], 0)) },
-    note: `締切日 ${closing || to} の月度（${from}〜${to}）。対象は当座預金への入金（振込・受取手形）、入金時の手数料（雑費）、現金売上（10/21 打合せ）。各社切捨て、端数は第1構成員。入金額配賦登録で調整した行は調整後の金額（${lines.filter(l => l.adjusted).length}行）。` };
+    note: `締切日 ${closing || to} の月度（${from}〜${to}）。対象は当座預金への入金（振込・受取手形）、入金時の手数料・協力費（雑費）、現金売上（10/21 打合せ）。各社切捨て、端数は第1構成員。入金額配賦登録で調整した行は調整後の金額（${lines.filter(l => l.adjusted).length}行）。` };
 }
 // 入金額配賦登録（現行 HJW030）：締切日の月度の NO36 対象行について構成員別の配分額を調整して登録。行ごとに合計＝入金額。自動配分と同じなら調整を消す
 export async function saveJvAllocations(c, ctx, p) {
