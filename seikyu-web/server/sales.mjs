@@ -698,7 +698,9 @@ export async function createReceipt(c, ctx, p) {
   for (const a of allocs) await c.query('INSERT INTO receipt_allocation (receipt_id,invoice_id,customers_cd,amount) VALUES (?,?,?,?)', [r.insertId, a.id, cust.customers_cd, a.amount]);
   // 仕訳パターン分析 B-01〜B-06（処税率: 協力会費は141/41混在のため141で仮置き Q04）
   // 現行入金処理では借方の処税率を入力できる（p.tax：{ FEE: '041', … }。2026-10-31）。指定が無ければ既定値
-  // 外税の処税率を選んだときは、入金額（税込）を科目の税抜金額と仮払消費税 1465 に分ける（定時請求・小口現金の外税と同じ）
+  // 外税の処税率を選んだときは、入金額（税込）を科目の税抜金額と仮払消費税 1465 に分ける。
+  // 入金額は受け取った（差し引かれた）金額なので、外税でも税額は入金額から抜き出す（×税率/(1+税率)。現行 HAW110 の見本と同じ。
+  // 2026-11-01 決定：外税でも上乗せ（×税率）にしない。定時請求・小口現金の外税は金額が税抜で上乗せするので計算が違う）
   const tx = (k, d) => (p.tax?.[k] ? mustDecode(p.tax[k], `${RECEIPT_PARTS[k]}の処税率`).code : d);
   const dr = (acc, k, def, opt = {}) => { const amt = parts[k], code = tx(k, def), d = decode(code), r = d?.excl ? Math.round(d.rate * 10) : 0, given = amt ? det(k).taxAmt : null, t = !r ? 0 : given ?? (amt ? Math.floor(amt * r / (1000 + r)) : 0);
     return [line('D', acc, amt - t, { ...opt, tax: code }), line('D', '1465', t, { tax: '9' })]; };

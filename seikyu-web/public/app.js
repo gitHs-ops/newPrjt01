@@ -1142,7 +1142,7 @@ const lrTaxDef = l => { const c = lrTaxCode(l); return c === '9' ? '090' : c; };
 const lrTaxEff = l => l.tax || lrTaxDef(l);
 const lrTaxAuto = l => { const s = lrTaxEff(l), rate = { 1: 10, 2: 3, 3: 6, 4: 2.8, 5: 5, 8: 8 }[s[2]] || 0, r = Math.round(rate * 10), a = lrNum(l.amount) || 0;
   return s.length === 3 && r && [1, 4, 5, 6].includes(Number(s[1])) ? Math.floor(a * r / (1000 + r)) : 0; };
-// 消費税額：入力があればその額、なければ自動計算（課税の処税率のときだけ）
+// 消費税額：入力があればその額、なければ自動計算（課税の処税率のときだけ）。入金額は税込なので外税でも 入金額×税率/(1+税率)（2026-11-01 決定）
 const lrTaxable = l => lrTaxAuto({ ...l, amount: 1000 }) > 0;
 const lrTax = l => (!lrTaxable(l) ? 0 : l.taxAmt !== '' ? lrNum(l.taxAmt) || 0 : lrTaxAuto(l));
 const lrUsed = () => lr.lines.filter(l => l.acc);
