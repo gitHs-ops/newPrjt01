@@ -1166,7 +1166,7 @@ const LR_ACC = {
 };
 const lrBlank = () => ({ acc: '', sub: '', amount: '', due: '', tax: '', sub2: '', work: '', taxAmt: '', memo2: '' });
 // 借方の明細は最初 3 行（足りなければ［＋ 行追加］）。入金日の初期値は今日（いずれも 2026-11-01）
-const lrNew = () => ({ step: 1, date: today(), customer: '', lines: [lrBlank(), lrBlank(), lrBlank()], billTo: '', billInput: '', invoices: [], deposit: 0, from: '', to: '', key: uuid() });
+const lrNew = () => ({ step: 1, date: today(), customer: '', lines: [lrBlank(), lrBlank(), lrBlank()], billTo: '', billInput: '', invoices: [], deposit: 0, from: '', to: today(), key: uuid() });
 let lr = lrNew();
 const lrNum = v => { const n = Number(String(v ?? '').replace(/,/g, '').trim()); return Number.isFinite(n) ? n : NaN; };
 const lrSub = l => LR_ACC[l.acc]?.subs?.find(s => s[0] === l.sub);
@@ -1188,7 +1188,8 @@ const lrKeys = keys => `<div class="lr-keys">${keys.map(([act, label, primary]) 
 function lrStep1() {
   // 入金日・得意先（コード＋名称）は1行に並べる。「実行」で次画面（借方）の内容をこの下に出す。最初の画面にはファンクションキーのボタンを置かない（2026-10-31）
   // 「実行」の後は現行 HAW110 と同じく入金日・得意先は表示だけ（直すときは F12 前画面）
-  if (lr.step > 1) return `<div class="inline-fields lr-step1 lr-fixed"><span>入金日：<b>${esc(lr.date)}</b></span><span>得意先：<b>${esc(lr.customer)} ${esc(lrName())}</b></span>${custHints()}</div>
+  // 3画面目は 請求日（絞込）を入金日・得意先の行の後ろに置く（2026-11-01）
+  if (lr.step > 1) return `<div class="inline-fields lr-step1 lr-fixed"><span>入金日：<b>${esc(lr.date)}</b></span><span>得意先：<b>${esc(lr.customer)} ${esc(lrName())}</b></span>${lr.step === 3 ? lrRange() : ''}${custHints()}</div>
     <div id="lr-detail">${lr.step === 2 ? lrStep2() : lrStep3()}</div>`;
   return `<div class="inline-fields lr-step1">${field('入金日', `<input type="date" id="lr-date" value="${esc(lr.date)}">`, { req: 1 })}${field('得意先', `<input id="lr-cust" list="dl-pcust" autocomplete="off" value="${esc(lr.customer)}" placeholder="得意先コード" style="width:140px">${custHints()}<small id="lr-cname" class="muted">${esc(lrName())}</small>`, { req: 1 })}<button type="button" data-act="lrSearch">実行</button></div>
     <div id="lr-detail"></div>`;
@@ -1227,10 +1228,11 @@ const lrRows = () => {
   return shown.map(({ r, n }) => `<tr><td>${esc(lr.billTo)} ${esc(lrNameOf(lr.billTo))}</td><td>${esc(r.closing)}</td><td>${r.id}</td><td>${esc(r.due || '')}</td><td class="num">${yen(r.balance)}</td><td class="num">${n ? yen(n) : ''}</td></tr>`).join('');
 };
 const lrDepNote = () => (lrUsed().some(l => lrKind(l) === 'deposit') && lr.billTo ? `請求先の預り金残高 ${yen(lr.deposit)} 円` : '');
+// 請求日の範囲（任意の絞込）。初期値は 自＝空欄・至＝今日（2026-11-01）
+const lrRange = () => `<div class="filters lr-range"><label class="field">請求日<input type="date" id="lr-from" value="${esc(lr.from)}"></label><span>〜</span><label class="field">　<input type="date" id="lr-to" value="${esc(lr.to)}" aria-label="請求日（至）"></label></div>`;
 function lrStep3() {
   return `<div class="lr-detail"><div class="lr-amount">入金額 <b>${yen(lrSum())}</b></div>
     <div class="inline-fields lr-bill">${field('請求先', `<input id="lr-bill" list="dl-pcust" autocomplete="off" value="${esc(lr.billInput)}" placeholder="請求先コード" style="width:140px"><small id="lr-bname" class="muted">${esc(lrNameOf(lr.billInput))}</small><small id="lr-dep" class="muted">${esc(lrDepNote())}</small>`, { req: 1 })}</div>
-    <div class="filters lr-range"><label class="field">請求日<input type="date" id="lr-from" value="${esc(lr.from)}"></label><span>〜</span><label class="field">　<input type="date" id="lr-to" value="${esc(lr.to)}" aria-label="請求日（至）"></label></div>
     <div class="table-wrap"><table class="lr-pay"><thead><tr><th>請求先</th><th>請求日</th><th>請求No</th><th>予定日</th><th class="num">入金予定額</th><th class="num">今回入金額</th></tr></thead>
       <tbody id="lr-rows">${lrRows()}</tbody>
       <tfoot><tr id="lr-foot">${lrPayFoot()}</tr></tfoot></table></div>
@@ -1800,7 +1802,9 @@ async function mixDialog() {
     + table([{ label: '材料', value: l => `${l.material} ${l.name}` }, { label: '配合率', num: 1, value: l => l.ratio + '%' }, { label: '材料単価', num: 1, value: l => (l.price === null ? '—' : yen(l.price)) }, { label: '単価根拠', value: l => l.source }, { label: '配合金額', num: 1, value: l => (l.cost === null ? '—' : yen(l.cost)) }], p.lines, { foot: ['配合単価', '', '', '', yen(p.haigo)] })
     + (p.saved ? `<p class="small muted">保存済（マスタ管理 → 原価）: 配合 ${yen(p.saved.haigo)} ＋ 電気 ${yen(p.saved.denki)} ＋ 灯油 ${yen(p.saved.touyu)} ＋ 製造 ${yen(p.saved.seizou)} ＋ 一般 ${yen(p.saved.ippann)} ＝ <b>${yen(p.saved.total)}</b> 円/単位</p>` : '')).join('')
     : '<div class="empty">配合マスタが登録されていません（マスタ管理 → 配合）</div>');
-  modal({ title: `配合計算 ${month}`, wide: true, submit: canWrite() && d.products.length ? '原価に保存' : undefined, body: `<div class="filters" style="margin-bottom:10px"><a class="button" href="/api/reports/misc/mix?${qs({ month })}&format=xlsx" download>⇩ Excel</a></div>${body}
+  // サンプル入力：経費単価を推定値（推定が 0 なら見本の値）にする（2026-11-01）
+  const mixSample = f => [['denki', 110], ['touyu', 220], ['seizou', 330], ['ippann', 40]].forEach(([k, v]) => { if (f[k]) f[k].value = d.suggest[k] || v; });
+  modal({ title: `配合計算 ${month}`, wide: true, submit: canWrite() && d.products.length ? '原価に保存' : undefined, sample: canWrite() && d.products.length ? mixSample : false, body: `<div class="filters" style="margin-bottom:10px"><a class="button" href="/api/reports/misc/mix?${qs({ month })}&format=xlsx" download>⇩ Excel</a></div>${body}
     ${d.products.length ? `<h3 style="margin-top:12px">材料使用量の比較（理論＝製品出荷×配合率 ／ 実際＝材料受払）</h3>${table([{ label: '材料', value: u => `${u.material} ${u.name}` }, { label: '理論使用量', num: 1, value: u => u.theoretical }, { label: '実使用量', num: 1, value: u => u.actual ?? '—' }, { label: '差異', num: 1, html: u => u.diff === null ? '—' : `<span class="${Math.abs(u.diff) > Math.max(1, u.theoretical * 0.05) ? 'check-ng' : ''}">${u.diff}</span>` }], d.usage)}
     <h3 style="margin-top:12px">経費単価（推定・手修正可）</h3><p class="small muted">製品出荷数量 ${d.suggest.tons}／推定: 電気 ${yen(d.suggest.denki)}・灯油 ${yen(d.suggest.touyu)}・製造 ${yen(d.suggest.seizou)}・一般 ${yen(d.suggest.ippann)} 円/単位。${esc(d.suggest.basis)}</p><div class="form-grid">${[['denki', '電気'], ['touyu', '灯油'], ['seizou', '製造'], ['ippann', '一般']].map(([k, l]) => field(l + '（円）', `<input name="${k}" class="num" value="${s0[k]}">`)).join('')}</div>` : ''}`,
     onSubmit: async v => { const r = await post('/api/mix/save', { month, closing, ...v }); toast(`原価に ${r.saved} 製品を保存しました`); } });

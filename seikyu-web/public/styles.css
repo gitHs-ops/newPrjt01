@@ -504,5 +504,7 @@ input:disabled, select:disabled, textarea:disabled { background: rgba(120,130,15
 /* 実行後の入金日・得意先（表示のみ）は大きく強調（2026-11-01） */
 .lr-fixed { min-height: 38px; font-size: 1.15rem; gap: 10px 36px; padding: 6px 2px; }
 .lr-fixed b { font-size: 1.35rem; font-weight: 800; color: var(--accent-secondary); letter-spacing: .02em; }
+/* 3画面目：入金日・得意先の行の後ろの 請求日（絞込）は通常の文字の大きさ（2026-11-01） */
+.lr-fixed .lr-range { font-size: .9rem; margin: 0; align-items: center; }
 /* 請求先：ラベル・コード・名称・預り金残高を1行に（2026-10-31） */
 .lr-bill { margin-bottom: 10px; }
