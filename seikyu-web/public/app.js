@@ -1130,8 +1130,8 @@ const LR_ACC = {
   8850: { name: '値引・雑損失', subs: [['D', '値引き', 'discount', '値引き'], ['L', '雑損失', 'loss', '雑損失']], dept: '063' },
 };
 const lrBlank = () => ({ acc: '', sub: '', amount: '', due: '', tax: '', sub2: '', work: '', taxAmt: '', memo2: '' });
-// 借方の明細は最初 3 行（足りなければ［＋ 行追加］。2026-11-01）
-const lrNew = () => ({ step: 1, date: '', customer: '', lines: [lrBlank(), lrBlank(), lrBlank()], billTo: '', billInput: '', invoices: [], deposit: 0, from: '', to: '', key: uuid() });
+// 借方の明細は最初 3 行（足りなければ［＋ 行追加］）。入金日の初期値は今日（いずれも 2026-11-01）
+const lrNew = () => ({ step: 1, date: today(), customer: '', lines: [lrBlank(), lrBlank(), lrBlank()], billTo: '', billInput: '', invoices: [], deposit: 0, from: '', to: '', key: uuid() });
 let lr = lrNew();
 const lrNum = v => { const n = Number(String(v ?? '').replace(/,/g, '').trim()); return Number.isFinite(n) ? n : NaN; };
 const lrSub = l => LR_ACC[l.acc]?.subs?.find(s => s[0] === l.sub);
