@@ -4,6 +4,7 @@ import { check, isoDate, isoMonth, today } from './domain.mjs';
 import { rows } from './db.mjs';
 import { xlsx } from './xlsx.mjs';
 import { PURCHASE_KINDS, listExpenses } from './payables.mjs';
+import { decode } from './taxcode.mjs';
 
 const num = v => Number(v || 0);
 const monthEnd = m => new Date(Date.UTC(+m.slice(0, 4), +m.slice(5, 7), 0)).toISOString().slice(0, 10);
@@ -20,10 +21,10 @@ export async function purchaseRegister(c, q) {
   for (const r of rs) {
     let g = groups.find(x => x.date === r.purchase_date && x.code === r.vendor_code);
     if (!g) groups.push(g = { date: r.purchase_date, code: r.vendor_code, title: `仕入先 ${r.vendor_code} ${r.vendor_name}`, label: '仕入先計', rows: [] });
-    // 運賃の行は現行どおり数量・単価 0.00 で、処税率の右に「運賃」
+    // 運賃の行は現行どおり数量・単価 0.00 で、処税率の右に「運賃」。処税率はコードの右に名称（画面の選択リストと同じ。2026-11-01）
     const fr = r.line_kind === '2';
     g.rows.push({ date: r.purchase_date, kind: PURCHASE_KINDS[r.purchase_kb || '1'], no: purchaseNo(r.source_document_no, r.line_no), item: `${r.item_cd} ${r.item_nam || ''}`,
-      qty: fr ? 0 : num(r.quantity), unit: r.unit || '', price: fr ? 0 : num(r.unit_price), net: num(r.net_amount), account: '', subName: '', tax: `${r.source_tax_code || ''}${fr ? ' 運賃' : ''}` });
+      qty: fr ? 0 : num(r.quantity), unit: r.unit || '', price: fr ? 0 : num(r.unit_price), net: num(r.net_amount), account: '', subName: '', tax: `${r.source_tax_code || ''}${decode(r.source_tax_code) ? ' ' + decode(r.source_tax_code).name : ''}${fr ? ' 運賃' : ''}` });
   }
   for (const g of groups) g.totals = { net: sum(g.rows, 'net') };
   // 仕入日の見出し（その日の最初の仕入先の前）と仕入日計（その日の最後の仕入先の後）
@@ -34,7 +35,7 @@ export async function purchaseRegister(c, q) {
   return { title: '商品仕入登録リスト', ref: '帳票⑭（HAR011）', from, to, sub: `仕入日 ${from} 〜 ${to}`,
     // 項目名は現行の見本（HAR011・添付帳票⑭ p.1-2）どおり（2026-10-29）。単位は仕入数量の右で見出しなし。科目ｺｰﾄﾞ・内訳名は見本でも空欄。摘要は見本にないので出さない
     columns: [{ key: 'date', label: '仕入日', w: 11 }, { key: 'kind', label: '区分', w: 8 }, { key: 'no', label: '伝票No.', w: 15 }, { key: 'item', label: '商品名', w: 30 }, { key: 'qty', label: '仕入数量', num: 1, w: 11 }, { key: 'unit', label: '', w: 4 },
-      { key: 'price', label: '仕入単価', num: 1, dec: 1, w: 11 }, { key: 'net', label: '仕入金額', num: 1, w: 13 }, { key: 'account', label: '科目ｺｰﾄﾞ', w: 9 }, { key: 'subName', label: '内訳名', w: 14 }, { key: 'tax', label: '処税率', w: 10 }],
+      { key: 'price', label: '仕入単価', num: 1, dec: 1, w: 11 }, { key: 'net', label: '仕入金額', num: 1, w: 13 }, { key: 'account', label: '科目ｺｰﾄﾞ', w: 9 }, { key: 'subName', label: '内訳名', w: 14 }, { key: 'tax', label: '処税率', w: 30 }],
     groups, totals: { net: groups.reduce((n, g) => n + g.totals.net, 0) } };
 }
 // ⑰ 在庫登録リスト（現行 HAR061）：月度の在庫数量
