@@ -37,5 +37,5 @@ export const mustDecode = (v, label = '処税率') => { const d = decode(v); che
 // 税額：税込なら内税計算、外税なら金額×税率。円未満切捨て（端数処理 Q02）。
 export function taxOf(amount, v) { const d = decode(v); if (!d?.taxable) return 0; const r = Math.round(d.rate * 10); return Math.floor(amount * r / (d.excl ? 1000 : 1000 + r)); }
 
-// 画面の選択肢（よく使うもの）。これ以外の組合せも decode できれば入力可。
-export const CATALOG = ['090', '011', '111', '018', '118', '211', '020', '030', '141', '148', '241', '248', '151', '161', '070', '041'].map(decode);
+// 画面の選択肢（よく使うもの）。これ以外の組合せも decode できれば入力可。251（非課税売上対応仕入 10% 外税）は 2026-11-01 追加
+export const CATALOG = ['090', '011', '111', '018', '118', '211', '020', '030', '141', '148', '241', '248', '151', '251', '161', '070', '041'].map(decode);
