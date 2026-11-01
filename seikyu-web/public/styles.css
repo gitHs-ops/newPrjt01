@@ -501,6 +501,8 @@ input:disabled, select:disabled, textarea:disabled { background: rgba(120,130,15
 /* 現行入金処理：検索で出す借方（次画面の内容）は入金日・得意先の下に区切って表示 */
 #lr-detail .lr-detail { margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--field-border); }
 .lr-grid .lr-taxname { display: block; margin-top: 4px; white-space: normal; line-height: 1.3; }
-.lr-fixed { min-height: 38px; }
+/* 実行後の入金日・得意先（表示のみ）は大きく強調（2026-11-01） */
+.lr-fixed { min-height: 38px; font-size: 1.15rem; gap: 10px 36px; padding: 6px 2px; }
+.lr-fixed b { font-size: 1.35rem; font-weight: 800; color: var(--accent-secondary); letter-spacing: .02em; }
 /* 請求先：ラベル・コード・名称・預り金残高を1行に（2026-10-31） */
 .lr-bill { margin-bottom: 10px; }
