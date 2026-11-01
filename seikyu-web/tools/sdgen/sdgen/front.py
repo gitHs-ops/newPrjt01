@@ -14,6 +14,7 @@ def sheet_in_docs(name, src, wb=None):
     """src の版から古い版へ順に探し、そのシートのある最初の版 → (シート, パス)。無ければ (None, None)"""
     import openpyxl
     from sdgen import cfg
+    if wb is None and src: wb = openpyxl.load_workbook(src, read_only=True, data_only=True)
     if wb is not None and name in wb.sheetnames: return wb[name], src
     docs = cfg.docs(); top = next((v for v, p in docs if p == src), None)
     for v, p in docs:
