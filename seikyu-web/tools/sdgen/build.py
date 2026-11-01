@@ -1,12 +1,13 @@
 # 3 設計書の作成：補足入力\<画面ID>.xlsx の構成の順に画面シートを組み立てる。画面項目は画面から取り出した項目（work\capture）＋規則で作る
 #   python build.py [出力.xlsx] [画面ID ...]     … 画面IDを省くと補足入力の全画面
-import datetime as dt, json, sys
+import datetime as dt, json, sys, zipfile
 from pathlib import Path
 import openpyxl
 from openpyxl.drawing.image import Image as XLImage
 from openpyxl.utils import get_column_letter as L
 from PIL import Image
-from sdgen import cfg, book, rules, style as S
+from sdgen import cfg, book, rules, menu, front, docdiff, style as S
+from sdgen.sheet import pictures
 
 sys.stdout.reconfigure(encoding='utf-8')
 COLS = ['Seq', '項目名称', '表示 / 区分', '必須', '初期値', '桁数', '少数', '形式', '参照元 / テーブル', '参照元項目', '備考']
@@ -139,7 +140,7 @@ def build_screen(wb, sc, report, date):
     sup = book.load(sc); items = merge_items(sc, sup, report)
     tables, figs = {}, {int(f['図']): f for f in sup['図']}
     for t in sup['表']: tables.setdefault(int(t['表']), []).append(t)
-    ws = wb.create_sheet(sc); s = Sheet(ws); seq = 0; pics, used = [], set()
+    ws = wb.create_sheet(sc); s = Sheet(ws); seq = 0; pics, used, imgs = [], set(), []
     for b in sorted(sup['構成'], key=lambda b: int(b['順'])):
         k, txt = b['種類'], b['文字']
         if k == '表紙':
@@ -163,7 +164,7 @@ def build_screen(wb, sc, report, date):
             f = figs.get(int(b['順']), {})
             if f.get('ラベル'): s.cell('A', f['ラベル'], S.font(11, True), box=False, al=None); s.skip()
             p = picture(f.get('画像'), f'{sc}_図{b["順"]}')
-            if p and p.exists(): s.image(p, float(f.get('幅pt') or 750)); pics.append(f)
+            if p and p.exists(): s.image(p, float(f.get('幅pt') or 750)); pics.append(f); imgs.append(p.read_bytes())
             elif f.get('画像'): report.append(f'{sc}: 図が無い: {f.get("ラベル")} {f.get("画像")}')
         elif k == '項目':
             used.add(b['区画ID']); seq = items_block(s, txt, items.get(b['区画ID'], []), seq)
@@ -176,26 +177,89 @@ def build_screen(wb, sc, report, date):
     for vid in set(items) - used: report.append(f'{sc}: 構成に「項目」の無い区画 {vid}（{len(items[vid])} 項目）')
     arrows = [{'from': n, 'to': int(f['矢印の終点']), 'x0': f['起点x'], 'y0': f['起点y'], 'x1': f['終点x'], 'y1': f['終点y']}
               for n, f in enumerate(pics, 1) if str(f.get('矢印の終点') or '').strip()]
-    return {'sheet': sc, 'arrows': arrows, 'items': sum(len(v) for v in items.values())}
+    return {'sheet': sc, 'arrows': arrows, 'items': sum(len(v) for v in items.values())}, imgs
+
+
+def front_matter(wb, common, scs, imgs, report, date, full):
+    """目次・業務フロー・変更点を前に置く。次の版の列（追加／更新）と変更点は最新版との差分から"""
+    txt = {(t['シート'], t['位置']): str(t['文字']) for t in common['文']}
+    sups = {sc: book.load(sc) for sc in scs}; names = {sc: menu.screen_name(sups[sc]) for sc in scs}
+    docs = cfg.docs(); latest = docs[0][1] if docs else None; nxt = f'V{docs[0][0] + 1}' if docs else 'V1'
+    mark, auto = {}, []
+    if latest:   # 画面シートの差分（部品どうしで比べる）
+        old = openpyxl.load_workbook(latest, read_only=True, data_only=True); z = zipfile.ZipFile(latest)
+        for sc in scs:
+            head = menu.norm(names[sc]).split(menu.SEP)[0]
+            if sc not in old.sheetnames: mark[sc] = '追加'; auto.append({'メニュー': head, 'シート': sc, '変更内容': 'シートを追加', 'シートの扱い': 'シート追加'}); continue
+            o = docdiff.model(old[sc], [z.read('xl/media/' + p[1]) for p in pictures(z, sc)])
+            text, tag = docdiff.diff(o, docdiff.model(wb[sc], imgs[sc]))
+            if text: mark[sc] = '更新'; auto.append({'メニュー': head, 'シート': sc, '変更内容': text, 'シートの扱い': tag})
+        for sc in [x for x in old.sheetnames if x.startswith('SC-') and x not in scs] if full else []:
+            auto.append({'メニュー': '', 'シート': sc, '変更内容': 'シートを削除', 'シートの扱い': 'シート削除'})
+        for r in auto: r['根拠'] = f'V{docs[0][0]} との差分（自動）'
+    # 目次
+    listed = {r['シート名']: r for r in common['目次']}
+    vers = book.versions(common['目次']) + ([nxt] if mark and nxt not in book.versions(common['目次']) else [])
+    rows = []
+    for sc in scs:
+        r = listed.get(sc, {'載せる': '○'})
+        if r['載せる'] != '○': continue
+        no = next((str(t['右']) for t in sups[sc]['表'] if str(t['左']).startswith('機能NO')), '')
+        rows.append({**r, 'シート名': sc, '画面名': names[sc], '機能NO': no, nxt: r.get(nxt) or mark.get(sc, '')})
+    front.toc(wb, rows, txt.get(('目次', '題'), '目次'), txt.get(('目次', '説明'), '（全 {n} シート）'), vers)
+    # 業務フロー
+    ows, _ = front.sheet_in_docs('業務フロー', latest) if latest else (None, None)
+    before = {(r['業務'], r['処理']): r for r in front.read_flow(ows)[0]} if ows else {}
+    flow, checks, no, grp = [], [], 0, None
+    for r in common['業務フロー']:
+        x = {**r, '新システムの画面': r['新システムの画面'] or front.auto_screen(r['画面ID'], names)}
+        if x['業務'] != grp: grp = x['業務']; no += 1
+        if not x['新システムの画面']: report.append(f'業務フロー {no}-{x["順"]}: 新システムの画面が空（画面ID {x["画面ID"]} のシートが無い）')
+        o = before.get((x['業務'], x['処理']))
+        auto_mark = ('追加' if before and not o else '更新' if o and any(str(o[k]) != str(x[k]) for k in ('順', '新システムの画面', '画面ID', '決定事項'))
+                     else '更新' if any(mark.get(i.strip()) for i in str(x['画面ID']).split('・')) else '')
+        x[nxt] = r.get(nxt) or auto_mark; flow.append(x); checks.append((f'{no}-{x["順"]}', x['新システムの画面']))
+    fv = book.versions(common['業務フロー']) + ([nxt] if any(x[nxt] for x in flow) and nxt not in book.versions(common['業務フロー']) else [])
+    front.flow(wb, flow, txt.get(('業務フロー', '題'), '業務フロー'), txt.get(('業務フロー', '説明'), ''), txt.get(('業務フロー', '注'), ''), fv, 1)
+    # 変更点（新しい版から）。次の版は 人が書いた行（補足入力）＋差分
+    by = {}
+    for r in common['変更点']: by.setdefault(r['版'], []).append(r)
+    if auto: by.setdefault(nxt, []).extend(auto)
+    for i, v in enumerate(sorted(by, key=lambda v: -int(v[1:])), 2):
+        name = f'{v}変更点'
+        title = txt.get((name, '題')) or f'{v} 変更点（{latest.stem if latest else ""} との差分）'
+        desc = txt.get((name, '説明')) or f'{v}（{date:%Y-%m-%d}）：sdgen が補足入力と画面から作った設計書を {latest.name if latest else ""} と比べた差分（自動）。人が書く変更点は補足入力 _共通.xlsx の「変更点」（版＝{v}）'
+        front.changes(wb, name, by[v], title, desc, i)
+    # メニューとシートの対応
+    captured = {}
+    for sc in scs:
+        f = cfg.WORK / 'capture' / f'{sc}.json'
+        if f.exists(): captured[sc] = json.loads(f.read_text(encoding='utf-8')).get('menu', '')
+    lines, table = menu.check([(sc, names[sc], listed.get(sc, {'載せる': '○'})['載せる'] == '○') for sc in scs], checks, captured)
+    report += lines
+    (cfg.WORK / 'build' / 'menu_check.txt').write_text('メニュー\t状態\tシート\n' + '\n'.join('\t'.join(r) for r in table), encoding='utf-8')
+    return {'next': nxt, 'marked': mark, 'changes': len(auto)}
 
 
 def main(out=None, screens=None):
-    scs = screens or book.screens()
+    common = book.load_common(); have = book.screens(); order = [r['シート名'] for r in common['目次']]
+    scs = [x for x in order if x in have] + [x for x in have if x not in order]
+    if screens: scs = [x for x in scs if x in screens]
     date = dt.datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
-    wb = openpyxl.Workbook(); toc = wb.active; toc.title = '目次'
-    report, meta = [], []
-    for sc in scs: meta.append(build_screen(wb, sc, report, date))
-    toc['A1'] = 'APLink 請求・入金管理システム　メニュー別機能対応表'; toc['A1'].font = S.font(13, True, S.NAVY)
-    for i, sc in enumerate(scs, 3):
-        c = toc.cell(i, 1, sc); c.hyperlink = f"#'{sc}'!A1"; c.font = S.font(9, color=S.BLUE, underline='single')
-    out = Path(out or cfg.WORK / 'build' / f'画面設計_生成_{date:%Y%m%d}.xlsx'); out.parent.mkdir(parents=True, exist_ok=True)
-    wb.save(out)
-    info = {'out': str(out), 'sheets': meta}
-    out.with_suffix('.json').write_text(json.dumps(info, ensure_ascii=False, indent=1), encoding='utf-8')
+    wb = openpyxl.Workbook(); wb.remove(wb.active)
+    report, meta, imgs = [], [], {}
+    for x in [x for x in have if x not in order]: report.append(f'目次: {x} が補足入力 _共通.xlsx の目次に無い（末尾に置いた）')
+    for x in [x for x in order if x not in have]: report.append(f'目次: {x} の補足入力が無い')
+    for sc in scs: m, imgs[sc] = build_screen(wb, sc, report, date); meta.append(m)
     (cfg.WORK / 'build').mkdir(parents=True, exist_ok=True)
+    fm = front_matter(wb, common, scs, imgs, report, date, not screens)
+    out = Path(out or cfg.WORK / 'build' / f'画面設計_生成_{date:%Y%m%d}.xlsx'); out.parent.mkdir(parents=True, exist_ok=True)
+    wb.active = 0; wb.save(out)
+    info = {'out': str(out), 'sheets': meta, 'front': [ws.title for ws in wb.worksheets if not ws.title.startswith('SC-')], **fm}
+    out.with_suffix('.json').write_text(json.dumps(info, ensure_ascii=False, indent=1), encoding='utf-8')
     (cfg.WORK / 'build' / 'build.json').write_text(json.dumps(info, ensure_ascii=False, indent=1), encoding='utf-8')
     out.with_name(out.stem + '_report.txt').write_text('\n'.join(report) or '指摘なし', encoding='utf-8')
-    print(f'{out}  {len(meta)} シート・項目 {sum(m["items"] for m in meta)}'); print('\n'.join(report) or '指摘なし')
+    print(f'{out}  画面 {len(meta)} シート・項目 {sum(m["items"] for m in meta)}  前のシート {"・".join(info["front"])}  {fm["next"]} の変更 {fm["changes"]} 件'); print('\n'.join(report) or '指摘なし')
 
 
 if __name__ == '__main__':

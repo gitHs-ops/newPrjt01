@@ -19,6 +19,10 @@ def fill(key):
     return PatternFill('solid', fgColor=FILL[key])
 
 
+def fill_rgb(rgb):
+    return PatternFill('solid', fgColor=rgb)
+
+
 TOP = Alignment(vertical='top', wrap_text=True)
 CENTER = Alignment(horizontal='center', vertical='center', wrap_text=True)
 

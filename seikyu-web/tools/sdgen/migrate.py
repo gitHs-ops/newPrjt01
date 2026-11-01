@@ -2,117 +2,22 @@
 # シートを上から部品（構成）に分けて並びをそのまま残す。項目の区分・必須・初期値・桁数・形式は、画面から自動で決まる値
 # （capture.py の結果＋rules.py）と同じなら空欄にする（違うときだけ値を残す）。capture の結果が無ければ全部残す
 #   python migrate.py SC-PUR-01 [設計書.xlsx]
+#   python migrate.py 共通 [設計書.xlsx]   … 目次・業務フロー・変更点を 補足入力\_共通.xlsx に移す（画面シートの補足入力を先に）
 import json, re, sys, zipfile
 import openpyxl
-from sdgen import cfg, book, rules
+from sdgen import cfg, book, rules, front, menu
+from sdgen.sheet import AUTO_COLS, s, parse, drawing_of, pictures
 
 sys.stdout.reconfigure(encoding='utf-8')
-AUTO_COLS = ['区分', '必須', '初期値', '桁数', '形式']
-TABLE_HEADS = {('項目', '内容'), ('確認項目', '内容'), ('No', '内容')}
-
-
-def s(v):
-    if v is None: return ''
-    if isinstance(v, float) and v.is_integer(): return str(int(v))
-    if hasattr(v, 'strftime'): return v.strftime('%Y-%m-%d')
-    return str(v).strip()
-
-
-def parse(ws, sc):
-    rows = [[s(x) for x in (list(r)[:11] + [None] * 11)[:11]] for r in ws.iter_rows(values_only=True)]
-    d = {k: [] for k in book.SHEETS}
-    blk = d['構成']
-
-    def add(kind, row, **kw):
-        b = {'順': len(blk) + 1, '種類': kind, '区画ID': '', '文字': '', '見出し1': '', '見出し2': '', '_row': row, **kw}; blk.append(b); return b
-
-    def is_head(c):
-        return c[0].startswith(('■', '【', '〔', '画面仕様', '凡例', '← 目次')) or c[0] == '顧客名'
-
-    n = len(rows)
-
-    def read_table(b, i, k):
-        while i < n:
-            x = rows[i]
-            if not any(x) or is_head(x): break
-            k += 1; d['表'].append({'表': b['順'], '順': k, '左': x[0], '右': next((v for v in x[1:] if v), '')}); i += 1   # 右の文は B 以外の列のこともある
-        return i
-
-    i, blank = 0, 0
-    while i < n:
-        c = rows[i]; a = c[0]; row = i + 1
-        if not any(c): blank += 1; i += 1; continue
-        if blank and blk: add('空行', row - blank, 文字=blank)
-        blank = 0
-        if a == '顧客名': add('表紙', row); i += 2; continue
-        if a.startswith('← 目次'): add('戻る', row); i += 1; continue
-        m = re.match(r'【画面項目】(\S+?)（', a)
-        if m:   # 画面項目：見出し〜凡例 まで。区分の内訳・表は作り直すので、項目の行だけ取る
-            view = m[1]; add('項目', row, 区画ID=view, 文字=re.sub(r'表示 \d+ 項目', '表示 {n} 項目', a)); area, inside = '', False; i += 1
-            while i < n and not rows[i][0].startswith('凡例'):
-                x = rows[i]
-                if x[0].startswith('■ 画面項目'): inside = True
-                elif inside and x[0].startswith('〔'): area = x[0]
-                elif inside and re.fullmatch(r'\d+', x[0]) and x[1]:
-                    r_ = {'区画ID': view, 'エリア': area, 'キー': '', '項目名称': x[1]}
-                    for k, v in zip(['区分', '必須', '初期値', '桁数', '少数', '形式', '参照元テーブル', '参照元項目', '備考'], x[2:11]): r_[k] = v
-                    d['項目'].append(r_)
-                elif x[0].startswith(('【', '■ 業務', '■ 画面図')): break   # 凡例が無いシート
-                i += 1
-            if i < n and rows[i][0].startswith('凡例'): i += 1
-            continue
-        m = re.match(r'【操作手順】(\S+)', a)
-        if m:
-            view = m[1]; add('手順', row, 区画ID=view, 文字=a); i += 1
-            while i < n and not any(rows[i]): i += 1   # 見出しと表の間の空行（作るときは1行あける）
-            if i < n and rows[i][0] == '手順': i += 1
-            while i < n and rows[i][0] and (re.fullmatch(r'\d+', rows[i][0]) or rows[i][0] in ('—', '-', '－')):
-                x = rows[i]; d['手順'].append({'区画ID': view, '手順': x[0], '利用者の操作': x[1], '内容': x[2], '画面の反応': x[5], '備考': x[9]}); i += 1
-            continue
-        if (a, c[1]) in TABLE_HEADS:   # 2列の表（見出しの次の行から）
-            b = add('表', row, 見出し1=a, 見出し2=c[1]); i = read_table(b, i + 1, 0); continue
-        last = next((x for x in reversed(blk) if x['種類'] != '空行'), None)
-        if last and last['種類'] == '表' and a and c[1] and not is_head(c):   # 空行をはさんで表が続く（空行は表の中の区切り）
-            pos = blk.index(last); gap = sum(int(x['文字']) for x in blk[pos + 1:]); del blk[pos + 1:]
-            k = max([t['順'] for t in d['表'] if t['表'] == last['順']] or [0])
-            for _ in range(gap): k += 1; d['表'].append({'表': last['順'], '順': k, '左': '', '右': ''})
-            i = read_table(last, i, k); continue
-        if a.startswith('画面仕様') or a.startswith('【'): add('見出し大', row, 文字=a); i += 1; continue
-        if a.startswith('■'): add('見出し中', row, 文字=a); i += 1; continue
-        if a.startswith('〔'): b = add('図', row); d['図'].append({'図': b['順'], 'ラベル': a, '画像': '', '幅pt': ''}); i += 1; continue
-        add('文', row, 文字=a); i += 1
-    return d
-
-
-def sheet_part(z, sc):
-    wbx = z.read('xl/workbook.xml').decode(); rels = z.read('xl/_rels/workbook.xml.rels').decode()
-    rid = re.search(r'<sheet [^>]*name="%s"[^>]*r:id="(rId\d+)"' % re.escape(sc), wbx)[1]
-    target = re.search(r'Id="%s"[^>]*Target="([^"]+)"' % rid, rels) or re.search(r'Target="([^"]+)"[^>]*Id="%s"' % rid, rels)
-    return 'xl/' + target[1].replace('/xl/', '').lstrip('/')
-
-
-def drawing_of(z, sc):
-    srel = sheet_part(z, sc).replace('worksheets/', 'worksheets/_rels/') + '.rels'
-    m = re.search(r'Target="\.\./drawings/([^"]+)"', z.read(srel).decode()) if srel in z.namelist() else None
-    return m[1] if m else None
 
 
 def images(src, sc, d):
     """シートの図を fixed\\ に取り出し、図の上にある部品（ラベル）に付ける。ラベルの無い図はラベルなしの図として足す"""
-    z = zipfile.ZipFile(src); dr = drawing_of(z, sc)
-    if not dr: return
-    dx = z.read(f'xl/drawings/{dr}').decode(); drel = z.read(f'xl/drawings/_rels/{dr}.rels').decode()
-    media = dict(re.findall(r'Id="(rId\d+)"[^>]*Target="\.\./media/([^"]+)"', drel)) or {b: a for a, b in re.findall(r'Target="\.\./media/([^"]+)"[^>]*Id="(rId\d+)"', drel)}
-    pics = []
-    for x in re.finditer(r'<xdr:(twoCellAnchor|oneCellAnchor)[^>]*>(.*?)</xdr:\1>', dx, re.S):
-        e = re.search(r'r:embed="(rId\d+)"', x[2])
-        if not e: continue
-        row = int(re.search(r'<xdr:from>.*?<xdr:row>(\d+)</xdr:row>', x[2], re.S)[1]) + 1
-        to = re.search(r'<xdr:to>.*?<xdr:row>(\d+)</xdr:row>', x[2], re.S)
-        pics.append((row, media[e[1]], round(int(re.search(r'<a:ext cx="(\d+)"', x[2])[1]) / 12700, 1), int(to[1]) + 1 if to else row))
+    z = zipfile.ZipFile(src); pics = pictures(z, sc)
+    if not pics: return
     cfg.FIXED.mkdir(exist_ok=True)
     blk = d['構成']; figs = {f['図']: f for f in d['図']}; extra = []
-    for k, (row, name, wpt, to) in enumerate(sorted(pics), 1):
+    for k, (row, name, wpt, to) in enumerate(pics, 1):
         before = [b for b in blk if b['_row'] <= row and b['種類'] != '空行']; owner = before[-1] if before else None
         nxt = next((b for b in blk if b['_row'] > (owner['_row'] if owner else 0)), None)
         if nxt and nxt['種類'] == '空行': nxt['文字'] = max(1, int(nxt['文字']) - (to - row + 1))   # 図が占める行は作るときに図の高さで空ける
@@ -212,5 +117,30 @@ def main(sc, src=None):
     print(f'{sc}: {src.name} → 補足入力\\{sc}.xlsx  構成 {kinds}  項目 {len(d["項目"])}  手順 {len(d["手順"])}  項目の対応 {stat}')
 
 
+def common(src=None):
+    src = src or cfg.latest_doc()
+    wb = openpyxl.load_workbook(src, read_only=True, data_only=True); d = {k: [] for k in book.COMMON}
+    toc = {r['シート名']: r for r in front.read_toc(wb['目次'])}
+    for name in wb.sheetnames:   # 並び＝設計書のシートの並び
+        if name.startswith('SC-'): d['目次'].append({**toc.get(name, {}), 'シート名': name, '載せる': '○' if name in toc else ''})
+    ws = wb['目次']; d['文'] += [{'シート': '目次', '位置': '題', '文字': s(ws['A1'].value)}, {'シート': '目次', '位置': '説明', '文字': re.sub(r'全 \d+ シート', '全 {n} シート', s(ws['A2'].value))}]
+    ws, at = front.sheet_in_docs('業務フロー', src, wb); rows, note = front.read_flow(ws)
+    if at != src: print(f'  業務フロー：{src.name} に無いため {at.name} から')
+    names = {sc: menu.screen_name(book.load(sc)) for sc in book.screens()}
+    for r in rows:   # 画面名から作れる表記は空欄にする（画面名に合わせて変わる）
+        if r['新システムの画面'] == front.auto_screen(r['画面ID'], names): r['新システムの画面'] = ''
+    d['業務フロー'] = rows
+    d['文'] += [{'シート': '業務フロー', '位置': k, '文字': v} for k, v in (('題', s(ws['A1'].value)), ('説明', s(ws['A2'].value)), ('注', note))]
+    for name in wb.sheetnames:
+        m = re.fullmatch(r'(V\d+)変更点', name)
+        if not m: continue
+        ws = wb[name]; d['変更点'] += front.read_changes(ws, m[1])
+        d['文'] += [{'シート': name, '位置': '題', '文字': s(ws['A1'].value)}, {'シート': name, '位置': '説明', '文字': s(ws['A2'].value)}]
+    book.save_common(d)
+    auto = sum(1 for r in rows if not r['新システムの画面'])
+    print(f'共通: {src.name} → 補足入力\\_共通.xlsx 目次 {len(d["目次"])}（載せる {len(toc)}）  業務フロー {len(rows)}（画面の表記を自動 {auto}）  変更点 {len(d["変更点"])}')
+
+
 if __name__ == '__main__':
-    main(sys.argv[1], cfg.Path(sys.argv[2]) if len(sys.argv) > 2 else None)
+    src = cfg.Path(sys.argv[2]) if len(sys.argv) > 2 else None
+    common(src) if sys.argv[1] == '共通' else main(sys.argv[1], src)

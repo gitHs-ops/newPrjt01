@@ -54,6 +54,31 @@ EXTRACT_JS = r"""
 """
 
 
+# サイドバーのメニュー（グループ・メニュー・開閉グループ）。小メニューはメニューを開いたときに出るので別に読む
+MENU_JS = r"""
+() => { const out = []; let grp = '', fold = '';
+  for (const e of document.querySelectorAll('#navigation .nav-group, #navigation a.nav-link, #navigation .nav-fold, #nav-pin a.nav-link')) {
+    const t = [...e.childNodes].filter(n => n.nodeType === 3).map(n => n.textContent).join('').trim();
+    if (e.classList.contains('nav-group')) { grp = e.textContent.trim(); fold = ''; continue; }
+    if (e.classList.contains('nav-fold')) { grp = fold = t; continue; }
+    if (fold && !e.closest('.nav-fold-body')) fold = '';
+    out.push({ grp, fold: e.closest('.nav-fold-body') ? fold : '', title: t, hash: e.getAttribute('href'), pinned: e.classList.contains('nav-pin') });
+  }
+  return out; }
+"""
+SUBS_JS = "() => [...document.querySelectorAll('.nav-subs > *')].map(e => ({ title: e.textContent.trim(), hash: e.getAttribute('href') || '', disabled: e.classList.contains('disabled') }))"
+
+
+def menu(p, idle):
+    """メニューの木 → work\\capture\\_menu.json（メニュー↔シートの対応の検査で使う）"""
+    items = p.evaluate(MENU_JS)
+    for m in items:
+        p.evaluate("() => location.hash = '#'"); p.wait_for_timeout(100); p.evaluate('h => location.hash = h', m['hash']); idle(300)
+        m['subs'] = p.evaluate(SUBS_JS)
+    (cfg.WORK / 'capture' / '_menu.json').write_text(json.dumps(items, ensure_ascii=False, indent=1), encoding='utf-8')
+    print(f'メニュー: {len(items)} 件・小メニュー {sum(len(m["subs"]) for m in items)} 件')
+
+
 def run(only=None):
     screens = {f.stem: json.loads(f.read_text(encoding='utf-8')) for f in sorted(cfg.SCREENS.glob('SC-*.json'))}
     out_dir = cfg.WORK / 'capture'; (out_dir / 'png').mkdir(parents=True, exist_ok=True)
@@ -72,14 +97,16 @@ def run(only=None):
             except Exception: pass
             p.wait_for_timeout(200)
 
+        if not only: menu(p, idle)
         for sc, spec in screens.items():
             if only and sc != only: continue
-            result = {'screen': sc, 'views': []}
+            result = {'screen': sc, 'menu': '', 'views': []}
             for v in spec['views']:
                 view = {'id': v['id'], 'name': v['name'], 'areas': [], 'shots': []}
                 for st in v['steps']:
                     if 'go' in st:
                         p.evaluate("() => location.hash = '#'"); p.wait_for_timeout(150); p.evaluate('h => location.hash = h', st['go']); idle()
+                        if not result['menu']: result['menu'] = p.locator('#crumb').text_content().strip()   # 開いた画面のメニュー（画面名との照合用）
                     elif st.get('search'):
                         s = p.locator('#content [data-search]:visible, #content [data-act=search]:visible').first
                         if s.count(): s.click(); idle(1200)

@@ -35,12 +35,17 @@ def chromium():
     return None
 
 
-def latest_doc():
-    """設計書フォルダの最新版（seikyu-web_画面設計_YYYYMMDDVn.xlsx の V 番号が最大のもの）"""
+def docs():
+    """設計書フォルダの版（seikyu-web_画面設計_YYYYMMDDVn.xlsx）を新しい順に → [(V番号, パス)]"""
     import re
-    best = None
+    out = []
     for p in DOC_DIR.glob('seikyu-web_画面設計_*V*.xlsx'):
         m = re.search(r'_(\d{8})V(\d+)\.xlsx$', p.name)
-        if m and not p.name.startswith('~$') and (best is None or int(m[2]) > best[0]):
-            best = (int(m[2]), p)
-    return best[1] if best else None
+        if m and not p.name.startswith('~$'): out.append((int(m[2]), p))
+    return sorted(out, reverse=True)
+
+
+def latest_doc():
+    """設計書フォルダの最新版（V 番号が最大のもの）"""
+    d = docs()
+    return d[0][1] if d else None
