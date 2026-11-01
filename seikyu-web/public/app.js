@@ -420,8 +420,8 @@ VIEWS.shipments = async q => {
   A.del = d => confirmBox('出荷の取消', `売上No ${d.id} を取消します。請求前の伝票のみ取消できます（赤黒は組で取消）。`, () => post('/api/shipments/delete', { orderNo: d.id }).then(() => { toast('取消しました'); render(); }), '取消する');
   const red = r => r.shipKb === 5 && r.quantity < 0;
   // 赤黒訂正のある伝票：元伝票・赤・黒を常に並べて出す（10/26 打合せ「元のがあって、打ち消された赤伝があって、黒伝がある」）。
-  // 赤・黒は元伝票のすぐ下（伝票No 元No－枝番の順）。元伝票と赤は打ち消し合うので薄く表示
-  const hidden = r => r.corrected || red(r), root = r => String(r.slipNo || '').split('-')[0], has = new Set(list.map(r => String(r.orderNo)));
+  // 赤・黒は元伝票のすぐ下（伝票No 元No－枝番の順）。元伝票・赤も取消線を付けず、3 行とも有効な伝票として表示（2026-11-02）
+  const root = r => String(r.slipNo || '').split('-')[0], has = new Set(list.map(r => String(r.orderNo)));
   const linked = r => r.shipKb === 5 && root(r) !== String(r.orderNo) && has.has(root(r)), kids = new Map();
   for (const r of list) if (linked(r)) { if (!kids.has(root(r))) kids.set(root(r), []); kids.get(root(r)).push(r); }
   const tree = r => [r, ...(kids.get(String(r.orderNo)) || []).sort((a, b) => String(a.slipNo).localeCompare(String(b.slipNo), 'ja', { numeric: true })).flatMap(tree)];
@@ -444,7 +444,7 @@ VIEWS.shipments = async q => {
       { label: '決済', html: r => r.method === CREDIT ? esc(r.methodName) : badge(r.methodName, 'amber') },
       { label: '状態', html: r => (r.shipKb === 5 ? (red(r) ? badge('赤', 'red') : badge('赤黒あり', 'amber')) + ' ' : r.shipKb !== 1 ? badge(r.shipKbName, 'gray') + ' ' : '') + (r.corrected ? badge('訂正済', 'gray') + ' ' : '') + (r.billed ? badge('請求済', 'green') : r.method === CREDIT ? badge('未請求', 'gray') : badge('請求対象外', 'amber')) },
       { label: '', html: acts }],
-      shown, { empty: 'この条件の出荷はありません', rowClass: r => (hidden(r) ? 'reversed' : ''), foot: ['合計', '', '', '', '', '', '', '', '', yen(net), '', `税 ${yen(tax)}`, ''] })}</section><div data-sub="reports">${shipmentReportsCard()}</div>
+      shown, { empty: 'この条件の出荷はありません', foot: ['合計', '', '', '', '', '', '', '', '', yen(net), '', `税 ${yen(tax)}`, ''] })}</section><div data-sub="reports">${shipmentReportsCard()}</div>
      <section class="card glass" data-sub="notes"><div class="card-head"><h2>納品書発行</h2></div>
        <div class="filters"><label class="field">出荷日<input type="date" id="dn-date" value="${esc(bd)}"></label>${canWrite() ? '<button class="primary" data-act="notesIssue">伝票発行</button>' : ''}</div>
        </section>`);
