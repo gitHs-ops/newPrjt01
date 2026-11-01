@@ -217,9 +217,9 @@ const SUBMENUS = {
   // 発行前確認一覧は 2026-10-25 非表示 → 2026-10-27 再表示（確認事項 F）→ 2026-10-27 再び非表示（画面・API は残す）
   // 請求書発行は 2026-10-27 に請求一覧照会から分けた（10/26 打合せ・提案書 P13。照会は確認と発行確認表の出力だけ）
   invoices: [{ k: 'precheck', l: '発行前確認一覧', q: { view: 'precheck' }, hidden: true }, { k: 'create', l: '請求データ作成', tools: false }, { k: 'list', l: '請求一覧照会', tools: true }, { k: 'issue', l: '請求書発行', q: { view: 'issue' } }, { k: 'reports', l: '請求帳票' }, { k: 'balance', l: '得意先別残高照会', q: { view: 'balance' } }, { k: 'ledger', l: '請求残高照会', q: { view: 'ledger' } }],
-  // 入金予定一覧は 2026-10-27 削除（機能一覧 NO16 対象外。入金予定は入金予定チェックリストで確認）
+  // 入金予定一覧は 2026-10-27 削除 → 2026-11-01 復元（確認事項 P の回答③：入金予定一覧で予定日を過ぎた未入金を確認する）
   // 入金一覧・入金予定チェックリストは 2026-10-27 非表示（10/27 打合せ：消込の結果は入金消込の一覧で確認、入金予定チェックリストは不要。画面・API は残す）
-  receipts: [{ k: 'targets', l: '入金消込', q: { tab: 'targets' } }, { k: 'legacy', l: '現行入金処理', q: { tab: 'legacy' }, tools: false }, { k: 'list', l: '入金一覧', tools: true, hidden: true }, { k: 'schedule', l: '入金予定チェックリスト', hidden: true }],
+  receipts: [{ k: 'targets', l: '入金消込', q: { tab: 'targets' } }, { k: 'legacy', l: '現行入金処理', q: { tab: 'legacy' }, tools: false }, { k: 'plan', l: '入金予定一覧', q: { tab: 'plan' } }, { k: 'list', l: '入金一覧', tools: true, hidden: true }, { k: 'schedule', l: '入金予定チェックリスト', hidden: true }],
   // 10/21 打合せの処理順（実在庫登録 → 配合計算 → 材料受払表 → 在庫計上）に並べる
   inventory: [{ k: 'count', l: '実在庫登録', tools: false }, { k: 'reports', l: '在庫登録リスト・配合計算・材料受払表' }, { k: 'post', l: '在庫計上', tools: false }, { k: 'list', l: '在庫一覧', tools: true }],
   purchases: [{ k: 'list', l: '商品仕入一覧・登録' }, { k: 'reports', l: '商品仕入登録リスト' }], // 2026-10-29 帳票を小メニューに分けた
@@ -724,13 +724,18 @@ ${heldNote}` : ''}`);
     if (!q.closing) return toast('請求年月と締日を指定して検索してください', true);
     btn.disabled = true; try { await billingReport('confirm', month, q.closing, true, q.customer || ''); } catch (e) { toast(e.message, true); } finally { btn.disabled = false; }
   };
+  // 請求一覧照会の［請求一覧表出力］（10/29 打合せ No.2「請求一覧表を Excel で出力」）：現行 HAR431。検索条件の請求年月・締日の全得意先
+  A.listBook = async (_, btn) => {
+    if (!q.closing) return toast('請求年月と締日を指定して検索してください', true);
+    btn.disabled = true; try { await billingReport('list', month, q.closing); } catch (e) { toast(e.message, true); } finally { btn.disabled = false; }
+  };
   A.report = async (d, btn) => { btn.disabled = true; try { await billingReport(d.kind, $('#rep-month').value, $('#rep-closing').value, $('#rep-unissued')?.checked); } catch (e) { toast(e.message, true); } finally { btn.disabled = false; } };
   // 請求一覧照会（10/23 打合せ：提案書 P11＋現場名）：行は 得意先×現場。発行状況は表示だけ（発行・一括ダウンロードは請求書発行。10/26 打合せ）
   const lines = invoiceLines(list);
   const sum = k => lines.reduce((n, r) => n + r[k], 0);
   const closeSel = id => `<select id="${id}">${closings.map(c => `<option value="${c}">${closingName(c)}</option>`).join('')}</select>`;
   return page('請求締め・発行', '得意先単位・締日ごとの請求を、得意先×現場の行で照会します。請求書の発行は「請求書発行」で行います。',
-    `${invoiceSearch({ ...q, month })}<button data-act="confirmBook" title="検索条件（請求年月・締日・得意先）の請求書発行確認表（未発行を含む）">請求書発行確認表出力</button>`,
+    `${invoiceSearch({ ...q, month })}<button data-act="listBook" title="検索条件（請求年月・締日）の請求一覧表（現行 HAR431）を Excel で出力">請求一覧表出力</button><button data-act="confirmBook" title="検索条件（請求年月・締日・得意先）の請求書発行確認表（未発行を含む）">請求書発行確認表出力</button>`,
     `<div>${canWrite() ? `<section class="card glass" data-sub="create"><div class="card-head"><h2>請求データ作成</h2></div>
       <div class="filters"><label class="field">請求年月<input type="month" id="bill-month" value="${thisMonth()}"></label><label class="field">締日${closeSel('bill-closing')}</label><button class="primary" data-act="run">請求データ作成</button></div></section>` : ''}
     <section class="card glass" data-sub="reports"><div class="card-head"><h2>請求帳票</h2></div>
@@ -990,10 +995,40 @@ async function arLedgerView(q) {
 VIEWS.receipts = async q => {
   const A = actions;
   A.misc = d => miscReport(d.kind, d.src).catch(e => toast(e.message, true));
-  const tab = ['targets', 'legacy'].includes(q.tab) ? q.tab : 'list'; // 'plan'（入金予定一覧）は 2026-10-27 削除
+  const tab = ['targets', 'legacy', 'plan'].includes(q.tab) ? q.tab : 'list';
   if (tab === 'legacy') return legacyReceiptView();
   A.tab = d => go('receipts', { tab: d.tab });
   A.clear = d => receiptForm(d.customer, Number(d.receipt) || 0);
+  if (tab === 'plan') {
+    // 2026-11-01 復元（2026-10-27 に削除）：確認事項 P の回答③「入金予定一覧で予定日を過ぎたものを確認」
+    // 提案書 スライド18：入金予定月・得意先（部分一致）。10/14 打合せ：入金予定月を範囲（過去年月〜現在）で指定し、予定日を過ぎても未入金の請求を表示
+    // r=1 は利用者が条件を指定した印（「から」を空欄＝過去すべて にできるようにするため）。旧リンクの planMonth は単月として扱う
+    const cur = thisMonth(), set = q.r === '1', from = set ? q.from || '' : q.planMonth || cur, to = set ? q.to || '' : q.planMonth || cur, overdue = q.overdue === '1';
+    const d = await api('/api/receipt-plan?' + qs({ from, to, customer: q.customer, overdue: overdue ? '1' : '' }));
+    A.search = () => go('receipts', { tab, r: '1', from: $('#rp-from').value, to: $('#rp-to').value, customer: $('#rp-cust').value, overdue: $('#rp-over').checked ? '1' : '' });
+    A.late = () => go('receipts', { tab, r: '1', from: '', to: cur, customer: $('#rp-cust').value, overdue: '1' });
+    A.thisMonth = () => go('receipts', { tab, r: '1', from: cur, to: cur, customer: $('#rp-cust').value });
+    // 画面に入っている検索条件のまま Excel を出力
+    A.planXlsx = async (_, btn) => {
+      btn.disabled = true; busy(true, '入金予定一覧を作成中…');
+      try {
+        const res = await fetch('/api/receipt-plan?' + qs({ from: $('#rp-from').value, to: $('#rp-to').value, customer: $('#rp-cust').value, overdue: $('#rp-over').checked ? '1' : '', format: 'xlsx' }), { cache: 'no-store' });
+        if (!res.ok) return toast((await res.json().catch(() => ({}))).error || '出力できません', true);
+        const href = URL.createObjectURL(await res.blob()), el = document.createElement('a');
+        el.href = href; el.download = `入金予定一覧_${$('#rp-from').value || '過去'}_${$('#rp-to').value || '指定なし'}.xlsx`; el.click(); setTimeout(() => URL.revokeObjectURL(href), 2000);
+        toast('入金予定一覧を出力しました');
+      } finally { busy(false); btn.disabled = false; }
+    };
+    const tt = d.totals, range = `${d.from || '過去すべて'} 〜 ${d.to || '指定なし'}`;
+    const summary = `<div class="filters small" style="margin-bottom:8px"><span>入金予定月 <b>${esc(range)}</b>${d.overdueOnly ? '（予定日経過・未入金のみ）' : ''}</span><span>${d.rows.length}件</span>
+      ${tt.overdueCount ? `<span class="check-ng">予定日経過・未入金 ${tt.overdueCustomers}社 ${tt.overdueCount}件 残高 ${yen(tt.overdueBalance)}円（基準日 ${esc(d.today)}）</span>` : `<span class="check-ok">予定日を過ぎた未入金はありません（基準日 ${esc(d.today)}）</span>`}</div>`;
+    return page('入金・消込', '入金予定一覧：支払期日（得意先の回収サイト）が入金予定月の範囲に入る請求。入金予定日を過ぎても未入金の請求は赤で表示します。',
+      `<label class="field">入金予定月（から）<input type="month" id="rp-from" value="${esc(from)}"></label><label class="field">（まで）<input type="month" id="rp-to" value="${esc(to)}"></label><input id="rp-cust" list="dl-pcust" autocomplete="off" placeholder="得意先（部分一致）" value="${esc(q.customer || '')}" style="width:200px">${custHints()}
+       <label class="small"><input type="checkbox" id="rp-over" ${overdue ? 'checked' : ''}> 予定日経過・未入金のみ</label><button class="primary" data-act="search">検索</button><button data-act="thisMonth">今月</button><button data-act="late" title="入金予定月：過去すべて〜今月">予定日経過・未入金（過去〜現在）</button><button data-act="planXlsx" title="画面の検索条件のまま出力">⇩ Excel</button>`,
+      `<section class="card glass">${summary}${table([{ label: '得意先', value: r => `${r.customer} ${r.name}` }, { label: '請求年月（締日）', value: r => r.closing }, { label: '請求金額', num: 1, value: r => yen(r.total) }, { label: 'サイト', value: r => r.site },
+        { label: '入金予定日', html: r => (r.overdue ? `<span class="check-ng">${esc(r.due)} 超過</span>` : esc(r.due)) }, { label: '経過日数', num: 1, html: r => (r.overdue ? `<span class="check-ng">${r.days}日</span>` : '') }, { label: '入金予定金額', num: 1, value: r => yen(r.planned) }, { label: '入金金額', num: 1, value: r => yen(r.paid) }, { label: '残高', num: 1, value: r => yen(r.balance) }],
+        d.rows, { empty: 'この条件で入金予定の請求はありません', rowClass: r => (r.overdue ? 'overdue' : ''), foot: ['入金予定合計', '', '', '', '', '', yen(tt.planned), yen(tt.paid), yen(tt.balance)] })}</section>`);
+  }
   if (tab === 'targets') {
     // 提案書 スライド19：得意先（部分一致）で検索し、残高のある請求年月の行から「消込」へ
     const all = await api('/api/ar-ledger?' + qs({ customer: q.customer }));
@@ -1633,8 +1668,9 @@ async function zenginDialog() {
 const monthLastDay = m => new Date(Date.UTC(+m.slice(0, 4), +m.slice(5, 7), 0)).toISOString().slice(0, 10);
 const rangeInputs = (id, label = '期間', from = `${thisMonth()}-01`, to = monthLastDay(thisMonth())) => `<label class="field">${label}（開始）<input type="date" id="${id}-from" value="${from}"></label><label class="field">${label}（終了）<input type="date" id="${id}-to" value="${to}"></label>`;
 // 直近の締日の月度（前月21日〜当月20日）
-// 小口現金出納簿の期間の初期値：今日を含む月度（21日〜翌月20日）。入力したばかりの支払がすぐ出るように（2026-10-29。以前は締め済みの前月度）
-const closingRange = () => { const [y, m, d] = today().split('-').map(Number), k = d <= 20 ? -1 : 0, iso = (mm, dd) => new Date(Date.UTC(y, m - 1 + mm, dd)).toISOString().slice(0, 10); return [iso(k, 21), iso(k + 1, 20)]; };
+// 小口現金出納簿の期間の初期値：直近の締日の月度（前月21日〜当月20日）。毎月20日締め・翌月1〜3日に出力する運用（10/19・10/21 打合せ）に合わせる
+// （2026-10-29 に今日を含む月度へ変えたが、翌月1〜3日の出力で進行中の月度が出るため 2026-11-01 に戻した）
+const closingRange = () => { const to = lastClosing(), [y, m] = to.split('-').map(Number); return [new Date(Date.UTC(y, m - 2, 21)).toISOString().slice(0, 10), to]; };
 function miscCard(title, sub, inputs, buttons, note = '') {
   return `<section class="card glass"><div class="card-head"><h2>${title}</h2></div><div class="filters">${inputs}</div>${buttons ? `<div class="filters" style="margin-top:10px">${buttons}</div>` : ''}</section>`;
 }
