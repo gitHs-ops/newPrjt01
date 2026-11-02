@@ -1522,7 +1522,8 @@ function expenseView(kind) {
           const total = t.out + t.in + t.ex + num(ext.value), head = f.querySelector('[name=total]').value.trim();
           $('#hw-out').textContent = yen(t.out); $('#hw-in').textContent = yen(t.in); $('#hw-ex').textContent = yen(t.ex); $('#hw-total').textContent = yen(total);
           $('#hw-check').innerHTML = !head ? '<span class="muted">合計金額を入力してください</span>' : num(head) === total ? '<span class="check-ok">合計金額と一致</span>' : `<span class="check-ng">合計金額と ${yen(num(head) - total)} 円の差</span>`;
-          f.dataset.total = total; f._terms?.();   // 繰延最低限度額は明細の合計で判定（サーバと同じ）
+          // 繰延最低限度額は合計金額で判定（未入力なら明細の合計）。登録時に合計金額＝明細の合計を確認するのでサーバと同じ結果になる
+          f.dataset.total = head ? num(head) : total; f._terms?.();
           return total;
         };
         const names = tr => { const n = tr.querySelector('.hw-names'); if (!n) return; const acc = masters.accounts.find(a => a.code === tr.querySelector('[name=account]').value), sub = active('subaccounts').find(x => x.account === acc?.code && x.code === tr.querySelector('[name=sub]').value); 
