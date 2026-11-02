@@ -112,6 +112,18 @@ test('workflow against PostgreSQL business tables', { skip, timeout: 900000 }, a
     });
 
     await t.test('payables, payment and roles', async () => {
+      // 繰延最低限度額（2026-11-01 決定）：定時請求 1 件の合計が限度額以上は締切日の翌々月末、未満は支払繰延区分（翌月15日）。休日は翌営業日
+      const ven = (await a.call('/api/masters/vendors')).data.find(x => x.code === 'V' + tag);
+      assert.equal((await a.call('/api/masters/vendors', { mode: 'update', record: { ...ven, payMonths: '1', payDay: '15', deferMin: '30000' } })).status, 200);
+      const ymd = (m, day) => { const [y, mo] = d.split('-').map(Number); return new Date(Date.UTC(y, mo - 1 + m, day)).toISOString().slice(0, 10); };
+      const near = (due, raw) => assert.ok(due >= raw && (Date.parse(due) - Date.parse(raw)) / 864e5 <= 3, `${due} ~ ${raw}`);
+      const under = await a.call('/api/expenses', { kind: 'PAYABLE', date: d, vendor: 'V' + tag, account: '8231', taxCode: '090', amount: 29999, memo: '限度額未満' });
+      const over = await a.call('/api/expenses', { kind: 'PAYABLE', date: d, vendor: 'V' + tag, account: '8231', taxCode: '090', amount: 30000, memo: '限度額以上' });
+      near(under.data.due, ymd(1, 15)); near(over.data.due, ymd(3, 0));
+      for (const x of [under, over]) assert.equal((await a.call('/api/expenses/reverse', { id: x.data.id })).status, 200);
+      const ven2 = (await a.call('/api/masters/vendors')).data.find(x => x.code === 'V' + tag);
+      assert.equal(ven2.deferMin, '30000');
+      assert.equal((await a.call('/api/masters/vendors', { mode: 'update', record: { ...ven2, payMonths: ven.payMonths, payDay: ven.payDay, deferMin: '' } })).status, 200);
       const doc = await a.call('/api/expenses', { kind: 'PAYABLE', date: d, vendor: 'V' + tag, account: '8231', taxCode: '10%', amount: 50000, memo: '試験' });
       assert.equal(doc.status, 200, JSON.stringify(doc.data));
       assert.equal((await a.call('/api/payments', { idempotencyKey: 'p' + tag, date: d, vendor: 'V' + tag, bankCode: 'B' + tag, allocations: [{ expenseId: doc.data.id, amount: 60000 }] })).status, 400);

@@ -1454,12 +1454,18 @@ function icFilter() { const t = ($('#ic-search')?.value || '').trim().toLowerCas
 // 営業日（サーバ domain.mjs と同じ）：土日とカレンダーマスタ（休日）の有効な日付は休日。休日なら翌営業日（2026-10-31）
 const isHoliday = iso => { const w = new Date(iso + 'T00:00:00Z').getUTCDay(); return w === 0 || w === 6 || active('holidays').some(h => h.code === iso); };
 const nextBusinessDay = iso => { const d = new Date(iso + 'T00:00:00Z'); for (let i = 0; i < 60 && isHoliday(d.toISOString().slice(0, 10)); i++) d.setUTCDate(d.getUTCDate() + 1); return d.toISOString().slice(0, 10); };
-function vendorTerms(v, date) {
+// 繰延最低限度額（2026-11-01 決定）：定時請求 1 件の合計 amount が限度額以上なら締切日の翌々月末
+function vendorTerms(v, date, amount) {
   if (!v || !/^\d{4}-\d{2}-\d{2}$/.test(date || '')) return { label: '', due: '' };
+  if (v.deferMin !== '' && v.deferMin !== undefined && amount >= Number(v.deferMin)) {
+    const [y, mo] = date.split('-').map(Number), raw = new Date(Date.UTC(y, mo + 2, 0)).toISOString().slice(0, 10), due = nextBusinessDay(raw);
+    return { due, label: `繰延（合計 ${amount.toLocaleString('ja-JP')}円 ≥ 繰延最低限度額 ${Number(v.deferMin).toLocaleString('ja-JP')}円：翌々月末支払）→ 支払予定日 ${due}${due !== raw ? `（${raw} は休日のため翌営業日）` : ''}` };
+  }
   const set = v.payMonths !== '' || v.payDay !== '', months = v.payMonths === '' ? 1 : Number(v.payMonths), day = v.payDay === '' ? 31 : Number(v.payDay), [y, mo] = date.split('-').map(Number);
   const last = new Date(Date.UTC(y, mo - 1 + months + 1, 0)).getUTCDate(), raw = new Date(Date.UTC(y, mo - 1 + months, Math.min(day, last))).toISOString().slice(0, 10), due = nextBusinessDay(raw);
   const when = `${months === 0 ? '当月' : months === 1 ? '翌月' : months + 'か月後の'}${day >= 31 ? '月末' : day + '日'}`, moved = due !== raw ? `（${raw} は休日のため翌営業日）` : '';
-  return { due, label: set ? `${months} ${day}（${when}支払）→ 支払予定日 ${due}${moved}` : `未設定（翌月末支払）→ 支払予定日 ${due}${moved}` };
+  const min = v.deferMin !== '' && v.deferMin !== undefined ? `（繰延最低限度額 ${Number(v.deferMin).toLocaleString('ja-JP')}円未満）` : '';
+  return { due, label: (set ? `${months} ${day}（${when}支払）` : '未設定（翌月末支払）') + `${min}→ 支払予定日 ${due}${moved}` };
 }
 // ----- 定時請求 / 小口現金（10/19 打合せ：ヘッダー＋複数明細、合計自動、請求No＝業者ごと4桁連番、支払予定日＝業者マスタの支払繰延区分）-----
 // 小口現金出納登録で先頭に出す科目（一般管理費 → 製造経費の順、2026-10-28）
@@ -1516,6 +1522,7 @@ function expenseView(kind) {
           const total = t.out + t.in + t.ex + num(ext.value), head = f.querySelector('[name=total]').value.trim();
           $('#hw-out').textContent = yen(t.out); $('#hw-in').textContent = yen(t.in); $('#hw-ex').textContent = yen(t.ex); $('#hw-total').textContent = yen(total);
           $('#hw-check').innerHTML = !head ? '<span class="muted">合計金額を入力してください</span>' : num(head) === total ? '<span class="check-ok">合計金額と一致</span>' : `<span class="check-ng">合計金額と ${yen(num(head) - total)} 円の差</span>`;
+          f.dataset.total = total; f._terms?.();   // 繰延最低限度額は明細の合計で判定（サーバと同じ）
           return total;
         };
         const names = tr => { const n = tr.querySelector('.hw-names'); if (!n) return; const acc = masters.accounts.find(a => a.code === tr.querySelector('[name=account]').value), sub = active('subaccounts').find(x => x.account === acc?.code && x.code === tr.querySelector('[name=sub]').value); 
@@ -1527,9 +1534,9 @@ function expenseView(kind) {
           $('#ex-lines-total')?.parentElement && ($('#ex-lines-total').parentElement.hidden = true);
           // 支払予定日は入力項目ではない（10-29 画面レビュー No.6）。業者マスタの支払繰延区分から計算して表示するだけ
           const due = f.querySelector('[name=due]');
-          const terms = () => { const v = (masters.vendors || []).find(x => x.code === f.querySelector('[name=vendor]').value), t = vendorTerms(v, f.querySelector('[name=date]').value);
+          const terms = () => { const v = (masters.vendors || []).find(x => x.code === f.querySelector('[name=vendor]').value), t = vendorTerms(v, f.querySelector('[name=date]').value, num(f.dataset.total || 0));
             $('#ex-defer').textContent = v ? t.label : '業者を選択すると業者マスタから表示'; due.value = v && t.due ? t.due : ''; };
-          f.querySelector('[name=vendor]').addEventListener('change', terms); f.querySelector('[name=date]').addEventListener('change', terms);
+          f._terms = terms; f.querySelector('[name=vendor]').addEventListener('change', terms); f.querySelector('[name=date]').addEventListener('change', terms);
           const ext = f.querySelector('[name=extTax]'); ext.addEventListener('input', () => { ext.dataset.manual = ext.value.trim() === '' ? '' : '1'; recalc(); });
           f.querySelector('[name=total]').addEventListener('input', recalc);
         }

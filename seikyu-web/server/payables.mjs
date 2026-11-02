@@ -193,10 +193,12 @@ export async function listExpenses(c, q = {}) {
 // 休日（カレンダーマスタ code_m HOL の有効な日付。土日は isHoliday が判定）
 export const holidaySet = async c => new Set((await rows(c, "SELECT code_dtl FROM code_m WHERE code_key='HOL' AND category3<>'0'")).map(r => `${r.code_dtl.slice(0, 4)}-${r.code_dtl.slice(4, 6)}-${r.code_dtl.slice(6, 8)}`));
 // 支払予定日：業者マスタの支払繰延区分（code_m VPAY：○か月後・日、31=月末）。未設定は締切日の翌月末。休日なら翌営業日（2026-10-31）
-export async function vendorDue(c, vendorCode, date) {
-  const t = await one(c, "SELECT category1 m, category2 d FROM code_m WHERE code_key='VPAY' AND code_dtl=?", [vendorCode]);
+// 繰延最低限度額（2026-11-01 決定）：定時請求 1 件の合計 amount が限度額以上なら締切日の翌々月末。未満・限度額なしは支払繰延区分
+export async function vendorDue(c, vendorCode, date, amount) {
+  const t = await one(c, "SELECT category1 m, category2 d, code_dtl_nam min FROM code_m WHERE code_key='VPAY' AND code_dtl=?", [vendorCode]);
   let due;
-  if (!t || (t.m === '' && t.d === '')) due = dueDate(date);
+  if (t?.min && amount >= Number(t.min)) { const [y, mo] = date.split('-').map(Number); due = new Date(Date.UTC(y, mo + 2, 0)).toISOString().slice(0, 10); }
+  else if (!t || (t.m === '' && t.d === '')) due = dueDate(date);
   else {
     const [y, mo] = date.split('-').map(Number), months = t.m === '' ? 1 : Number(t.m), day = t.d === '' ? 31 : Number(t.d);
     const last = new Date(Date.UTC(y, mo - 1 + months + 1, 0)).getUTCDate();
@@ -219,8 +221,6 @@ export async function createExpense(c, ctx, p) {
   // 小口現金：1支払日＝1伝票、明細の行ごとに支払先（業者コード または 自由入力）と科目（2026-10-29 画面レビュー No.9：「支払日を上に入れ、どこに払ったか・どの科目かを打ち込む。日付ごとにある」。支払先ごとに伝票を分けない。現行 HAR733 K02080 と同じ）
   const v = kind === 'PAYABLE' || p.vendor ? await vendorOf(c, p.vendor) : null;
   const payee = kind === 'PETTY_CASH' ? text(p.payee, '支払先', 100, { required: false }) : '';
-  // 支払予定日は常に業者マスタの支払繰延区分から計算（画面からの値は使わない。10-29 画面レビュー No.6）
-  const due = kind === 'PAYABLE' ? await vendorDue(c, v.vendor_code, date) : null;
   const dept = text(p.dept || '063', '組織（部門）', 20);
   const input = Array.isArray(p.lines) ? p.lines : [{ account: p.account, sub: p.sub, taxCode: p.taxCode, amount: p.amount, memo: p.memo }];
   const ls = [];
@@ -252,6 +252,8 @@ export async function createExpense(c, ctx, p) {
     if (diff) { check(exLines.length, '外税の明細がないため外税消費税は入力できません'); const last = exLines[exLines.length - 1]; last.taxAmt += diff; last.gross += diff; }
   }
   const amount = ls.reduce((n, l) => n + l.gross, 0); check(amount > 0, '合計金額がマイナスまたは0です');
+  // 支払予定日は常に業者マスタの支払繰延区分・繰延最低限度額から計算（画面からの値は使わない。10-29 画面レビュー No.6）
+  const due = kind === 'PAYABLE' ? await vendorDue(c, v.vendor_code, date, amount) : null;
   const extTax = ls.filter(l => l.excl).reduce((n, l) => n + l.taxAmt, 0);
   // 10/21 打合せ：定時請求の合計金額は現行どおり手入力し、明細の合計と一致するかチェックする
   if (kind === 'PAYABLE' && p.total !== undefined) { const t = yen(p.total, '合計金額', { max: 9999999999, positive: false }); check(t === amount, `合計金額（${t.toLocaleString('ja-JP')}円）と明細の合計（${amount.toLocaleString('ja-JP')}円）が一致しません`); }
