@@ -3,7 +3,8 @@ import { check, isoDate, isoMonth, toNum, fromNum, today, METHODS } from './doma
 import { rows, one } from './db.mjs';
 import { xlsx } from './xlsx.mjs';
 import { decode as taxDecode } from './taxcode.mjs';
-import { allocate } from './misc-reports.mjs';
+import { allocate, jvMembers } from './misc-reports.mjs';
+import { companyPeriod } from './period.mjs';
 import { customerSite, siteDue } from './sales.mjs';
 
 const num = v => Number(v || 0);
@@ -59,7 +60,8 @@ export async function pettyCashBook(c, q) {
   // 明細の行ごとに1行（2026-10-29：1支払日＝1伝票・行ごとに支払先。以前は1行目の科目で伝票合計を出していた）。支払先＝行の業者／行の支払先、旧データは伝票の業者・支払先
   const ls = await rows(c, `SELECT d.document_no, d.booked_on, d.memo, d.payee, l.gross_amount, l.line_no, l.account_code, l.sub_code, l.source_tax_code, l.memo line_memo, l.payee line_payee, a.account_name, v.vendor_name, lv.vendor_name line_vendor_name FROM expense_document d JOIN expense_line l ON l.expense_id=d.expense_id
     LEFT JOIN account_subject a ON a.account_code=l.account_code LEFT JOIN vendor v ON v.vendor_id=d.vendor_id LEFT JOIN vendor lv ON lv.vendor_id=l.vendor_id WHERE d.expense_kind='PETTY_CASH' AND d.status='POSTED' AND d.booked_on BETWEEN ? AND ? ORDER BY d.booked_on, d.document_no, l.line_no`, [from, to]);
-  let ms = null; try { ms = (await rows(c, "SELECT code_dtl code, code_dtl_nam name, category1 r, category2 seq FROM code_m WHERE code_key='JV' AND code_dtl_abr<>'0'")).map(m => ({ code: m.code, name: m.name, ratio: num(m.r) / 100, seq: num(m.seq) })).sort((a, b) => a.seq - b.seq); if (Math.round(ms.reduce((n, m) => n + m.ratio * 100, 0)) !== 10000) ms = null; } catch { ms = null; }
+  // 出資比率は期間の終了日の月度で有効なもの（2026-11-02 適用開始月度の履歴）
+  let ms = null; try { ms = await jvMembers(c, (await companyPeriod(c)).labelOf(to)); if (Math.round(ms.reduce((n, m) => n + m.ratio * 100, 0)) !== 10000) ms = null; } catch { ms = null; }
   const events = [...refills.map(r => ({ ...r, kind: 'in' })), ...ls.map(r => ({ kind: 'out', date: r.booked_on, r }))].sort((a, b) => a.date.localeCompare(b.date) || (a.kind === 'in' ? -1 : 1));
   let balance = opening; const out = [];
   for (const e of events) {

@@ -4,6 +4,7 @@ import { taxOf } from './taxcode.mjs';
 import { rows, one, audit } from './db.mjs';
 import { xlsx } from './xlsx.mjs';
 import { companyPeriod } from './period.mjs';
+import { jvAsOf } from './masters.mjs';
 
 const num = v => Number(v || 0);
 const H = v => ({ v, s: 'bold' }), S = v => ({ v, s: 'sum' }), T = v => ({ v, s: 'title' });
@@ -144,25 +145,31 @@ export async function saveMix(c, ctx, p) {
 }
 
 // ---------- JV（出資金）配分 ----------
-async function members(c) {
-  const ms = (await rows(c, "SELECT code_dtl code, code_dtl_nam name, category1 r, category2 seq FROM code_m WHERE code_key='JV' AND code_dtl_abr<>'0'")).map(m => ({ code: m.code, name: m.name, ratio: num(m.r) / 100, seq: num(m.seq) })).sort((a, b) => a.seq - b.seq || a.code.localeCompare(b.code));
-  check(ms.length, 'JV構成員・出資比率をマスタ管理で登録してください');
-  const sum = Math.round(ms.reduce((n, m) => n + m.ratio * 100, 0)); check(sum === 10000, `JV構成員の出資比率の合計が100%ではありません（${sum / 100}%）`);
+// month＝帳票の月度（YYYY-MM）。その月度で有効な構成員・出資比率（2026-11-02 適用開始月度の履歴）
+export async function jvMembers(c, month) {
+  return jvAsOf(await rows(c, 'SELECT code, start_month, name, ratio, seq, active FROM app_jv_member'), month).filter(m => m.active)
+    .map(m => ({ code: m.code, name: m.name, ratio: num(m.ratio) / 100, seq: num(m.seq) })).sort((a, b) => a.seq - b.seq || a.code.localeCompare(b.code));
+}
+async function members(c, month) {
+  const ms = await jvMembers(c, month);
+  check(ms.length, `${month} 月度の JV構成員・出資比率をマスタ管理で登録してください`);
+  const sum = Math.round(ms.reduce((n, m) => n + m.ratio * 100, 0)); check(sum === 10000, `${month} 月度の JV構成員の出資比率の合計が100%ではありません（${sum / 100}%）`);
   return ms;
 }
 // Each member gets floor(amount × ratio); the remainder goes to the first member (現行帳票と同じ扱い).
 export const allocate = (amount, ms) => { const parts = ms.map(m => Math.floor(Math.abs(amount) * m.ratio * 100 / 10000) * Math.sign(amount)); parts[0] += amount - parts.reduce((a, b) => a + b, 0); return parts; };
 // 10/21 打合せ：指示画面は「締切日（対象月20日）」。締切日の月度（前月21日〜当月20日）を対象にする（従来の期間指定も可）
 async function jvRange(c, q) {
-  if (!q.closing) return { ...range(q), closing: '' };
-  const P = await companyPeriod(c), closing = isoDate(q.closing, '締切日'), month = P.labelOf(closing);
+  const P = await companyPeriod(c);
+  if (!q.closing) { const r = range(q); return { ...r, closing: '', month: P.labelOf(r.to) }; }   // 期間指定は終了日の月度の比率
+  const closing = isoDate(q.closing, '締切日'), month = P.labelOf(closing);
   return { ...P.monthRange(month), closing, month };
 }
 // NO35 出資金請求明細表（定時請求分）／出資金請求合計表（定時請求分）
 // 10/21 打合せ：定時請求データをもとに支払日ごと・科目ごとに出力。明細表は入力単位（明細行）、合計表は科目ごとに集計。
 // 支払日が翌月15日と翌々月末のものが混在する。端数調整（データの読込 0/1 と端数調整画面）は要検討のため、按分は各社切捨て・端数は第1構成員。
 export async function jvExpenses(c, q) {
-  const { from, to, closing } = await jvRange(c, q), ms = await members(c), summary = q.layout === 'summary';
+  const { from, to, closing, month } = await jvRange(c, q), ms = await members(c, month), summary = q.layout === 'summary';
   const ls = await rows(c, `SELECT d.document_no, d.due_on, d.booked_on, d.memo, l.line_no, l.account_code, a.account_name, l.source_tax_code, l.gross_amount, l.tax_amount, l.memo line_memo, v.vendor_name
     FROM expense_document d JOIN expense_line l ON l.expense_id=d.expense_id LEFT JOIN account_subject a ON a.account_code=l.account_code LEFT JOIN vendor v ON v.vendor_id=d.vendor_id
     WHERE d.expense_kind='PAYABLE' AND d.status='POSTED' AND d.booked_on BETWEEN ? AND ? ORDER BY COALESCE(d.due_on, d.booked_on), l.account_code, d.document_no, l.line_no`, [from, to]);
@@ -180,7 +187,7 @@ export async function jvExpenses(c, q) {
   const days = [...new Set(accounts.map(a => a.due))].map(due => { const as = accounts.filter(a => a.due === due); return { due, gross: as.reduce((n, a) => n + a.gross, 0), parts: ms.map((_, k) => as.reduce((n, a) => n + a.parts[k], 0)) }; });
   const totals = { gross: accounts.reduce((n, a) => n + a.gross, 0), net: accounts.reduce((n, a) => n + a.net, 0), tax: accounts.reduce((n, a) => n + a.tax, 0), parts: ms.map((_, k) => accounts.reduce((n, a) => n + a.parts[k], 0)) };
   return { title: summary ? '出資金請求合計表（定時請求分）' : '出資金請求明細表（定時請求分）', ref: 'NO35 / 添付帳票⑫', layout: summary ? 'summary' : 'detail', closing, from, to, members: ms, accounts, days, totals,
-    note: `締切日 ${closing || to} の月度（${from}〜${to}）の定時請求を、支払日ごと・科目ごとに${summary ? '集計して' : '明細行単位で'}出資比率で按分。各社切捨て、端数は第1構成員。端数調整の入力（現行の「データの読込 0/1」）は要検討。` };
+    note: `締切日 ${closing || to} の月度（${from}〜${to}）の定時請求を、支払日ごと・科目ごとに${summary ? '集計して' : '明細行単位で'}${month} 月度の出資比率で按分。各社切捨て、端数は第1構成員。端数調整の入力（現行の「データの読込 0/1」）は要検討。` };
 }
 const PART_ACCOUNT = { BANK: '当座預金（振込）', NOTE: '受取手形', FEE: '雑費（手数料）', COOP: '雑費（協力費）' };
 const PART_MEMO = { FEE: '入金時の手数料', COOP: '入金時の協力費' };
@@ -189,7 +196,7 @@ const PART_MEMO = { FEE: '入金時の手数料', COOP: '入金時の協力費' 
 // 2026-11-01：雑費に協力費（8330-107）も含める（現行 HJW030 の見本で雑費の行が 手数料＋協力費 の金額。例 新晃 550）
 // 入金額配賦登録（HJW030）の表示用に 区分（売掛金入金／受取手形／現金売上）と 請求締日（消し込んだ請求の締日）を返す
 export async function jvReceipts(c, q) {
-  const { from, to, closing } = await jvRange(c, q), ms = await members(c);
+  const { from, to, closing, month } = await jvRange(c, q), ms = await members(c, month);
   const rs = await rows(c, `SELECT r.receipt_id, r.receipt_no, r.receipt_date, c.customers_name, k.component_no, k.component_kind, k.amount FROM receipt r JOIN receipt_component k ON k.receipt_id=r.receipt_id LEFT JOIN client_m c ON c.customers_cd=r.customers_cd
     WHERE r.status='POSTED' AND r.receipt_date BETWEEN ? AND ? AND k.component_kind IN ('BANK','NOTE','FEE','COOP') ORDER BY r.receipt_date, r.receipt_id, k.component_no`, [from, to]);
   const lines = rs.map(r => { const amount = num(r.amount); return { key: `R:${r.receipt_id}:${r.component_no}`, date: String(r.receipt_date).slice(0, 10), no: r.receipt_no, account: PART_ACCOUNT[r.component_kind] || r.component_kind, memo: PART_MEMO[r.component_kind] || '売掛金入金', kbn: r.component_kind === 'NOTE' ? '受取手形' : '売掛金入金', customer: r.customers_name, amount, parts: allocate(amount, ms) }; });
@@ -210,7 +217,7 @@ export async function jvReceipts(c, q) {
     if (parts.every(Number.isSafeInteger) && parts.reduce((n, v) => n + v, 0) === l.amount) { l.parts = parts; l.adjusted = true; }
   }
   return { title: '入金明細及び配分表', ref: 'NO36 / 添付帳票⑬', closing, from, to, members: ms, lines, totals: { amount: lines.reduce((n, l) => n + l.amount, 0), parts: ms.map((_, k) => lines.reduce((n, l) => n + l.parts[k], 0)) },
-    note: `締切日 ${closing || to} の月度（${from}〜${to}）。対象は当座預金への入金（振込・受取手形）、入金時の手数料・協力費（雑費）、現金売上（10/21 打合せ）。各社切捨て、端数は第1構成員。入金額配賦登録で調整した行は調整後の金額（${lines.filter(l => l.adjusted).length}行）。` };
+    note: `締切日 ${closing || to} の月度（${from}〜${to}）。対象は当座預金への入金（振込・受取手形）、入金時の手数料・協力費（雑費）、現金売上（10/21 打合せ）。${month} 月度の出資比率で配分。各社切捨て、端数は第1構成員。入金額配賦登録で調整した行は調整後の金額（${lines.filter(l => l.adjusted).length}行）。` };
 }
 // 入金額配賦登録（現行 HJW030）：締切日の月度の NO36 対象行について構成員別の配分額を調整して登録。行ごとに合計＝入金額。自動配分と同じなら調整を消す
 export async function saveJvAllocations(c, ctx, p) {

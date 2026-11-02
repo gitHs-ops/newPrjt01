@@ -244,18 +244,28 @@ export const MASTERS = {
     },
   },
   jv: {
-    label: 'JV構成員・出資比率', table: 'code_m',
+    label: 'JV構成員・出資比率', table: 'app_jv_member',
     // 現行 HMW110「構成員 登録」（出資比率の変更.xlsx 2026-10-14）：構成員コード＝業者コード、最大7社、比率は小数2桁
-    fields: [F('code', '構成員（業者）', { type: 'ref', ref: 'vendors', key: true, hint: '業者マスタのコード' }), F('name', '構成員名', { max: 40, optional: true, hint: '空欄は業者名' }), F('ratio', '出資比率(%)', { hint: '例: 47.5（有効な構成員の合計を100%に）' }), F('seq', '表示順', { type: 'int', optional: true }), F('active', '有効', { type: 'bool' })],
-    select: "SELECT * FROM code_m WHERE code_key='JV'", where: 'code_dtl=?', keyOf: r => [r.code],
-    decode: r => ({ code: r.code_dtl, name: r.code_dtl_nam, ratio: Number(r.category1 || 0) / 100, seq: Number(r.category2 || 0), active: r.code_dtl_abr !== '0' }),
-    validate: r => ({ code: text(r.code, '構成員コード', 12, { pattern: CODE }), name: text(r.name, '構成員名', 40, { required: false }), ratio: (() => { const t = String(r.ratio ?? '').trim(); check(/^\d{1,3}(\.\d{1,2})?$/.test(t) && Number(t) > 0 && Number(t) <= 100, '出資比率は0より大きく100以下（小数2桁まで）で入力してください'); return Number(t); })(), seq: yen(r.seq || 0, '表示順', { max: 9999 }), active: bool(r.active ?? true) }),
+    // 2026-11-02 適用開始月度（履歴）：構成員ごとに月度で比率を持ち、帳票はその月度で有効な行（開始月度が月度以前で最も新しい行）で配分。抜ける構成員は開始月度の行を「有効」なしで登録
+    fields: [F('code', '構成員（業者）', { type: 'ref', ref: 'vendors', key: true, hint: '業者マスタのコード' }), F('start', '適用開始月度', { type: 'month', key: true, optional: true, hint: '空欄＝最初から。比率を変える・構成員が増減する月度' }),
+      F('name', '構成員名', { max: 40, optional: true, hint: '空欄は業者名' }), F('ratio', '出資比率(%)', { hint: '例: 47.5（月度ごとに有効な構成員の合計を100%に）' }), F('seq', '表示順', { type: 'int', optional: true }), F('active', '有効', { type: 'bool', hint: '外すとこの月度から構成員から外れる' })],
+    select: 'SELECT * FROM app_jv_member', where: 'code=? AND start_month=?', keyOf: r => [r.code, r.start || ''],
+    sort: (a, b) => a.seq - b.seq || a.code.localeCompare(b.code) || a.start.localeCompare(b.start),
+    decode: r => ({ code: r.code, start: r.start_month, name: r.name, ratio: Number(r.ratio || 0) / 100, seq: Number(r.seq || 0), active: !!r.active }),
+    validate: r => {
+      const start = String(r.start ?? '').trim(), active = bool(r.active ?? true), t = String(r.ratio ?? '').trim() || (active ? '' : '0');
+      check(!start || /^\d{4}-(0[1-9]|1[0-2])$/.test(start), '適用開始月度は YYYY-MM で入力してください');
+      check(/^\d{1,3}(\.\d{1,2})?$/.test(t) && (Number(t) > 0 || !active) && Number(t) <= 100, '出資比率は0より大きく100以下（小数2桁まで）で入力してください');
+      return { code: text(r.code, '構成員コード', 12, { pattern: CODE }), start, name: text(r.name, '構成員名', 40, { required: false }), ratio: Number(t), seq: yen(r.seq || 0, '表示順', { max: 9999 }), active };
+    },
     async write(c, r, old) {
       if (!old) { const v = await one(c, 'SELECT vendor_name FROM vendor WHERE vendor_code=?', [r.code]); check(v, '構成員は業者マスタに登録された業者を選択してください'); r.name ||= v.vendor_name.slice(0, 40); }
-      if (r.active) check(Number((await one(c, "SELECT COUNT(*) n FROM code_m WHERE code_key='JV' AND code_dtl_abr<>'0' AND code_dtl<>?", [r.code])).n) < 7, '有効な構成員は最大7社です（現行 HMW110）');
       check(r.name, '構成員名を入力してください');
-      if (!old) await c.query("INSERT INTO code_m (code_key,code_key_nam,code_dtl,code_dtl_nam,code_dtl_abr,category1,category2,category3) VALUES ('JV','JV構成員',?,?,?,?,?,'')", [r.code, r.name, r.active ? '1' : '0', String(Math.round(r.ratio * 100)), String(r.seq)]);
-      else await c.query("UPDATE code_m SET code_dtl_nam=?,code_dtl_abr=?,category1=?,category2=? WHERE code_key='JV' AND code_dtl=?", [r.name, r.active ? '1' : '0', String(Math.round(r.ratio * 100)), String(r.seq), r.code]);
+      if (!old) await c.query('INSERT INTO app_jv_member (code,start_month,name,ratio,seq,active) VALUES (?,?,?,?,?,?)', [r.code, r.start, r.name, Math.round(r.ratio * 100), r.seq, r.active]);
+      else await c.query('UPDATE app_jv_member SET name=?,ratio=?,seq=?,active=? WHERE code=? AND start_month=?', [r.name, Math.round(r.ratio * 100), r.seq, r.active, r.code, r.start]);
+      // 有効な構成員は最大7社（現行 HMW110）：登録した月度以降に行がある月度ごとに数える
+      const all = await rows(c, 'SELECT code, start_month, active FROM app_jv_member');
+      for (const m of new Set(all.map(x => x.start_month).filter(m => m >= r.start))) check(jvAsOf(all, m).filter(x => x.active).length <= 7, `有効な構成員は最大7社です（現行 HMW110。${m || '最初'}の月度）`);
     },
   },
   mixes: {
@@ -404,6 +414,8 @@ export const MASTERS = {
   },
 };
 
+// 月度 month 時点の JV 構成員：構成員ごとに開始月度が month 以前で最も新しい行（''＝最初から）
+export const jvAsOf = (all, month) => Object.values(all.filter(x => x.start_month <= month).reduce((o, x) => ((!o[x.code] || o[x.code].start_month < x.start_month) && (o[x.code] = x), o), {}));
 const withVersion = (cfg, row) => { const r = cfg.decode(row); return { ...r, key: cfg.keyOf(r).join('|'), version: hash(r) }; };
 export const meta = () => Object.fromEntries(Object.entries(MASTERS).map(([k, m]) => [k, { label: m.label, readOnly: !!m.readOnly, fields: m.fields.map(f => ({ ...f, pattern: undefined })) }]));
 export async function list(c, kind) {
@@ -460,7 +472,7 @@ const REMOVE = {
     del: ["DELETE FROM code_m WHERE code_key='BKDIR' AND code_dtl=?"] },
   depts: { refs: [['仕訳', 'SELECT 1 x FROM journal_line WHERE department_code=? LIMIT 1'], ['定時請求・小口現金', 'SELECT 1 x FROM expense_line WHERE department_code=? LIMIT 1'], ['財務会計の伝票', 'SELECT 1 x FROM kb_line WHERE dept_code=? LIMIT 1']],
     del: ["DELETE FROM code_m WHERE code_key='DEPT' AND code_dtl=?"] },
-  jv: { refs: [], del: ["DELETE FROM code_m WHERE code_key='JV' AND code_dtl=?"] },
+  jv: { refs: [], del: ['DELETE FROM app_jv_member WHERE code=? AND start_month=?'] },
   mixes: { refs: [], del: ["DELETE FROM code_m WHERE code_key='MIX' AND code_dtl=?"] },
   matPrices: { refs: [], del: ["DELETE FROM code_m WHERE code_key='MATPR' AND code_dtl=?"] },
   deliveryKinds: { refs: [['出荷伝票', 'SELECT 1 x FROM shipment_slip WHERE CAST(delivery_kbn_cd AS TEXT)=? LIMIT 1'], ['出荷予定', 'SELECT 1 x FROM shipment_plan WHERE CAST(delivery_kbn_cd AS TEXT)=? LIMIT 1']],

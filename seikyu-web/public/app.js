@@ -1707,7 +1707,7 @@ async function accountingDownload(format) {
 }
 const jvReportsCard = () => miscCard('出資金（JV）帳票', 'JV構成員・出資比率で配分（10/21 打合せ：締切日＝対象月20日で指示）', `<label class="field">締切日<input type="date" id="jv-closing" value="${lastClosing()}"></label>`,
   '<button data-act="misc" data-kind="jv-expenses" data-src="jv">出資金請求明細表（定時請求分）</button><button data-act="misc" data-kind="jv-expenses" data-src="jvs">出資金請求合計表（定時請求分）</button><button data-act="misc" data-kind="jv-receipts" data-src="jv">入金明細及び配分表</button>' + (canWrite() ? '<button data-act="jvAlloc">入金額配賦登録（端数調整）</button>' : ''),
-  '構成員と出資比率は「マスタ管理 → JV構成員・出資比率」で登録します（有効な構成員の合計100%）。配分は各社切捨て、端数は第1構成員。端数を調整するときは「入金額配賦登録」で入金ごとに構成員別の金額を直し、はその金額で出力します。');
+  '構成員と出資比率は「マスタ管理 → JV構成員・出資比率」で登録します（適用開始月度ごと。有効な構成員の合計100%）。帳票は締切日の月度で有効な比率で配分します。配分は各社切捨て、端数は第1構成員。端数を調整するときは「入金額配賦登録」で入金ごとに構成員別の金額を直し、はその金額で出力します。');
 // 入金額配賦登録（現行 HJW030）：締切日の月度の NO36 対象行ごとに構成員別の配分額（青字欄）を調整。行の合計＝入金額で登録
 async function jvAllocDialog() {
   const closing = $('#jv-closing').value, d = await api('/api/reports/misc/jv-receipts?' + qs({ closing })), ms = d.members;

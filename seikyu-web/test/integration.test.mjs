@@ -216,6 +216,14 @@ test('workflow against PostgreSQL business tables', { skip, timeout: 900000 }, a
       const je = (await a.call('/api/reports/misc/jv-expenses?' + span)).data;
       const row = je.accounts.flatMap(x => x.rows).find(r => r.gross === 50000 && r.vendor === '試験業者');
       assert.deepEqual(row.parts, [23750, 23750, 2500]); assert.equal(row.tax, 4545);
+      // 適用開始月度（履歴）：先の月度の変更は今の帳票に効かない。月度ごとに合計100%を確認
+      ok(await a.call('/api/masters/jv', { mode: 'create', record: { code: 'JA' + tag, start: '2099-01', ratio: '50', seq: 65, active: true } }));
+      assert.deepEqual((await a.call('/api/reports/misc/jv-expenses?' + span)).data.accounts.flatMap(x => x.rows).find(r => r.gross === 50000 && r.vendor === '試験業者').parts, [23750, 23750, 2500]);
+      const fut = 'from=2099-01-01&to=2099-01-20';
+      assert.equal((await a.call('/api/reports/misc/jv-expenses?' + fut)).status, 400, 'sum 102.5%');
+      ok(await a.call('/api/masters/jv', { mode: 'create', record: { code: 'JB' + tag, start: '2099-01', ratio: '50', seq: 66, active: true } }));
+      ok(await a.call('/api/masters/jv', { mode: 'create', record: { code: 'JC' + tag, start: '2099-01', ratio: '', seq: 67, active: false } }));
+      assert.deepEqual((await a.call('/api/reports/misc/jv-expenses?' + fut)).data.members.map(m => m.ratio), [50, 50]);
       const jr = (await a.call('/api/reports/misc/jv-receipts?' + span)).data;
       for (const l of jr.lines) assert.equal(l.parts.reduce((x, y) => x + y, 0), l.amount);
       for (const k of ['shipment-summary', 'customer-items', 'cash-sales', 'material-ledger', 'mix', 'jv-expenses', 'jv-receipts']) {
