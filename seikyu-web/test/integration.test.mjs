@@ -242,6 +242,10 @@ test('workflow against PostgreSQL business tables', { skip, timeout: 900000 }, a
         const x = await fetch(base + '/api/reports/misc/' + k + '?' + new URLSearchParams({ from: pm + '-01', to: d, month: d.slice(0, 7), format: 'xlsx' }), { headers: { cookie: a.cookie } });
         assert.equal(Buffer.from(await x.arrayBuffer()).subarray(0, 2).toString(), 'PK', k);
       }
+      // 材料受払表：現行 HAR491 の様式（表題・2段見出し）
+      const mlx = Buffer.from(await (await fetch(base + '/api/reports/misc/material-ledger?' + new URLSearchParams({ month: d.slice(0, 7), format: 'xlsx' }), { headers: { cookie: a.cookie } })).arrayBuffer()).toString();
+      for (const w of ['HAR491', '材　料　受　払　表', '期　首　残　高', '当　月　末　在　庫', '【合計】']) assert.ok(mlx.includes(w), w);
+      assert.ok(!mlx.includes('材料CD'), '現行の見出しに材料CDの列名はない');
       for (const m of (await a.call('/api/masters/jv')).data.filter(x => x.active && x.code.endsWith(tag))) await a.call('/api/masters/jv', { mode: 'update', record: { ...m, active: false } });
     });
     await t.test('△ items completed by estimation (NO3/9/10/20/25/30/33/40/44)', async () => {

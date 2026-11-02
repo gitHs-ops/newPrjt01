@@ -78,7 +78,8 @@ export async function materialLedger(c, q) {
     return { item: code, name: names[code]?.item_nam || code, unit: names[code]?.unit || '', opening: { qty: o.qty, value: o.value }, prev: { qty: p.qty, value: p.value }, purchase: b, used, end: e ? { qty: e.qty, value: e.value } : null, price: avg ?? null, posted: e ? !!e0.posted : null };
   });
   const t = (k, f) => items.reduce((n, x) => n + (x[k]?.[f] || 0), 0);
-  return { title: '材料受払表', ref: 'NO26 / 添付帳票⑧', month, period: cr, fiscalStart: fs, items, totals: { opening: t('opening', 'value'), prev: t('prev', 'value'), purchase: t('purchase', 'value'), used: t('used', 'value'), end: t('end', 'value') },
+  const co2 = await one(c, 'SELECT company_name1, company_name2 FROM company_info_m ORDER BY company_info_id LIMIT 1');
+  return { title: '材料受払表', ref: 'NO26 / 添付帳票⑧', month, period: cr, fiscalStart: fs, company: [co2?.company_name1, co2?.company_name2].filter(Boolean).join(' '), items, totals: { opening: t('opening', 'value'), prev: t('prev', 'value'), purchase: t('purchase', 'value'), used: t('used', 'value'), end: t('end', 'value'), openingQty: t('opening', 'qty'), prevQty: t('prev', 'qty'), purchaseQty: t('purchase', 'qty'), usedQty: t('used', 'qty'), endQty: t('end', 'qty') },
     note: '仕入の集計期間は締日単位（既定20日締め、現行と同じ）。実在庫は月度ごとの登録値。当月使用高＝前月末在庫＋当月仕入−当月末在庫（実在庫未登録の月は空欄）。評価方法は確認待ち（Q07）。' };
 }
 
@@ -262,11 +263,22 @@ export async function miscBook(c, kind, q) {
     return { name: `現金売上明細表_${d.from}_${d.to}.xlsx`, body: xlsx([{ name: '現金売上明細表', rows: out, widths: [10, 22, 11, 11, 22, 20, 9, 10, 12, 10, 12] }]) };
   }
   if (kind === 'material-ledger') {
-    const d = await materialLedger(c, q), out = head(d, `対象月 ${d.month}（期首 ${d.fiscalStart}）`);
-    out.push(['材料CD', '材料名', '期首 数量', '期首 金額', '前月来 数量', '前月来 金額', '当月仕入 数量', '当月仕入 金額', '当月使用 数量', '当月使用 金額', '当月末 数量', '当月末 金額', '単価'].map(H));
-    for (const x of d.items) out.push([x.item, x.name, x.opening.qty, x.opening.value, x.prev.qty, x.prev.value, x.purchase.qty, x.purchase.value, x.used?.qty ?? '', x.used?.value ?? '', x.end?.qty ?? '', x.end?.value ?? '', x.price ?? '']);
-    const t = d.totals; out.push([S('【合計】'), '', '', S(t.opening), '', S(t.prev), '', S(t.purchase), '', S(t.used), '', S(t.end), '']);
-    return { name: `材料受払表_${d.month}.xlsx`, body: xlsx([{ name: '材料受払表', rows: out, widths: [9, 22, 11, 13, 11, 13, 11, 13, 11, 13, 11, 13, 11] }]) };
+    // 現行 HAR491（添付帳票⑧ p.1）の形式：1〜2行目の表題、期首残高〜当月末在庫の2段見出し、数量3桁・金額・単価1桁、0 は空欄、動きのない材料は出さない、【合計】に数量も（2026-11-02）
+    const d = await materialLedger(c, q), jst = new Date(Date.now() + 9 * 3600e3).toISOString(), yy = v => `${v.slice(2, 4)}/${v.slice(5, 7)}/${v.slice(8, 10)}`;
+    const Q = v => ({ v: v || '', s: 'qty3' }), A = v => ({ v: v || '', s: 'num' });
+    const out = [
+      ['HAR491', ...Array(11).fill(''), { v: `作成日 ${yy(jst)} ${jst.slice(11, 19)}`, s: 'right' }],
+      [{ v: `${yy(d.period.to)} 締`, s: 'center' }, '', '', '', { v: '材　料　受　払　表', s: 'titleC' }, ...Array(7).fill(''), { v: d.company, s: 'right' }],
+      [],
+      ['', '', ...['期　首　残　高', '前　月　末　在　庫', '当　月　仕　入　高', '当　月　使　用　高', '当　月　末　在　庫'].flatMap(label => [{ v: label, s: 'center' }, { v: '', s: 'center' }])],
+      ['', '', ...Array(5).fill([{ v: '数　量', s: 'center' }, { v: '金　額', s: 'center' }]).flat(), { v: '単　価', s: 'center' }],
+    ];
+    const parts = x => [x.opening, x.prev, x.purchase, x.used, x.end];
+    for (const x of d.items.filter(x => parts(x).some(o => o && (o.qty || o.value)))) out.push([x.item, x.name, ...parts(x).flatMap(o => [Q(o?.qty), A(o?.value)]), { v: x.price || '', s: 'price1' }]);
+    const t = d.totals; out.push(['【合計】', '', Q(t.openingQty), A(t.opening), Q(t.prevQty), A(t.prev), Q(t.purchaseQty), A(t.purchase), Q(t.usedQty), A(t.used), Q(t.endQty), A(t.end)]);
+    const merges = ['A2:D2', 'E2:I2', 'C4:D4', 'E4:F4', 'G4:H4', 'I4:J4', 'K4:L4'];
+    const heights = Object.fromEntries(out.map((_, i) => [i, i < 5 ? 18 : 24]));
+    return { name: `材料受払表_${d.month}.xlsx`, body: xlsx([{ name: '材料受払表', rows: out, merges, heights, gridlines: false, printTitles: '4:5', header: '&RPAGE: &P', widths: [8, 24, 14, 13, 14, 13, 14, 13, 14, 13, 14, 13, 13] }]) };
   }
   if (kind === 'mix') {
     const d = await mixCalc(c, q), out = head(d, `対象月 ${d.month}`);
