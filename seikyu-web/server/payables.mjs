@@ -133,6 +133,15 @@ export async function saveCounts(c, ctx, p) {
 }
 // 在庫計上（C01）の直近の伝票番号（結果のポップアップ表示用）
 const lastInvSlip = async (c, end) => (await one(c, "SELECT n.slip_no FROM journal_entry e JOIN app_slip_no n ON n.journal_id=e.journal_id WHERE e.pattern_code='C01' AND e.journal_date=? ORDER BY e.journal_id DESC LIMIT 1", [end]))?.slip_no || '';
+// 在庫計上の評価単価：（前月末在庫金額＋当月仕入金額）÷（前月末在庫数量＋当月仕入数量）。在庫登録リストの未計上分の見込み評価にも使う
+export async function inventoryPrice(c, item, month, from, to) {
+  const prior = await one(c, "SELECT quantity, valuation_price, valuation_amount FROM inventory_count WHERE item_cd=? AND location_code='MAIN' AND period_start<? AND status='POSTED' ORDER BY period_start DESC LIMIT 1", [item, month + '-01']);
+  const pur = await one(c, 'SELECT COALESCE(SUM(quantity),0) q, COALESCE(SUM(net_amount),0) v FROM purchase WHERE item_cd=? AND purchase_date BETWEEN ? AND ?', [item, from, to]);
+  // 金額のない在庫（前月の評価額 0）は商品マスタの単価で評価する（2026-11-02 ユーザー指摘：マスタ単価を入れても金額が出ない）
+  const tanka = Number((await one(c, 'SELECT tanka FROM item_m WHERE item_cd=?', [item]))?.tanka || 0);
+  const pq = Number(prior?.quantity || 0) + Number(pur.q), pv = (Number(prior?.valuation_amount || 0) || Math.round(Number(prior?.quantity || 0) * tanka)) + Number(pur.v);
+  return pq > 0 && pv > 0 ? Math.round(pv / pq * 100) / 100 : Number(prior?.valuation_price || 0) || tanka;
+}
 export async function postInventory(c, ctx, p) {
   const P = await companyPeriod(c), month = isoMonth(p.month, '計上月'), end = P.closeOf(+month.slice(0, 4), +month.slice(5, 7)), { from, to } = P.monthRange(month); await assertOpen(c, end);
   check(!(await isPosted(c, month)), `${month} 月度は在庫計上済みです（在庫計上は月次で1回）`);
@@ -141,12 +150,7 @@ export async function postInventory(c, ctx, p) {
   check(!(await one(c, "SELECT 1 x FROM inventory_count WHERE location_code='MAIN' AND period_start>? AND status='POSTED' LIMIT 1", [month + '-01'])), '後の月度が在庫計上済みです');
   let total = 0;
   for (const r of list) {
-    const prior = await one(c, "SELECT quantity, valuation_price, valuation_amount FROM inventory_count WHERE item_cd=? AND location_code='MAIN' AND period_start<? AND status='POSTED' ORDER BY period_start DESC LIMIT 1", [r.item_cd, month + '-01']);
-    const pur = await one(c, 'SELECT COALESCE(SUM(quantity),0) q, COALESCE(SUM(net_amount),0) v FROM purchase WHERE item_cd=? AND purchase_date BETWEEN ? AND ?', [r.item_cd, from, to]);
-    // 金額のない在庫（前月の評価額 0）は商品マスタの単価で評価する（2026-11-02 ユーザー指摘：マスタ単価を入れても金額が出ない）
-    const tanka = Number((await one(c, 'SELECT tanka FROM item_m WHERE item_cd=?', [r.item_cd]))?.tanka || 0);
-    const pq = Number(prior?.quantity || 0) + Number(pur.q), pv = (Number(prior?.valuation_amount || 0) || Math.round(Number(prior?.quantity || 0) * tanka)) + Number(pur.v);
-    const price = pq > 0 && pv > 0 ? Math.round(pv / pq * 100) / 100 : Number(prior?.valuation_price || 0) || tanka, value = Math.round(Number(r.quantity) * price); // 単価は小数2桁まで（移動平均）のため金額は円未満四捨五入
+    const price = await inventoryPrice(c, r.item_cd, month, from, to), value = Math.round(Number(r.quantity) * price); // 単価は小数2桁まで（移動平均）のため金額は円未満四捨五入
     await c.query("UPDATE inventory_count SET valuation_price=?, valuation_amount=?, status='POSTED', row_version=row_version+1 WHERE inventory_id=?", [price, value, r.inventory_id]);
     total += value;
   }
