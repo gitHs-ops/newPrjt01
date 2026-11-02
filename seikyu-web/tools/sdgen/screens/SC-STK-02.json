@@ -31,32 +31,6 @@
      }
     },
     {
-     "go": "#inventory/mix"
-    },
-    {
-     "extract": {
-      "area": "〔出力条件（配合計算）〕",
-      "root": "#content div[data-sub=mix]",
-      "mode": "controls",
-      "buttons": true
-     }
-    },
-    {
-     "shot": {
-      "name": "SC-STK-02_配合計算",
-      "viewport": [
-       1440,
-       900
-      ],
-      "clip": [
-       266,
-       70,
-       1174,
-       190
-      ]
-     }
-    },
-    {
      "go": "#inventory/ledger"
     },
     {
@@ -65,6 +39,13 @@
       "root": "#content div[data-sub=ledger]",
       "mode": "controls",
       "buttons": true
+     }
+    },
+    {
+     "extract": {
+      "area": "〔出力条件（材料受払表）〕",
+      "root": "#content div[data-sub=ledger] p.note",
+      "mode": "message"
      }
     },
     {
@@ -78,45 +59,9 @@
        266,
        70,
        1174,
-       190
+       222
       ]
      }
-    }
-   ]
-  },
-  {
-   "id": "SC-STK-02-D1",
-   "name": "詳細画面（配合計算モーダル）",
-   "steps": [
-    {
-     "go": "#inventory/mix"
-    },
-    {
-     "click": "#content button[data-act=mix]"
-    },
-    {
-     "extract": {
-      "area": "〔配合計算モーダル・製品別配合表〕",
-      "root": "dialog[open] .modal-body > p.note",
-      "mode": "message"
-     }
-    },
-    {
-     "extract": {
-      "area": "〔配合計算モーダル・製品別配合表〕",
-      "root": "dialog[open] .modal-body > h3:first-of-type",
-      "mode": "message"
-     }
-    },
-    {
-     "extract": {
-      "area": "〔入力フォーム（経費単価）〕",
-      "root": "dialog[open] .modal-body .form-grid",
-      "mode": "fields"
-     }
-    },
-    {
-     "escape": true
     }
    ]
   }
