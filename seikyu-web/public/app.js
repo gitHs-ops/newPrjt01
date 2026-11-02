@@ -1490,9 +1490,10 @@ function expenseView(kind) {
     // 2026-10-29 画面・帳票処理イメージ一覧 v4 の指摘：支払先は自由入力ではない（業者マスタのコード）・支払先名を表示・「金額」でなく「支払額」・右は科目名・内訳名と摘要名（内訳は科目の補助で摘要コード（工事）とは別。摘要名は手入力。2026-10-29 列名を「内訳」に訂正）
     const vendorName = code => active('vendors').find(x => x.code === String(code || '').trim())?.name;
     const cols = [{ name: 'lvendor', label: '支払先コード', cell: () => '<input name="lvendor" list="dl-ex-payees" maxlength="12" placeholder="コード" style="width:84px" autocomplete="off">' }, { label: '支払先名', cell: () => '<span data-vname></span>' },
-      { name: 'account', label: '科目', cell: () => `<select name="account">${accOpts}</select>` }, { name: 'sub', label: '内訳', cell: () => '<select name="sub"><option value="">（なし）</option></select>' },
+      // 科目名・内訳名は各コードの入力欄の下に表示（2026-11-02 ユーザー指示。右端の列から移した）
+      { name: 'account', label: '科目', cell: () => `<div class="l2"><select name="account">${accOpts}</select><span data-accname class="muted small"></span></div>` }, { name: 'sub', label: '内訳', cell: () => '<div class="l2"><select name="sub"><option value="">（なし）</option></select><span data-subname class="muted small"></span></div>' },
       { name: 'amount', label: '支払額（税込）', sum: 1, cell: () => '<input name="amount" class="num" style="width:120px">' }, { name: 'taxCode', label: '処税率', cell: () => `<div class="l2">${taxSelect('taxCode', '141')}<span data-taxname class="muted small"></span></div>` },
-      { label: '科目名・内訳名／摘要名', cell: () => '<div class="l2"><span class="hw-names muted small">科目を選ぶと科目名・内訳名を表示</span><input name="lmemo" maxlength="500" placeholder="摘要名（手入力）"></div>' }];
+      { label: '摘要名', cell: () => '<input name="lmemo" maxlength="500" placeholder="摘要名（手入力）">' }];
     // 定時請求データ入力は現行 HAW050（10/21 打合せ資料 スライド5）の並び：組織・締切日／請求No／業者／支払繰延区分・合計金額 → 明細（2段）→ 対象外・内税・外税・外税消費税・合計
     const deptSel = `<select name="dept">${options(active('depts').length ? active('depts') : [{ code: '063', name: '部門063' }], '063')}</select>`;
     // 小口現金の組織（部門）は表示のみ。現行 HAW150 に入力欄がなく、HAR733 の部は 063（登録時はサーバーの既定値 063）
@@ -1529,9 +1530,10 @@ function expenseView(kind) {
           f.dataset.total = head ? num(head) : total; f._terms?.();
           return total;
         };
-        const names = tr => { const n = tr.querySelector('.hw-names'); if (!n) return; const acc = masters.accounts.find(a => a.code === tr.querySelector('[name=account]').value), sub = active('subaccounts').find(x => x.account === acc?.code && x.code === tr.querySelector('[name=sub]').value); 
+        const names = tr => { const n = tr.querySelector('.hw-names'), an = tr.querySelector('[data-accname]'); if (!n && !an) return; const acc = masters.accounts.find(a => a.code === tr.querySelector('[name=account]').value), sub = active('subaccounts').find(x => x.account === acc?.code && x.code === tr.querySelector('[name=sub]').value); 
           // 上段は科目名・内訳名、下段の摘要名は手入力（小口現金も定時請求と同じ）
-          n.textContent = acc ? `${acc.name}${sub ? '　' + sub.name : ''}` : payable ? '科目を選択' : '科目を選ぶと科目名・内訳名を表示'; };
+          if (an) { an.textContent = acc?.name || ''; tr.querySelector('[data-subname]').textContent = sub?.name || ''; return; }
+          n.textContent = acc ? `${acc.name}${sub ? '　' + sub.name : ''}` : '科目を選択'; };
         const vname = tr => { const el = tr.querySelector('[name=lvendor]'), s = tr.querySelector('[data-vname]'); if (!el || !s) return; const t = el.value.trim(), nm = vendorName(t); s.innerHTML = !t ? '' : nm ? esc(nm) : '<span class="check-ng">該当なし</span>'; };
         g.addEventListener('input', e => { if (e.target.name === 'lvendor') vname(e.target.closest('tr')); });
         if (payable) {
