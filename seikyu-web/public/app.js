@@ -1785,9 +1785,10 @@ async function miscReport(kind, src) {
     { label: '当月使用 数量', num: 1, value: r => q(r.used) }, { label: '当月使用 金額', num: 1, value: r => q(r.used, 'v') }, { label: '当月末 数量', num: 1, value: r => q(r.end) }, { label: '当月末 金額', num: 1, value: r => q(r.end, 'v') }, { label: '単価', num: 1, value: r => (r.price ?? '') === '' ? '' : yen(r.price) }],
     d.items, { empty: '対象の材料がありません', foot: ['【合計】', '', yen(d.totals.opening), '', yen(d.totals.prev), '', yen(d.totals.purchase), '', yen(d.totals.used), '', yen(d.totals.end), ''] }); }
   if (kind === 'jv-expenses') {
-    const detail = d.layout === 'detail', mcols = d.members.map(m => `<th class="num">${pct(m)}</th>`).join(''), money = v => `<td class="num">${yen(v)}</td>`;
+    // 見出しは現行の出資金請求明細表と同じ（税率・支払金額・支払額本体・支払消費税・構成員名／出資金額。2026-11-02）
+    const detail = d.layout === 'detail', mcols = d.members.map(m => `<th class="num">${esc(m.name)}<br>出資金額</th>`).join(''), money = v => `<td class="num">${yen(v)}</td>`;
     body = `` + (!d.accounts.length ? '<div class="empty">この締切日の月度の定時請求はありません</div>' : d.days.map(day => `<h3 style="margin:12px 0 4px">支払日 ${esc(day.due)}</h3><div class="table-wrap"><table><thead><tr>`
-      + (detail ? `<th>科目</th><th>伝票No</th><th>支払先</th><th>摘要</th><th>税区分</th>` : `<th>科目</th><th class="num">件数</th>`) + `<th class="num">支払金額</th><th class="num">支払本体</th><th class="num">消費税</th>${mcols}</tr></thead><tbody>`
+      + (detail ? `<th>科目</th><th>伝票No</th><th>支払先</th><th>摘要</th><th>税率</th>` : `<th>科目</th><th class="num">件数</th>`) + `<th class="num">支払金額</th><th class="num">支払額本体</th><th class="num">支払消費税</th>${mcols}</tr></thead><tbody>`
       + d.accounts.filter(a => a.due === day.due).map(a => detail
         ? a.rows.map((r, k) => `<tr><td>${k ? '' : esc(`${a.account} ${a.name}`)}</td><td>${esc(r.no)}</td><td>${esc(r.vendor)}</td><td>${esc(r.memo)}</td><td>${esc(r.taxCode)}</td>${money(r.gross)}${money(r.net)}${money(r.tax)}${r.parts.map(money).join('')}</tr>`).join('')
           + `<tr class="subtotal"><td colspan="5" class="right">＊科目計＊</td>${money(a.gross)}${money(a.net)}${money(a.tax)}${a.parts.map(money).join('')}</tr>`

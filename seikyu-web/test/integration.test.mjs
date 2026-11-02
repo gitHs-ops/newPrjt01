@@ -251,6 +251,9 @@ test('workflow against PostgreSQL business tables', { skip, timeout: 900000 }, a
         const x = await fetch(base + '/api/reports/misc/' + k + '?' + new URLSearchParams({ from: pm + '-01', to: d, month: d.slice(0, 7), format: 'xlsx' }), { headers: { cookie: a.cookie } });
         assert.equal(Buffer.from(await x.arrayBuffer()).subarray(0, 2).toString(), 'PK', k);
       }
+      // 出資金請求明細表：現行と同じ見出し（2026-11-02）
+      const jvx = Buffer.from(await (await fetch(base + '/api/reports/misc/jv-expenses?' + span + '&format=xlsx', { headers: { cookie: a.cookie } })).arrayBuffer()).toString();
+      for (const w of ['税率', '支払金額', '支払額本体', '支払消費税', '出資金額']) assert.ok(jvx.includes(w), w);
       // 材料受払表：現行 HAR491 の様式（表題・2段見出し）
       const mlx = Buffer.from(await (await fetch(base + '/api/reports/misc/material-ledger?' + new URLSearchParams({ month: d.slice(0, 7), format: 'xlsx' }), { headers: { cookie: a.cookie } })).arrayBuffer()).toString();
       for (const w of ['HAR491', '材　料　受　払　表', '期　首　残　高', '当　月　末　在　庫', '【合計】']) assert.ok(mlx.includes(w), w);

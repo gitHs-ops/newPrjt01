@@ -299,8 +299,10 @@ export async function miscBook(c, kind, q) {
     const d = kind === 'jv-expenses' ? await jvExpenses(c, q) : await jvReceipts(c, q), out = head(d, `期間 ${d.from} 〜 ${d.to}`);
     const names = d.members.map(m => `${m.name}（${m.ratio}%）`);
     if (kind === 'jv-expenses') {
-      const detail = d.layout === 'detail';
-      out.push((detail ? ['支払日', '伝票No', '科目', '支払先', '摘要', '税区分', '支払金額', '支払本体', '消費税', ...names] : ['支払日', '科目', '件数', '', '', '', '支払金額', '支払本体', '消費税', ...names]).map(H));
+      // 見出しは現行の出資金請求明細表と同じ：税率・支払金額・支払額本体・支払消費税、構成員は2段（構成員名／出資金額）（2026-11-02）
+      const detail = d.layout === 'detail', pre = detail ? ['支払日', '伝票No', '科目', '支払先', '摘要', '税率'] : ['支払日', '科目', '件数', '', '', ''];
+      out.push([...pre.map(() => ''), '', '', '', ...d.members.map(m => m.name)].map(H));
+      out.push([...pre, '支払金額', '支払額本体', '支払消費税', ...d.members.map(() => '出資金額')].map(H));
       for (const day of d.days) {
         for (const a of d.accounts.filter(x => x.due === day.due)) {
           if (detail) { for (const r of a.rows) out.push([r.date, r.no, `${a.account} ${a.name}`, r.vendor, r.memo, r.taxCode, r.gross, r.net, r.tax, ...r.parts]); out.push(['', '', S('＊科目計＊'), '', '', '', S(a.gross), S(a.net), S(a.tax), ...a.parts.map(S)]); }
