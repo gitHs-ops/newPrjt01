@@ -2,6 +2,7 @@
 import { xlsx } from './xlsx.mjs';
 import { billingList, billingConfirm, billingPrecheck, PRECHECK_PLAN, receiptPlan, arLedger } from './sales.mjs';
 import { today, jst } from './domain.mjs';
+import { arReport, apReport } from './ledger.mjs';
 
 const H = v => ({ v, s: 'bold' }), S = v => ({ v, s: 'sum' }), T = v => ({ v, s: 'title' });
 const kindOf = l => (Number(l.shipKb) === 5 ? (l.quantity < 0 ? '赤' : '黒') : '売上'); // 区分は請求書と同じ 赤／黒／売上
@@ -100,4 +101,20 @@ export async function arLedgerBook(c, q) {
   const sum = k => rows.reduce((n, r) => n + r[k], 0);
   out.push([S('合計'), '', '', '', '', S(sum('current')), '', S(sum('cleared')), S(rows.filter(r => r.latest).reduce((n, r) => n + r.remain, 0)), '']);
   return { name: `請求残高照会_${today()}.xlsx`, body: xlsx([{ name: '請求残高照会', rows: out, widths: [10, 30, 10, 12, 14, 14, 14, 14, 14, 10] }]) };
+}
+
+// 売掛金残高一覧・未払残高一覧（画面と同じ項目。2026-11-02 ［⇩ Excel］追加）
+export async function arBook(c) {
+  const rs = await arReport(c), sum = k => rs.reduce((n, r) => n + r[k], 0);
+  const out = [[T('売掛金残高一覧')], [`出力日 ${today()}`], [], ['得意先CD', '得意先名', '締日', '開始残高', '請求累計', '消込累計', '売掛残高', '期日超過', '未請求(税抜)'].map(H)];
+  for (const r of rs) out.push([r.customer, r.name, r.closing === 31 ? '月末' : r.closing + '日', r.opening, r.billed, r.received, r.balance, r.overdue, r.unbilled]);
+  out.push([S('合計'), `${rs.length}件`, '', ...['opening', 'billed', 'received', 'balance', 'overdue', 'unbilled'].map(k => S(sum(k)))]);
+  return { name: `売掛金残高一覧_${today()}.xlsx`, body: xlsx([{ name: '売掛金残高一覧', rows: out, widths: [10, 34, 8, 14, 14, 14, 14, 14, 14] }]) };
+}
+export async function apBook(c) {
+  const rs = await apReport(c), sum = k => rs.reduce((n, r) => n + r[k], 0);
+  const out = [[T('未払残高一覧')], [`出力日 ${today()}`], [], ['業者CD', '業者名', '計上累計', '支払累計', '未払残高'].map(H)];
+  for (const r of rs) out.push([r.vendor, r.name, r.billed, r.paid, r.balance]);
+  out.push([S('合計'), `${rs.length}件`, ...['billed', 'paid', 'balance'].map(k => S(sum(k)))]);
+  return { name: `未払残高一覧_${today()}.xlsx`, body: xlsx([{ name: '未払残高一覧', rows: out, widths: [10, 34, 14, 14, 14] }]) };
 }

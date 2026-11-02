@@ -82,8 +82,8 @@ export async function createApp({ pool, publicDir, secureCookies = process.env.N
   route('GET', '/api/periods', 'read', () => db(c => L.periods(c)));
   route('GET', '/api/periods/check', 'read', x => db(c => (x.q.detail ? L.closeCheckDetail(c, x.q.month) : L.closeCheck(c, x.q.month))));
   route('GET', '/api/dashboard', 'read', () => db(c => L.dashboard(c)));
-  route('GET', '/api/reports/ar', 'read', () => db(c => L.arReport(c)));
-  route('GET', '/api/reports/ap', 'read', () => db(c => L.apReport(c)));
+  route('GET', '/api/reports/ar', 'read', x => x.q.format === 'xlsx' ? db(c => X.arBook(c)).then(b => ({ file: b })) : db(c => L.arReport(c)));
+  route('GET', '/api/reports/ap', 'read', x => x.q.format === 'xlsx' ? db(c => X.apBook(c)).then(b => ({ file: b })) : db(c => L.apReport(c)));
   route('GET', '/api/audit', 'read', x => db(c => L.auditLog(c, x.q)));
   route('GET', '/api/coverage', 'read', () => db(c => L.coverage(c)));
   route('GET', '/api/export/:kind', 'read', async x => ({ csv: csv(await db(c => L.exportCsv(c, x.params.kind, x.q))), name: `${x.params.kind}${x.q.month ? '-' + x.q.month : ''}-${today()}.csv` }));

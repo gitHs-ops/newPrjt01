@@ -254,6 +254,8 @@ test('workflow against PostgreSQL business tables', { skip, timeout: 900000 }, a
       // 材料受払表：現行 HAR491 の様式（表題・2段見出し）
       const mlx = Buffer.from(await (await fetch(base + '/api/reports/misc/material-ledger?' + new URLSearchParams({ month: d.slice(0, 7), format: 'xlsx' }), { headers: { cookie: a.cookie } })).arrayBuffer()).toString();
       for (const w of ['HAR491', '材　料　受　払　表', '期　首　残　高', '当　月　末　在　庫', '【合計】']) assert.ok(mlx.includes(w), w);
+      // 売掛金残高一覧・未払残高一覧の Excel（2026-11-02）
+      for (const [k, w] of [['ar', '売掛金残高一覧'], ['ap', '未払残高一覧']]) { const r = await fetch(base + `/api/reports/${k}?format=xlsx`, { headers: { cookie: a.cookie } }); assert.equal(r.status, 200, k); assert.ok(Buffer.from(await r.arrayBuffer()).toString().includes(w), w); }
       assert.ok(!mlx.includes('材料CD'), '現行の見出しに材料CDの列名はない');
       for (const m of (await a.call('/api/masters/jv')).data.filter(x => x.active && x.code.endsWith(tag))) await a.call('/api/masters/jv', { mode: 'update', record: { ...m, active: false } });
     });
