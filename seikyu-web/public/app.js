@@ -1373,13 +1373,15 @@ VIEWS.purchases = async q => {
     { name: 'quantity', label: '数量', cell: () => '<input name="quantity" class="num" style="width:90px">' }, { name: 'unit', label: '単位', cell: () => '<span data-unit class="muted small">マスタの単位</span>' },
     { name: 'price', label: '単価', cell: () => '<input name="price" class="num" style="width:100px" inputmode="decimal" placeholder="マスタ単価" title="小数2桁まで（例 2267.40）">' }, { name: 'amount', label: '金額', sum: 1, cell: () => '<input name="amount" class="num" style="width:120px" placeholder="自動">' },
     { name: 'taxCode', label: '処税率', cell: () => taxSelect('taxCode', '241') }];
+  // 単位はコードと単位名を並べて表示（例「01 t」。2026-11-02）
+  const unitLabel = u => { const n = masters.units?.find(r => r.code === u)?.name; return n ? `${u} ${n}` : u; };
   const calc = tr => { const f = n => tr.querySelector(`[name=${n}]`), code = f('item').value.trim(), hit = masters.items.find(i => i.code === code && !noPurchase(i)), fr = isFreight(hit), nm = tr.querySelector('[data-iname]'), un = tr.querySelector('[data-unit]');
     nm.innerHTML = code && !hit ? `<span class="check-ng">${masters.items.some(i => i.code === code) ? '仕入では使えない商品' : '該当なし'}</span>` : hit ? esc(hit.name) : '商品コードを入力'; nm.classList.toggle('muted', !hit);
     // 材料の運賃（現行⑭「10900 アスファルト 0.00 t 0.00 1,108,214- 運賃」）：数量を空欄（0）にすると金額を直接入力でき、その行は運賃（2026-11-01）
     const byAmt = !fr && hit && !Number(f('quantity').value || 0);
-    if (byAmt) { if (f('amount').readOnly) f('amount').value = ''; f('amount').readOnly = false; f('amount').placeholder = '数量なしは運賃'; f('quantity').disabled = false; f('price').disabled = false; un.textContent = f('amount').value ? '（運賃）' : (hit.unit ? nameOf('units', hit.unit) || hit.unit : 'マスタの単位'); un.classList.add('muted'); }
+    if (byAmt) { if (f('amount').readOnly) f('amount').value = ''; f('amount').readOnly = false; f('amount').placeholder = '数量なしは運賃'; f('quantity').disabled = false; f('price').disabled = false; un.textContent = f('amount').value ? '（運賃）' : (hit.unit ? unitLabel(hit.unit) : 'マスタの単位'); un.classList.add('muted'); }
     else if (!fr) { const it = hit, qn = Number(f('quantity').value || 0), pr = f('price').value === '' ? Number(it?.price || 0) : Number(f('price').value.replace(/,/g, ''));
-      un.textContent = it?.unit ? nameOf('units', it.unit) || it.unit : 'マスタの単位'; un.classList.toggle('muted', !it?.unit); f('amount').value = qn && pr ? Math.trunc(Math.round(qn * 100) * Math.round(pr * 100) / 10000) : ''; f('amount').readOnly = true; f('amount').placeholder = '自動'; f('quantity').disabled = false; f('price').disabled = false; }
+      un.textContent = it?.unit ? unitLabel(it.unit) : 'マスタの単位'; un.classList.toggle('muted', !it?.unit); f('amount').value = qn && pr ? Math.trunc(Math.round(qn * 100) * Math.round(pr * 100) / 10000) : ''; f('amount').readOnly = true; f('amount').placeholder = '自動'; f('quantity').disabled = false; f('price').disabled = false; }
     else { f('amount').readOnly = false; f('amount').placeholder = '運賃の金額'; f('quantity').disabled = true; f('price').disabled = true; un.textContent = '（金額のみ）'; un.classList.add('muted'); }
     return Number(f('amount').value || 0); };
   // 伝票No.：P＋処理年度4桁＋5桁連番＋行番号2桁の枝番（例 P202600001-01）。サーバの purchaseNo と同じ
