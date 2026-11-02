@@ -220,7 +220,7 @@ const SUBMENUS = {
   // 入金予定一覧は 2026-10-27 削除 → 2026-11-01 復元（確認事項 P の回答③：入金予定一覧で予定日を過ぎた未入金を確認する）
   // 入金一覧・入金予定チェックリストは 2026-10-27 非表示（10/27 打合せ：消込の結果は入金消込の一覧で確認、入金予定チェックリストは不要。画面・API は残す）
   // 入金消込は 2026-11-01 非表示（ユーザー指示。現行入金処理で入金する。画面・API は残す）
-  receipts: [{ k: 'targets', l: '入金消込', q: { tab: 'targets' }, hidden: true }, { k: 'legacy', l: '現行入金処理', q: { tab: 'legacy' }, tools: false }, { k: 'plan', l: '入金予定一覧', q: { tab: 'plan' } }, { k: 'list', l: '入金一覧', tools: true, hidden: true }, { k: 'schedule', l: '入金予定チェックリスト', hidden: true }],
+  receipts: [{ k: 'targets', l: '入金消込', q: { tab: 'targets' }, hidden: true }, { k: 'legacy', l: '入金処理', q: { tab: 'legacy' }, tools: false }, { k: 'plan', l: '入金予定一覧', q: { tab: 'plan' } }, { k: 'list', l: '入金一覧', tools: true, hidden: true }, { k: 'schedule', l: '入金予定チェックリスト', hidden: true }],
   // 10/21 打合せの処理順（実在庫登録 → 配合計算 → 材料受払表 → 在庫計上）に並べる
   inventory: [{ k: 'count', l: '実在庫登録', tools: false }, { k: 'reports', l: '在庫登録リスト・配合計算・材料受払表' }, { k: 'post', l: '在庫計上', tools: false }, { k: 'list', l: '在庫一覧', tools: true }],
   purchases: [{ k: 'list', l: '商品仕入一覧・登録' }, { k: 'reports', l: '商品仕入登録リスト' }], // 2026-10-29 帳票を小メニューに分けた
@@ -1185,6 +1185,7 @@ const lrUsed = () => lr.lines.filter(l => l.acc);
 const lrSum = () => lrUsed().reduce((n, l) => n + (lrNum(l.amount) || 0), 0);
 const lrNameOf = code => masters.customers.find(c => c.code === code)?.name || '';
 const lrName = () => lrNameOf(lr.customer);
+// ボタンは名称だけ表示（F キーの表示は 2026-11-02 に外した。キー操作は残す）。画面名は「入金処理」（2026-11-02。旧「現行入金処理」）
 const lrKeys = keys => `<div class="lr-keys">${keys.map(([act, label, primary]) => `<button type="button" class="${primary ? 'primary' : ''}" data-act="${act}">${esc(label)}</button>`).join('')}</div>`;
 function lrStep1() {
   // 入金日・得意先（コード＋名称）は1行に並べる。「実行」で次画面（借方）の内容をこの下に出す。最初の画面にはファンクションキーのボタンを置かない（2026-10-31）
@@ -1215,7 +1216,7 @@ const lrTotals = () => { const used = lrUsed(), fund = used.filter(l => ['bank',
 function lrStep2() {
   return `<div class="table-wrap lr-detail"><table class="lr-grid"><thead><tr><th>行</th><th>部門</th><th>科目</th><th>内訳1</th><th>内訳2</th><th>工種</th><th class="num">入金額</th><th>処税率</th><th class="num">消費税額</th></tr></thead>${lr.lines.map(lrLine).join('')}</table></div>
     <p>${lr.lines.length < LR_MAX_LINES ? '<button type="button" class="mini" data-act="lrAddLine">＋ 行追加</button>' : ''}</p><div id="lr-totals">${lrTotals()}</div>
-    ${lrKeys([['lrNext', 'F10 次画面', 1], ['lrNext', 'F2 貸方'], ['lrBack', 'F12 前画面'], ['lrEnd', 'F3 終了']])}`;
+    ${lrKeys([['lrNext', '次画面', 1], ['lrNext', '貸方'], ['lrBack', '前画面'], ['lrEnd', '終了']])}`;
 }
 // 今回入金額は表示のみ（2026-10-31 ユーザー指示：現場別の入力を決めるまで）。入金額を表示中の請求へ請求No の古い順に配分する（入金消込の自動配分と同じ）
 const lrShown = () => lr.invoices.filter(r => (!lr.from || r.closing >= lr.from) && (!lr.to || r.closing <= lr.to)).sort((a, b) => a.id - b.id);
@@ -1237,7 +1238,7 @@ function lrStep3() {
     <div class="table-wrap"><table class="lr-pay"><thead><tr><th>請求先</th><th>請求日</th><th>請求No</th><th>予定日</th><th class="num">入金予定額</th><th class="num">今回入金額</th></tr></thead>
       <tbody id="lr-rows">${lrRows()}</tbody>
       <tfoot><tr id="lr-foot">${lrPayFoot()}</tr></tfoot></table></div>
-    ${canWrite() ? '' : '<p class="check-ng small">この利用者は登録できません</p>'}${lrKeys([...(canWrite() ? [['lrNext', 'F10 登録', 1]] : []), ['lrBack', 'F12 前画面'], ['lrEnd', 'F3 終了']])}</div>`;
+    ${canWrite() ? '' : '<p class="check-ng small">この利用者は登録できません</p>'}${lrKeys([...(canWrite() ? [['lrNext', '登録', 1]] : []), ['lrBack', '前画面'], ['lrEnd', '終了']])}</div>`;
 }
 const lrDraw = () => { const b = $('#lr-body'); if (!b) return; b.innerHTML = lrStep1(); };
 function lrCheckLines() {
@@ -1300,7 +1301,7 @@ function legacyReceiptView() {
   const A = actions;
   A.lrNext = () => lrRun(lrNext); A.lrSearch = () => lrRun(() => { lr.step = 1; return lrNext(); }); A.lrBack = lrBack; A.lrEnd = lrEnd; A.lrFind = lrFind;
   A.lrAddLine = () => { if (lr.lines.length < LR_MAX_LINES) { lr.lines.push(lrBlank()); lrDraw(); } };
-  return page('現行入金処理', '', '', `<section class="card glass lr" id="lr-body">${lrStep1()}</section>`);
+  return page('入金処理', '', '', `<section class="card glass lr" id="lr-body">${lrStep1()}</section>`);
 }
 document.addEventListener('input', e => {
   const t = e.target; if (!t.closest?.('#lr-body')) return;
