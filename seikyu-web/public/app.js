@@ -1435,10 +1435,10 @@ VIEWS.inventory = async q => {
   const ro = cnt.posted || !canWrite(), qtyOf = v => (v === null || v === undefined ? '' : String(v));
   const countCard = `<section class="card glass" data-sub="count"><div class="card-head"><h2>実在庫登録</h2></div>
     <div class="filters"><label class="field">調査日<input type="date" id="ic-date" name="date" data-filter value="${esc(cnt.date)}"></label><span>月度 <b>${esc(cnt.month)}</b></span>${cnt.posted ? badge('在庫計上済', 'green') : badge(`登録 ${cnt.registered}品目`, cnt.registered ? '' : 'gray')}
-      <input id="ic-search" placeholder="コード・名称で絞込" style="width:200px"><label class="small"><input type="checkbox" id="ic-only"> 入力済みのみ</label>${!canWrite() ? '' : cnt.posted ? '<button class="primary" disabled title="この月度は在庫計上済みです。「在庫計上」で取消すと登録できます">登録</button><span class="muted small">（在庫計上済みのため登録できません）</span>' : '<button class="primary" data-act="countSave">登録</button>'}</div>
+      <label class="field">区分<select id="ic-kind"><option value="">すべて</option><option>製品</option><option>商品・材料</option></select></label><input id="ic-search" placeholder="コード・名称で絞込" style="width:200px"><label class="small"><input type="checkbox" id="ic-only"> 入力済みのみ</label>${!canWrite() ? '' : cnt.posted ? '<button class="primary" disabled title="この月度は在庫計上済みです。「在庫計上」で取消すと登録できます">登録</button><span class="muted small">（在庫計上済みのため登録できません）</span>' : '<button class="primary" data-act="countSave">登録</button>'}</div>
     ${cnt.posted ? '<p class="note small">この月度は在庫計上済みのため変更できません（入力欄はロック）。修正するときは <a href="#inventory/post">在庫計上</a> で在庫計上を取消してください。未計上の月度は上の「調査日」を変えて［検索］すると入力できます。</p>' : '<p class="note small">① ここで品目ごとの在庫数量を入力して［登録］ → ② <a href="#inventory/mix">配合計算</a>・<a href="#inventory/ledger">材料受払表</a> → ③ <a href="#inventory/post">在庫計上</a> で［在庫計上］（月度ごとに1回）。</p>'}
     <div class="table-wrap" style="max-height:60vh;overflow:auto"><table id="ic-grid"><thead><tr><th>区分</th><th>コード</th><th>商品名／製品名</th><th class="num">在庫数量</th><th>単位</th><th style="width:40%"></th></tr></thead><tbody>
-    ${cnt.items.map(r => `<tr data-text="${esc((r.code + ' ' + r.name).toLowerCase())}"><td class="small muted">${esc(r.kind)}</td><td>${esc(r.code)}</td><td>${esc(r.name)}</td><td class="num"><input class="num ic-qty" data-item="${esc(r.code)}" data-orig="${esc(qtyOf(r.quantity))}" value="${esc(qtyOf(r.quantity))}" inputmode="decimal" style="width:130px" ${ro ? 'disabled' : ''}></td><td>${esc(r.unit)}</td><td></td></tr>`).join('')}
+    ${cnt.items.map(r => `<tr data-text="${esc((r.code + ' ' + r.name).toLowerCase())}" data-kind="${esc(r.kind)}"><td class="small muted">${esc(r.kind)}</td><td>${esc(r.code)}</td><td>${esc(r.name)}</td><td class="num"><input class="num ic-qty" data-item="${esc(r.code)}" data-orig="${esc(qtyOf(r.quantity))}" value="${esc(qtyOf(r.quantity))}" inputmode="decimal" style="width:130px" ${ro ? 'disabled' : ''}></td><td>${esc(r.unit)}</td><td></td></tr>`).join('')}
     </tbody></table></div>
     <div class="filters" style="margin-top:10px"><span class="muted small">空欄は未登録。登録済みの数量を消して登録すると、その品目の実在庫を取り消します。数量は小数2桁まで。</span></div></section>`;
   const postCard = `<section class="card glass" data-sub="post"><div class="card-head"><h2>在庫計上（月次1回）</h2></div>
@@ -1449,10 +1449,10 @@ VIEWS.inventory = async q => {
       { label: '評価単価', num: 1, value: r => (r.status === 'POSTED' ? yen(r.price) : '') }, { label: '評価額', num: 1, value: r => (r.status === 'POSTED' ? yen(r.value) : '') }, { label: '状態', html: r => (r.status === 'POSTED' ? badge('計上済', 'green') : badge('未計上', 'gray')) }], list, { empty: 'この条件の在庫はありません' })}</section>
     <div data-sub="register">${miscCard('在庫登録リスト', '実在庫登録のチェックリスト。画面で確認しにくいため一覧・Excel で確認', `<label class="field">月度<input type="month" id="ir-month" value="${esc(cnt.month)}"></label>`, '<button data-act="misc" data-kind="inventory-register" data-src="ir">⇩ Excel</button>')}</div><div data-sub="ledger">${ledgerCard()}</div>`);
 };
-// 実在庫登録の絞込（コード・名称、入力済みのみ）
+// 実在庫登録の絞込（区分・コード・名称、入力済みのみ）。区分は 2026-11-03 追加（製品が先に並び、商品・材料は下までスクロールしないと見えないため）
 document.addEventListener('input', e => { if (e.target.id === 'ic-search') icFilter(); });
-document.addEventListener('change', e => { if (e.target.id === 'ic-only') icFilter(); });
-function icFilter() { const t = ($('#ic-search')?.value || '').trim().toLowerCase(), only = $('#ic-only')?.checked; $$('#ic-grid tbody tr').forEach(tr => { const v = tr.querySelector('.ic-qty')?.value.trim(); tr.hidden = (t && !tr.dataset.text.includes(t)) || (only && !v); }); }
+document.addEventListener('change', e => { if (e.target.id === 'ic-only' || e.target.id === 'ic-kind') icFilter(); });
+function icFilter() { const t = ($('#ic-search')?.value || '').trim().toLowerCase(), only = $('#ic-only')?.checked, kind = $('#ic-kind')?.value; $$('#ic-grid tbody tr').forEach(tr => { const v = tr.querySelector('.ic-qty')?.value.trim(); tr.hidden = (t && !tr.dataset.text.includes(t)) || (only && !v) || (kind && tr.dataset.kind !== kind); }); }
 
 // 当月度の締切日（20日締め：21日以降は翌月20日）
 // 業者マスタの支払繰延区分（「1 15」＝翌月15日、「3 31」＝3か月後の月末）と支払予定日。サーバの vendorDue と同じ計算
