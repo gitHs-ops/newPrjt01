@@ -1772,7 +1772,6 @@ function miscParams(kind, src) {
 }
 async function miscReport(kind, src) {
   const params = miscParams(kind, src), url = `/api/reports/misc/${kind}?${qs(params)}`, d = await api(url);
-  const pct = m => `${esc(m.name)}<br><span class="small">${m.ratio}%</span>`;
   let body = '';
   if (kind === 'shipment-summary') body = table([{ label: '商品', value: r => `${r.item} ${r.name}` }, { label: '件数', num: 1, value: r => r.count }, { label: '出荷数量', num: 1, value: r => `${r.qty} ${r.unit}` }, { label: '売上金額', num: 1, value: r => yen(r.net) }, { label: '消費税', num: 1, value: r => yen(r.tax) },
     { label: '掛売', num: 1, value: r => yen(r.credit) }, { label: '現金', num: 1, value: r => yen(r.cash) }, { label: 'カード', num: 1, value: r => yen(r.card) }], d.items, { empty: '期間内の出荷はありません', foot: ['合計', d.totals.count, '', yen(d.totals.net), yen(d.totals.tax), yen(d.totals.credit), yen(d.totals.cash), yen(d.totals.card)] });
@@ -1787,18 +1786,21 @@ async function miscReport(kind, src) {
   if (kind === 'jv-expenses') {
     // 見出しは現行の出資金請求明細表と同じ（税率・支払金額・支払額本体・支払消費税・構成員名／出資金額。2026-11-02）
     const detail = d.layout === 'detail', mcols = d.members.map(m => `<th class="num">${esc(m.name)}<br>出資金額</th>`).join(''), money = v => `<td class="num">${yen(v)}</td>`;
+    const m3 = x => x.parts.map((v, k) => money(v) + money(x.netParts[k]) + money(x.taxParts[k])).join(''); // 合計表：出資金額・出資本体・出資消費税
     body = `` + (!d.accounts.length ? '<div class="empty">この締切日の月度の定時請求はありません</div>' : d.days.map(day => `<h3 style="margin:12px 0 4px">支払日 ${esc(day.due)}</h3><div class="table-wrap"><table><thead><tr>`
-      + (detail ? `<th>科目</th><th>伝票No</th><th>支払先</th><th>摘要</th><th>税率</th>` : `<th>科目</th><th class="num">件数</th>`) + `<th class="num">支払金額</th><th class="num">支払額本体</th><th class="num">支払消費税</th>${mcols}</tr></thead><tbody>`
+      + (detail ? `<th>科目</th><th>伝票No</th><th>支払先</th><th>摘要</th><th>税率</th><th class="num">支払金額</th><th class="num">支払額本体</th><th class="num">支払消費税</th>${mcols}`
+        : `<th rowspan="2">科目名</th><th class="num" rowspan="2">支払金額</th><th class="num" rowspan="2">支払本体</th><th class="num" rowspan="2">支払消費税</th>${d.members.map(m => `<th colspan="3" style="text-align:center">${esc(m.name)}</th>`).join('')}</tr><tr>${d.members.map(() => '<th class="num">出資金額</th><th class="num">出資本体</th><th class="num">出資消費税</th>').join('')}`) + `</tr></thead><tbody>`
       + d.accounts.filter(a => a.due === day.due).map(a => detail
         ? a.rows.map((r, k) => `<tr><td>${k ? '' : esc(`${a.account} ${a.name}`)}</td><td>${esc(r.no)}</td><td>${esc(r.vendor)}</td><td>${esc(r.memo)}</td><td>${esc(r.taxCode)}</td>${money(r.gross)}${money(r.net)}${money(r.tax)}${r.parts.map(money).join('')}</tr>`).join('')
           + `<tr class="subtotal"><td colspan="5" class="right">＊科目計＊</td>${money(a.gross)}${money(a.net)}${money(a.tax)}${a.parts.map(money).join('')}</tr>`
-        : `<tr><td>${esc(`${a.account} ${a.name}`)}</td><td class="num">${a.count}</td>${money(a.gross)}${money(a.net)}${money(a.tax)}${a.parts.map(money).join('')}</tr>`).join('')
-      + `</tbody><tfoot><tr><td colspan="${detail ? 5 : 2}">支払日計</td>${money(day.gross)}<td></td><td></td>${day.parts.map(money).join('')}</tr></tfoot></table></div>`).join('')
+        : `<tr><td>${esc(a.name)}</td>${money(a.gross)}${money(a.net)}${money(a.tax)}${m3(a)}</tr>`).join('')
+      + `</tbody><tfoot><tr>${detail ? `<td colspan="5">支払日計</td>${money(day.gross)}<td></td><td></td>${day.parts.map(money).join('')}` : `<td>支払日計</td>${money(day.gross)}${money(day.net)}${money(day.tax)}${m3(day)}`}</tr></tfoot></table></div>`).join('')
       + `<p class="right"><b>合計 ${yen(d.totals.gross)} 円</b>（${d.members.map((m, k) => `${esc(m.name)} ${yen(d.totals.parts[k])}`).join(' ／ ')}）</p>`);
   }
-  if (kind === 'jv-receipts') body = `` + (!d.lines.length ? '<div class="empty">この締切日の月度の入金・現金売上はありません</div>' : `<div class="table-wrap"><table><thead><tr><th>入金日</th><th>入金科目</th><th>摘要</th><th>入金先</th><th class="num">入金額</th>${d.members.map(m => `<th class="num">${pct(m)}</th>`).join('')}</tr></thead><tbody>`
-    + d.lines.map(l => `<tr><td>${esc(l.date)}</td><td>${esc(l.account)}</td><td>${esc(l.memo)}</td><td>${esc(l.customer)}</td><td class="num">${yen(l.amount)}</td>${l.parts.map(v => `<td class="num">${yen(v)}</td>`).join('')}</tr>`).join('')
-    + `</tbody><tfoot><tr><td colspan="4">合計</td><td class="num">${yen(d.totals.amount)}</td>${d.totals.parts.map(v => `<td class="num">${yen(v)}</td>`).join('')}</tr></tfoot></table></div>`);
+  // 入金明細及び配分表：現行 HJR031 の見出し（入金日・入金科目・入金先・入金額・構成員名／配分額。入金科目は科目＋摘要。2026-11-02）
+  if (kind === 'jv-receipts') body = `` + (!d.lines.length ? '<div class="empty">この締切日の月度の入金・現金売上はありません</div>' : `<div class="table-wrap"><table><thead><tr><th>入金日</th><th>入金科目</th><th>入金先</th><th class="num">入金額</th>${d.members.map(m => `<th class="num">${esc(m.name)}<br>配分額</th>`).join('')}</tr></thead><tbody>`
+    + d.lines.map(l => `<tr><td>${esc(l.date)}</td><td>${esc(`${l.account}　${l.memo || ''}`.trim())}</td><td>${esc(l.customer)}</td><td class="num">${yen(l.amount)}</td>${l.parts.map(v => `<td class="num">${yen(v)}</td>`).join('')}</tr>`).join('')
+    + `</tbody><tfoot><tr><td colspan="3">合計</td><td class="num">${yen(d.totals.amount)}</td>${d.totals.parts.map(v => `<td class="num">${yen(v)}</td>`).join('')}</tr></tfoot></table></div>`);
   if (kind === 'sales-register') body = d.customers.length ? d.customers.map(cu => `<h3 style="margin:10px 0 4px">${esc(cu.customer)} ${esc(cu.name)}</h3>` + table([{ label: '売上日', value: r => r.date }, { label: '区分', value: r => r.kind }, { label: '伝票No', value: r => r.no }, { label: '現場', value: r => r.site }, { label: '商品', value: r => r.item },
     { label: '数量', num: 1, value: r => `${r.qty} ${r.unit}` }, { label: '単価', num: 1, value: r => yen(r.price) }, { label: '金額', num: 1, value: r => yen(r.net) }, { label: '消費税', num: 1, value: r => yen(r.tax) }, { label: '請求', value: r => r.billed }], cu.rows, { foot: ['得意先計', '', '', '', '', '', '', yen(cu.net), yen(cu.tax), ''] })).join('') + `<p class="right"><b>総合計 ${yen(d.total)} 円（税 ${yen(d.tax)}）</b></p>` : '<div class="empty">期間内の売上はありません</div>';
   if (kind === 'payable-input') body = `<p class="small">部門 ${esc(d.dept)} ／ 区分 ${d.kb ? '1 組織' : 'ブランク 工事'} ／ 業者 ${esc(d.vendor)}</p>` + (d.depts.length ? d.depts.map(dp => `<h3 style="margin:10px 0 4px">${esc(d.groupLabel)} : ${esc(dp.dept)} ${esc(dp.name)}</h3>` + dp.vendors.map(v => `<p class="small"><b>${esc(v.vendor)} ${esc(v.name)}</b></p>` + table([{ label: '請求No', value: r => r.no }, { label: '計上日', value: r => r.date }, { label: '科目', value: r => `${r.account}${r.sub ? '-' + r.sub : ''} ${r.accountName}${r.subName ? ' ' + r.subName : ''}` },

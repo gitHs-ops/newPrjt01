@@ -181,15 +181,19 @@ export async function jvExpenses(c, q) {
   for (const l of ls) {
     const due = String(l.due_on || l.booked_on).slice(0, 10);
     let a = accounts.find(x => x.due === due && x.account === l.account_code);
-    if (!a) accounts.push(a = { due, account: l.account_code, name: l.account_name || '', rows: [], count: 0, gross: 0, net: 0, tax: 0, parts: zero() });
+    if (!a) accounts.push(a = { due, account: l.account_code, name: l.account_name || '', rows: [], count: 0, gross: 0, net: 0, tax: 0, parts: zero(), taxParts: zero() });
     const gross = num(l.gross_amount), tax = num(l.tax_amount), parts = allocate(gross, ms);
+    allocate(tax, ms).forEach((v, k) => (a.taxParts[k] += v)); // 出資消費税＝明細ごとの消費税の按分の合計（推定）
     if (!summary) a.rows.push({ date: due, no: l.document_no, vendor: l.vendor_name, memo: l.line_memo || l.memo, taxCode: l.source_tax_code, gross, net: gross - tax, tax, parts });
     a.count++; a.gross += gross; a.net += gross - tax; a.tax += tax; parts.forEach((v, k) => (a.parts[k] += v));
   }
   // 合計表は科目ごとの合計額を按分（明細ごとの按分の合計とは端数がずれることがある）
   if (summary) for (const a of accounts) a.parts = allocate(a.gross, ms);
-  const days = [...new Set(accounts.map(a => a.due))].map(due => { const as = accounts.filter(a => a.due === due); return { due, gross: as.reduce((n, a) => n + a.gross, 0), parts: ms.map((_, k) => as.reduce((n, a) => n + a.parts[k], 0)) }; });
-  const totals = { gross: accounts.reduce((n, a) => n + a.gross, 0), net: accounts.reduce((n, a) => n + a.net, 0), tax: accounts.reduce((n, a) => n + a.tax, 0), parts: ms.map((_, k) => accounts.reduce((n, a) => n + a.parts[k], 0)) };
+  // 出資本体＝出資金額−出資消費税（現行の合計表の見出し：出資金額・出資本体・出資消費税。2026-11-02）
+  for (const a of accounts) a.netParts = a.parts.map((v, k) => v - a.taxParts[k]);
+  const add = (as, f) => ms.map((_, k) => as.reduce((n, a) => n + a[f][k], 0)), tot = (as, f) => as.reduce((n, a) => n + a[f], 0);
+  const days = [...new Set(accounts.map(a => a.due))].map(due => { const as = accounts.filter(a => a.due === due); return { due, gross: tot(as, 'gross'), net: tot(as, 'net'), tax: tot(as, 'tax'), parts: add(as, 'parts'), netParts: add(as, 'netParts'), taxParts: add(as, 'taxParts') }; });
+  const totals = { gross: tot(accounts, 'gross'), net: tot(accounts, 'net'), tax: tot(accounts, 'tax'), parts: add(accounts, 'parts'), netParts: add(accounts, 'netParts'), taxParts: add(accounts, 'taxParts') };
   return { title: summary ? '出資金請求合計表（定時請求分）' : '出資金請求明細表（定時請求分）', ref: 'NO35 / 添付帳票⑫', layout: summary ? 'summary' : 'detail', closing, from, to, members: ms, accounts, days, totals,
     note: `締切日 ${closing || to} の月度（${from}〜${to}）の定時請求を、支払日ごと・科目ごとに${summary ? '集計して' : '明細行単位で'}${month} 月度の出資比率で按分。各社切捨て、端数は第1構成員。端数調整の入力（現行の「データの読込 0/1」）は要検討。` };
 }
@@ -297,10 +301,24 @@ export async function miscBook(c, kind, q) {
   }
   if (kind === 'jv-expenses' || kind === 'jv-receipts') {
     const d = kind === 'jv-expenses' ? await jvExpenses(c, q) : await jvReceipts(c, q), out = head(d, `期間 ${d.from} 〜 ${d.to}`);
-    const names = d.members.map(m => `${m.name}（${m.ratio}%）`);
     if (kind === 'jv-expenses') {
       // 見出しは現行の出資金請求明細表と同じ：税率・支払金額・支払額本体・支払消費税、構成員は2段（構成員名／出資金額）（2026-11-02）
-      const detail = d.layout === 'detail', pre = detail ? ['支払日', '伝票No', '科目', '支払先', '摘要', '税率'] : ['支払日', '科目', '件数', '', '', ''];
+      const detail = d.layout === 'detail';
+      if (!detail) {
+        // 合計表：現行 HJR011 の見出し（支払日・科目名・支払金額・支払本体・支払消費税、構成員ごとに「** 構成員名 **」の下に出資金額・出資本体・出資消費税。2026-11-02）
+        const m3 = (p, n, t) => p.flatMap((v, k) => [v, n[k], t[k]]), r0 = out.length;
+        out.push(['', '', '', '', '', ...d.members.flatMap(m => [`**　${m.name}　**`, '', ''])].map(H));
+        out.push(['支払日', '科目名', '支払金額', '支払本体', '支払消費税', ...d.members.flatMap(() => ['出資金額', '出資本体', '出資消費税'])].map(H));
+        for (const day of d.days) {
+          for (const a of d.accounts.filter(x => x.due === day.due)) out.push([a.due, a.name, a.gross, a.net, a.tax, ...m3(a.parts, a.netParts, a.taxParts)]);
+          out.push([S(`${day.due} 支払日計`), '', S(day.gross), S(day.net), S(day.tax), ...m3(day.parts, day.netParts, day.taxParts).map(S)]);
+        }
+        out.push([S('合計'), '', S(d.totals.gross), S(d.totals.net), S(d.totals.tax), ...m3(d.totals.parts, d.totals.netParts, d.totals.taxParts).map(S)]);
+        const col = i => { let n = i + 1, t = ''; while (n) { t = String.fromCharCode(65 + (n - 1) % 26) + t; n = Math.floor((n - 1) / 26); } return t; };
+        const merges = d.members.map((_, k) => `${col(5 + k * 3)}${r0 + 1}:${col(7 + k * 3)}${r0 + 1}`);
+        return { name: `${d.title}_${d.from}_${d.to}.xlsx`, body: xlsx([{ name: d.title.slice(0, 28), rows: out, merges, widths: [11, 18, 13, 13, 12, ...d.members.flatMap(() => [13, 13, 12])] }]) };
+      }
+      const pre = ['支払日', '伝票No', '科目', '支払先', '摘要', '税率'];
       out.push([...pre.map(() => ''), '', '', '', ...d.members.map(m => m.name)].map(H));
       out.push([...pre, '支払金額', '支払額本体', '支払消費税', ...d.members.map(() => '出資金額')].map(H));
       for (const day of d.days) {
@@ -312,9 +330,11 @@ export async function miscBook(c, kind, q) {
       }
       out.push(['', '', S('合計'), '', '', '', S(d.totals.gross), S(d.totals.net), S(d.totals.tax), ...d.totals.parts.map(S)]);
     } else {
-      out.push(['入金日', '入金No', '入金科目', '摘要', '入金先', '入金額', ...names].map(H));
-      for (const l of d.lines) out.push([l.date, l.no, l.account, l.memo, l.customer, l.amount, ...l.parts]);
-      out.push(['', '', S('合計'), '', '', S(d.totals.amount), ...d.totals.parts.map(S)]);
+      // 現行 HJR031 の見出し：入金日・入金科目・入金先・入金額、構成員は2段（構成員名／配分額）。入金科目は科目＋摘要（2026-11-02）
+      out.push(['', '', '', '', ...d.members.map(m => m.name)].map(H));
+      out.push(['入金日', '入金科目', '入金先', '入金額', ...d.members.map(() => '配分額')].map(H));
+      for (const l of d.lines) out.push([l.date, `${l.account}　${l.memo || ''}`.trim(), l.customer, l.amount, ...l.parts]);
+      out.push(['', S('合計'), '', S(d.totals.amount), ...d.totals.parts.map(S)]);
     }
     return { name: `${d.title}_${d.from}_${d.to}.xlsx`, body: xlsx([{ name: d.title.slice(0, 28), rows: out, widths: [11, 12, 18, 22, 20, 12, 12, 12, 12, 16, 16, 16, 16] }]) };
   }
