@@ -20,6 +20,21 @@
       "root": "#content section.master-list table",
       "mode": "linegrid"
      }
+    },
+    {
+     "shot": {
+      "name": "SC-MST-10_一覧",
+      "viewport": [
+       1440,
+       900
+      ],
+      "clip": [
+       266,
+       0,
+       1174,
+       470
+      ]
+     }
     }
    ]
   },
@@ -38,6 +53,22 @@
       "area": "〔入力フォーム（JV構成員・出資比率の新規登録・編集モーダル）〕",
       "root": "dialog[open] .form-grid",
       "mode": "fields"
+     }
+    },
+    {
+     "escape": true
+    },
+    {
+     "click": "#content button[data-act=edit][data-key=\"JV01|2026-11\"]"
+    },
+    {
+     "shot": {
+      "name": "SC-MST-10_編集",
+      "viewport": [
+       1440,
+       900
+      ],
+      "el": "dialog[open]"
      }
     },
     {

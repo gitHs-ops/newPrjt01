@@ -259,7 +259,10 @@ export const MASTERS = {
       return { code: text(r.code, '構成員コード', 12, { pattern: CODE }), start, name: text(r.name, '構成員名', 40, { required: false }), ratio: Number(t), seq: yen(r.seq || 0, '表示順', { max: 9999 }), active };
     },
     async write(c, r, old) {
-      if (!old) { const v = await one(c, 'SELECT vendor_name FROM vendor WHERE vendor_code=?', [r.code]); check(v, '構成員は業者マスタに登録された業者を選択してください'); r.name ||= v.vendor_name.slice(0, 40); }
+      // 登録済みの構成員に月度の行を足すときは業者マスタを見ず、構成員名の既定は直近の行の名前
+      const prev = old ? null : await one(c, 'SELECT name FROM app_jv_member WHERE code=? ORDER BY start_month DESC LIMIT 1', [r.code]);
+      if (!old && prev) r.name ||= prev.name;
+      else if (!old) { const v = await one(c, 'SELECT vendor_name FROM vendor WHERE vendor_code=?', [r.code]); check(v, '構成員は業者マスタに登録された業者を選択してください'); r.name ||= v.vendor_name.slice(0, 40); }
       check(r.name, '構成員名を入力してください');
       if (!old) await c.query('INSERT INTO app_jv_member (code,start_month,name,ratio,seq,active) VALUES (?,?,?,?,?,?)', [r.code, r.start, r.name, Math.round(r.ratio * 100), r.seq, r.active]);
       else await c.query('UPDATE app_jv_member SET name=?,ratio=?,seq=?,active=? WHERE code=? AND start_month=?', [r.name, Math.round(r.ratio * 100), r.seq, r.active, r.code, r.start]);
