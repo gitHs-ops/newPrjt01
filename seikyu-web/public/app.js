@@ -1647,8 +1647,8 @@ function paymentReportsCard() {
   const lastDay = new Date(Date.UTC(+thisMonth().slice(0, 4), +thisMonth().slice(5, 7), 0)).toISOString().slice(0, 10);
   return `<section class="card glass"><div class="card-head"><h2>支払帳票・支払データ</h2></div>
     <div class="filters"><label class="field">支払日／基準日<input type="date" id="pr-date" value="${today()}"></label><label class="field">期間（開始）<input type="date" id="pr-from" value="${thisMonth()}-01"></label><label class="field">期間（終了）<input type="date" id="pr-to" value="${lastDay}"></label>
-      <label class="field">振込元口座<select id="pr-bank">${options(active('banks'), active('banks')[0]?.code)}</select></label></div>
-    <div class="filters" style="margin-top:10px"><button data-act="zengin">支払データ作成（全銀）</button><button data-act="prep" data-kind="vendor-payments">業者別支払内訳表</button>
+      <label class="field">振込元口座<select id="pr-bank">${options(active('banks'), active('banks')[0]?.code)}</select></label>
+    <button data-act="zengin">支払データ作成（全銀）</button><button data-act="prep" data-kind="vendor-payments">業者別支払内訳表</button>
       <button data-act="prep" data-kind="transfer-request">振込依頼書</button><button data-act="prep" data-kind="carryover">支払繰越一覧表</button><button data-act="prep" data-kind="notices">支払案内書</button></div>
     </section>`;
 }
@@ -1692,8 +1692,9 @@ const rangeInputs = (id, label = '期間', from = `${thisMonth()}-01`, to = mont
 // 小口現金出納簿の期間の初期値：直近の締日の月度（前月21日〜当月20日）。毎月20日締め・翌月1〜3日に出力する運用（10/19・10/21 打合せ）に合わせる
 // （2026-10-29 に今日を含む月度へ変えたが、翌月1〜3日の出力で進行中の月度が出るため 2026-11-01 に戻した）
 const closingRange = () => { const to = lastClosing(), [y, m] = to.split('-').map(Number); return [new Date(Date.UTC(y, m - 2, 21)).toISOString().slice(0, 10), to]; };
+// ボタンは入力欄と同じ行に並べる（2026-11-02 ユーザー指示。2行目に分けない）
 function miscCard(title, sub, inputs, buttons, note = '') {
-  return `<section class="card glass"><div class="card-head"><h2>${title}</h2></div><div class="filters">${inputs}</div>${buttons ? `<div class="filters" style="margin-top:10px">${buttons}</div>` : ''}</section>`;
+  return `<section class="card glass"><div class="card-head"><h2>${title}</h2></div><div class="filters">${inputs}${buttons || ''}</div></section>`;
 }
 const shipmentReportsCard = () => miscCard('出荷・売上帳票', 'Excel で出力', rangeInputs('ms', '出荷日'),
   '<button data-act="misc" data-kind="shipment-summary" data-src="ms">商品・製品別出荷集計表</button><button data-act="misc" data-kind="customer-items" data-src="ms">得意先別商品別出荷累計表</button><button data-act="misc" data-kind="cash-sales" data-src="ms">現金売上明細表</button><button data-act="misc" data-kind="sales-register" data-src="ms">商品売上登録リスト</button>',
