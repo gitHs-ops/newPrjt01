@@ -5,22 +5,81 @@
    "name": "指示画面",
    "steps": [
     {
-     "go": "#inventory/reports"
+     "go": "#inventory/register"
     },
     {
      "extract": {
       "area": "〔出力条件（在庫登録リスト）〕",
-      "root": "#content div[data-sub=reports]:has(#ir-month)",
+      "root": "#content div[data-sub=register]",
       "mode": "controls",
       "buttons": true
      }
     },
     {
+     "shot": {
+      "name": "SC-STK-02_在庫登録リスト",
+      "viewport": [
+       1440,
+       900
+      ],
+      "clip": [
+       266,
+       70,
+       1174,
+       190
+      ]
+     }
+    },
+    {
+     "go": "#inventory/mix"
+    },
+    {
      "extract": {
-      "area": "〔出力条件（配合計算・材料受払表）〕",
-      "root": "#content div[data-sub=reports]:has(#mi-month)",
+      "area": "〔出力条件（配合計算）〕",
+      "root": "#content div[data-sub=mix]",
       "mode": "controls",
       "buttons": true
+     }
+    },
+    {
+     "shot": {
+      "name": "SC-STK-02_配合計算",
+      "viewport": [
+       1440,
+       900
+      ],
+      "clip": [
+       266,
+       70,
+       1174,
+       190
+      ]
+     }
+    },
+    {
+     "go": "#inventory/ledger"
+    },
+    {
+     "extract": {
+      "area": "〔出力条件（材料受払表）〕",
+      "root": "#content div[data-sub=ledger]",
+      "mode": "controls",
+      "buttons": true
+     }
+    },
+    {
+     "shot": {
+      "name": "SC-STK-02_材料受払表",
+      "viewport": [
+       1440,
+       900
+      ],
+      "clip": [
+       266,
+       70,
+       1174,
+       190
+      ]
      }
     }
    ]
@@ -30,7 +89,7 @@
    "name": "詳細画面（配合計算モーダル）",
    "steps": [
     {
-     "go": "#inventory/reports"
+     "go": "#inventory/mix"
     },
     {
      "click": "#content button[data-act=mix]"
