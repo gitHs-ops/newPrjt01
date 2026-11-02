@@ -246,6 +246,8 @@ export async function saveJvAllocations(c, ctx, p) {
 }
 
 // ---------- Excel ----------
+// 入金明細及び配分表の入金科目＝科目＋摘要（同じ文字なら1つだけ。例 当座預金　売掛金入金）
+const jvAccount = l => (l.memo && l.memo !== l.account ? `${l.account}　${l.memo}` : l.account);
 const head = (d, sub) => [[T(d.title)], [`${sub}　出力日 ${today()}`], []];
 export async function miscBook(c, kind, q) {
   if (kind === 'shipment-summary') {
@@ -333,8 +335,9 @@ export async function miscBook(c, kind, q) {
       // 現行 HJR031 の見出し：入金日・入金科目・入金先・入金額、構成員は2段（構成員名／配分額）。入金科目は科目＋摘要（2026-11-02）
       out.push(['', '', '', '', ...d.members.map(m => m.name)].map(H));
       out.push(['入金日', '入金科目', '入金先', '入金額', ...d.members.map(() => '配分額')].map(H));
-      for (const l of d.lines) out.push([l.date, `${l.account}　${l.memo || ''}`.trim(), l.customer, l.amount, ...l.parts]);
+      for (const l of d.lines) out.push([l.date, jvAccount(l), l.customer, l.amount, ...l.parts]);
       out.push(['', S('合計'), '', S(d.totals.amount), ...d.totals.parts.map(S)]);
+      return { name: `${d.title}_${d.from}_${d.to}.xlsx`, body: xlsx([{ name: d.title.slice(0, 28), rows: out, widths: [11, 26, 34, 13, ...d.members.map(() => 18)] }]) };
     }
     return { name: `${d.title}_${d.from}_${d.to}.xlsx`, body: xlsx([{ name: d.title.slice(0, 28), rows: out, widths: [11, 12, 18, 22, 20, 12, 12, 12, 12, 16, 16, 16, 16] }]) };
   }
