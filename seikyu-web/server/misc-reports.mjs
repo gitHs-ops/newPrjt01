@@ -67,20 +67,23 @@ export async function materialLedger(c, q) {
   const codes = new Set([...Object.keys(prev), ...Object.keys(end), ...Object.keys(open), ...Object.keys(pur)]);
   const kinds = await rows(c, "SELECT item_cd, item_nam, unit_name(unit) unit, item_product_kb FROM item_m WHERE item_product_kb='1'"); // 1=材料（現行 Java）
   kinds.forEach(k => codes.add(k.item_cd));
-  const names = Object.fromEntries((await rows(c, 'SELECT item_cd, item_nam, unit_name(unit) unit FROM item_m')).map(r => [r.item_cd, r]));
+  const names = Object.fromEntries((await rows(c, 'SELECT item_cd, item_nam, unit_name(unit) unit, tanka FROM item_m')).map(r => [r.item_cd, r]));
   const z = { qty: 0, value: 0 };
+  // 金額のない在庫（実在庫登録のみ・評価額 0）は商品マスタの単価で評価する（2026-11-02 ユーザー指摘：マスタ単価を入れても金額が出ない）
+  const tk = code => num(names[code]?.tanka) || null, valued = (o, code) => (o && !o.value && o.qty ? { ...o, value: Math.round(o.qty * (tk(code) || 0)) } : o);
   const items = [...codes].sort().map(code => {
-    const o = open[code] || z, p = prev[code] || z, b = pur[code] || z, e0 = end[code] || null;
-    // 10/21 打合せ：単価＝（前月末在庫金額＋当月仕入高金額）÷（前月末在庫数＋当月仕入数）。在庫計上前（実在庫登録のみ）の当月末金額はこの単価で評価
-    const avg = p.qty + b.qty > 0 ? r2((p.value + b.value) / (p.qty + b.qty)) : (e0?.price || null);
-    const e = e0 ? { ...e0, value: e0.posted ? e0.value : Math.round(e0.qty * (avg || 0)), price: e0.posted ? e0.price : avg } : null;
+    const o = valued(open[code], code) || z, p = valued(prev[code], code) || z, b = pur[code] || z, e0 = end[code] || null;
+    // 10/21 打合せ：単価＝（前月末在庫金額＋当月仕入高金額）÷（前月末在庫数＋当月仕入数）。在庫計上前（実在庫登録のみ）の当月末金額はこの単価で評価。金額がなければ商品マスタの単価
+    const avg = p.qty + b.qty > 0 && p.value + b.value > 0 ? r2((p.value + b.value) / (p.qty + b.qty)) : (e0?.price || tk(code));
+    const keep = e0?.posted && e0.value;
+    const e = e0 ? { ...e0, value: keep ? e0.value : Math.round(e0.qty * (avg || 0)), price: keep ? e0.price : avg } : null;
     const used = e ? { qty: r2(p.qty + b.qty - e.qty), value: p.value + b.value - e.value } : null;
     return { item: code, name: names[code]?.item_nam || code, unit: names[code]?.unit || '', opening: { qty: o.qty, value: o.value }, prev: { qty: p.qty, value: p.value }, purchase: b, used, end: e ? { qty: e.qty, value: e.value } : null, price: avg ?? null, posted: e ? !!e0.posted : null };
   });
   const t = (k, f) => items.reduce((n, x) => n + (x[k]?.[f] || 0), 0);
   const co2 = await one(c, 'SELECT company_name1, company_name2 FROM company_info_m ORDER BY company_info_id LIMIT 1');
   return { title: '材料受払表', ref: 'NO26 / 添付帳票⑧', month, period: cr, fiscalStart: fs, company: [co2?.company_name1, co2?.company_name2].filter(Boolean).join(' '), items, totals: { opening: t('opening', 'value'), prev: t('prev', 'value'), purchase: t('purchase', 'value'), used: t('used', 'value'), end: t('end', 'value'), openingQty: t('opening', 'qty'), prevQty: t('prev', 'qty'), purchaseQty: t('purchase', 'qty'), usedQty: t('used', 'qty'), endQty: t('end', 'qty') },
-    note: '仕入の集計期間は締日単位（既定20日締め、現行と同じ）。実在庫は月度ごとの登録値。当月使用高＝前月末在庫＋当月仕入−当月末在庫（実在庫未登録の月は空欄）。評価方法は確認待ち（Q07）。' };
+    note: '仕入の集計期間は締日単位（既定20日締め、現行と同じ）。実在庫は月度ごとの登録値。当月使用高＝前月末在庫＋当月仕入−当月末在庫（実在庫未登録の月は空欄）。金額のない在庫（評価額 0）は商品マスタの単価で評価。評価方法は確認待ち（Q07）。' };
 }
 
 // ---------- NO25 配合計算（暫定：配合マスタ×材料単価＋経費単価 → genka_m） ----------

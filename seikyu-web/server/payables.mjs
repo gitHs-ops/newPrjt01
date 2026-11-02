@@ -143,8 +143,10 @@ export async function postInventory(c, ctx, p) {
   for (const r of list) {
     const prior = await one(c, "SELECT quantity, valuation_price, valuation_amount FROM inventory_count WHERE item_cd=? AND location_code='MAIN' AND period_start<? AND status='POSTED' ORDER BY period_start DESC LIMIT 1", [r.item_cd, month + '-01']);
     const pur = await one(c, 'SELECT COALESCE(SUM(quantity),0) q, COALESCE(SUM(net_amount),0) v FROM purchase WHERE item_cd=? AND purchase_date BETWEEN ? AND ?', [r.item_cd, from, to]);
-    const pq = Number(prior?.quantity || 0) + Number(pur.q), pv = Number(prior?.valuation_amount || 0) + Number(pur.v);
-    const price = pq > 0 ? Math.round(pv / pq * 100) / 100 : Number(prior?.valuation_price || 0), value = Math.round(Number(r.quantity) * price); // 単価は小数2桁まで（移動平均）のため金額は円未満四捨五入
+    // 金額のない在庫（前月の評価額 0）は商品マスタの単価で評価する（2026-11-02 ユーザー指摘：マスタ単価を入れても金額が出ない）
+    const tanka = Number((await one(c, 'SELECT tanka FROM item_m WHERE item_cd=?', [r.item_cd]))?.tanka || 0);
+    const pq = Number(prior?.quantity || 0) + Number(pur.q), pv = (Number(prior?.valuation_amount || 0) || Math.round(Number(prior?.quantity || 0) * tanka)) + Number(pur.v);
+    const price = pq > 0 && pv > 0 ? Math.round(pv / pq * 100) / 100 : Number(prior?.valuation_price || 0) || tanka, value = Math.round(Number(r.quantity) * price); // 単価は小数2桁まで（移動平均）のため金額は円未満四捨五入
     await c.query("UPDATE inventory_count SET valuation_price=?, valuation_amount=?, status='POSTED', row_version=row_version+1 WHERE inventory_id=?", [price, value, r.inventory_id]);
     total += value;
   }

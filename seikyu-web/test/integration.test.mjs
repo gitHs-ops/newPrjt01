@@ -215,6 +215,15 @@ test('workflow against PostgreSQL business tables', { skip, timeout: 900000 }, a
       pus.forEach(ok); assert.deepEqual(pus.map(x => x.data.no).sort(), ['P203000001', 'P203000002', 'P203000003', 'P203000004']);
       const ml = (await a.call('/api/reports/misc/material-ledger?closing=31&month=' + d.slice(0, 7))).data.items.find(x => x.item === 'I' + tag);
       assert.equal(ml.purchase.qty, 10); assert.equal(ml.purchase.value, 10000);
+      // 金額のない在庫（実在庫登録のみ）は商品マスタの単価で評価（2026-11-02）
+      ok(await a.call('/api/masters/items', { mode: 'create', record: { code: 'M' + tag, name: '試験材料', unit: '01', price: 500, kind: '1', active: true } }));
+      const c1 = await a.call('/api/inventory/counts', { date: '2032-03-05', lines: [{ item: 'M' + tag, quantity: '120' }] }); ok(c1);
+      const c2 = await a.call('/api/inventory/counts', { date: '2032-04-05', lines: [{ item: 'M' + tag, quantity: '100' }] }); ok(c2);
+      const mm = async () => (await a.call('/api/reports/misc/material-ledger?month=' + c2.data.month)).data.items.find(x => x.item === 'M' + tag);
+      let mt = await mm(); assert.deepEqual([mt.prev.value, mt.end.value, mt.used.qty, mt.used.value, mt.price], [60000, 50000, 20, 10000, 500]);
+      ok(await a.call('/api/inventory/post', { month: c1.data.month }));
+      mt = await mm(); assert.deepEqual([mt.prev.value, mt.end.value, mt.price], [60000, 50000, 500]);
+      ok(await a.call('/api/inventory/unpost', { month: c1.data.month }));
       ok(await a.call('/api/masters/mixes', { mode: 'create', record: { product: 'G' + tag, material: 'I' + tag, ratio: '60', active: true } }));
       const mx = (await a.call('/api/reports/misc/mix?closing=31&month=' + d.slice(0, 7))).data.products.find(x => x.item === 'G' + tag);
       assert.equal(mx.haigo, 600);
