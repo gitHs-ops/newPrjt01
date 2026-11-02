@@ -1,0 +1,46 @@
+{
+ "views": [
+  {
+   "id": "SC-RPT-03",
+   "name": "一覧画面",
+   "steps": [
+    {
+     "go": "#reports/ap"
+    },
+    {
+     "extract": {
+      "area": "〔出力ボタン〕",
+      "root": "#content section.card[data-sub=ap] > .filters",
+      "mode": "controls",
+      "buttons": true
+     }
+    },
+    {
+     "search": true
+    },
+    {
+     "extract": {
+      "area": "〔一覧〕",
+      "root": "#content section.card[data-sub=ap] table",
+      "mode": "thead"
+     }
+    },
+    {
+     "shot": {
+      "name": "SC-RPT-03_未払残高一覧",
+      "viewport": [
+       1440,
+       900
+      ],
+      "clip": [
+       266,
+       70,
+       1174,
+       330
+      ]
+     }
+    }
+   ]
+  }
+ ]
+}
