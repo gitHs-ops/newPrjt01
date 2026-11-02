@@ -222,7 +222,8 @@ const SUBMENUS = {
   // 入金消込は 2026-11-01 非表示（ユーザー指示。現行入金処理で入金する。画面・API は残す）
   receipts: [{ k: 'targets', l: '入金消込', q: { tab: 'targets' }, hidden: true }, { k: 'legacy', l: '入金処理', q: { tab: 'legacy' }, tools: false }, { k: 'plan', l: '入金予定一覧', q: { tab: 'plan' } }, { k: 'list', l: '入金一覧', tools: true, hidden: true }, { k: 'schedule', l: '入金予定チェックリスト', hidden: true }],
   // 10/21 打合せの処理順（実在庫登録 → 配合計算 → 材料受払表 → 在庫計上）に並べる
-  inventory: [{ k: 'count', l: '実在庫登録', tools: false }, { k: 'reports', l: '在庫登録リスト・配合計算・材料受払表' }, { k: 'post', l: '在庫計上', tools: false }, { k: 'list', l: '在庫一覧', tools: true }],
+  // 在庫登録リスト・配合計算・材料受払表は 2026-11-02 にそれぞれ小メニューに分けた（ユーザー指示）
+  inventory: [{ k: 'count', l: '実在庫登録', tools: false }, { k: 'register', l: '在庫登録リスト' }, { k: 'mix', l: '配合計算' }, { k: 'ledger', l: '材料受払表' }, { k: 'post', l: '在庫計上', tools: false }, { k: 'list', l: '在庫一覧', tools: true }],
   purchases: [{ k: 'list', l: '商品仕入一覧・登録' }, { k: 'reports', l: '商品仕入登録リスト' }], // 2026-10-29 帳票を小メニューに分けた
   payables: [{ k: 'list', l: '定時請求一覧・入力' }, { k: 'reports', l: '定時請求入力明細表' }],
   cash: [{ k: 'list', l: '小口現金一覧・登録' }, { k: 'book', l: '出納簿・定額資金・現金補充' }],
@@ -1434,7 +1435,7 @@ VIEWS.inventory = async q => {
   const countCard = `<section class="card glass" data-sub="count"><div class="card-head"><h2>実在庫登録</h2></div>
     <div class="filters"><label class="field">調査日<input type="date" id="ic-date" name="date" data-filter value="${esc(cnt.date)}"></label><span>月度 <b>${esc(cnt.month)}</b></span>${cnt.posted ? badge('在庫計上済', 'green') : badge(`登録 ${cnt.registered}品目`, cnt.registered ? '' : 'gray')}
       <input id="ic-search" placeholder="コード・名称で絞込" style="width:200px"><label class="small"><input type="checkbox" id="ic-only"> 入力済みのみ</label>${!canWrite() ? '' : cnt.posted ? '<button class="primary" disabled title="この月度は在庫計上済みです。「在庫計上」で取消すと登録できます">登録</button><span class="muted small">（在庫計上済みのため登録できません）</span>' : '<button class="primary" data-act="countSave">登録</button>'}</div>
-    ${cnt.posted ? '<p class="note small">この月度は在庫計上済みのため変更できません（入力欄はロック）。修正するときは <a href="#inventory/post">在庫計上</a> で在庫計上を取消してください。未計上の月度は上の「調査日」を変えて［検索］すると入力できます。</p>' : '<p class="note small">① ここで品目ごとの在庫数量を入力して［登録］ → ② <a href="#inventory/reports">配合計算・材料受払表</a> → ③ <a href="#inventory/post">在庫計上</a> で［在庫計上］（月度ごとに1回）。</p>'}
+    ${cnt.posted ? '<p class="note small">この月度は在庫計上済みのため変更できません（入力欄はロック）。修正するときは <a href="#inventory/post">在庫計上</a> で在庫計上を取消してください。未計上の月度は上の「調査日」を変えて［検索］すると入力できます。</p>' : '<p class="note small">① ここで品目ごとの在庫数量を入力して［登録］ → ② <a href="#inventory/mix">配合計算</a>・<a href="#inventory/ledger">材料受払表</a> → ③ <a href="#inventory/post">在庫計上</a> で［在庫計上］（月度ごとに1回）。</p>'}
     <div class="table-wrap" style="max-height:60vh;overflow:auto"><table id="ic-grid"><thead><tr><th>区分</th><th>コード</th><th>商品名／製品名</th><th class="num">在庫数量</th><th>単位</th><th style="width:40%"></th></tr></thead><tbody>
     ${cnt.items.map(r => `<tr data-text="${esc((r.code + ' ' + r.name).toLowerCase())}"><td class="small muted">${esc(r.kind)}</td><td>${esc(r.code)}</td><td>${esc(r.name)}</td><td class="num"><input class="num ic-qty" data-item="${esc(r.code)}" data-orig="${esc(qtyOf(r.quantity))}" value="${esc(qtyOf(r.quantity))}" inputmode="decimal" style="width:130px" ${ro ? 'disabled' : ''}></td><td>${esc(r.unit)}</td><td></td></tr>`).join('')}
     </tbody></table></div>
@@ -1445,7 +1446,7 @@ VIEWS.inventory = async q => {
   return page('在庫', '実在庫登録 → 配合計算 → 材料受払表 → 在庫計上（月次1回）の順に処理します（10/21 打合せ）。', `${monthInput('month', q.month || thisMonth())}${csvLink('inventory', { month: q.month || thisMonth() })}`,
     `${countCard}${postCard}<section class="card glass" data-sub="list"><h2>在庫一覧</h2>${table([{ label: '月度', value: r => r.month }, { label: '調査日', value: r => String(r.countedOn || '').slice(0, 10) }, { label: '商品', value: r => `${r.item} ${r.itemName}` }, { label: '数量', num: 1, value: r => `${r.quantity} ${r.unit || ''}` },
       { label: '評価単価', num: 1, value: r => (r.status === 'POSTED' ? yen(r.price) : '') }, { label: '評価額', num: 1, value: r => (r.status === 'POSTED' ? yen(r.value) : '') }, { label: '状態', html: r => (r.status === 'POSTED' ? badge('計上済', 'green') : badge('未計上', 'gray')) }], list, { empty: 'この条件の在庫はありません' })}</section>
-    <div data-sub="reports">${miscCard('在庫登録リスト', '実在庫登録のチェックリスト。画面で確認しにくいため一覧・Excel で確認', `<label class="field">月度<input type="month" id="ir-month" value="${esc(cnt.month)}"></label>`, '<button data-act="misc" data-kind="inventory-register" data-src="ir">⇩ Excel</button>')}</div><div data-sub="reports">${inventoryReportsCard()}</div>`);
+    <div data-sub="register">${miscCard('在庫登録リスト', '実在庫登録のチェックリスト。画面で確認しにくいため一覧・Excel で確認', `<label class="field">月度<input type="month" id="ir-month" value="${esc(cnt.month)}"></label>`, '<button data-act="misc" data-kind="inventory-register" data-src="ir">⇩ Excel</button>')}</div><div data-sub="mix">${mixCard()}</div><div data-sub="ledger">${ledgerCard()}</div>`);
 };
 // 実在庫登録の絞込（コード・名称、入力済みのみ）
 document.addEventListener('input', e => { if (e.target.id === 'ic-search') icFilter(); });
@@ -1696,9 +1697,10 @@ function miscCard(title, sub, inputs, buttons, note = '') {
 const shipmentReportsCard = () => miscCard('出荷・売上帳票', 'Excel で出力', rangeInputs('ms', '出荷日'),
   '<button data-act="misc" data-kind="shipment-summary" data-src="ms">商品・製品別出荷集計表</button><button data-act="misc" data-kind="customer-items" data-src="ms">得意先別商品別出荷累計表</button><button data-act="misc" data-kind="cash-sales" data-src="ms">現金売上明細表</button><button data-act="misc" data-kind="sales-register" data-src="ms">商品売上登録リスト</button>',
   '期間は締日単位（例: 前月21日〜当月20日）で指定できます。<span id="ms-range"></span>');
-const inventoryReportsCard = () => miscCard('配合計算・材料受払表', '月次（実在庫登録と商品仕入登録の後に実行）', `<label class="field">処理年月（計算年月）<input type="month" id="mi-month" value="${lastClosing().slice(0, 7)}"></label><label class="field">締日<select id="mi-closing"><option value="20" selected>20日</option><option value="10">10日</option><option value="31">月末（暦月）</option></select></label>`,
-  '<button data-act="mix">配合計算</button><button data-act="misc" data-kind="material-ledger" data-src="mi">材料受払表</button>',
-  '材料は商品マスタの「製品・材料区分＝材料」と、仕入・在庫のある商品が対象。配合計算は配合表の資料が未提供のため暫定で、配合率は「マスタ管理 → 配合」で登録します。');
+// 処理年月・締日は配合計算（mx）と材料受払表（mi）で別々に持つ（小メニューを分けたため。2026-11-02）
+const invPeriod = p => `<label class="field">処理年月（計算年月）<input type="month" id="${p}-month" value="${lastClosing().slice(0, 7)}"></label><label class="field">締日<select id="${p}-closing"><option value="20" selected>20日</option><option value="10">10日</option><option value="31">月末（暦月）</option></select></label>`;
+const mixCard = () => miscCard('配合計算', '月次（実在庫登録と商品仕入登録の後に実行）', invPeriod('mx'), '<button data-act="mix">配合計算</button>', '配合計算は配合表の資料が未提供のため暫定で、配合率は「マスタ管理 → 配合」で登録します。');
+const ledgerCard = () => miscCard('材料受払表', '月次（実在庫登録と商品仕入登録の後に実行）', invPeriod('mi'), '<button data-act="misc" data-kind="material-ledger" data-src="mi">材料受払表</button>', '材料は商品マスタの「製品・材料区分＝材料」と、仕入・在庫のある商品が対象。');
 // 10/19 打合せ：出力指示＝締切日・部門コード（組織マスタ）・区分（ブランク＝工事、1＝組織）・業者コード From〜To（ブランク〜9999999＝全業者）
 const payableReportsCard = () => miscCard('定時請求入力明細表', '部門（工事）→業者→請求明細', `<label class="field">月度<input type="month" id="pi-month" value="${lastClosing().slice(0, 7)}"></label><label class="field">締日<select id="pi-closing"><option value="20" selected>20日</option><option value="31">月末（暦月）</option></select></label>
   <label class="field">部門コード<select id="pi-dept">${options(masters.depts || [], '', { blank: '全部門' })}</select></label><label class="field">区分<select id="pi-kb"><option value="1" selected>1：組織</option><option value="">ブランク：工事</option></select></label>
@@ -1813,7 +1815,7 @@ async function miscReport(kind, src) {
   modal({ title: `${d.title}`, body: reportConfirm(body, 'mr-body', d.sub || (d.from ? `${d.from} 〜 ${d.to}` : d.month), '') });
 }
 async function mixDialog() {
-  const month = $('#mi-month').value, closing = $('#mi-closing').value, d = await api('/api/reports/misc/mix?' + qs({ month, closing }));
+  const month = $('#mx-month').value, closing = $('#mx-closing').value, d = await api('/api/reports/misc/mix?' + qs({ month, closing }));
   const s0 = d.products.find(p => p.saved)?.saved || { denki: d.suggest.denki, touyu: d.suggest.touyu, seizou: d.suggest.seizou, ippann: d.suggest.ippann };
   const body = `<p class="note warn small">${esc(d.note)}</p>` + (d.products.length ? d.products.map(p => `<h3 style="margin:10px 0 4px">${esc(p.item)} ${esc(p.name)} ${p.missing ? badge('材料単価なし', 'red') : ''} ${p.ratio !== 100 ? badge(`配合率計 ${p.ratio}%`, 'amber') : ''}</h3>`
     + table([{ label: '材料', value: l => `${l.material} ${l.name}` }, { label: '配合率', num: 1, value: l => l.ratio + '%' }, { label: '材料単価', num: 1, value: l => (l.price === null ? '—' : yen(l.price)) }, { label: '単価根拠', value: l => l.source }, { label: '配合金額', num: 1, value: l => (l.cost === null ? '—' : yen(l.cost)) }], p.lines, { foot: ['配合単価', '', '', '', yen(p.haigo)] })
