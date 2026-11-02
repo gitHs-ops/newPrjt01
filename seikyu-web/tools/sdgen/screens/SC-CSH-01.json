@@ -102,15 +102,34 @@
     {
      "extract": {
       "area": "〔入力フォーム（小口現金出納登録）・明細〕",
-      "root": "#ex-lines tbody tr:first-child .hw-names",
+      "root": "#ex-lines tbody tr:first-child td:nth-child(7)",
+      "mode": "controls"
+     }
+    },
+    {
+     "set": [
+      "#ex-lines tbody tr:first-child [name=account]",
+      "8330"
+     ]
+    },
+    {
+     "set": [
+      "#ex-lines tbody tr:first-child [name=sub]",
+      "101"
+     ]
+    },
+    {
+     "extract": {
+      "area": "〔入力フォーム（小口現金出納登録）・明細〕",
+      "root": "#ex-lines tbody tr:first-child [data-accname]",
       "mode": "message"
      }
     },
     {
      "extract": {
       "area": "〔入力フォーム（小口現金出納登録）・明細〕",
-      "root": "#ex-lines tbody tr:first-child td:nth-child(7)",
-      "mode": "controls"
+      "root": "#ex-lines tbody tr:first-child [data-subname]",
+      "mode": "message"
      }
     },
     {
@@ -118,6 +137,16 @@
       "area": "〔入力フォーム（小口現金出納登録）・明細〕",
       "root": "#ex-lines-total",
       "mode": "message"
+     }
+    },
+    {
+     "shot": {
+      "name": "SC-CSH-01_登録",
+      "viewport": [
+       1440,
+       900
+      ],
+      "el": "dialog[open]"
      }
     },
     {
