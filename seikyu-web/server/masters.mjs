@@ -26,7 +26,7 @@ export const MASTERS = {
       F('customerPic', '先方担当者', { list: false, max: 26, optional: true }), F('pic', '自社担当者', { list: false, max: 26, optional: true }), F('creditStart', '取引開始日', { list: false, type: 'date', optional: true }),
       F('cardMemberId', 'カード会員ID', { list: false, max: 15, optional: true }), F('cardStatus', 'カード状態', { list: false, max: 2, optional: true }),
       F('siteMonths', '回収サイト（締め後○か月）', { list: false, type: 'int', optional: true, hint: '0〜12。未設定は翌月' }), F('siteDay', '回収日', { list: false, type: 'int', optional: true, hint: '1〜31（31=月末）' }),
-      F('payMethod', '入金方法', { list: false, type: 'select', optional: true, options: [['', '（未設定）'], ['1', '振込'], ['2', '手形'], ['3', 'でんさい'], ['4', '現金']] }), F('payBank', '入金先口座', { list: false, type: 'ref', ref: 'banks', optional: true }), F('remarks', '備考', { list: false, max: 100, optional: true }),
+      F('payMethod', '入金方法', { list: false, type: 'select', optional: true, options: [['', '（未設定）'], ['1', '振込'], ['2', '手形'], ['4', '現金']] }),   // でんさい（3）は 2026-11-02 に外した（現行どおり振込・手形・現金） F('payBank', '入金先口座', { list: false, type: 'ref', ref: 'banks', optional: true }), F('remarks', '備考', { list: false, max: 100, optional: true }),
       F('opening', '開始売掛残高', { type: 'int', optional: true, hint: '請求作成後は変更不可' }), F('deposit', '預り金残高（開始）', { list: false, type: 'int', optional: true, hint: '入金消込で充当できる額' }), F('active', '有効', { type: 'bool' })],
     select: "SELECT c.*, o.amount opening, d.amount deposit, st.category1 site_m, st.category2 site_d, st.category3 pay_method, st.code_dtl_abr pay_bank FROM client_m c LEFT JOIN opening_balance o ON o.source_reference=CONCAT('OPEN-AR-',c.customers_cd) LEFT JOIN opening_balance d ON d.source_reference=CONCAT('OPEN-ADV-',c.customers_cd) LEFT JOIN code_m st ON st.code_key='CSITE' AND st.code_dtl=c.customers_cd",
     where: 'c.customers_cd=?', keyOf: r => [r.code],
@@ -42,7 +42,7 @@ export const MASTERS = {
       cardMemberId: text(r.cardMemberId, 'カード会員ID', 15, { required: false }), cardStatus: text(r.cardStatus, 'カード状態', 2, { required: false }),
       siteMonths: r.siteMonths === '' || r.siteMonths == null ? '' : (() => { const v = yen(r.siteMonths, '回収サイト'); check(v <= 12, '回収サイトは0〜12か月です'); return v; })(),
       siteDay: r.siteDay === '' || r.siteDay == null ? '' : (() => { const v = yen(r.siteDay, '回収日'); check(v >= 1 && v <= 31, '回収日は1〜31です'); return v; })(),
-      payMethod: ['1', '2', '3', '4'].includes(String(r.payMethod || '')) ? String(r.payMethod) : '', payBank: text(r.payBank, '入金先口座', 12, { required: false }), remarks: text(r.remarks, '備考', 100, { required: false }),
+      payMethod: ['1', '2', '4'].includes(String(r.payMethod || '')) ? String(r.payMethod) : '', payBank: text(r.payBank, '入金先口座', 12, { required: false }), remarks: text(r.remarks, '備考', 100, { required: false }),
       opening: yen(r.opening || 0, '開始売掛残高', { negative: true }), deposit: yen(r.deposit || 0, '預り金残高'), active: bool(r.active ?? true) }),
     async write(c, r, old) {
       const v = [r.name, r.kana, r.abbr, r.section, r.postcode, r.tel, r.fax, r.pref, r.address, r.address2, r.customerPic, r.pic, String(r.closing), r.creditStart || null, r.remarks, del(r.active), r.cardMemberId, r.cardStatus || null];
