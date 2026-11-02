@@ -1701,7 +1701,7 @@ const shipmentReportsCard = () => miscCard('出荷・売上帳票', 'Excel で�
   '期間は締日単位（例: 前月21日〜当月20日）で指定できます。<span id="ms-range"></span>');
 const invPeriod = p => `<label class="field">処理年月（計算年月）<input type="month" id="${p}-month" value="${lastClosing().slice(0, 7)}"></label><label class="field">締日<select id="${p}-closing"><option value="20" selected>20日</option><option value="10">10日</option><option value="31">月末（暦月）</option></select></label>`;
 const ledgerCard = () => miscCard('材料受払表', '月次（実在庫登録と商品仕入登録の後に実行）', invPeriod('mi'), '<button data-act="misc" data-kind="material-ledger" data-src="mi">⇩ Excel</button>')
-  .replace(/<\/section>$/, '<p class="note small" style="margin-top:12px">現行の配合計算処理＋材料受払表印刷に相当</p></section>');
+  .replace(/<\/section>$/, '<p class="note small" style="margin-top:12px">現行の配合計算処理＋材料受払表印刷</p></section>');
 // 10/19 打合せ：出力指示＝締切日・部門コード（組織マスタ）・区分（ブランク＝工事、1＝組織）・業者コード From〜To（ブランク〜9999999＝全業者）
 const payableReportsCard = () => miscCard('定時請求入力明細表', '部門（工事）→業者→請求明細', `<label class="field">月度<input type="month" id="pi-month" value="${lastClosing().slice(0, 7)}"></label><label class="field">締日<select id="pi-closing"><option value="20" selected>20日</option><option value="31">月末（暦月）</option></select></label>
   <label class="field">部門コード<select id="pi-dept">${options(masters.depts || [], '', { blank: '全部門' })}</select></label><label class="field">区分<select id="pi-kb"><option value="1" selected>1：組織</option><option value="">ブランク：工事</option></select></label>
