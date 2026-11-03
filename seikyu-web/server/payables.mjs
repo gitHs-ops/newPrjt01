@@ -296,6 +296,14 @@ export async function reverseExpense(c, ctx, { id }) {
   const d = await one(c, 'SELECT * FROM expense_document WHERE expense_id=? FOR UPDATE', [Number(id)]); check(d, '伝票が見つかりません');
   check(d.status === 'POSTED', '取消済みです'); await assertOpen(c, d.booked_on);
   check(!(await one(c, "SELECT 1 x FROM payment_allocation a JOIN payment p ON p.payment_id=a.payment_id AND p.status='POSTED' WHERE a.expense_id=? LIMIT 1", [d.expense_id])), '支払済みの伝票は取消できません（先に支払を取消してください）');
+  // 小口現金は逆仕訳を作らず、伝票と自動仕訳（E01）を削除する（2026-11-03 ユーザー指示「単純削除」）
+  if (d.expense_kind === 'PETTY_CASH') {
+    const js = (await rows(c, "SELECT journal_id FROM journal_entry WHERE source_type='expense_document' AND source_id=?", [String(d.expense_id)])).map(r => r.journal_id);
+    if (js.length) { const ph = js.map(() => '?').join(','); for (const t of ['journal_line', 'app_slip_no', 'journal_entry']) await c.query(`DELETE FROM ${t} WHERE journal_id IN (${ph})`, js); }
+    await c.query('DELETE FROM expense_line WHERE expense_id=?', [d.expense_id]); await c.query('DELETE FROM expense_document WHERE expense_id=?', [d.expense_id]);
+    await audit(c, ctx, 'expense_document', d.expense_id, 'pettycash.delete', { no: d.document_no, amount: Number(d.gross_amount), journals: js.length });
+    return { id: d.expense_id, deleted: true };
+  }
   await c.query("UPDATE expense_document SET status='REVERSED', row_version=row_version+1 WHERE expense_id=?", [d.expense_id]);
   await reverseJournal(c, { sourceType: 'expense_document', sourceId: d.expense_id, date: d.booked_on });
   await audit(c, ctx, 'expense_document', d.expense_id, 'expense.reverse', { no: d.document_no });

@@ -1589,7 +1589,8 @@ function expenseView(kind) {
       // 値を入れ終えてから（候補入力の欄は後から作られるため次の順番で）全項目を入力不可にし、行追加・行削除を隠す
       setTimeout(() => { $$('input, select, textarea', f).forEach(el => (el.disabled = true)); $$('[data-line]', f).forEach(b => (b.style.display = 'none')); });
     };
-    A.rev = d => confirmBox('伝票の取消', `${d.no} を取消し、逆仕訳を計上します。`, () => post('/api/expenses/reverse', { id: Number(d.id) }).then(() => { toast('取消しました'); render(); }), '取消する');
+    // 小口現金は逆仕訳を作らず伝票と仕訳を削除（2026-11-03）。定時請求は従来どおり逆仕訳
+    A.rev = d => confirmBox('伝票の取消', payable ? `${d.no} を取消し、逆仕訳を計上します。` : `${d.no} を削除します。自動仕訳も削除し、逆仕訳は計上しません。`, () => post('/api/expenses/reverse', { id: Number(d.id) }).then(() => { toast(payable ? '取消しました' : '削除しました'); render(); }), payable ? '取消する' : '削除する');
     A.lines = d => { const r = list.find(x => x.id === Number(d.id)); modal({ title: `${r.no} の明細`, wide: true, body: table([{ label: '行', value: l => l.no }, { label: '科目', value: l => `${l.account} ${l.accountName}` }, { label: '内訳', value: l => (l.sub ? `${l.sub} ${l.subName}` : '') },
       ...(payable ? [] : [{ label: '支払先', value: l => l.payee }]), { label: '処税率', value: l => taxLabel(l.taxCode) }, { label: payable ? '金額' : '支払額', num: 1, value: l => yen(l.amount) }, { label: 'うち消費税', num: 1, value: l => yen(l.tax) }, { label: '摘要コード', value: l => l.memoCode }, { label: '摘要名', value: l => l.memo }], r.lines) }); };
     const cols2 = [{ label: '伝票No', value: r => r.no }, ...(payable ? [{ label: '請求No', value: r => r.billNo }] : []), { label: payable ? '締切日' : '支払日', value: r => r.date }, ...(payable ? [{ label: '業者', value: r => r.vendorName }, { label: '支払予定日', value: r => r.due }] : [{ label: '支払先', value: r => r.payee }]),

@@ -125,6 +125,11 @@ test('workflow against PostgreSQL business tables', { skip, timeout: 900000 }, a
       const over = await a.call('/api/expenses', { kind: 'PAYABLE', date: d, vendor: 'V' + tag, account: '8231', taxCode: '090', amount: 30000, memo: '限度額以上' });
       near(under.data.due, ymd(1, 15)); near(over.data.due, ymd(3, 0));
       for (const x of [under, over]) assert.equal((await a.call('/api/expenses/reverse', { id: x.data.id })).status, 200);
+      // 小口現金の取消は逆仕訳を作らず、伝票と自動仕訳を削除する（2026-11-03）
+      const pd = await a.call('/api/expenses', { kind: 'PETTY_CASH', date: d, lines: [{ payee: '削除テスト', account: '8231', taxCode: '141', amount: 100, memo: 'x' }] }); assert.equal(pd.status, 200, JSON.stringify(pd.data));
+      const pr = await a.call('/api/expenses/reverse', { id: pd.data.id }); assert.equal(pr.status, 200); assert.equal(pr.data.deleted, true);
+      assert.ok(!(await a.call('/api/expenses?' + new URLSearchParams({ kind: 'PETTY_CASH', month: d.slice(0, 7) }))).data.some(r => r.id === pd.data.id));
+      assert.equal((await pool.query("SELECT COUNT(*)::int n FROM journal_entry WHERE source_type='expense_document' AND source_id=?", [String(pd.data.id)]))[0][0].n, 0);
       const ven2 = (await a.call('/api/masters/vendors')).data.find(x => x.code === 'V' + tag);
       assert.equal(ven2.deferMin, '30000');
       assert.equal((await a.call('/api/masters/vendors', { mode: 'update', record: { ...ven2, payMonths: ven.payMonths, payDay: ven.payDay, deferMin: '' } })).status, 200);
