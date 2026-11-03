@@ -1730,7 +1730,7 @@ async function jvAllocDialog() {
   if (!d.lines.length) return alertBox(`データがありません（締切日 ${closing} の月度 ${d.from}〜${d.to} の入金・現金売上はありません）`);
   const row = (l, i) => `<tr data-i="${i}"><td style="white-space:nowrap">${esc(l.date)}</td><td>${esc(l.account)}<br><span class="small muted">${esc(l.kbn || l.memo)}</span></td><td class="small">${esc(l.billed || '')}</td><td>${esc(l.customer || '')}</td><td class="num">${yen(l.amount)}</td>
     ${ms.map((m, k) => `<td><input class="num jv-part" style="width:110px;color:#0369a1" data-k="${k}" value="${l.parts[k]}"></td>`).join('')}<td class="small jv-st">${l.adjusted ? badge('調整済', 'amber') : ''}</td><td><button type="button" class="mini quiet" data-auto="${i}" title="出資比率で自動配分に戻す">自動</button></td></tr>`;
-  const foot = `<tr><td colspan="4"><b>支払計</b></td><td class="num" id="jva-total"></td>${ms.map((_, k) => `<td class="num" id="jva-t${k}"></td>`).join('')}<td colspan="2"></td></tr>`;
+  const foot = `<tr><td colspan="4"><b>入金計</b></td><td class="num" id="jva-total"></td>${ms.map((_, k) => `<td class="num" id="jva-t${k}"></td>`).join('')}<td colspan="2"></td></tr>`;
   modal({ title: `入金額配賦登録　締切日 ${closing}（${d.from}〜${d.to}）`, wide: true, submit: '登録',
     body: `
       <div class="table-wrap" style="max-height:60vh;overflow:auto"><table id="jva"><thead><tr><th>入金日</th><th>入金科目<br><span class="small muted">区分</span></th><th title="消し込んだ請求の締日">請求締日</th><th>得意先</th><th class="num">入金額</th>${ms.map(m => `<th>${esc(m.name || m.code)}<br><span class="small muted">${m.ratio.toFixed(2)}%</span></th>`).join('')}<th></th><th></th></tr></thead>
