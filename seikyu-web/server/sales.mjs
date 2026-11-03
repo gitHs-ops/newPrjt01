@@ -504,7 +504,19 @@ export async function billingConfirm(c, { month, closing, unissued, customer }) 
     out.push({ ...s, lines: await summaryLines(c, s.invoiceIds, s.lines), name: h.customers_name, lastIssue: last ? { no: last.issue_no, at: last.issued_at, by: last.issued_by } : null });
   }
   // 税率別（現行 HAR430 の合計下段「10 %  売上額  消費税額」）
-  for (const r of out) r.byRate = RATES.map(rate => { const n = r.lines.filter(l => Math.round(l.taxRate) === rate).reduce((a, l) => a + l.net, 0); return { rate, net: n, tax: bucketTax(n, rate) }; }).filter(x => x.net);
+  const byRate = ls => RATES.map(rate => { const n = ls.filter(l => Math.round(l.taxRate) === rate).reduce((a, l) => a + l.net, 0); return { rate, net: n, tax: bucketTax(n, rate) }; }).filter(x => x.net);
+  for (const r of out) r.byRate = byRate(r.lines);
+  // 現行 HAR430：請求現場（現場CD・枝番）ごとに得意先の行を出し、2 つ目からは「得意先　現場No　現場名」。合計（売上額・消費税額・値引額・今回請求額）と税率別も現場ごと（2026-11-04）
+  for (const r of out) {
+    const g = new Map(); for (const l of r.lines) { if (!g.has(l.site)) g.set(l.site, []); g.get(l.site).push(l); }
+    const keys = [...g.keys()].sort((a, b) => (a === '|' ? -1 : b === '|' ? 1 : a < b ? -1 : a > b ? 1 : 0));
+    r.sites = [];
+    for (const [i, k] of keys.entries()) {
+      const [fc, fs] = k.split('|'), f = fc ? await one(c, 'SELECT field_name1, field_name2 FROM field_name_m WHERE customers_cd=? AND field_cd=? AND field_suffix=?', [r.customer, fc, fs]) : null;
+      const ls = g.get(k), rate = byRate(ls), net = ls.reduce((a, l) => a + l.net, 0), tax = rate.reduce((a, x) => a + x.tax, 0);
+      r.sites.push({ no: i + 1, site: k, name: f ? [f.field_name1, f.field_name2].map(v => String(v || '').trim()).filter(Boolean).join(' ') : '', lines: ls, net, tax, current: net + tax, byRate: rate });
+    }
+  }
   const co = await one(c, 'SELECT company_name1 FROM company_info_m WHERE company_info_id=1');
   return { month, end, closing: closingDay(closing), company: co?.company_name1 || '', unissued: withDraft, rows: out, available: out.length ? [] : await billingPeriods(c, !withDraft) };
 }

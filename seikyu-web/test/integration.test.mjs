@@ -93,6 +93,7 @@ test('workflow against PostgreSQL business tables', { skip, timeout: 900000 }, a
       assert.deepEqual(await sitesOf(), { [names[0]]: 1, [names[1]]: 2 });
       const copy0 = (await a.call(`/api/invoices/${invoiceId}/document?site=${encodeURIComponent(names[0])}`)).data; assert.equal(copy0.siteIssueNo[names[0]], 1); assert.deepEqual(copy0.sites, [names[0]]);
       const conf = await a.call(`/api/reports/billing-confirm?month=${month}&closing=31`); assert.equal(conf.data.rows.find(r => r.customer === C).lines.length, 4);
+      { const cr = conf.data.rows.find(r => r.customer === C); assert.equal(cr.sites.reduce((n, g) => n + g.lines.length, 0), 4, '現行 HAR430：明細は請求現場ごと'); assert.equal(cr.sites.reduce((n, g) => n + g.current, 0), cr.current); assert.equal(cr.sites[0].no, 1); } // 2026-11-04
       assert.equal(issued.data.documents[0].total, inv.total);
       // Two concurrent receipts that together exceed the balance: exactly one succeeds.
       const half = inv.total - 1000;
