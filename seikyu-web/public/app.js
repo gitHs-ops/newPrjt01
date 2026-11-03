@@ -1420,7 +1420,7 @@ VIEWS.inventory = async q => {
     if (!lines.length) return toast(`変更された在庫数量がありません。「在庫数量」欄に数量を入力・変更してから［登録］してください（${cnt.items.filter(r => qtyOf(r.quantity) !== '').length}件は登録済みで、そのまま有効です）`, true);
     // サーバのエラー（在庫計上済み・月次確定済み・数量の誤り 等）は確認ポップアップで表示する（以前は何も出ず、登録されたか分からなかった）
     if (btn) btn.disabled = true;
-    try { const r = await post('/api/inventory/counts', { date: $('#ic-date').value, lines }); toast(`${r.month} 月度の実在庫を登録しました（${r.saved}件${r.cleared ? `・取消 ${r.cleared}件` : ''}）`); await render(); }
+    try { const r = await post('/api/inventory/counts', { date: $('#ic-date').value, lines }); icSaved.add(r.month); toast(`${r.month} 月度の実在庫を登録しました（${r.saved}件${r.cleared ? `・取消 ${r.cleared}件` : ''}）`); await render(); }
     catch (e) { alertBox(e.message); } finally { if (btn) btn.disabled = false; }
   };
   A.post = () => { const month = $('#ip-month').value; confirmBox('在庫計上', `${month} 月度の実在庫を評価し、月末在庫の洗い替え仕訳（C01）を作成します。在庫計上は月度ごとに1回です。`, async () => { const r = await post('/api/inventory/post', { month }); render(); alertBox(`計上月度　${r.month}
@@ -1434,8 +1434,8 @@ VIEWS.inventory = async q => {
 実在庫の数量は残っています。「実在庫登録」で修正できます。`, { ok: true, title: '在庫計上を取消しました' }); }, '取消する'); };
   const ro = cnt.posted || !canWrite(), qtyOf = v => (v === null || v === undefined ? '' : String(v));
   const countCard = `<section class="card glass" data-sub="count"><div class="card-head"><h2>実在庫登録</h2></div>
-    <div class="filters"><label class="field">調査日<input type="date" id="ic-date" name="date" data-filter value="${esc(cnt.date)}"></label><button type="button" data-act="misc" data-kind="inventory-register" data-src="ir" title="この月度の在庫登録リストを Excel で出力">在庫登録リスト</button><span>月度 <b>${esc(cnt.month)}</b></span>${cnt.no ? `<span>伝票No <b>${esc(cnt.no)}</b></span>` : ''}${cnt.posted ? badge('在庫計上済', 'green') : badge(`登録 ${cnt.registered}品目`, cnt.registered ? '' : 'gray')}
-      <label class="field">区分<select id="ic-kind"><option value="">すべて</option><option>製品</option><option>商品・材料</option></select></label>${!canWrite() ? '' : cnt.posted ? '<button class="primary" disabled title="この月度は在庫計上済みです。「在庫計上」で取消すと登録できます">登録</button><span class="muted small">（在庫計上済みのため登録できません）</span>' : '<button class="primary" data-act="countSave">登録</button>'}</div>
+    <div class="filters"><label class="field">調査日<input type="date" id="ic-date" name="date" data-filter value="${esc(cnt.date)}"></label><span>月度 <b>${esc(cnt.month)}</b></span>${cnt.no ? `<span>伝票No <b>${esc(cnt.no)}</b></span>` : ''}${cnt.posted ? badge('在庫計上済', 'green') : badge(`登録 ${cnt.registered}品目`, cnt.registered ? '' : 'gray')}
+      <label class="field">区分<select id="ic-kind"><option value="">すべて</option><option>製品</option><option>商品・材料</option></select></label>${!canWrite() ? '' : cnt.posted ? '<button class="primary" disabled title="この月度は在庫計上済みです。「在庫計上」で取消すと登録できます">登録</button><span class="muted small">（在庫計上済みのため登録できません）</span>' : '<button class="primary" data-act="countSave">登録</button>'}<button type="button" data-act="misc" data-kind="inventory-register" data-src="ir" ${icSaved.has(cnt.month) ? '' : 'disabled'} title="［登録］すると使えます。この月度の在庫登録リストを表示">在庫登録リスト</button></div>
     ${cnt.posted ? '<p class="note small">この月度は在庫計上済みのため変更できません（入力欄はロック）。修正するときは <a href="#inventory/post">在庫計上</a> で在庫計上を取消してください。未計上の月度は上の「調査日」を変えて［検索］すると入力できます。</p>' : '<p class="note small">① ここで品目ごとの在庫数量を入力して［登録］ → ② <a href="#inventory/mix">配合計算</a>・<a href="#inventory/ledger">材料受払表</a> → ③ <a href="#inventory/post">在庫計上</a> で［在庫計上］（月度ごとに1回）。</p>'}
     <div class="table-wrap" style="max-height:60vh;overflow:auto"><table id="ic-grid"><thead><tr><th>区分</th><th>コード</th><th>商品名／製品名</th><th class="num">在庫数量</th><th>単位</th><th style="width:40%"></th></tr></thead><tbody>
     ${cnt.items.map(r => `<tr data-text="${esc((r.code + ' ' + r.name).toLowerCase())}" data-kind="${esc(r.kind)}"><td class="small muted">${esc(r.kind)}</td><td>${esc(r.code)}</td><td>${esc(r.name)}</td><td class="num"><input class="num ic-qty" data-item="${esc(r.code)}" data-orig="${esc(qtyOf(r.quantity))}" value="${esc(qtyOf(r.quantity))}" inputmode="decimal" style="width:130px" ${ro ? 'disabled' : ''}></td><td>${esc(r.unit)}</td><td></td></tr>`).join('')}
@@ -1449,7 +1449,8 @@ VIEWS.inventory = async q => {
       { label: '評価単価', num: 1, value: r => (r.status === 'POSTED' ? yen(r.price) : '') }, { label: '評価額', num: 1, value: r => (r.status === 'POSTED' ? yen(r.value) : '') }, { label: '状態', html: r => (r.status === 'POSTED' ? badge('計上済', 'green') : badge('未計上', 'gray')) }], list, { empty: 'この条件の在庫はありません' })}</section>
     <div data-sub="register">${miscCard('在庫登録リスト', '実在庫登録のチェックリスト。画面で確認しにくいため一覧・Excel で確認', `<label class="field">月度<input type="month" id="ir-month" value="${esc(cnt.month)}"></label>`, '<button data-act="misc" data-kind="inventory-register" data-src="ir">⇩ Excel</button>')}</div><div data-sub="ledger">${ledgerCard()}</div>`);
 };
-// 実在庫登録の「在庫登録リスト」ボタン（検索の右。2026-11-03）は小メニュー「在庫登録リスト」と同じ出力（#ir-month＝この月度）
+// 実在庫登録の「在庫登録リスト」ボタン（登録の右。2026-11-03）は小メニュー「在庫登録リスト」と同じ出力（#ir-month＝この月度）。初めは使えず、［登録］した月度だけ使える
+const icSaved = new Set();
 // 実在庫登録の絞込（区分・コード・名称、入力済みのみ）。区分は 2026-11-03 追加（製品が先に並び、商品・材料は下までスクロールしないと見えないため）
 // コード・名称の絞込と「入力済みのみ」は 2026-11-03 ユーザー指示で非表示（区分のみ残す）
 document.addEventListener('input', e => { if (e.target.id === 'ic-search') icFilter(); });
