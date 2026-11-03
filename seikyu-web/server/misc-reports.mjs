@@ -1,6 +1,6 @@
 // ④ 在庫・出資金・出荷集計: NO25 配合計算, NO26 材料受払表, NO35 出資金請求明細表(定時), NO36 入金明細配分表, NO41〜43 出荷集計
 import { check, isoDate, isoMonth, toNum, fromNum, today, addMonths, METHODS, yen } from './domain.mjs';
-import { taxOf } from './taxcode.mjs';
+import { taxOf, decode as taxDecode } from './taxcode.mjs';
 import { rows, one, audit } from './db.mjs';
 import { xlsx } from './xlsx.mjs';
 import { companyPeriod } from './period.mjs';
@@ -149,6 +149,8 @@ export async function saveMix(c, ctx, p) {
 }
 
 // ---------- JV（出資金）配分 ----------
+// 税率の表示は現行 HJR011 と同じ「10%」「0%」（非課税・対象外は 0%。2026-11-04。処税率コードは出さない）
+const rateLabel = code => { const t = taxDecode(code); return `${t?.taxable ? t.rate : 0}%`; };
 // month＝帳票の月度（YYYY-MM）。その月度で有効な構成員・出資比率（2026-11-02 適用開始月度の履歴）
 export async function jvMembers(c, month) {
   return jvAsOf(await rows(c, 'SELECT code, start_month, name, ratio, seq, active FROM app_jv_member'), month).filter(m => m.active)
@@ -184,7 +186,7 @@ export async function jvExpenses(c, q) {
     if (!a) accounts.push(a = { due, account: l.account_code, name: l.account_name || '', rows: [], count: 0, gross: 0, net: 0, tax: 0, parts: zero(), taxParts: zero() });
     const gross = num(l.gross_amount), tax = num(l.tax_amount), parts = allocate(gross, ms);
     allocate(tax, ms).forEach((v, k) => (a.taxParts[k] += v)); // 出資消費税＝明細ごとの消費税の按分の合計（推定）
-    if (!summary) a.rows.push({ date: due, no: l.document_no, vendor: l.vendor_name, memo: l.line_memo || l.memo, taxCode: l.source_tax_code, gross, net: gross - tax, tax, parts });
+    if (!summary) a.rows.push({ date: due, no: l.document_no, vendor: l.vendor_name, memo: l.line_memo || l.memo, taxCode: l.source_tax_code, rate: rateLabel(l.source_tax_code), gross, net: gross - tax, tax, parts });
     a.count++; a.gross += gross; a.net += gross - tax; a.tax += tax; parts.forEach((v, k) => (a.parts[k] += v));
   }
   // 合計表は科目ごとの合計額を按分（明細ごとの按分の合計とは端数がずれることがある）
@@ -326,7 +328,7 @@ export async function miscBook(c, kind, q) {
       out.push([...pre, '支払金額', '支払額本体', '支払消費税', ...d.members.map(() => '出資金額')].map(H));
       for (const day of d.days) {
         for (const a of d.accounts.filter(x => x.due === day.due)) {
-          if (detail) { for (const r of a.rows) out.push([r.date, r.no, `${a.account} ${a.name}`, r.vendor, r.memo, r.taxCode, r.gross, r.net, r.tax, ...r.parts]); out.push(['', '', S('＊科目計＊'), '', '', '', S(a.gross), S(a.net), S(a.tax), ...a.parts.map(S)]); }
+          if (detail) { for (const r of a.rows) out.push([r.date, r.no, `${a.account} ${a.name}`, r.vendor, r.memo, r.rate, r.gross, r.net, r.tax, ...r.parts]); out.push(['', '', S('＊科目計＊'), '', '', '', S(a.gross), S(a.net), S(a.tax), ...a.parts.map(S)]); }
           else out.push([a.due, `${a.account} ${a.name}`, a.count, '', '', '', a.gross, a.net, a.tax, ...a.parts]);
         }
         out.push([S(`${day.due} 支払日計`), '', '', '', '', '', S(day.gross), '', '', ...day.parts.map(S)]);

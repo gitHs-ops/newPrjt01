@@ -1798,7 +1798,7 @@ async function miscReport(kind, src) {
       + (detail ? `<th>科目</th><th>伝票No</th><th>支払先</th><th>摘要</th><th>税率</th><th class="num">支払金額</th><th class="num">支払額本体</th><th class="num">支払消費税</th>${mcols}`
         : `<th rowspan="2">科目名</th><th class="num" rowspan="2">支払金額</th><th class="num" rowspan="2">支払本体</th><th class="num" rowspan="2">支払消費税</th>${d.members.map(m => `<th colspan="3" style="text-align:center">${esc(m.name)}</th>`).join('')}</tr><tr>${d.members.map(() => '<th class="num">出資金額</th><th class="num">出資本体</th><th class="num">出資消費税</th>').join('')}`) + `</tr></thead><tbody>`
       + d.accounts.filter(a => a.due === day.due).map(a => detail
-        ? a.rows.map((r, k) => `<tr><td>${k ? '' : esc(`${a.account} ${a.name}`)}</td><td>${esc(r.no)}</td><td>${esc(r.vendor)}</td><td>${esc(r.memo)}</td><td>${esc(r.taxCode)}</td>${money(r.gross)}${money(r.net)}${money(r.tax)}${r.parts.map(money).join('')}</tr>`).join('')
+        ? a.rows.map((r, k) => `<tr><td>${k ? '' : esc(`${a.account} ${a.name}`)}</td><td>${esc(r.no)}</td><td>${esc(r.vendor)}</td><td>${esc(r.memo)}</td><td>${esc(r.rate)}</td>${money(r.gross)}${money(r.net)}${money(r.tax)}${r.parts.map(money).join('')}</tr>`).join('')
           + `<tr class="subtotal"><td colspan="5" class="right">＊科目計＊</td>${money(a.gross)}${money(a.net)}${money(a.tax)}${a.parts.map(money).join('')}</tr>`
         : `<tr><td>${esc(a.name)}</td>${money(a.gross)}${money(a.net)}${money(a.tax)}${m3(a)}</tr>`).join('')
       + `</tbody><tfoot><tr>${detail ? `<td colspan="5">支払日計</td>${money(day.gross)}<td></td><td></td>${day.parts.map(money).join('')}` : `<td>支払日計</td>${money(day.gross)}${money(day.net)}${money(day.tax)}${m3(day)}`}</tr></tfoot></table></div>`).join('')
