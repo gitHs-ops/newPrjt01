@@ -1344,7 +1344,7 @@ const lineGrid = (id, cols, rowsIn = [{}, {}, {}], { lineNo = false } = {}) => {
   const tr = (r, i = 0) => `<tr>${lineNo ? `<td class="line-no">${String(i + 1).padStart(2, '0')}</td>` : ''}${cols.map(c => `<td>${c.cell(r)}</td>`).join('')}<td><button type="button" class="mini quiet" data-line="del" aria-label="行を削除">×</button></td></tr>`;
   lineGrid.row[id] = () => tr({});
   return `<div class="table-wrap"><table class="line-grid" id="${id}"><thead><tr>${lineNo ? '<th class="line-no">行</th>' : ''}${cols.map(c => `<th class="${c.sum ? 'num' : ''}">${esc(c.label)}</th>`).join('')}<th></th></tr></thead><tbody>${rowsIn.map(tr).join('')}</tbody>
-    <tfoot><tr><td colspan="${cols.length + 1 + (lineNo ? 1 : 0)}"><button type="button" class="mini" data-line="add" data-grid="${id}">＋ 行追加</button><span class="right" style="float:right">合計 <b id="${id}-total">0</b> 円</span></td></tr></tfoot></table></div>`;
+    <tfoot>${cols.some(c => c.foot) ? `<tr class="line-foot">${lineNo ? '<td></td>' : ''}${cols.map(c => `<td>${c.foot || ''}</td>`).join('')}<td></td></tr>` : ''}<tr><td colspan="${cols.length + 1 + (lineNo ? 1 : 0)}"><button type="button" class="mini" data-line="add" data-grid="${id}">＋ 行追加</button><span class="right" style="float:right">合計 <b id="${id}-total">0</b> 円</span></td></tr></tfoot></table></div>`;
 };
 lineGrid.row = {};
 const readLines = id => $$(`#${id} tbody tr`).map(tr => Object.fromEntries($$('[name]', tr).map(el => [el.name, el.value])));
@@ -1372,12 +1372,13 @@ VIEWS.purchases = async q => {
   const isFreight = it => /運賃/.test(it?.name || '');
   // 値引き（88888 等）は商品仕入では使わない：候補に出さず、入力しても選べない（2026-10-29）
   const noPurchase = it => /値引/.test(it?.name || ''), puItems = () => active('items').filter(i => !noPurchase(i));
+  // 単位のガイダンスは明細の単位の列の下に縦に並べる（現行 HAW010 と同じ位置。2026-11-03）
+  const PU_UNITS = meta.purchaseUnits || {}, unitGuide = `<div class="small" style="line-height:1.5">${Object.entries(PU_UNITS).map(([k, v]) => `${k}: ${esc(v)}`).join('<br>')}</div>`;
   const cols = [{ name: 'item', label: '商品コード', cell: () => '<input name="item" list="dl-pu-items" maxlength="12" style="width:90px" autocomplete="off">' }, { name: 'iname', label: '商品名', cell: () => '<span data-iname class="muted small">商品コードを入力</span>' },
-    { name: 'quantity', label: '数量', cell: () => '<input name="quantity" class="num" style="width:90px">' }, { name: 'unit', label: '単位', cell: () => '<input name="unit" maxlength="1" inputmode="numeric" style="width:36px" title="1: t　2: 袋　3:"> <span data-unit class="muted small"></span>' },
+    { name: 'quantity', label: '数量', cell: () => '<input name="quantity" class="num" style="width:90px">' }, { name: 'unit', label: '単位', cell: () => '<input name="unit" maxlength="1" inputmode="numeric" style="width:36px" title="1: t　2: 袋　3:"> <span data-unit class="muted small"></span>', foot: unitGuide },
     { name: 'price', label: '単価', cell: () => '<input name="price" class="num" style="width:100px" inputmode="decimal" placeholder="マスタ単価" title="小数2桁まで（例 2267.40）">' }, { name: 'amount', label: '金額', sum: 1, cell: () => '<input name="amount" class="num" style="width:120px" placeholder="自動">' },
     { name: 'taxCode', label: '処税率', cell: () => taxSelect('taxCode', '241') }];
   // 単位は現行画面（HAW010）の下のガイダンスどおり 1〜3 で入力し、右に単位名（単位マスタからの取得は保留。2026-11-03）
-  const PU_UNITS = meta.purchaseUnits || {}, unitGuide = `<div class="small" style="margin:4px 0 0 2px">単位 ${Object.entries(PU_UNITS).map(([k, v]) => `${k}: ${esc(v)}`).join('　')}</div>`;
   const calc = tr => { const f = n => tr.querySelector(`[name=${n}]`), code = f('item').value.trim(), hit = masters.items.find(i => i.code === code && !noPurchase(i)), fr = isFreight(hit), nm = tr.querySelector('[data-iname]'), un = tr.querySelector('[data-unit]');
     nm.innerHTML = code && !hit ? `<span class="check-ng">${masters.items.some(i => i.code === code) ? '仕入では使えない商品' : '該当なし'}</span>` : hit ? esc(hit.name) : '商品コードを入力'; nm.classList.toggle('muted', !hit);
     // 材料の運賃（現行⑭「10900 アスファルト 0.00 t 0.00 1,108,214- 運賃」）：数量を空欄（0）にすると金額を直接入力でき、その行は運賃（2026-11-01）
@@ -1396,7 +1397,7 @@ VIEWS.purchases = async q => {
   A.new = () => modal({ title: '商品仕入の登録', submit: '登録する', wide: true, sample: pickItem, body: `<div class="form-grid pu-head">${field('伝票No', '<input value="（登録時に自動採番）" disabled>')}${field('仕入日（納入日）', `<input type="date" name="date" value="${today()}">`, { req: 1 })}${field('仕入先（業者）', `<select name="vendor">${options(active('vendors'), '', { blank: '選択してください' })}</select>`, { req: 1 })}
       ${field('区分', `<select name="kind">${Object.entries(meta.purchaseKinds).map(([k, v]) => `<option value="${k}">${k} ${esc(v)}</option>`).join('')}</select>`)}</div>
       <datalist id="dl-pu-items">${puItems().map(i => `<option value="${esc(i.code)}">${esc(i.name)}</option>`).join('')}</datalist>
-      ${lineGrid('pu-lines', cols, undefined, { lineNo: true })}${unitGuide}`,
+      ${lineGrid('pu-lines', cols, undefined, { lineNo: true })}`,
     onOpen: f => { const g = $('#pu-lines'); g.addEventListener('input', e => { if (e.target.name === 'unit') e.target.value = e.target.value.replace(/[^123]/g, '').slice(0, 1); }, true); g.addEventListener('input', () => lineTotal('pu-lines', 'amount', calc)); g.addEventListener('change', () => lineTotal('pu-lines', 'amount', calc)); },
     onSubmit: async v => { const lines = readLines('pu-lines').map(l => { const item = String(l.item || '').trim(), byAmt = !Number(l.quantity || 0) && String(l.amount || '').trim() !== ''; return { ...l, item, lineKind: isFreight(masters.items.find(i => i.code === item)) || byAmt ? '2' : '1' }; }); const r = await post('/api/purchases', { date: v.date, vendor: v.vendor, kind: v.kind, memo: v.memo, lines }); toast(`仕入 ${pNo(r.no)}（${r.lines}行・${yen(r.net)}円）を登録しました`); render(); } });
   A.del = d => confirmBox('仕入の取消', `仕入伝票 ${pNo(d.no)} の全明細を削除します。`, () => post('/api/purchases/delete', { id: Number(d.id) }).then(() => { toast('取消しました'); render(); }), '取消する');
