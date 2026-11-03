@@ -347,6 +347,9 @@ test('workflow against PostgreSQL business tables', { skip, timeout: 900000 }, a
       assert.equal((await a.call('/api/reports/misc/payable-input?closing=31&month=' + d.slice(0, 7))).data.depts.length, 0, 'blank vendor code outputs nothing');
       const pc = (await a.call('/api/reports/misc/petty-book?' + span)).data; assert.equal(pc.closing, pc.opening + pc.received - pc.spent);
       const sr = (await a.call('/api/reports/misc/sales-register?' + span)).data.customers.find(x => x.customer === C); assert.equal(sr.rows.length, 4); // 元・赤・黒＋別現場 assert.equal(sr.net, 12997);
+      // 現行 HAR021 の並び：小計なし、売上日・区分は前の行と同じなら空白、赤黒は 元伝票No-01／-02／-03、処税率 211、運送区分は 1 現場／2 先方
+      assert.ok(!('net' in sr)); assert.equal(sr.rows[0].showDate, true); assert.ok(sr.rows.slice(1).some(r => !r.showDate)); assert.ok(sr.rows.some(r => /-0[123]$/.test(r.no)));
+      assert.ok(sr.rows.every(r => r.tax === '211' && ['1 現場', '2 先方'].includes(r.carry) && ['売上', '訂正'].includes(r.kind)), JSON.stringify(sr.rows));
       const rs = (await a.call('/api/reports/misc/receipt-schedule')).data.customers.find(x => x.customer === C);
       assert.equal(rs.due, 1000); assert.equal(rs.rows.length, 2, 'split by site (工事)');
       for (const k of ['payable-input', 'petty-book', 'sales-register', 'receipt-schedule'])
