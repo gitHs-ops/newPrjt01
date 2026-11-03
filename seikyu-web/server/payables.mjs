@@ -8,17 +8,20 @@ async function vendorOf(c, code) { const v = await one(c, 'SELECT * FROM vendor 
 
 // ---------- 商品仕入 (purchase) ----------
 // 10/19 打合せ・帳票⑭（HAR011）：1伝票＝複数明細。区分 1=仕入（直接購入）/ 2=他社納入。運賃行は商品コード＋金額のみ（マイナス可）。
-// 単価・単位は商品マスタから表示。処税率は現行の 241（1桁目 2 の意味は確認待ち Q01）を既定とする。
+// 単価は商品マスタから表示。処税率は現行の 241（1桁目 2 の意味は確認待ち Q01）を既定とする。
 export const PURCHASE_KINDS = { 1: '仕入', 2: '他社納入' };
+// 単位は現行画面（HAW010）の下のガイダンスどおり 1〜3 のコードで入力（単位マスタからの取得は保留。2026-11-03）
+export const PURCHASE_UNITS = { 1: 't', 2: '袋', 3: '' };
+const PU_UNIT = `CASE p.unit WHEN '1' THEN 't' WHEN '2' THEN '袋' WHEN '3' THEN '' ELSE unit_name(i.unit) END`;
 export const TAX_CODES = CATALOG.map(t => ({ code: t.code, name: t.name }));
 export async function listPurchases(c, q = {}) {
   const w = [], args = []; monthWhere('p.purchase_date', q, w, args);
   if (q.from) { w.push('p.purchase_date>=?'); args.push(isoDate(q.from, '開始日')); }
   if (q.to) { w.push('p.purchase_date<=?'); args.push(isoDate(q.to, '終了日')); }
   if (q.vendor) { w.push('v.vendor_code=?'); args.push(q.vendor); }
-  const rs = await rows(c, `SELECT p.*, v.vendor_code, v.vendor_name, i.item_nam, unit_name(i.unit) unit FROM purchase p JOIN vendor v ON v.vendor_id=p.vendor_id LEFT JOIN item_m i ON i.item_cd=p.item_cd ${w.length ? 'WHERE ' + w.join(' AND ') : ''} ORDER BY p.purchase_date DESC, p.source_document_no DESC, p.line_no LIMIT 3000`, args);
+  const rs = await rows(c, `SELECT p.*, v.vendor_code, v.vendor_name, p.unit unit_cd, i.item_nam, ${PU_UNIT} unit FROM purchase p JOIN vendor v ON v.vendor_id=p.vendor_id LEFT JOIN item_m i ON i.item_cd=p.item_cd ${w.length ? 'WHERE ' + w.join(' AND ') : ''} ORDER BY p.purchase_date DESC, p.source_document_no DESC, p.line_no LIMIT 3000`, args);
   return rs.map(r => ({ id: r.purchase_id, no: r.source_document_no, line: Number(r.line_no), date: r.purchase_date, vendor: r.vendor_code, vendorName: r.vendor_name, kind: r.purchase_kb || '1', kindName: PURCHASE_KINDS[r.purchase_kb || '1'],
-    lineKind: r.line_kind || '1', item: r.item_cd, itemName: r.item_nam, unit: r.unit, quantity: Number(r.quantity), price: Number(r.unit_price), net: Number(r.net_amount), taxCode: r.source_tax_code, memo: r.memo }));
+    lineKind: r.line_kind || '1', item: r.item_cd, itemName: r.item_nam, unitCode: r.unit_cd || '', unit: r.unit, quantity: Number(r.quantity), price: Number(r.unit_price), net: Number(r.net_amount), taxCode: r.source_tax_code, memo: r.memo }));
 }
 // 在庫計上済みの月度（またはそれより後の月度が計上済み）の仕入は登録・取消できない（材料受払表の当月仕入高と計上済みの在庫金額がずれるため。2026-10-28）
 async function assertNotInventoried(c, date) {
@@ -42,19 +45,20 @@ export async function createPurchase(c, ctx, p) {
     const tax = mustDecode(l.taxCode || '241', `${label}の処税率`).code;
     if (freight) {
       const amount = yen(l.amount, `${label}の運賃`, { negative: true }); check(amount !== 0, `${label}: 運賃を入力してください`);
-      out.push({ item: it.item_cd, qty: '0.00', price: 0, net: amount, tax, lineKind: '2', memo: text(l.memo, `${label}の摘要`, 500, { required: false }) || '運賃' });
+      out.push({ item: it.item_cd, qty: '0.00', price: 0, net: amount, tax, lineKind: '2', unit: null, memo: text(l.memo, `${label}の摘要`, 500, { required: false }) || '運賃' });
     } else {
       const q = qty(l.quantity, `${label}の数量`, { max: 9999999, positive: false, allowNegative: true });
       // 単価は小数2桁まで（10-29 画面レビュー No.15：現行の画面どおり 2,267.40 など）。金額＝数量×単価の円未満切り捨て
       const p = qty(l.price === '' || l.price === undefined ? Number(it.tanka).toFixed(2) : String(l.price).replace(/,/g, ''), `${label}の単価`, { max: 99999999, positive: false });
-      out.push({ item: it.item_cd, qty: q.text, price: Number(p.text), net: Number((q.scaled * p.scaled) / 10000n), tax, lineKind: '1', memo: text(l.memo, `${label}の摘要`, 500, { required: false }) });
+      const unit = String(l.unit ?? '').trim(); check(unit in PURCHASE_UNITS, `${label}: 単位は 1（t）・2（袋）・3 のいずれかを入力してください`);
+      out.push({ item: it.item_cd, qty: q.text, price: Number(p.text), net: Number((q.scaled * p.scaled) / 10000n), tax, lineKind: '1', unit, memo: text(l.memo, `${label}の摘要`, 500, { required: false }) });
     }
   }
   check(out.length, '明細を入力してください'); check(out.length <= 99, '明細は99行以内です');
   const no = await nextSlipNoFy(c, DOC_SERIES.purchase, date), memo = text(p.memo, '摘要', 500, { required: false });
   for (const [i, l] of out.entries())
-    await c.query('INSERT INTO purchase (source_document_no,line_no,vendor_id,purchase_date,item_cd,quantity,unit_price,net_amount,source_tax_code,memo,purchase_kb,line_kind) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)',
-      [no, i + 1, v.vendor_id, date, l.item, l.qty, l.price, l.net, l.tax, l.memo || memo, kind, l.lineKind]);
+    await c.query('INSERT INTO purchase (source_document_no,line_no,vendor_id,purchase_date,item_cd,quantity,unit_price,net_amount,source_tax_code,memo,purchase_kb,line_kind,unit) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)',
+      [no, i + 1, v.vendor_id, date, l.item, l.qty, l.price, l.net, l.tax, l.memo || memo, kind, l.lineKind, l.unit]);
   const total = out.reduce((n, l) => n + l.net, 0);
   await audit(c, ctx, 'purchase', no, 'purchase.create', { no, vendor: v.vendor_code, kind, lines: out.length, net: total });
   return { no, lines: out.length, net: total };

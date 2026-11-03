@@ -35,7 +35,7 @@ export async function createApp({ pool, publicDir, secureCookies = process.env.N
   const failures = new Map();
 
   // ----- read -----
-  route('GET', '/api/meta', 'read', () => ({ journalLists: { ...Object.fromEntries(Object.entries(J.LISTS).map(([k, v]) => [k, { title: v.title, ref: v.ref }])), BANK: { title: J.BANK_LIST.title, ref: J.BANK_LIST.ref } }, receiptParts: S.RECEIPT_PARTS, masters: M.meta(), rates: RATES, methods: METHODS, taxCodes: P.TAX_CODES, purchaseKinds: P.PURCHASE_KINDS, shipKinds: S.SHIP_KB, patterns: L.PATTERNS, roles: U.ROLES, today: today(), version }));
+  route('GET', '/api/meta', 'read', () => ({ journalLists: { ...Object.fromEntries(Object.entries(J.LISTS).map(([k, v]) => [k, { title: v.title, ref: v.ref }])), BANK: { title: J.BANK_LIST.title, ref: J.BANK_LIST.ref } }, receiptParts: S.RECEIPT_PARTS, masters: M.meta(), rates: RATES, methods: METHODS, taxCodes: P.TAX_CODES, purchaseKinds: P.PURCHASE_KINDS, purchaseUnits: P.PURCHASE_UNITS, shipKinds: S.SHIP_KB, patterns: L.PATTERNS, roles: U.ROLES, today: today(), version }));
   route('GET', '/api/masters', 'read', () => db(c => M.allMasters(c)));
   route('GET', '/api/masters/:kind', 'read', x => db(c => M.list(c, x.params.kind)));
   route('GET', '/api/price', 'read', x => db(c => S.priceFor(c, x.q)));

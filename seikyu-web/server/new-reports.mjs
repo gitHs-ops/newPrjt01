@@ -3,7 +3,7 @@
 import { check, isoDate, isoMonth, today } from './domain.mjs';
 import { rows, one } from './db.mjs';
 import { xlsx } from './xlsx.mjs';
-import { PURCHASE_KINDS, listExpenses, inventoryPrice } from './payables.mjs';
+import { PURCHASE_KINDS, PURCHASE_UNITS, listExpenses, inventoryPrice } from './payables.mjs';
 import { companyPeriod } from './period.mjs';
 import { decode } from './taxcode.mjs';
 
@@ -16,7 +16,7 @@ const sum = (list, k) => list.reduce((n, r) => n + num(r[k]), 0);
 export const purchaseNo = (no, line) => `${no || ''}-${String(line || 1).padStart(2, '0')}`;
 export async function purchaseRegister(c, q) {
   const from = isoDate(q.from, '開始日'), to = isoDate(q.to, '終了日'); check(from <= to, '期間が不正です');
-  const rs = await rows(c, `SELECT p.*, v.vendor_code, v.vendor_name, i.item_nam, unit_name(i.unit) unit FROM purchase p JOIN vendor v ON v.vendor_id=p.vendor_id LEFT JOIN item_m i ON i.item_cd=p.item_cd
+  const rs = await rows(c, `SELECT p.*, v.vendor_code, v.vendor_name, i.item_nam, unit_name(i.unit) item_unit FROM purchase p JOIN vendor v ON v.vendor_id=p.vendor_id LEFT JOIN item_m i ON i.item_cd=p.item_cd
     WHERE p.purchase_date BETWEEN ? AND ? ORDER BY p.purchase_date, v.vendor_code, p.source_document_no, p.line_no`, [from, to]);
   const groups = [];
   for (const r of rs) {
@@ -25,7 +25,7 @@ export async function purchaseRegister(c, q) {
     // 運賃の行は現行どおり数量・単価 0.00 で、処税率の右に「運賃」。処税率はコードの右に名称（画面の選択リストと同じ。2026-11-01）
     const fr = r.line_kind === '2';
     g.rows.push({ date: r.purchase_date, kind: PURCHASE_KINDS[r.purchase_kb || '1'], no: purchaseNo(r.source_document_no, r.line_no), item: `${r.item_cd} ${r.item_nam || ''}`,
-      qty: fr ? 0 : num(r.quantity), unit: r.unit || '', price: fr ? 0 : num(r.unit_price), net: num(r.net_amount), account: '', subName: '', tax: `${r.source_tax_code || ''}${decode(r.source_tax_code) ? ' ' + decode(r.source_tax_code).name : ''}${fr ? ' 運賃' : ''}` });
+      qty: fr ? 0 : num(r.quantity), unit: r.unit ? PURCHASE_UNITS[r.unit] ?? '' : r.item_unit || '', price: fr ? 0 : num(r.unit_price), net: num(r.net_amount), account: '', subName: '', tax: `${r.source_tax_code || ''}${decode(r.source_tax_code) ? ' ' + decode(r.source_tax_code).name : ''}${fr ? ' 運賃' : ''}` });
   }
   for (const g of groups) g.totals = { net: sum(g.rows, 'net') };
   // 仕入日の見出し（その日の最初の仕入先の前）と仕入日計（その日の最後の仕入先の後）
