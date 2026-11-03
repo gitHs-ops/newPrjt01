@@ -535,7 +535,8 @@ export async function companyProfile(c) {
   }
   return bankText; };
   const bankText = await bankOf(set.INVBANK), bankText2 = await bankOf(set.INVBANK2);
-  return { name: [co?.company_name1, co?.company_name2].filter(Boolean).join(' '), address: [co?.postcode && '〒' + co.postcode, co?.pref, co?.addr1, co?.addr2].filter(Boolean).join(' '), tel: co?.tel_no || '', fax: co?.fax_no || '', plant: co?.plant_name || '', invoiceNo: set.INVNO || '', bankText, banks: [bankText, bankText2].filter(Boolean), layout: set.INVLAYOUT || 'proposal' };
+  // 2026-11-04 現行の請求書（帳票③④⑤）の発行元：〒・住所・会社名1・登録番号・会社名2（共同企業体）・TEL・振込先・口座名義（会社名1）。様式の既定は現行（legacy）
+  return { name1: co?.company_name1 || '', name2: co?.company_name2 || '', postcode: co?.postcode || '', pref: co?.pref || '', addr1: co?.addr1 || '', addr2: co?.addr2 || '', name: [co?.company_name1, co?.company_name2].filter(Boolean).join(' '), address: [co?.postcode && '〒' + co.postcode, co?.pref, co?.addr1, co?.addr2].filter(Boolean).join(' '), tel: co?.tel_no || '', fax: co?.fax_no || '', plant: co?.plant_name || '', invoiceNo: set.INVNO || '', bankText, banks: [bankText, bankText2].filter(Boolean), layout: set.INVLAYOUT || 'legacy' };
 }
 async function snapshot(c, inv) {
   const cu = await one(c, 'SELECT * FROM client_m WHERE customers_cd=?', [inv.customer]);
@@ -543,7 +544,7 @@ async function snapshot(c, inv) {
   const buckets = RATES.map(rate => { const net = inv.lines.filter(l => l.taxRate === rate).reduce((n, l) => n + l.net, 0); return { rate, net, tax: bucketTax(net, rate) }; }).filter(b => b.net);
   return {
     company: await companyProfile(c), discount: 0, invoiceNo: (await invoiceNos(c, [inv])).get(Number(inv.id)),
-    customer: { code: inv.customer, name: cu?.customers_name || inv.customerName, address: cu?.addr1 || '', tel: cu?.tel_no || '' },
+    customer: { code: inv.customer, name: cu?.customers_name || inv.customerName, address: cu?.addr1 || '', postcode: cu?.postcode || '', pref: cu?.pref || '', addr1: cu?.addr1 || '', addr2: cu?.addr2 || '', tel: cu?.tel_no || '' },
     site: { key: inv.site, name: inv.siteName }, invoiceId: inv.id, periodStart: s.start, closing: inv.closing, due: inv.due,
     demo: process.env.SHOW_DEMO_NOTICE !== '0', prevBalance: s.prevBalance, received: s.received, carried: s.carried, net: inv.net, tax: inv.tax, total: inv.total, grandTotal: s.carried + inv.total, buckets, lines: await summaryLines(c, [inv.id], inv.lines),
   };
@@ -593,6 +594,9 @@ export async function issuedDocument(c, id, site = null) {
     for (const l of h ? await headLines(c, h) : []) { at.set(String(l.orderNo), l); at.set(String(l.ownNo), l); }
     s.lines = (s.lines.map(l => { const x = at.get(String(l.ownNo || l.orderNo)) || at.get(String(l.orderNo)); return x ? { ...l, site: x.site, siteName: x.siteName } : l; }));
   }
+  // 2026-11-04 現行様式の請求書に要る項目（会社名1・2、郵便番号、住所の分割）が無い発行分は今のマスタで補う。金額・明細は発行時のまま。様式は今の設定
+  const cur = await companyProfile(c); s.company = { ...cur, ...s.company, layout: cur.layout };
+  if (s.customer && s.customer.postcode === undefined) { const cu = await one(c, 'SELECT postcode, pref, addr1, addr2 FROM client_m WHERE customers_cd=?', [s.customer.code]); if (cu) s.customer = { ...s.customer, postcode: cu.postcode || '', pref: cu.pref || '', addr1: cu.addr1 || '', addr2: cu.addr2 || '' }; }
   if (site) s.sites = [siteLabel(site)];
   return { ...s, issueNo: r.issue_no, reissue: r.issue_no > 1, copy: true };
 }

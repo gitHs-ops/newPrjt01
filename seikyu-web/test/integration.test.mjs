@@ -329,7 +329,9 @@ test('workflow against PostgreSQL business tables', { skip, timeout: 900000 }, a
       const cu2 = (await a.call('/api/masters/customers')).data.find(x => x.code === C);
       assert.equal(cu2.postcode, '4600001'); assert.equal(cu2.creditStart, '2026-04-01'); assert.equal(cu2.section, '工務部');
       // NO9 statement view data is the billing list (already covered); NO10 bulk workbook
-      assert.equal((await raw2('/api/invoices/book?ids=' + invoiceId)).bytes.subarray(0, 2).toString(), 'PK');
+      { const bk = (await raw2('/api/invoices/book?ids=' + invoiceId)).bytes; assert.equal(bk.subarray(0, 2).toString(), 'PK'); }
+      // 2026-11-04 請求書様式の既定は現行（帳票③④⑤）
+      { const doc = (await a.call('/api/invoices/' + invoiceId + '/document')).data; if (doc) { assert.equal(doc.company.layout, 'legacy', '請求書様式の既定は現行'); assert.ok('name1' in doc.company && 'postcode' in doc.customer, '現行様式の発行元・宛先の項目'); } }
       const draft = (await a.call('/api/invoices?status=draft')).data[0];
       if (draft) assert.equal((await raw2('/api/invoices/book?ids=' + draft.id)).status, 400, 'unissued invoices are rejected');
       // NO20 accounting export

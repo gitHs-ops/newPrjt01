@@ -20,6 +20,31 @@ function splitBySite(s) {
   return gs.map((g, k) => { const tax = bk[k].reduce((n, b) => n + b.tax, 0), total = g.net + tax;
     return { ...s, lines: g.lines, buckets: bk[k], net: g.net, tax, total, prevBalance: 0, received: 0, carried: 0, grandTotal: total, siteName: g.name, page: k + 1, pages: gs.length }; });
 }
+// 現行の請求書（帳票③④⑤、2026-11-04）：印刷の legacyInvoice と同じ並び。A4 横・目盛線なし
+const zipOf = z => (z ? `〒 ${String(z).replace(/^(\d{3})-?(\d{4})$/, '$1-$2')}` : '');
+function legacySheet(s) {
+  const c = s.company, u = s.customer, ymd = d => String(d || '').slice(2).replaceAll('-', '/'), day = Number(String(s.closing).slice(8)), banks = c.banks || (c.bankText ? [c.bankText] : []);
+  const rows = [], heights = {}, merges = [], st = (v, k) => ({ v, s: k });
+  const ref = (r, c0, c1) => `${String.fromCharCode(65 + c0)}${r}:${String.fromCharCode(65 + c1)}${r}`;
+  const push = (cells, h) => { rows.push(cells); if (h) heights[rows.length - 1] = h; return rows.length; };
+  merges.push(ref(push([st('請　求　書', 'rTitleC')], 30), 0, 7));
+  if (siteNo(s) > 1) push(['', '', '', '', '', '', '', st(`${s.company.saisyutsu || '再発行'}（${siteNo(s)}回目）`, 'rSubR')]);
+  const left = [[zipOf(u.postcode), 'rText'], ...(u.postcode === undefined ? [[u.address || '', 'rText']] : [[[u.pref, u.addr1].filter(Boolean).join('　'), 'rText'], [u.addr2 || '', 'rText']]), ['', 'rText'], [`${u.name}　　御中`, 'rCust']];
+  const right = [[zipOf(c.postcode), 'rText'], [[c.pref, c.addr1].filter(Boolean).join('') + (c.addr2 ? ' ' + c.addr2 : '') || c.address || '', 'rText'], [c.name1 || c.name, 'rText'], ...(c.invoiceNo ? [[c.invoiceNo, 'rText']] : []), [`${c.name2 ? c.name2 + '　　' : ''}TEL. ${c.tel}`, 'rText'], ['', 'rText'], ...banks.map(b => [b, 'rSubR']), ...(banks.length ? [[c.name1 || c.name, 'rSubR']] : [])];
+  for (let k = 0; k < Math.max(left.length, right.length); k++) { const [lv, ls] = left[k] || ['', 'rText'], [rv, rs] = right[k] || ['', 'rText'], r = push([st(lv, ls), '', '', '', st(rv, rs)], 17); merges.push(ref(r, 0, 3), ref(r, 4, 7)); }
+  push([], 10);
+  push(['', '', '', '', '', st('請求年月日', 'rCenter'), st('得意先コード', 'rCenter'), st('締日', 'rCenter')]);
+  push(['', '', '', '', '', st(ymd(s.closing), 'rCenter'), st(u.code, 'rCenter'), st(day >= 28 ? 31 : day, 'rCenter')]);
+  push([], 10);
+  merges.push(ref(push([st('工　事　名', 'rCenter'), '', '', st('当月御買上額', 'rCenter'), '', st('消費税額', 'rCenter'), st('当月値引額', 'rCenter'), st('当月御請求額', 'rCenter')]), 0, 2), ref(rows.length, 3, 4));
+  merges.push(ref(push([st(`${s.siteName || ''}${s.pages > 1 ? `（${s.page}/${s.pages}）` : ''}`, 'rCenter'), '', '', st(s.net, 'rNum'), '', st(s.tax, 'rNum'), st(s.discount || 0, 'rNum'), st(s.total, 'rNum')]), 0, 2), ref(rows.length, 3, 4));
+  push([], 12);
+  push(['年月日', '伝票番号', '商品名', '数量', '単位', '単価', '金額', '備考'].map(h => st(h, 'rHead')), 18);
+  for (const l of s.lines) push([st(ymd(l.date), 'rCenter'), st(l.orderNo, 'rCell'), st(l.itemName, 'rCell'), st(l.quantity, 'rQty'), st(l.unit || '', 'rCenter'), st(l.price, 'rNum'), st(l.net, 'rNum'), st(`${l.siteName || ''}${l.remarks ? ' ' + l.remarks : ''}`, 'rCell')], 17);
+  push([], 8);
+  for (const b of s.buckets) { push(['', '', '', '', '', '', st(b.net, 'rNum'), st(`${b.rate}%`, 'rCell')]); push(['', '', '', '', '', '', st(b.tax, 'rNum'), st('税', 'rCell')]); }
+  return { name: `${s.invoiceId}_${s.customer.code}${s.pages > 1 ? '_' + s.page : ''}`.slice(0, 31), rows, heights, merges, gridlines: false, widths: [10, 11, 30, 10, 6, 11, 13, 34] };
+}
 // sites：{請求ID: [現場名]}（JSON、2026-10-27 現場別発行）。指定した現場はその現場の最新の発行分、指定が無い請求は最新の発行分で発行した現場
 export async function invoiceBook(c, q) {
   const ids = [...new Set(String(q.ids || '').split(',').map(Number).filter(Boolean))];
@@ -38,6 +63,7 @@ export async function invoiceBook(c, q) {
       pages.push(...splitBySite(doc).filter(s => !doc.sites || doc.sites.includes(siteLabel(s.siteName))));
     }
     for (const s of pages) {
+      if ((s.company.layout || 'legacy') !== 'proposal') { sheets.push(legacySheet(s)); continue; }
       // 印刷の請求書（提案書 スライド14 の様式）と同じ項目・見出し（指摘 No.17）。税率区分は印刷と同じく末尾に
       // 2026-10-29 整形版：A4 縦・目盛線なし。表題は中央、宛名は下線、右に発行元。請求額は4つの枠（税込は濃紺）、明細は薄い罫線
       const no = s.invoiceNo || 'K' + String(s.closing).slice(0, 7).replace('-', '') + String(s.invoiceId).padStart(5, '0');

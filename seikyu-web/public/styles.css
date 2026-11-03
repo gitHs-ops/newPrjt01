@@ -194,9 +194,26 @@ dialog.modal[open] { animation: rise .35s var(--ease) both; display: flex; flex-
 .invoice-doc th, .invoice-doc td { border: 1px solid #444; padding: 3px 6px; color: #000; background: none; position: static; }
 .invoice-doc .totals td { font-weight: 700; }
 .invoice-doc .stamp { font-size: 9pt; color: #444; }
+/* 現行の請求書（帳票③④⑤）：罫線なし、見出しの下だけ線（2026-11-04） */
+.invoice-doc.legacy-inv { font-size: 10.5pt; }
+.invoice-doc.legacy-inv h1 { width: 12em; margin: 0 auto 8px; font-size: 15pt; border-bottom: 2px solid #000; }
+.invoice-doc.legacy-inv p { margin: 0; line-height: 1.5; }
+.invoice-doc.legacy-inv .lg-to { padding-left: 8mm; min-width: 48%; }
+.invoice-doc.legacy-inv .lg-name { margin-top: 1.2em; font-size: 12pt; display: flex; justify-content: space-between; max-width: 120mm; }
+.invoice-doc.legacy-inv .lg-from { min-width: 44%; } .invoice-doc.legacy-inv .lg-from p { white-space: nowrap; }
+.invoice-doc.legacy-inv .lg-jv { display: flex; justify-content: space-between; gap: 2em; }
+.invoice-doc.legacy-inv .lg-bank { margin-top: 1em; text-align: right; } .invoice-doc.legacy-inv .lg-holder { text-align: right; }
+.invoice-doc.legacy-inv table { width: auto; border-collapse: collapse; }
+.invoice-doc.legacy-inv th, .invoice-doc.legacy-inv td { border: none; padding: 1px 8px; font-weight: 400; }
+.invoice-doc.legacy-inv .lg-key { margin-left: auto; text-align: center; } .invoice-doc.legacy-inv .lg-key th { padding: 1px 14px; }
+.invoice-doc.legacy-inv .lg-sum { width: 100%; } .invoice-doc.legacy-inv .lg-sum th { text-align: right; } .invoice-doc.legacy-inv .lg-sum .lg-site { text-align: center; width: 40%; }
+.invoice-doc.legacy-inv .lg-lines { width: 100%; margin-top: 14px; } .invoice-doc.legacy-inv .lg-lines th { border-bottom: 1px solid #000; }
+.invoice-doc.legacy-inv .lg-rate td { padding-top: 0; } .invoice-doc.legacy-inv tr.lg-rate:nth-of-type(odd) td, .invoice-doc.legacy-inv .lg-lines tr:not(.lg-rate) + .lg-rate td { padding-top: 8px; }
 .invoice-doc .reissue { color: #b91c1c; font-weight: 700; border: 2px solid #b91c1c; padding: 1px 8px; display: inline-block; }
 @media print {
   @page { size: A4; margin: 0; }
+  @page legacy { size: A4 landscape; margin: 0; }
+  .invoice-doc.legacy-inv { page: legacy; }
   body { background: #fff; } body::before, body::after { display: none; }
   .sidebar, .shell, #toast, dialog { display: none !important; }
   #print-area { display: block; }
