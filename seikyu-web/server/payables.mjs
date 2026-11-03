@@ -1,5 +1,5 @@
 import { check, Conflict, yen, qty, lineAmount, isoDate, isoMonth, text, dueDate, nextBusinessDay } from './domain.mjs';
-import { rows, one, nextNo, nextSlipNoFy, assertOpen, audit, postJournal, reverseJournal, line } from './db.mjs';
+import { rows, one, nextSlipNoFy, docNo, DOC_SERIES, assertOpen, audit, postJournal, reverseJournal, line } from './db.mjs';
 import { mustDecode, taxOf, CATALOG, decode } from './taxcode.mjs';
 import { companyPeriod } from './period.mjs';
 
@@ -51,7 +51,7 @@ export async function createPurchase(c, ctx, p) {
     }
   }
   check(out.length, '明細を入力してください'); check(out.length <= 99, '明細は99行以内です');
-  const no = await nextSlipNoFy(c, 'P', date), memo = text(p.memo, '摘要', 500, { required: false });
+  const no = await nextSlipNoFy(c, DOC_SERIES.purchase, date), memo = text(p.memo, '摘要', 500, { required: false });
   for (const [i, l] of out.entries())
     await c.query('INSERT INTO purchase (source_document_no,line_no,vendor_id,purchase_date,item_cd,quantity,unit_price,net_amount,source_tax_code,memo,purchase_kb,line_kind) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)',
       [no, i + 1, v.vendor_id, date, l.item, l.qty, l.price, l.net, l.tax, l.memo || memo, kind, l.lineKind]);
@@ -111,7 +111,8 @@ export async function listCounts(c, q = {}) {
     code: i.item_cd, name: i.item_nam || '', unit: i.unit || '', kind: i.item_product_kb === '2' ? '製品' : '商品・材料', quantity: counts[i.item_cd] ? Number(counts[i.item_cd].quantity) : null }));
   for (const code of Object.keys(counts)) if (!items.some(i => i.code === code)) items.push({ code, name: code, unit: '', kind: '', quantity: Number(counts[code].quantity) });
   const any = Object.values(counts)[0];
-  return { month, date, countedOn: any ? String(any.counted_on).slice(0, 10) : '', posted: await isPosted(c, month), registered: Object.keys(counts).length, items };
+  const no = (await one(c, "SELECT doc_no FROM app_doc_no WHERE kind='count' AND ref=?", [month]))?.doc_no || '';
+  return { month, date, no, countedOn: any ? String(any.counted_on).slice(0, 10) : '', posted: await isPosted(c, month), registered: Object.keys(counts).length, items };
 }
 export async function saveCounts(c, ctx, p) {
   const P = await companyPeriod(c), date = isoDate(p.date, '調査日'), month = P.labelOf(date); await assertOpen(c, date);
@@ -128,8 +129,9 @@ export async function saveCounts(c, ctx, p) {
     else await c.query("INSERT INTO inventory_count (period_start,location_code,item_cd,counted_on,quantity,valuation_price,valuation_amount,status) VALUES (?,'MAIN',?,?,?,0,0,'DRAFT')", [month + '-01', code, date, q.text]);
     saved++;
   }
-  await audit(c, ctx, 'inventory_count', month.replace('-', ''), 'inventory.count', { month, date, saved, cleared });
-  return { month, saved, cleared };
+  const no = saved ? await docNo(c, 'count', month, date) : '';
+  await audit(c, ctx, 'inventory_count', month.replace('-', ''), 'inventory.count', { month, date, saved, cleared, no });
+  return { month, saved, cleared, no };
 }
 // 在庫計上（C01）の直近の伝票番号（結果のポップアップ表示用）
 const lastInvSlip = async (c, end) => (await one(c, "SELECT n.slip_no FROM journal_entry e JOIN app_slip_no n ON n.journal_id=e.journal_id WHERE e.pattern_code='C01' AND e.journal_date=? ORDER BY e.journal_id DESC LIMIT 1", [end]))?.slip_no || '';
@@ -263,7 +265,7 @@ export async function createExpense(c, ctx, p) {
   const extTax = ls.filter(l => l.excl).reduce((n, l) => n + l.taxAmt, 0);
   // 10/21 打合せ：定時請求の合計金額は現行どおり手入力し、明細の合計と一致するかチェックする
   if (kind === 'PAYABLE' && p.total !== undefined) { const t = yen(p.total, '合計金額', { max: 9999999999, positive: false }); check(t === amount, `合計金額（${t.toLocaleString('ja-JP')}円）と明細の合計（${amount.toLocaleString('ja-JP')}円）が一致しません`); }
-  const memo = text(p.memo || ls[0].memo || (kind === 'PAYABLE' ? '定時請求' : '小口現金'), '摘要', 500), no = await nextNo(c, 'expense');
+  const memo = text(p.memo || ls[0].memo || (kind === 'PAYABLE' ? '定時請求' : '小口現金'), '摘要', 500), no = await nextSlipNoFy(c, kind === 'PAYABLE' ? DOC_SERIES.payable : DOC_SERIES.petty, date);
   let billNo = null;
   if (kind === 'PAYABLE') {
     const m = await one(c, "SELECT MAX(CAST(bill_no AS INTEGER)) n FROM expense_document WHERE vendor_id=? AND bill_no ~ '^[0-9]+$'", [v.vendor_id]);
@@ -336,7 +338,7 @@ export async function createPayment(c, ctx, p) {
   }
   const total = allocs.reduce((n, a) => n + a.amount, 0), bank = total - fee - offset - safety;
   check(bank >= 0, '手数料・相殺額が支払額を超えています');
-  const no = await nextNo(c, 'payment');
+  const no = await nextSlipNoFy(c, DOC_SERIES.payment, date);
   const [r] = await c.query("INSERT INTO payment (payment_no,vendor_id,paid_on,bank_account_id,bank_amount,fee_amount,offset_amount,status,idempotency_key) VALUES (?,?,?,?,?,?,?,'POSTED',?)", [no, v.vendor_id, date, v.bank_account_id, bank, fee, offset, idem]);
   for (const a of allocs) await c.query('INSERT INTO payment_allocation (payment_id,expense_id,amount) VALUES (?,?,?)', [r.insertId, a.id, a.amount]);
   await postJournal(c, { date, pattern: 'F01', sourceType: 'payment', sourceId: r.insertId, lines: [line('D', '4121', total, { vendor: v.vendor_id, tax: '9' }), line('C', '1112', bank, { sub: bankCode, tax: '9' }),

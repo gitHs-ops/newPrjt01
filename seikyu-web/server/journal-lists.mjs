@@ -1,7 +1,7 @@
 // ② 自動仕訳リスト（帳票一覧⑥⑦⑨・9/17資料ア〜エ）。現行 HAR363/HAR413/HAR152/HAR733/CS5785 と同じ「借方・貸方を1行に併記」形式。
 // 削減案5により全リストを同一フォーマットで出力する。エ（銀行別随時支払一覧表）のみ別形式。
 import { check, isoDate, fromNum, today } from './domain.mjs';
-import { rows } from './db.mjs';
+import { rows, invoiceNos } from './db.mjs';
 import { xlsx } from './xlsx.mjs';
 
 export const LISTS = {
@@ -32,7 +32,9 @@ export async function journalList(c, q) {
   // Source documents for 摘要 (memo) columns.
   const src = new Map(), srcIds = [...new Set(es.filter(e => e.source_type === def.source).map(e => Number(e.source_id)))];
   if (srcIds.length) {
-    if (def.source === 'billing_head') for (const r of await rows(c, `SELECT h.invoice_id id, h.closing_date, h.customers_cd, c.customers_name FROM billing_head h LEFT JOIN client_m c ON c.customers_cd=h.customers_cd WHERE h.invoice_id IN (${ph(srcIds)})`, srcIds)) src.set(r.id, { no: 'K' + fromNum(r.closing_date).slice(0, 7).replace('-', '') + String(r.id).padStart(5, '0'), memo2: `${fromNum(r.closing_date)}締` });
+    const invRows = def.source === 'billing_head' ? await rows(c, `SELECT h.invoice_id id, h.closing_date, h.customers_cd, c.customers_name FROM billing_head h LEFT JOIN client_m c ON c.customers_cd=h.customers_cd WHERE h.invoice_id IN (${ph(srcIds)})`, srcIds) : [];
+    const invNo = await invoiceNos(c, invRows.map(r => ({ id: r.id, closing: fromNum(r.closing_date) })));
+    for (const r of invRows) src.set(r.id, { no: invNo.get(Number(r.id)), memo2: `${fromNum(r.closing_date)}締` });
     if (def.source === 'receipt') {
       for (const r of await rows(c, `SELECT receipt_id id, receipt_no FROM receipt WHERE receipt_id IN (${ph(srcIds)})`, srcIds)) src.set(r.id, { no: r.receipt_no, closings: [], note: '' });
       for (const a of await rows(c, `SELECT a.receipt_id, h.closing_date FROM receipt_allocation a JOIN billing_head h ON h.invoice_id=a.invoice_id WHERE a.receipt_id IN (${ph(srcIds)}) ORDER BY a.receipt_id, a.invoice_id`, srcIds)) src.get(a.receipt_id)?.closings.push(fromNum(a.closing_date));

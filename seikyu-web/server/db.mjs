@@ -50,6 +50,24 @@ export async function nextSlipNoFy(c, series, date) {
   await c.query('UPDATE app_slip_series SET last_no=? WHERE series=?', [n, key]);
   return formatSlipNoFy(series, fy, n);
 }
+// 伝票の番号（2026-11-03 ユーザー指示）：英字＋処理年度4桁＋5桁連番（例 N202600001）。仕訳の伝票番号（SLIP_SERIES）とは別の系列。
+//  請求書 C・入金 N・定時請求 T・小口現金 G・支払（銀行別随時支払）Z・実在庫 V・商品仕入 P。請求書の K（年月＋請求ID）は小口現金の自動仕訳 K と重なるためやめる。
+//  登録済みの伝票の番号は変えない（発行済みの請求書は控えの番号のまま）
+export const DOC_SERIES = { invoice: 'C', receipt: 'N', payable: 'T', petty: 'G', payment: 'Z', count: 'V', purchase: 'P' };
+// 番号の列を持たない請求書（ref＝請求ID）・実在庫（ref＝月度）は app_doc_no に保存する。登録済みならその番号
+export async function docNo(c, kind, ref, date) {
+  const r = await one(c, 'SELECT doc_no FROM app_doc_no WHERE kind=? AND ref=?', [kind, String(ref)]); if (r) return r.doc_no;
+  const no = await nextSlipNoFy(c, DOC_SERIES[kind], date);
+  await c.query('INSERT INTO app_doc_no (kind,ref,doc_no) VALUES (?,?,?)', [kind, String(ref), no]);
+  return no;
+}
+// 請求書番号：app_doc_no の C 番号。無い（2026-11-03 より前の）請求は現行の K＋締日の年月＋請求ID5桁
+export const legacyInvoiceNo = (closing, id) => 'K' + String(closing).slice(0, 7).replace('-', '') + String(id).padStart(5, '0');
+export async function invoiceNos(c, list) {
+  const ids = list.map(x => String(x.id)), m = new Map();
+  if (ids.length) for (const r of await rows(c, `SELECT ref, doc_no FROM app_doc_no WHERE kind='invoice' AND ref IN (${ids.map(() => '?').join(',')})`, ids)) m.set(r.ref, r.doc_no);
+  return new Map(list.map(x => [Number(x.id), m.get(String(x.id)) || legacyInvoiceNo(x.closing, x.id)]));
+}
 // 売掛金計上（A01）は締日単位で一括計上し、1伝票に45得意先（1請求＝1得意先）まで載せて分割する（Q08：現行 R00829・R00830 が借方45行、R00831 が残り）。
 export const AR_SLIP_MAX = 45;
 // slip … 同じ伝票にまとめる仕訳の共有状態 { no, count, max }（請求締め1回分）。省略時は1仕訳＝1伝票。

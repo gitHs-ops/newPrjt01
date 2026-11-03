@@ -46,7 +46,7 @@ export async function slipNoBackfill(pool, { dryRun = false } = {}) {
         if (hasKb) for (const id of g.ids) await c.query("UPDATE kb_slip SET memo=CAST(? AS text) || substr(memo, CAST(? AS int)) WHERE source='SEIKYU' AND source_ref=? AND memo LIKE ?", [no, g.old.length + 1, String(id), g.old + ' %']);
         if (g.old !== no) map.push(`${g.old}→${no}`);
       }
-      await c.query('DELETE FROM app_slip_series');
+      await c.query("DELETE FROM app_slip_series WHERE series ~ '^[RBSKUI]?[0-9]{4}$'"); // 仕訳の系列だけ（伝票の番号 C・N・T・G・Z・V・P は残す）
       for (const [k, n] of Object.entries(counter)) await c.query('INSERT INTO app_slip_series (series,last_no) VALUES (?,?)', [k, n]);
       summary = { slips: groups.size, changed: map.length, counter, sample: map.slice(0, 50) };
       await audit(c, null, 'app_slip_no', 'all', 'slip.renumber', summary);
@@ -124,6 +124,8 @@ export async function prepare(pool, env = process.env) {
   await pool.query(`CREATE TABLE IF NOT EXISTS app_slip_series (series varchar(4) COLLATE "C" PRIMARY KEY, last_no integer NOT NULL)`);
   await pool.query('ALTER TABLE app_slip_series ALTER COLUMN series TYPE varchar(10)'); // 伝票の種類＋年度（例 R2026）をキーにする（2026-10-28）
   await pool.query(`CREATE TABLE IF NOT EXISTS app_slip_no (journal_id bigint PRIMARY KEY, slip_no varchar(12) COLLATE "C" NOT NULL)`);
+  // 番号の列を持たない伝票（請求書・実在庫）の番号（2026-11-03）
+  await pool.query(`CREATE TABLE IF NOT EXISTS app_doc_no (kind varchar(10) COLLATE "C" NOT NULL, ref varchar(40) COLLATE "C" NOT NULL, doc_no varchar(20) COLLATE "C" NOT NULL UNIQUE, PRIMARY KEY (kind, ref))`);
   // 入金額配賦登録（現行 HJW030）：NO36 入金明細及び配分表の行ごとに、構成員別の配分額を手で調整した値（parts＝{構成員コード: 金額} の JSON）
   // 請求データ（得意先×現場×出荷日×商品のまとめ、指摘 No.9）：請求データ作成のたびに請求ごとに作り直す。請求の取消で一緒に消える
   await pool.query(`CREATE TABLE IF NOT EXISTS app_billing_line (invoice_id bigint NOT NULL REFERENCES billing_head (invoice_id) ON DELETE CASCADE, line_no integer NOT NULL,

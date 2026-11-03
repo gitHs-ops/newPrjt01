@@ -94,6 +94,7 @@ test('workflow against PostgreSQL business tables', { skip, timeout: 900000 }, a
       const half = inv.total - 1000;
       const [r1, r2] = await Promise.all([1, 2].map(n => a.call('/api/receipts', { idempotencyKey: `c${n}-${tag}`, date: d, customer: C, bank: half, bankCode: 'B' + tag, allocations: [{ invoiceId, amount: half }] })));
       assert.deepEqual([r1.status, r2.status].sort(), [200, 400]);
+      assert.match([r1, r2].find(r => r.status === 200).data.no, /^N\d{9}$/, '入金No＝N＋年度4桁＋5桁（2026-11-03）');
       const again = await a.call('/api/receipts', { idempotencyKey: r1.status === 200 ? `c1-${tag}` : `c2-${tag}`, date: d, customer: C, bank: half, bankCode: 'B' + tag, allocations: [{ invoiceId, amount: half }] });
       assert.equal(again.data.duplicate, true);
       // NO17: deposit applied up to its balance, cooperation fee deducted
@@ -125,9 +126,10 @@ test('workflow against PostgreSQL business tables', { skip, timeout: 900000 }, a
       assert.equal(ven2.deferMin, '30000');
       assert.equal((await a.call('/api/masters/vendors', { mode: 'update', record: { ...ven2, payMonths: ven.payMonths, payDay: ven.payDay, deferMin: '' } })).status, 200);
       const doc = await a.call('/api/expenses', { kind: 'PAYABLE', date: d, vendor: 'V' + tag, account: '8231', taxCode: '10%', amount: 50000, memo: '試験' });
-      assert.equal(doc.status, 200, JSON.stringify(doc.data));
+      assert.equal(doc.status, 200, JSON.stringify(doc.data)); assert.match(doc.data.no, /^T\d{9}$/, '定時請求No＝T＋年度4桁＋5桁');
       assert.equal((await a.call('/api/payments', { idempotencyKey: 'p' + tag, date: d, vendor: 'V' + tag, bankCode: 'B' + tag, allocations: [{ expenseId: doc.data.id, amount: 60000 }] })).status, 400);
-      assert.equal((await a.call('/api/payments', { idempotencyKey: 'p' + tag, date: d, vendor: 'V' + tag, bankCode: 'B' + tag, allocations: [{ expenseId: doc.data.id, amount: 50000 }] })).status, 200);
+      const pay = await a.call('/api/payments', { idempotencyKey: 'p' + tag, date: d, vendor: 'V' + tag, bankCode: 'B' + tag, allocations: [{ expenseId: doc.data.id, amount: 50000 }] });
+      assert.equal(pay.status, 200); assert.match(pay.data.no, /^Z\d{9}$/, '支払No＝Z＋年度4桁＋5桁');
       assert.equal((await a.call('/api/expenses/reverse', { id: doc.data.id })).status, 400, 'paid document locked');
       const u = await a.call('/api/users', { loginId: 'viewer' + tag, name: '参照者', role: 5, password: 'viewer-password-01', enabled: true }); assert.equal(u.status, 200);
       const v = client(); assert.equal((await v.login('viewer' + tag, 'viewer-password-01')).status, 200);
@@ -219,6 +221,10 @@ test('workflow against PostgreSQL business tables', { skip, timeout: 900000 }, a
       ok(await a.call('/api/masters/items', { mode: 'create', record: { code: 'M' + tag, name: '試験材料', unit: '01', price: 500, kind: '1', active: true } }));
       const c1 = await a.call('/api/inventory/counts', { date: '2032-03-05', lines: [{ item: 'M' + tag, quantity: '120' }] }); ok(c1);
       const c2 = await a.call('/api/inventory/counts', { date: '2032-04-05', lines: [{ item: 'M' + tag, quantity: '100' }] }); ok(c2);
+      // 実在庫の伝票No＝V＋年度4桁＋5桁、月度ごとに1つ（修正しても同じ番号。2026-11-03）
+      assert.match(c1.data.no, /^V\d{9}$/); assert.notEqual(c1.data.no, c2.data.no);
+      assert.equal((await a.call('/api/inventory/counts', { date: '2032-04-05', lines: [{ item: 'M' + tag, quantity: '100' }] })).data.no, c2.data.no);
+      assert.equal((await a.call('/api/inventory/counts?date=2032-04-05')).data.no, c2.data.no);
       const mm = async () => (await a.call('/api/reports/misc/material-ledger?month=' + c2.data.month)).data.items.find(x => x.item === 'M' + tag);
       let mt = await mm(); assert.deepEqual([mt.prev.value, mt.end.value, mt.used.qty, mt.used.value, mt.price], [60000, 50000, 20, 10000, 500]);
       // 在庫登録リスト：未計上分は在庫計上と同じ計算の見込み評価（2026-11-03）
@@ -425,8 +431,9 @@ test('workflow against PostgreSQL business tables', { skip, timeout: 900000 }, a
       // 画面は得意先ごとに呼び出す：受け取った伝票番号を渡すと同じ伝票に続けて載る
       const run2 = ok(await a.call('/api/billing/run', { month: pm, closing: 15, customers: [cs[2]], slip: run.slip })); assert.equal(run2.slip, run.slip); run.ids.push(...run2.ids);
       const end = pm + '-15', l = ok(await a.call('/api/reports/journal-list?' + new URLSearchParams({ pattern: 'A01', from: end, to: end })));
-      // 元伝票は請求書番号と同じ「K＋締切年月6桁＋請求ID 5桁」（2026-10-28 e27f07e）
-      const kno = id => 'K' + pm.replace('-', '') + String(id).padStart(5, '0');
+      // 元伝票は請求書番号（C＋年度4桁＋5桁。2026-11-03 に K＋締切年月＋請求ID から変更）
+      const [cnos] = await pool.query("SELECT ref, doc_no FROM app_doc_no WHERE kind='invoice'"), kmap = new Map(cnos.map(r => [Number(r.ref), r.doc_no]));
+      const kno = id => kmap.get(Number(id)); for (const id of run.ids) assert.match(kno(id) || '', /^C\d{9}$/);
       const mine = l.slips.filter(sl => run.ids.some(id => sl.sourceNo.includes(kno(id))));
       assert.equal(mine.length, 1, 'both invoices on one slip'); assert.match(mine[0].sourceNo, /（3件）/); assert.equal(mine[0].pairs.length, 6);
       const each = ok(await a.call('/api/reports/journal-list?' + new URLSearchParams({ pattern: 'A01', from: end, to: end, group: 'none' }))).slips.filter(sl => run.ids.some(id => sl.sourceNo === kno(id)));

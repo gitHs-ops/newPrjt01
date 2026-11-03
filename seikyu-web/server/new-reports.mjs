@@ -1,7 +1,7 @@
 // 2026-10-21 再構成で追加した帳票（添付帳票⑭⑰・10/19 打合せの振込先一覧）。画面・印刷・Excel は共通形式
 // { title, ref, sub, columns: [{ key, label, num }], groups: [{ title, rows, totals }], totals } で返し、app.js / genericBook で描画する。
 import { check, isoDate, isoMonth, today } from './domain.mjs';
-import { rows } from './db.mjs';
+import { rows, one } from './db.mjs';
 import { xlsx } from './xlsx.mjs';
 import { PURCHASE_KINDS, listExpenses, inventoryPrice } from './payables.mjs';
 import { companyPeriod } from './period.mjs';
@@ -46,10 +46,11 @@ export async function inventoryRegister(c, q) {
   // 未計上（DRAFT）は評価額 0 のため、在庫計上と同じ計算の見込みで表示する（2026-11-03 ユーザー指摘：評価単価が 0）
   const draft = rs.some(r => r.status === 'DRAFT'), { from, to } = draft ? (await companyPeriod(c)).monthRange(month) : {};
   for (const r of rs) if (r.status === 'DRAFT') { r.valuation_price = await inventoryPrice(c, r.item_cd, month, from, to); r.valuation_amount = Math.round(num(r.quantity) * r.valuation_price); }
+  const no = (await one(c, "SELECT doc_no FROM app_doc_no WHERE kind='count' AND ref=?", [month]))?.doc_no || ''; // 実在庫の伝票No（V＋年度＋連番。2026-11-03）
   const groups = [['2', '製品'], ['1', '材料・商品']].map(([k, t]) => ({ title: t, rows: rs.filter(r => (k === '2') === (r.item_product_kb === '2')).map(r => ({ code: r.item_cd, name: r.item_nam || '', qty: num(r.quantity), unit: r.unit || '', price: num(r.valuation_price), value: num(r.valuation_amount) })) }))
     .filter(g => g.rows.length);
   for (const g of groups) g.totals = { value: sum(g.rows, 'value') };
-  return { title: '在庫登録リスト', ref: '帳票⑰（HAR061）', month, sub: `${month} 月度（${monthEnd(month)} 現在）${draft ? '　未計上分の評価は在庫計上時の計算による見込み' : ''}`,
+  return { title: '在庫登録リスト', ref: '帳票⑰（HAR061）', month, sub: `${month} 月度（${monthEnd(month)} 現在）${no ? '　伝票No ' + no : ''}${draft ? '　未計上分の評価は在庫計上時の計算による見込み' : ''}`,
     columns: [{ key: 'code', label: 'コード' }, { key: 'name', label: '商品・製品名' }, { key: 'qty', label: '在庫数量', num: 1 }, { key: 'unit', label: '単位' }, { key: 'price', label: '評価単価', num: 1 }, { key: 'value', label: '評価額', num: 1 }],
     groups, totals: { value: groups.reduce((n, g) => n + g.totals.value, 0) } };
 }

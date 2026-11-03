@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { check, Conflict, yen, qty, taxOf, isoDate, isoMonth, toNum, fromNum, period, dueDate, closingDay, text, RATES, METHODS, CREDIT, today } from './domain.mjs';
-import { rows, one, nextNo, assertOpen, audit, stamp, postJournal, reverseJournal, line, AR_SLIP_MAX } from './db.mjs';
+import { rows, one, nextSlipNoFy, docNo, invoiceNos, DOC_SERIES, assertOpen, audit, stamp, postJournal, reverseJournal, line, AR_SLIP_MAX } from './db.mjs';
 import { mustDecode, decode } from './taxcode.mjs';
 
 const site = s => { const [code = '', suffix = ''] = String(s || '').split('|'); return { code, suffix }; };
@@ -321,6 +321,7 @@ export async function runBilling(c, ctx, { month, closing, customers, slip: cont
       const [r] = await c.query("INSERT INTO billing_head (closing_yymm,closingdd,closing_date,customers_cd,field_cd,field_suffix,claim_processing_period,money,consumption_tax,payment_method_cd,invoice_proc_flag,invoice_flag,update_day,update_time,update_pgm,update_ws) VALUES (?,?,?,?,'','',?,0,0,1,'1','0',?,?,?,?)",
         [yymm, day, toNum(end), cu.customers_cd, toNum(siteDue(end, site)), st.update_day, st.update_time, st.update_pgm, st.update_ws]);
       h = { invoice_id: r.insertId, isNew: true };
+      await docNo(c, 'invoice', r.insertId, end);
     }
     for (const s2 of list) {
       await c.query("INSERT INTO billing_detail (closing_yymm,closingdd,claim_processing_period,customers_cd,sales_date,order_no,ship_kb,item_cd,item_name,quantity,unit_cd,unit_price,money,tax_kb,tax_rate,consumption_tax,remarks,field_cd,field_suffix,field_name,payment_method_cd,shipping_kb,invoice_issud_flag,update_day,update_time,update_pgm,update_ws) VALUES (?,?,?,?,?,?,?,?,?,?,NULL,?,?,?,?,?,?,?,?,?,?,NULL,'0',?,?,?,?)",
@@ -524,7 +525,7 @@ async function snapshot(c, inv) {
   const s = await statement(c, inv.customer, inv.month, inv.closingDay);
   const buckets = RATES.map(rate => { const net = inv.lines.filter(l => l.taxRate === rate).reduce((n, l) => n + l.net, 0); return { rate, net, tax: bucketTax(net, rate) }; }).filter(b => b.net);
   return {
-    company: await companyProfile(c), discount: 0, invoiceNo: 'K' + String(inv.closing).slice(0, 7).replace('-', '') + String(inv.id).padStart(5, '0'),
+    company: await companyProfile(c), discount: 0, invoiceNo: (await invoiceNos(c, [inv])).get(Number(inv.id)),
     customer: { code: inv.customer, name: cu?.customers_name || inv.customerName, address: cu?.addr1 || '', tel: cu?.tel_no || '' },
     site: { key: inv.site, name: inv.siteName }, invoiceId: inv.id, periodStart: s.start, closing: inv.closing, due: inv.due,
     demo: process.env.SHOW_DEMO_NOTICE !== '0', prevBalance: s.prevBalance, received: s.received, carried: s.carried, net: inv.net, tax: inv.tax, total: inv.total, grandTotal: s.carried + inv.total, buckets, lines: await summaryLines(c, [inv.id], inv.lines),
@@ -686,7 +687,7 @@ export async function createReceipt(c, ctx, p) {
   check(overpay >= 0, '消込合計が入金合計（手数料・協力会費・預り金充当・値引を含む）を超えています');
   check(overpay === 0 || p.overpayToDeposit === true, '入金合計と消込合計が一致しません（差額を預り金として受け入れる場合は「差額を預り金で受入」を選択）');
   check(overpay === 0 || parts.DEPOSIT === 0, '預り金充当と過入金の預り金受入は同時に処理できません');
-  const no = await nextNo(c, 'receipt');
+  const no = await nextSlipNoFy(c, DOC_SERIES.receipt, date);
   const [r] = await c.query("INSERT INTO receipt (receipt_no,customers_cd,receipt_date,received_amount,settlement_amount,status,idempotency_key,created_at) VALUES (?,?,?,?,?,'POSTED',?,UTC_TIMESTAMP(6))", [no, cust.customers_cd, date, received, settlement, idem]);
   let n = 0;
   // 現行入金処理の内訳2・工種・消費税額・摘要2（p.detail：{ FEE: { sub2, work, taxAmt, memo2 }, … }）。消費税額は 0〜入金額
