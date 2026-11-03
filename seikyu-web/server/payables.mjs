@@ -258,8 +258,11 @@ export async function createExpense(c, ctx, p) {
     const isAdv = acc.account_code === ADVANCE_ACCOUNT;
     if (isAdv) { check(kind === 'PAYABLE', `${label}: 業者立替金は定時請求で入力してください`); check(amount < 0, `${label}: 業者立替金（相殺）はマイナスで入力してください`); l = { ...l, taxCode: '090' }; }
     // 内税（1桁目 1）：金額は税込、消費税は内数。外税（1桁目 2・空白）：金額は税抜、消費税を上乗せ（現行 HAW050 の「外税消費税」）
-    const d = mustDecode(l.taxCode || '141', `${label}の処税率`), tax = d.code, taxAmt = Math.sign(amount) * taxOf(Math.abs(amount), tax), excl = !!d.excl;
-    ls.push({ account: acc.account_code, sub, tax, amount, excl, taxAmt, gross: excl ? amount + taxAmt : amount, memoCode: text(l.memoCode, `${label}の摘要コード`, 7, { required: false, pattern: /^\d{1,7}$/ }), memo: text(l.memo, `${label}の摘要名`, 500, { required: false }), lineVendor: lv, linePayee: lpayee });
+    const d = mustDecode(l.taxCode || '141', `${label}の処税率`), tax = d.code, excl = !!d.excl;
+    // 小口現金の支払額は常に税込（画面「支払額（税込）」。2026-11-04）：外税の処税率でも消費税は支払額から抜き出し、科目は税抜・仮払消費税 1465 に分ける（上乗せしない）
+    const pettyEx = kind === 'PETTY_CASH' && excl && d.taxable, r10 = Math.round(d.rate * 10);
+    const taxAmt = pettyEx ? Math.sign(amount) * Math.floor(Math.abs(amount) * r10 / (1000 + r10)) : Math.sign(amount) * taxOf(Math.abs(amount), tax);
+    ls.push({ account: acc.account_code, sub, tax, amount: pettyEx ? amount - taxAmt : amount, excl, taxAmt, gross: pettyEx ? amount : excl ? amount + taxAmt : amount, memoCode: text(l.memoCode, `${label}の摘要コード`, 7, { required: false, pattern: /^\d{1,7}$/ }), memo: text(l.memo, `${label}の摘要名`, 500, { required: false }), lineVendor: lv, linePayee: lpayee });
   }
   check(ls.length, '明細を入力してください'); check(ls.length <= 99, '明細は99行以内です');
   const advUse = -ls.filter(l => l.account === ADVANCE_ACCOUNT).reduce((n, l) => n + l.amount, 0);

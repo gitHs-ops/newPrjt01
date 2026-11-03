@@ -399,6 +399,10 @@ test('workflow against PostgreSQL business tables', { skip, timeout: 900000 }, a
       assert.equal(pcl.length, 1); assert.equal(pcl[0].amount, 3300); assert.equal(pcl[0].taxRate, 10); assert.deepEqual(pcl[0].lines.map(l => [l.vendor, l.memo]), [['V' + tag, 'ボールペン'], ['V' + tag, '部品']]);
       const pb2 = ok(await a.call('/api/reports/misc/petty-book?' + new URLSearchParams({ from: d, to: d })));
       assert.ok(pb2.rows.some(r => r.amount === 1100 && r.payee));
+      // 小口現金の支払額は税込：外税の処税率（241）でも上乗せせず、1,100 円から消費税 100 円を抜き出す（2026-11-04）
+      const pex = ok(await a.call('/api/expenses', { kind: 'PETTY_CASH', date: d, lines: [{ payee: '外税テスト', account: '8231', taxCode: '241', amount: 1100, memo: '外税' }] }));
+      const pexl = ok(await a.call('/api/expenses?' + new URLSearchParams({ kind: 'PETTY_CASH', month: d.slice(0, 7) }))).find(r => r.id === pex.id);
+      assert.equal(pexl.amount, 1100);
       // 業者マスタにない支払先は支払先名の手入力（2026-11-03）。コードも名称も無い行・マスタにないコードはエラー
       const pcf = ok(await a.call('/api/expenses', { kind: 'PETTY_CASH', date: d, lines: [{ payee: '文具店', account: '8231', taxCode: '141', amount: 100, memo: 'のり' }] }));
       const pcfl = ok(await a.call('/api/expenses?' + new URLSearchParams({ kind: 'PETTY_CASH', month: d.slice(0, 7) }))).find(r => r.id === pcf.id);
