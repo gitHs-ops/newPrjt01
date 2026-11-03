@@ -27,7 +27,7 @@ export async function listPurchases(c, q = {}) {
 async function assertNotInventoried(c, date) {
   const month = (await companyPeriod(c)).labelOf(date);
   const r = await one(c, "SELECT period_start FROM inventory_count WHERE location_code='MAIN' AND status='POSTED' AND period_start>=? ORDER BY period_start LIMIT 1", [month + '-01']);
-  check(!r, `${month} 月度${r && String(r.period_start).slice(0, 7) !== month ? `より後の ${String(r.period_start).slice(0, 7)} 月度` : ''}は在庫計上済みのため、仕入の登録・取消はできません。在庫計上を取消してから行ってください`);
+  check(!r, `${month} 月度${r && String(r.period_start).slice(0, 7) !== month ? `より後の ${String(r.period_start).slice(0, 7)} 月度` : ''}は在庫計上済みのため、仕入の登録・取消はできません`); // 在庫計上の取消ボタンは画面から削除したので案内しない（2026-11-03）
 }
 export async function createPurchase(c, ctx, p) {
   const date = isoDate(p.date, '仕入日'); await assertOpen(c, date); await assertNotInventoried(c, date);
@@ -127,7 +127,7 @@ export async function listCounts(c, q = {}) {
 }
 export async function saveCounts(c, ctx, p) {
   const P = await companyPeriod(c), date = isoDate(p.date, '調査日'), month = P.labelOf(date); await assertOpen(c, date);
-  check(!(await isPosted(c, month)), `${month} 月度は在庫計上済みです。修正するときは在庫計上を取消してください`);
+  check(!(await isPosted(c, month)), `${month} 月度は在庫計上済みのため変更できません`);
   check(Array.isArray(p.lines), '在庫数量を入力してください');
   let saved = 0, cleared = 0;
   for (const l of p.lines) {
