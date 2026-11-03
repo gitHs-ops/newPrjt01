@@ -83,6 +83,9 @@ test('workflow against PostgreSQL business tables', { skip, timeout: 900000 }, a
       const part = await a.call('/api/invoices/issue', { ids: [invoiceId], sites: { [invoiceId]: [names[1]] } }); assert.equal(part.status, 200, JSON.stringify(part.data));
       assert.deepEqual(part.data.documents[0].sites, [names[1]]);
       assert.deepEqual(await sitesOf(), { [names[0]]: 0, [names[1]]: 1 });
+      // HAR431：現場別発行した得意先は現場ごとの行（2026-11-03）
+      const split = (await a.call(`/api/reports/billing-list?month=${month}&closing=31`)).data.rows.find(r => r.customer === C);
+      assert.equal(split.bookRows.length, 2); assert.deepEqual(split.bookRows.map(r => r.siteName).sort(), [...names].sort());
       assert.equal((await a.call(`/api/invoices/${invoiceId}/document?site=${encodeURIComponent(names[0])}`)).status, 400, 'unissued site has no copy');
       assert.equal((await a.call('/api/invoices/issue', { ids: [invoiceId], sites: { [invoiceId]: ['存在しない現場'] } })).status, 400);
       const issued = await a.call('/api/invoices/issue', { ids: [invoiceId] }); assert.equal(issued.status, 200);
@@ -412,6 +415,8 @@ test('workflow against PostgreSQL business tables', { skip, timeout: 900000 }, a
       assert.equal(docs[0].company.invoiceNo, 'T4180001002429'); assert.ok(docs[0].company.bankText.includes('7777777'), docs[0].company.bankText); assert.equal(docs[0].lines[0].unit, 't');
       const lst = ok(await a.call('/api/reports/billing-list?' + new URLSearchParams({ month: curMonth, closing: cl }))).rows.find(r => r.customer === K);
       assert.equal(lst.sites.length, 1); assert.equal(lst.sites[0].total, 3300);
+      // HAR431：現場別発行していない請求は得意先 1 行・現場名は空欄（2026-11-03）
+      assert.equal(lst.bookRows.length, 1); assert.equal(lst.bookRows[0].siteName, ''); assert.equal(lst.bookRows[0].total, 3300);
       // NO8 grouping: A01 list slips are per closing date
       const a01 = ok(await a.call('/api/reports/journal-list?' + new URLSearchParams({ pattern: 'A01', from: pm + '-01', to: d })));
       for (const sl of a01.slips) { const dr = sl.pairs.reduce((n, p) => n + (p.dr?.amount || 0), 0), cr = sl.pairs.reduce((n, p) => n + (p.cr?.amount || 0), 0); assert.equal(dr, cr); }

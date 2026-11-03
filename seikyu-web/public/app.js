@@ -860,15 +860,15 @@ async function billingReport(kind, month, closing, unissued = false, customer = 
   const title = kind === 'list' ? '請求一覧表（確認用）' : unissued ? '請求書発行確認表（未発行を含む）' : '請求書発行確認表';
   let body;
   if (kind === 'list') {
-    // 現行 HAR431：得意先・現場名・売上額・税額・値引額・請求額、得意先計・会社合計
+    // 現行 HAR431：得意先・現場名・売上額・税額・値引額・請求額、得意先計・会社合計。得意先ごとに 1 行（現場別発行の得意先だけ現場ごと）、得意先計は 2 行以上のときだけ、状態は出さない（2026-11-03）
     let html = '';
     for (const r of d.rows) {
-      r.sites.forEach((x, i) => { html += `<tr><td>${i ? '' : esc(r.customer)}</td><td>${i ? '' : esc(r.name)}</td><td>${esc(x.siteName)}</td><td class="num">${yen(x.net)}</td><td class="num">${yen(x.tax)}</td><td class="num">${yen(x.discount)}</td><td class="num">${yen(x.total)}</td><td>${i ? '' : badge(r.stateName, r.state === 'issued' ? 'green' : r.state === 'draft' ? '' : 'gray')}</td></tr>`; });
-      html += `<tr class="subtotal"><td></td><td colspan="2" class="right">得意先計</td><td class="num">${yen(r.net)}</td><td class="num">${yen(r.tax)}</td><td class="num">0</td><td class="num">${yen(r.current)}</td><td></td></tr>`;
+      r.bookRows.forEach((x, i) => { html += `<tr><td>${i ? '' : esc(r.customer)}</td><td>${i ? '' : esc(r.name)}</td><td>${esc(x.siteName)}</td><td class="num">${yen(x.net)}</td><td class="num">${yen(x.tax)}</td><td class="num">${yen(x.discount)}</td><td class="num">${yen(x.total)}</td></tr>`; });
+      if (r.bookRows.length > 1) html += `<tr class="subtotal"><td></td><td colspan="2" class="right">得意先計</td><td class="num">${yen(r.net)}</td><td class="num">${yen(r.tax)}</td><td class="num">0</td><td class="num">${yen(r.current)}</td></tr>`;
     }
     const sum = k => d.rows.reduce((n, r) => n + r[k], 0);
-    body = d.rows.length ? `<div class="table-wrap"><table><thead><tr><th>得意先CD</th><th>得意先名</th><th>現場名</th><th class="num">売上額</th><th class="num">税額</th><th class="num">値引額</th><th class="num">請求額</th><th>状態</th></tr></thead><tbody>${html}</tbody>
-      <tfoot><tr><td colspan="3">会社合計</td><td class="num">${yen(sum('net'))}</td><td class="num">${yen(sum('tax'))}</td><td class="num">0</td><td class="num">${yen(sum('current'))}</td><td></td></tr></tfoot></table></div>
+    body = d.rows.length ? `<div class="table-wrap"><table><thead><tr><th>得意先CD</th><th>得意先名</th><th>現場名</th><th class="num">売上額</th><th class="num">税額</th><th class="num">値引額</th><th class="num">請求額</th></tr></thead><tbody>${html}</tbody>
+      <tfoot><tr><td colspan="3">会社合計</td><td class="num">${yen(sum('net'))}</td><td class="num">${yen(sum('tax'))}</td><td class="num">0</td><td class="num">${yen(sum('current'))}</td></tr></tfoot></table></div>
       ` : '<div class="empty">対象の得意先がありません</div>';
   } else {
     // 現行 HAR430（提案書 帳票②）：締日・請求日付・売上締切日、売上日・伝票No・区分・商品名・数量・単位・単価・金額・税率・運送・備考、（売上額）（消費税額）（値引額）（今回請求額）と税率別

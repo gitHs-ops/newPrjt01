@@ -445,7 +445,12 @@ export async function billingList(c, { month, closing }) {
     if (!s.lines.length && !s.prevBalance && !s.received) continue;
     const sites = [...new Set(s.lines.map(l => l.site))].map(k => { const ls = s.lines.filter(l => l.site === k), net = ls.reduce((n, l) => n + l.net, 0);
       const tax = RATES.reduce((n, r) => n + bucketTax(ls.filter(l => l.taxRate === r).reduce((a, l) => a + l.net, 0), r), 0); return { site: k, siteName: ls[0]?.siteName || '', net, tax, discount: 0, total: net + tax }; });
-    out.push({ ...s, name: cu.customers_name, stateName: STATE[s.state], lineCount: s.lines.length, discount: 0, sites, lines: undefined });
+    // 請求一覧表（HAR431）の行（2026-11-03）：現場別発行した請求は現場ごと、それ以外は得意先 1 行（現場名は空欄）。sites は請求一覧照会（得意先×現場）用にそのまま残す
+    // 現場別発行＝一部の現場だけを発行した回がある（全現場の発行も app_invoice_issue_site に全現場の行を残すため、件数で見分ける）
+    const h = sites.length > 1 ? await one(c, 'SELECT invoice_id FROM billing_head WHERE customers_cd=? AND closing_date=?', [cu.customers_cd, toNum(end)]) : null;
+    const split = h && (await rows(c, 'SELECT COUNT(*) n FROM app_invoice_issue_site WHERE invoice_id=? GROUP BY issue_no', [h.invoice_id])).some(r => Number(r.n) < sites.length);
+    const bookRows = !sites.length ? [] : split ? sites : [{ site: '', siteName: '', net: s.net, tax: s.tax, discount: 0, total: s.net + s.tax }];
+    out.push({ ...s, name: cu.customers_name, stateName: STATE[s.state], lineCount: s.lines.length, discount: 0, sites, bookRows, lines: undefined });
   }
   return { month, closing: day, end, rows: out };
 }

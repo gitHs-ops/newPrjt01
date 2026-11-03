@@ -25,11 +25,12 @@ export async function billingPrecheckBook(c, q) {
 // NO12 請求一覧表（確認用）— 現行 HAR431 の項目
 export async function billingListBook(c, q) {
   const d = await billingList(c, q), out = [[T('請求一覧表（確認用）')], [`締日 ${d.closing === 31 ? '月末' : d.closing + '日'}　請求日 ${d.end}　出力日 ${today()}`], [],
-    ['得意先CD', '得意先名', '現場名', '売上額', '税額', '値引額', '請求額', '状態'].map(H)];
-  for (const x of d.rows) { if (!x.sites.length) continue; x.sites.forEach((s, i) => out.push([i ? '' : x.customer, i ? '' : x.name, s.siteName, s.net, s.tax, 0, s.total, i ? '' : x.stateName])); out.push(['', S('得意先計'), '', S(x.net), S(x.tax), S(0), S(x.current), '']); }
+    ['得意先CD', '得意先名', '現場名', '売上額', '税額', '値引額', '請求額'].map(H)];
+  // 現行 HAR431（2026-11-03）：得意先ごとに 1 行（現場別発行の得意先だけ現場ごと）。得意先計は 2 行以上のときだけ。状態は出さない
+  for (const x of d.rows) { if (!x.bookRows.length) continue; x.bookRows.forEach((s, i) => out.push([i ? '' : x.customer, i ? '' : x.name, s.siteName, s.net, s.tax, 0, s.total])); if (x.bookRows.length > 1) out.push(['', S('得意先計'), '', S(x.net), S(x.tax), S(0), S(x.current)]); }
   const sum = k => d.rows.reduce((n, x) => n + x[k], 0);
-  out.push([S('会社合計'), '', '', S(sum('net')), S(sum('tax')), S(0), S(sum('current')), '']); // 今回の請求が無い得意先（繰越・入金だけ）は行を出さない
-  return { name: `請求一覧表_${d.month}_${d.closing}日締.xlsx`, body: xlsx([{ name: '請求一覧表', rows: out, widths: [10, 26, 24, 13, 12, 10, 13, 9] }]) };
+  out.push([S('会社合計'), '', '', S(sum('net')), S(sum('tax')), S(0), S(sum('current'))]); // 今回の請求が無い得意先（繰越・入金だけ）は行を出さない
+  return { name: `請求一覧表_${d.month}_${d.closing}日締.xlsx`, body: xlsx([{ name: '請求一覧表', rows: out, widths: [10, 26, 24, 13, 12, 10, 13] }]) };
 }
 // NO13 請求書発行確認表 — 現行 HAR430 の項目
 // 2026-10-29 整形版：A4 横・目盛線なし、得意先ごとに濃紺の帯、見出しは下線付き、明細は薄い罫線、現場は淡い帯、合計は枠付きのボックス（今回請求額は濃紺）
