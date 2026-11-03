@@ -230,13 +230,11 @@ test('workflow against PostgreSQL business tables', { skip, timeout: 900000 }, a
       assert.equal((await a.call('/api/inventory/counts?date=2032-04-05')).data.no, c2.data.no);
       const mm = async () => (await a.call('/api/reports/misc/material-ledger?month=' + c2.data.month)).data.items.find(x => x.item === 'M' + tag);
       let mt = await mm(); assert.deepEqual([mt.prev.value, mt.end.value, mt.used.qty, mt.used.value, mt.price], [60000, 50000, 20, 10000, 500]);
-      // 在庫登録リスト：未計上分は在庫計上と同じ計算の見込み評価（2026-11-03）
+      // 在庫登録リスト：コード・商品・製品名・在庫数量・単位だけ（評価は出さない。2026-11-03）
       const ir = (await a.call('/api/reports/misc/inventory-register?month=' + c1.data.month)).data;
-      const irow = ir.groups.flatMap(g => g.rows).find(x => x.code === 'M' + tag);
-      assert.deepEqual([irow.price, irow.value], [500, 60000]); assert.match(ir.sub, /見込み/);
+      assert.deepEqual(ir.columns.map(x => x.label), ['コード', '商品・製品名', '在庫数量', '単位']);
+      const irow = ir.groups.flatMap(g => g.rows).find(x => x.code === 'M' + tag); assert.deepEqual([irow.name, irow.qty, 'price' in irow], ['試験材料', 120, false]);
       ok(await a.call('/api/inventory/post', { month: c1.data.month }));
-      const ir2 = (await a.call('/api/reports/misc/inventory-register?month=' + c1.data.month)).data;
-      assert.deepEqual(ir2.groups.flatMap(g => g.rows).filter(x => x.code === 'M' + tag).map(x => [x.price, x.value]), [[500, 60000]]);
       mt = await mm(); assert.deepEqual([mt.prev.value, mt.end.value, mt.price], [60000, 50000, 500]);
       ok(await a.call('/api/inventory/unpost', { month: c1.data.month }));
       ok(await a.call('/api/masters/mixes', { mode: 'create', record: { product: 'G' + tag, material: 'I' + tag, ratio: '60', active: true } }));
