@@ -85,6 +85,8 @@ export async function journalList(c, q) {
     const dr = lines.filter(l => l.side === 'D'), cr = lines.filter(l => l.side === 'C'), pairs = [];
     // Inventory pairs follow the 洗替 order (前月末戻し, 当月末計上) even if one side is zero.
     for (let i = 0; i < Math.max(dr.length, cr.length); i++) pairs.push({ dr: side(dr[i]), cr: side(cr[i]) });
+    // 在庫計上（C01）は現行 HAR463 の並び：前月末在庫（借 82316／貸 1360）を商品順に全部、続けて当月末在庫（借 1360／貸 82316）を商品順に（2026-11-04）
+    if (e.pattern_code === 'C01') pairs.sort((a, b) => (a.dr?.memo1 === '前月末在庫' ? 0 : 1) - (b.dr?.memo1 === '前月末在庫' ? 0 : 1));
     const total = dr.reduce((n, l) => n + Number(l.amount), 0);
     return { id: e.journal_id, date: e.journal_date, slipNo: e.slip_no || String(e.journal_id), sourceNo: s.no, status: e.reversal_of ? `逆仕訳（#${e.reversal_of}）` : e.status === 'REVERSED' ? '取消済' : '', pairs, total };
   });

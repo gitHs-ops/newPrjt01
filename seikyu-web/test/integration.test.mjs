@@ -261,6 +261,10 @@ test('workflow against PostgreSQL business tables', { skip, timeout: 900000 }, a
       const irow = ir.groups.flatMap(g => g.rows).find(x => x.code === 'M' + tag); assert.deepEqual([irow.name, irow.qty, 'price' in irow], ['試験材料', 120, false]);
       ok(await a.call('/api/inventory/post', { month: c1.data.month }));
       mt = await mm(); assert.deepEqual([mt.prev.value, mt.end.value, mt.price], [60000, 50000, 500]);
+      // 2026-11-04 在庫計上自動仕訳リスト（現行 HAR463）：前月末在庫（借 82316）を先に全部、続けて当月末在庫（借 1360）
+      ok(await a.call('/api/inventory/post', { month: c2.data.month }));
+      { const jl = (await a.call('/api/reports/journal-list?' + new URLSearchParams({ pattern: 'C01', from: '2032-01-01', to: '2032-12-31' }))).data, sl = jl.slips.find(s => !s.status && s.pairs.some(p => p.dr?.memo1 === '前月末在庫') && s.pairs.some(p => p.dr?.memo1 === '当月末在庫')); assert.ok(sl, 'C01 の伝票 ' + JSON.stringify(jl.slips.map(s => [s.date, s.status, s.pairs.map(p => p.dr?.account + ':' + p.dr?.memo1)]))); const m = sl.pairs.map(p => p.dr?.memo1); assert.ok(m.lastIndexOf('前月末在庫') < m.indexOf('当月末在庫'), m.join()); assert.equal(sl.pairs[0].dr.account, '82316'); }
+      ok(await a.call('/api/inventory/unpost', { month: c2.data.month }));
       ok(await a.call('/api/inventory/unpost', { month: c1.data.month }));
       ok(await a.call('/api/masters/mixes', { mode: 'create', record: { product: 'G' + tag, material: 'I' + tag, ratio: '60', active: true } }));
       const mx = (await a.call('/api/reports/misc/mix?closing=31&month=' + d.slice(0, 7))).data.products.find(x => x.item === 'G' + tag);
