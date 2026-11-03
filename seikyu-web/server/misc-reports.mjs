@@ -33,17 +33,27 @@ export async function shipmentSummary(c, q) {
   }).filter(s => s.groups.length);
   return { title: '商品・製品別出荷集計表', ref: 'NO41 / 添付帳票⑯（HAR031）', from, to, sections, total: sections.reduce((n, s) => n + s.net, 0) };
 }
-// ---------- NO42 得意先別商品別出荷累計表 ----------
+// ---------- NO42 得意先別商品別出荷累計表：現行 HAR536 の並び（2026-11-04） ----------
+// 列は 得意先（コード＋名称、得意先の 1 行目だけ）・品名（コード＋名称）・単位・累計数量・累計金額。得意先計 → 総合計 → 値引（伝票区分 9）
+// 他社納入（伝票区分 2・4）は別の表「他社納入分」。赤黒（区分 5）は元伝票の区分で振り分ける
+// 得意先計・総合計の数量は製品（item_product_kb=2）だけの合計（現行サンプルの計がそうなっている：商品の台数などは足さない）。金額は全部の合計
 export async function customerItems(c, q) {
   const { from, to } = range(q);
-  const rs = await rows(c, `SELECT s.customers_cd, c.customers_name, s.item_cd, MAX(s.item_name) item_name, MAX(unit_name(i.unit)) unit, COUNT(*) n, SUM(s.quantity) qty, SUM(s.money) net, SUM(s.consumption_tax) tax
-    FROM sales_trn s LEFT JOIN client_m c ON c.customers_cd=s.customers_cd LEFT JOIN item_m i ON i.item_cd=s.item_cd WHERE s.sales_date BETWEEN ? AND ? GROUP BY s.customers_cd, c.customers_name, s.item_cd ORDER BY s.customers_cd, s.item_cd`, [toNum(from), toNum(to)]);
-  const customers = [];
-  for (const r of rs) {
-    let cu = customers.find(x => x.customer === r.customers_cd); if (!cu) customers.push(cu = { customer: r.customers_cd, name: r.customers_name, items: [], net: 0, tax: 0 });
-    cu.items.push({ item: r.item_cd, name: r.item_name, unit: r.unit || '', count: num(r.n), qty: r2(num(r.qty)), net: num(r.net), tax: num(r.tax) }); cu.net += num(r.net); cu.tax += num(r.tax);
-  }
-  return { title: '得意先別商品別出荷累計表', ref: 'NO42 / 添付帳票⑱', from, to, customers, total: customers.reduce((n, x) => n + x.net, 0) };
+  const rs = await rows(c, `SELECT s.customers_cd, MAX(c.customers_name) customers_name, s.item_cd, MAX(COALESCE(NULLIF(i.item_nam, ''), s.item_name)) item_name, MAX(unit_name(i.unit)) unit, MAX(i.item_product_kb) pk,
+      CASE WHEN s.ship_kb='9' THEN 9 WHEN (CASE WHEN s.ship_kb='5' THEN o.ship_kb ELSE s.ship_kb END) IN ('2','4') THEN 1 ELSE 0 END sect, SUM(s.quantity) qty, SUM(s.money) net
+    FROM sales_trn s LEFT JOIN client_m c ON c.customers_cd=s.customers_cd LEFT JOIN item_m i ON i.item_cd=s.item_cd LEFT JOIN sales_trn o ON s.ship_kb='5' AND o.order_no=s.sales_no AND o.order_suffix=1
+    WHERE s.sales_date BETWEEN ? AND ? GROUP BY s.customers_cd, s.item_cd, 7 ORDER BY s.customers_cd, s.item_cd`, [toNum(from), toNum(to)]);
+  const disc = rs.filter(r => Number(r.sect) === 9), discount = { qty: r2(disc.reduce((n, r) => n + num(r.qty), 0)), net: disc.reduce((n, r) => n + num(r.net), 0) };
+  const sections = [0, 1].map(other => {
+    const customers = [];
+    for (const r of rs.filter(x => Number(x.sect) === other)) {
+      let cu = customers.find(x => x.customer === r.customers_cd); if (!cu) customers.push(cu = { customer: r.customers_cd, name: r.customers_name || '', items: [], qty: 0, net: 0 });
+      cu.items.push({ item: r.item_cd, name: String(r.item_name || '').trim(), unit: r.unit || '', qty: r2(num(r.qty)), net: num(r.net) });
+      if (r.pk === '2') cu.qty = r2(cu.qty + num(r.qty)); cu.net += num(r.net);
+    }
+    return { other: !!other, title: other ? '他社納入分' : '', customers, qty: r2(customers.reduce((n, x) => n + x.qty, 0)), net: customers.reduce((n, x) => n + x.net, 0), discount: other ? { qty: 0, net: 0 } : discount };
+  }).filter(s => s.customers.length || (!s.other && (s.discount.qty || s.discount.net)));
+  return { title: '得意先別商品別出荷累計表', ref: 'NO42 / 添付帳票⑱（HAR536）', from, to, sections };
 }
 // ---------- NO43 現金売上明細表 ----------
 export async function cashSales(c, q) {
@@ -278,10 +288,13 @@ export async function miscBook(c, kind, q) {
   }
   if (kind === 'customer-items') {
     const d = await customerItems(c, q), out = head(d, `期間 ${d.from} 〜 ${d.to}`);
-    out.push(['得意先CD', '得意先名', '商品CD', '商品名', '単位', '件数', '出荷数量', '売上金額', '消費税'].map(H));
-    for (const cu of d.customers) { for (const x of cu.items) out.push([cu.customer, cu.name, x.item, x.name, x.unit, x.count, x.qty, x.net, x.tax]); out.push(['', S(`${cu.name} 計`), '', '', '', '', '', S(cu.net), S(cu.tax)]); }
-    out.push(['', S('総合計'), '', '', '', '', '', S(d.total)]);
-    return { name: `得意先別商品別出荷累計表_${d.from}_${d.to}.xlsx`, body: xlsx([{ name: '出荷累計表', rows: out, widths: [10, 24, 10, 24, 6, 8, 12, 14, 12] }]) };
+    d.sections.forEach(sc => {
+      if (sc.other) out.push([], [T(`${d.title}　${sc.title}`)]);
+      out.push(['得意先', '', '品名', '', '単位', '累計数量', '累計金額'].map(H));
+      for (const cu of sc.customers) { cu.items.forEach((x, i) => out.push([i ? '' : cu.customer, i ? '' : cu.name, x.item, x.name, x.unit, x.qty, x.net])); out.push(['', '', '', S('得意先計'), '', S(cu.qty), S(cu.net)], []); }
+      out.push(['', '', '', S('総合計'), '', S(sc.qty), S(sc.net)], ['', '', '', S('値引'), '', S(sc.discount.qty), S(sc.discount.net)]);
+    });
+    return { name: `得意先別商品別出荷累計表_${d.from}_${d.to}.xlsx`, body: xlsx([{ name: '出荷累計表', rows: out, widths: [9, 24, 8, 24, 6, 12, 14] }]) };
   }
   if (kind === 'cash-sales') {
     const d = await cashSales(c, q), out = head(d, `期間 ${d.from} 〜 ${d.to}`);

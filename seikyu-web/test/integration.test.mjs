@@ -212,7 +212,9 @@ test('workflow against PostgreSQL business tables', { skip, timeout: 900000 }, a
       for (const sc of sd.sections) assert.equal(sc.net, sc.groups.reduce((n, g) => n + g.net, 0)); assert.equal(sd.total, sd.sections.reduce((n, sc) => n + sc.net, 0));
       assert.ok(sd.sections.every(sc => sc.groups.every(g => ['商品', '製品'].includes(g.label))));
       assert.equal(ss.qty, 13); assert.equal(ss.net, 12997);
-      const ci = (await a.call('/api/reports/misc/customer-items?' + span)).data.customers.find(x => x.customer === C); assert.equal(ci.net, 12997);
+      const cd = (await a.call('/api/reports/misc/customer-items?' + span)).data, ci = cd.sections[0].customers.find(x => x.customer === C); assert.equal(ci.net, 12997);
+      // 現行 HAR536：得意先計の数量は製品だけ、総合計＝得意先計の和、値引の行がある
+      for (const sc of cd.sections) { assert.equal(sc.net, sc.customers.reduce((n, x) => n + x.net, 0)); assert.ok(sc.discount && typeof sc.discount.net === 'number'); }
       ok(await a.call('/api/reports/misc/cash-sales?' + span));
       // material: mark item as 材料, buy 10 @1000 this month, define a product recipe at 60%
       const it = (await a.call('/api/masters/items')).data.find(x => x.code === 'I' + tag);
