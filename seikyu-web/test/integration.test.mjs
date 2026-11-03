@@ -286,7 +286,13 @@ test('workflow against PostgreSQL business tables', { skip, timeout: 900000 }, a
       for (const w of ['税率', '支払金額', '支払額本体', '支払消費税', '出資金額']) assert.ok(jvx.includes(w), w);
       for (const w of ['出資本体', '出資消費税', '出資金請求合計表']) assert.ok(jvx.includes(w), '明細表の後ろに合計表: ' + w); // 2026-11-03
       const jvs = await a.call('/api/reports/misc/jv-expenses?' + span + '&layout=summary'); ok(jvs);
-      for (const x of [...jvs.data.accounts, jvs.data.totals]) x.parts.forEach((v, k) => assert.equal(x.netParts[k] + x.taxParts[k], v));
+      for (const x of [...jvs.data.accounts, jvs.data.totals, ...jvs.data.rates]) x.parts.forEach((v, k) => assert.equal(x.netParts[k] + x.taxParts[k], v));
+      // ⑫ 合計表＝明細の科目計（再按分しない）、出資消費税＝明細ごとの出資金額の内税逆算の合計、税率別の行（現行 HJR011。2026-11-04）
+      for (const a of jvs.data.accounts) assert.deepEqual(a.parts, je.accounts.find(x => x.due === a.due && x.account === a.account).parts);
+      const ja = jvs.data.accounts.find(x => x.account === je.accounts.find(y => y.rows.includes(row)).account && x.due === row.date);
+      assert.ok(ja.taxParts[2] >= 227, '50000 の行の第3構成員 2500 → 227');
+      assert.ok(jvs.data.rates.some(g => g.rate === '10%'));
+      assert.deepEqual(jvs.data.rates.reduce((s, g) => s.map((v, k) => v + g.parts[k]), [0, 0, 0]), jvs.data.totals.parts);
       const jvsx = Buffer.from(await (await fetch(base + '/api/reports/misc/jv-expenses?' + span + '&layout=summary&format=xlsx', { headers: { cookie: a.cookie } })).arrayBuffer()).toString();
       for (const w of ['科目名', '支払本体', '支払消費税', '出資金額', '出資本体', '出資消費税']) assert.ok(jvsx.includes(w), w);
       const jvrx = Buffer.from(await (await fetch(base + '/api/reports/misc/jv-receipts?' + span + '&format=xlsx', { headers: { cookie: a.cookie } })).arrayBuffer()).toString();

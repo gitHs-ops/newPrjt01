@@ -179,25 +179,31 @@ export async function jvExpenses(c, q) {
   const ls = await rows(c, `SELECT d.document_no, d.due_on, d.booked_on, d.memo, l.line_no, l.account_code, a.account_name, l.source_tax_code, l.gross_amount, l.tax_amount, l.memo line_memo, v.vendor_name
     FROM expense_document d JOIN expense_line l ON l.expense_id=d.expense_id LEFT JOIN account_subject a ON a.account_code=l.account_code LEFT JOIN vendor v ON v.vendor_id=d.vendor_id
     WHERE d.expense_kind='PAYABLE' AND d.status='POSTED' AND d.booked_on BETWEEN ? AND ? ORDER BY COALESCE(d.due_on, d.booked_on), l.account_code, d.document_no, l.line_no`, [from, to]);
-  const accounts = [], zero = () => ms.map(() => 0);
+  const accounts = [], rates = [], zero = () => ms.map(() => 0);
   for (const l of ls) {
     const due = String(l.due_on || l.booked_on).slice(0, 10);
     let a = accounts.find(x => x.due === due && x.account === l.account_code);
     if (!a) accounts.push(a = { due, account: l.account_code, name: l.account_name || '', rows: [], count: 0, gross: 0, net: 0, tax: 0, parts: zero(), taxParts: zero() });
-    const gross = num(l.gross_amount), tax = num(l.tax_amount), parts = allocate(gross, ms);
-    allocate(tax, ms).forEach((v, k) => (a.taxParts[k] += v)); // 出資消費税＝明細ごとの消費税の按分の合計（推定）
-    if (!summary) a.rows.push({ date: due, no: l.document_no, vendor: l.vendor_name, memo: l.line_memo || l.memo, taxCode: l.source_tax_code, rate: rateLabel(l.source_tax_code), gross, net: gross - tax, tax, parts });
+    const gross = num(l.gross_amount), tax = num(l.tax_amount), parts = allocate(gross, ms), rate = rateLabel(l.source_tax_code);
+    // 出資消費税＝明細ごとの出資金額から税率で内税を逆算（切捨て）した合計。現行 HJR011 合計表（26/05/20 締）の 3 社とも一致（2026-11-04）
+    const t = taxDecode(l.source_tax_code), r10 = tax && t?.taxable ? Math.round(t.rate * 10) : 0;
+    const ptax = parts.map(v => (r10 ? Math.sign(v) * Math.floor(Math.abs(v) * r10 / (1000 + r10)) : 0));
+    ptax.forEach((v, k) => (a.taxParts[k] += v));
+    let g = rates.find(x => x.rate === rate);
+    if (!g) rates.push(g = { rate, gross: 0, net: 0, tax: 0, parts: zero(), taxParts: zero() });
+    g.gross += gross; g.net += gross - tax; g.tax += tax; parts.forEach((v, k) => { g.parts[k] += v; g.taxParts[k] += ptax[k]; });
+    if (!summary) a.rows.push({ date: due, no: l.document_no, vendor: l.vendor_name, memo: l.line_memo || l.memo, taxCode: l.source_tax_code, rate, gross, net: gross - tax, tax, parts });
     a.count++; a.gross += gross; a.net += gross - tax; a.tax += tax; parts.forEach((v, k) => (a.parts[k] += v));
   }
-  // 合計表は科目ごとの合計額を按分（明細ごとの按分の合計とは端数がずれることがある）
-  if (summary) for (const a of accounts) a.parts = allocate(a.gross, ms);
+  // 合計表の出資金額は明細表の科目計と同じ（明細ごとの按分の合計。現行 HJR011 の合計表＝明細表の科目計。2026-11-04 再按分をやめた）
   // 出資本体＝出資金額−出資消費税（現行の合計表の見出し：出資金額・出資本体・出資消費税。2026-11-02）
-  for (const a of accounts) a.netParts = a.parts.map((v, k) => v - a.taxParts[k]);
+  for (const a of [...accounts, ...rates]) a.netParts = a.parts.map((v, k) => v - a.taxParts[k]);
+  rates.sort((x, y) => parseFloat(y.rate) - parseFloat(x.rate));   // 合計の下の税率別（10%・8%・0%）
   const add = (as, f) => ms.map((_, k) => as.reduce((n, a) => n + a[f][k], 0)), tot = (as, f) => as.reduce((n, a) => n + a[f], 0);
   const days = [...new Set(accounts.map(a => a.due))].map(due => { const as = accounts.filter(a => a.due === due); return { due, gross: tot(as, 'gross'), net: tot(as, 'net'), tax: tot(as, 'tax'), parts: add(as, 'parts'), netParts: add(as, 'netParts'), taxParts: add(as, 'taxParts') }; });
   const totals = { gross: tot(accounts, 'gross'), net: tot(accounts, 'net'), tax: tot(accounts, 'tax'), parts: add(accounts, 'parts'), netParts: add(accounts, 'netParts'), taxParts: add(accounts, 'taxParts') };
-  return { title: summary ? '出資金請求合計表（定時請求分）' : '出資金請求明細表（定時請求分）', ref: 'NO35 / 添付帳票⑫', layout: summary ? 'summary' : 'detail', closing, from, to, members: ms, accounts, days, totals,
-    note: `締切日 ${closing || to} の月度（${from}〜${to}）の定時請求を、支払日ごと・科目ごとに${summary ? '集計して' : '明細行単位で'}${month} 月度の出資比率で按分。各社切捨て、端数は第1構成員。端数調整の入力（現行の「データの読込 0/1」）は要検討。` };
+  return { title: summary ? '出資金請求合計表（定時請求分）' : '出資金請求明細表（定時請求分）', ref: 'NO35 / 添付帳票⑫', layout: summary ? 'summary' : 'detail', closing, from, to, members: ms, accounts, days, totals, rates,
+    note: `締切日 ${closing || to} の月度（${from}〜${to}）の定時請求を、支払日ごと・科目ごとに${summary ? '集計して' : '明細行単位で'}${month} 月度の出資比率で按分。各社切捨て、端数は第1構成員${summary ? '。出資金額は明細ごとの按分の合計、出資消費税は明細ごとに出資金額から税率で逆算（切捨て）した合計' : ''}。端数調整の入力（現行の「データの読込 0/1」）は要検討。` };
 }
 const PART_ACCOUNT = { BANK: '当座預金（振込）', NOTE: '受取手形', FEE: '雑費（手数料）', COOP: '雑費（協力費）' };
 const PART_MEMO = { FEE: '入金時の手数料', COOP: '入金時の協力費' };
@@ -308,11 +314,10 @@ export async function miscBook(c, kind, q) {
     const m3 = (p, n, t) => p.flatMap((v, k) => [v, n[k], t[k]]), r0 = out.length;
     out.push(['', '', '', '', '', ...d.members.flatMap(m => [`**　${m.name}　**`, '', ''])].map(H));
     out.push(['支払日', '科目名', '支払金額', '支払本体', '支払消費税', ...d.members.flatMap(() => ['出資金額', '出資本体', '出資消費税'])].map(H));
-    for (const day of d.days) {
-      for (const a of d.accounts.filter(x => x.due === day.due)) out.push([a.due, a.name, a.gross, a.net, a.tax, ...m3(a.parts, a.netParts, a.taxParts)]);
-      out.push([S(`${day.due} 支払日計`), '', S(day.gross), S(day.net), S(day.tax), ...m3(day.parts, day.netParts, day.taxParts).map(S)]);
-    }
-    out.push([S('合計'), '', S(d.totals.gross), S(d.totals.net), S(d.totals.tax), ...m3(d.totals.parts, d.totals.netParts, d.totals.taxParts).map(S)]);
+    // 現行どおり支払日計は出さず、＊合計＊の下に税率別の行（2026-11-04）
+    for (const a of d.accounts) out.push([a.due, a.name, a.gross, a.net, a.tax, ...m3(a.parts, a.netParts, a.taxParts)]);
+    out.push(['', S('＊合計＊'), S(d.totals.gross), S(d.totals.net), S(d.totals.tax), ...m3(d.totals.parts, d.totals.netParts, d.totals.taxParts).map(S)], []);
+    for (const g of d.rates) out.push(['', { v: g.rate, s: 'right' }, g.gross, g.net, g.tax, ...m3(g.parts, g.netParts, g.taxParts)]);
     const col = i => { let n = i + 1, t = ''; while (n) { t = String.fromCharCode(65 + (n - 1) % 26) + t; n = Math.floor((n - 1) / 26); } return t; };
     const merges = d.members.map((_, k) => `${col(5 + k * 3)}${r0 + 1}:${col(7 + k * 3)}${r0 + 1}`);
     return { name: d.title.slice(0, 28), rows: out, merges, widths: [11, 18, 13, 13, 12, ...d.members.flatMap(() => [13, 13, 12])] };
