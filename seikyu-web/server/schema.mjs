@@ -159,7 +159,8 @@ export async function prepare(pool, env = process.env) {
   await pool.query('ALTER TABLE sales_trn ADD COLUMN IF NOT EXISTS correction_date numeric(8)');
   await pool.query(`ALTER TABLE purchase ADD COLUMN IF NOT EXISTS purchase_kb varchar(1) COLLATE "C" NOT NULL DEFAULT '1'`);
   await pool.query(`ALTER TABLE purchase ADD COLUMN IF NOT EXISTS line_kind varchar(1) COLLATE "C" NOT NULL DEFAULT '1'`);
-  await pool.query(`ALTER TABLE purchase ADD COLUMN IF NOT EXISTS unit varchar(1) COLLATE "C"`); // 単位 1=t 2=袋 3（2026-11-03。以前の行は NULL＝商品マスタの単位）
+  await pool.query(`ALTER TABLE purchase ADD COLUMN IF NOT EXISTS unit varchar(1) COLLATE "C"`);
+  await pool.query('ALTER TABLE purchase ALTER COLUMN item_cd DROP NOT NULL'); // 商品コードなしの運賃行（2026-11-03） // 単位 1=t 2=袋 3（2026-11-03。以前の行は NULL＝商品マスタの単位）
   await pool.query(`ALTER TABLE expense_document ADD COLUMN IF NOT EXISTS bill_no varchar(4) COLLATE "C"`);
   await pool.query(`ALTER TABLE expense_line ADD COLUMN IF NOT EXISTS memo_code varchar(7) COLLATE "C"`);
   // 小口現金の支払先（自由入力）。2026-10-29 から伝票に保持（以前は1行目の摘要に入れていた）

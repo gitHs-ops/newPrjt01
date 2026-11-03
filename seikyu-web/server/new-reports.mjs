@@ -23,7 +23,7 @@ export async function purchaseRegister(c, q) {
     if (!g) groups.push(g = { date: r.purchase_date, code: r.vendor_code, title: `仕入先 ${r.vendor_code} ${r.vendor_name}`, label: '仕入先計', rows: [] });
     // 運賃の行は現行どおり数量・単価 0.00 で、処税率の右に「運賃」。処税率はコードの右に名称（画面の選択リストと同じ。2026-11-01）
     const fr = r.line_kind === '2';
-    g.rows.push({ date: r.purchase_date, kind: PURCHASE_KINDS[r.purchase_kb || '1'], no: purchaseNo(r.source_document_no, r.line_no), item: `${r.item_cd} ${r.item_nam || ''}`,
+    g.rows.push({ date: r.purchase_date, kind: PURCHASE_KINDS[r.purchase_kb || '1'], no: purchaseNo(r.source_document_no, r.line_no), item: r.item_cd ? `${r.item_cd} ${r.item_nam || ''}` : '運賃',
       qty: fr ? 0 : num(r.quantity), unit: r.unit ? PURCHASE_UNITS[r.unit] ?? '' : r.item_unit || '', price: fr ? 0 : num(r.unit_price), net: num(r.net_amount), account: '', subName: '', tax: `${r.source_tax_code || ''}${decode(r.source_tax_code) ? ' ' + decode(r.source_tax_code).name : ''}${fr ? ' 運賃' : ''}` });
   }
   for (const g of groups) g.totals = { net: sum(g.rows, 'net') };

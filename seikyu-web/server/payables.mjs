@@ -21,7 +21,7 @@ export async function listPurchases(c, q = {}) {
   if (q.vendor) { w.push('v.vendor_code=?'); args.push(q.vendor); }
   const rs = await rows(c, `SELECT p.*, v.vendor_code, v.vendor_name, p.unit unit_cd, i.item_nam, ${PU_UNIT} unit FROM purchase p JOIN vendor v ON v.vendor_id=p.vendor_id LEFT JOIN item_m i ON i.item_cd=p.item_cd ${w.length ? 'WHERE ' + w.join(' AND ') : ''} ORDER BY p.purchase_date DESC, p.source_document_no DESC, p.line_no LIMIT 3000`, args);
   return rs.map(r => ({ id: r.purchase_id, no: r.source_document_no, line: Number(r.line_no), date: r.purchase_date, vendor: r.vendor_code, vendorName: r.vendor_name, kind: r.purchase_kb || '1', kindName: PURCHASE_KINDS[r.purchase_kb || '1'],
-    lineKind: r.line_kind || '1', item: r.item_cd, itemName: r.item_nam, unitCode: r.unit_cd || '', unit: r.unit, quantity: Number(r.quantity), price: Number(r.unit_price), net: Number(r.net_amount), taxCode: r.source_tax_code, memo: r.memo }));
+    lineKind: r.line_kind || '1', item: r.item_cd || '', itemName: r.item_cd ? r.item_nam : '運賃', unitCode: r.unit_cd || '', unit: r.unit, quantity: Number(r.quantity), price: Number(r.unit_price), net: Number(r.net_amount), taxCode: r.source_tax_code, memo: r.memo }));
 }
 // 在庫計上済みの月度（またはそれより後の月度が計上済み）の仕入は登録・取消できない（材料受払表の当月仕入高と計上済みの在庫金額がずれるため。2026-10-28）
 async function assertNotInventoried(c, date) {
@@ -37,6 +37,13 @@ export async function createPurchase(c, ctx, p) {
   for (const [i, l] of input.entries()) {
     const label = `${i + 1}行目`;
     if (!l.item && !l.quantity && !l.amount && !l.price) continue;
+    // 運賃は商品コードなし・数量 0 で金額だけ入力できる（商品名は「運賃」。2026-11-03）
+    if (!String(l.item || '').trim()) {
+      check(!Number(String(l.quantity || 0).replace(/,/g, '')) && String(l.amount ?? '').trim() !== '', `${label}: 商品コードを入力してください（運賃は商品コードなし・数量 0 で金額を入力）`);
+      const amount = yen(l.amount, `${label}の運賃`, { negative: true }); check(amount !== 0, `${label}: 運賃を入力してください`);
+      out.push({ item: null, qty: '0.00', price: 0, net: amount, tax: mustDecode(l.taxCode || '241', `${label}の処税率`).code, lineKind: '2', unit: null, memo: text(l.memo, `${label}の摘要`, 500, { required: false }) || '運賃' });
+      continue;
+    }
     const it = await one(c, 'SELECT * FROM item_m WHERE item_cd=?', [String(l.item || '')]); check(it && it.delete_f !== '1', `${label}: 有効な商品を選択してください`);
     check(!/値引/.test(it.item_nam || ''), `${label}: 「${it.item_nam}」は商品仕入では選択できません`); // 値引き（88888 等）は仕入で使わない（2026-10-29）
     // 運賃行は商品コードで決める（運賃の商品なら金額だけ。2026-10-29 指摘「種別→商品コード」）。

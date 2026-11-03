@@ -1383,7 +1383,9 @@ VIEWS.purchases = async q => {
     nm.innerHTML = code && !hit ? `<span class="check-ng">${masters.items.some(i => i.code === code) ? '仕入では使えない商品' : '該当なし'}</span>` : hit ? esc(hit.name) : '商品コードを入力'; nm.classList.toggle('muted', !hit);
     // 材料の運賃（現行⑭「10900 アスファルト 0.00 t 0.00 1,108,214- 運賃」）：数量を空欄（0）にすると金額を直接入力でき、その行は運賃（2026-11-01）
     const byAmt = !fr && hit && !Number(f('quantity').value || 0);
-    if (byAmt) { if (f('amount').readOnly) f('amount').value = ''; f('amount').readOnly = false; f('amount').placeholder = '数量なしは運賃'; f('quantity').disabled = false; f('price').disabled = false; f('unit').disabled = !!f('amount').value; un.textContent = f('amount').value ? '（運賃）' : PU_UNITS[f('unit').value] ?? ''; }
+    // 商品コードなし・数量 0 は運賃：金額だけ入力し、商品名は「運賃」（2026-11-03）
+    if (!code && f('quantity').value.trim() !== '' && !Number(f('quantity').value.replace(/,/g, ''))) { if (f('amount').readOnly) f('amount').value = ''; f('amount').readOnly = false; f('amount').placeholder = '運賃の金額'; f('price').value = ''; f('price').disabled = true; f('unit').value = ''; f('unit').disabled = true; un.textContent = ''; nm.textContent = '運賃'; nm.classList.remove('muted'); }
+    else if (byAmt) { if (f('amount').readOnly) f('amount').value = ''; f('amount').readOnly = false; f('amount').placeholder = '数量なしは運賃'; f('quantity').disabled = false; f('price').disabled = false; f('unit').disabled = !!f('amount').value; un.textContent = f('amount').value ? '（運賃）' : PU_UNITS[f('unit').value] ?? ''; }
     else if (!fr) { const it = hit, qn = Number(f('quantity').value || 0), pr = f('price').value === '' ? Number(it?.price || 0) : Number(f('price').value.replace(/,/g, ''));
       f('unit').disabled = false; un.textContent = PU_UNITS[f('unit').value] ?? ''; f('amount').value = qn && pr ? Math.trunc(Math.round(qn * 100) * Math.round(pr * 100) / 10000) : ''; f('amount').readOnly = true; f('amount').placeholder = '自動'; f('quantity').disabled = false; f('price').disabled = false; }
     else { f('amount').readOnly = false; f('amount').placeholder = '運賃の金額'; f('quantity').disabled = true; f('price').disabled = true; f('unit').disabled = true; un.textContent = '（金額のみ）'; }
