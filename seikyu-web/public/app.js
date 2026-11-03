@@ -73,7 +73,7 @@ function alertBox(msg, { ok = false, title } = {}) {
   const d = $('#alert-dialog');
   if (!d?.showModal) return window.alert(msg);
   d.classList.toggle('ok', ok); $('#alert-title').textContent = title || (ok ? '完了しました' : '確認してください'); d.querySelector('.alert-icon').textContent = ok ? '✓' : '!';
-  $('#alert-msg').textContent = msg;
+  $('#alert-msg').textContent = msg; $('#alert-msg').hidden = !msg;
   if (!d.open) d.showModal();
   $('#alert-ok').focus();
 }
@@ -1426,11 +1426,8 @@ VIEWS.inventory = async q => {
     try { const r = await post('/api/inventory/counts', { date: $('#ic-date').value, lines }); icSaved.add(r.month); toast(`${r.month} 月度の実在庫を登録しました（${r.saved}件${r.cleared ? `・取消 ${r.cleared}件` : ''}）`); await render(); }
     catch (e) { alertBox(e.message); } finally { if (btn) btn.disabled = false; }
   };
-  A.post = () => { const month = $('#ip-month').value; confirmBox('在庫計上', `${month} 月度の実在庫を評価し、月末在庫の洗い替え仕訳（C01）を作成します。在庫計上は月度ごとに1回です。`, async () => { const r = await post('/api/inventory/post', { month }); render(); alertBox(`計上月度　${r.month}
-品目数　　${r.items} 品目
-評価額　　${yen(r.value)} 円
-仕訳日付　${r.date}
-伝票番号　${r.slipNo ? r.slipNo + '（在庫計上 C01）' : 'なし（評価額・前月末在庫とも 0 円のため仕訳は作成されていません。評価単価は前月の評価単価と当月度の商品仕入から計算します）'}`, { ok: true, title: '在庫計上が完了しました' }); }, '在庫計上する'); };
+  // 完了のポップアップは見出しと［確認］ボタンだけ（計上月度・品目数・評価額・仕訳日付・伝票番号は出さない。2026-11-03）
+  A.post = () => { const month = $('#ip-month').value; confirmBox('在庫計上', `${month} 月度の実在庫を評価し、月末在庫の洗い替え仕訳（C01）を作成します。在庫計上は月度ごとに1回です。`, async () => { await post('/api/inventory/post', { month }); render(); alertBox('', { ok: true, title: '在庫計上が完了しました' }); }, '在庫計上する'); };
   A.unpost = () => { const month = $('#ip-month').value; confirmBox('在庫計上の取消', `${month} 月度の在庫計上を取消し、洗い替え仕訳を逆仕訳します。実在庫の数量は残ります。`, async () => { const r = await post('/api/inventory/unpost', { month }); render(); alertBox(`計上月度　${r.month}
 逆仕訳の日付　${r.date}
 逆仕訳の伝票番号　${r.slipNo || 'なし（取り消す仕訳がありませんでした）'}
