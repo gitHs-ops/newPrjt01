@@ -51,7 +51,7 @@ export async function journalList(c, q) {
   const DEDUCT = { '8330|101': '手数料', '8330|107': '協力費', '8850|': '値引き', '4170|': '預り金充当' };
   const slips = es.map(e => {
     const s = e.source_type === 'inventory_month' ? { no: `棚卸 ${e.source_id.slice(0, 4)}-${e.source_id.slice(4)}月度` } : src.get(Number(e.source_id)) || { no: '' }, lines = ls.filter(l => l.journal_id === e.journal_id);
-    const partnerLine = lines.find(l => l.customers_cd || l.vendor_id), partner = partnerLine ? { code: partnerLine.customers_cd || partnerLine.vendor_code, name: partnerLine.customers_name || partnerLine.vendor_name } : null;
+    const partnerLine = lines.find(l => l.customers_cd || l.vendor_id), partner = partnerLine ? { kind: partnerLine.customers_cd ? 'C' : 'V', code: partnerLine.customers_cd || partnerLine.vendor_code, name: partnerLine.customers_name || partnerLine.vendor_name } : null;
     let creditNo = 0, debitNo = 0; const usedKind = new Set();
     // 入金（B01）の借方の行 → 入金の内訳（receipt_component）。8850 は値引き → 雑損失の順
     const kindOf = l => { const k = { 1112: 'BANK', 1111: 'CASH', 1120: 'NOTE', 4170: 'DEPOSIT' }[l.account_code] || (l.account_code === '8330' ? { 101: 'FEE', 107: 'COOP' }[l.sub_code] : l.account_code === '8850' ? ['DISCOUNT', 'LOSS'].find(x => !usedKind.has(x) && s.memo2Of?.[x] !== undefined) || (usedKind.has('DISCOUNT') ? 'LOSS' : 'DISCOUNT') : null); if (k) usedKind.add(k); return k; };
@@ -61,6 +61,9 @@ export async function journalList(c, q) {
       if (!sub && l.customers_cd) { sub = l.customers_cd; subName = l.customers_name || ''; }
       if (!sub && l.vendor_id) { sub = l.vendor_code; subName = l.vendor_name || ''; }
       if (!sub && l.account_code === '8130' && partner) { sub = partner.code; subName = partner.name; }
+      // 会計連携用（2026-11-03）：補助科目は内訳科目だけ（inner）、得意先・業者は取引先コード（partner*）。上の sub は自動仕訳リスト（現行の内訳1）用
+      const own = l.customers_cd ? { kind: 'C', code: l.customers_cd, name: l.customers_name || '' } : l.vendor_id ? { kind: 'V', code: l.vendor_code, name: l.vendor_name || '' } : l.account_code === '8130' ? partner : null;
+      const link = { inner: l.sub_code || '', innerName: l.sub_name || '', partnerKind: own?.kind || '', partnerCode: own?.code || '', partnerName: own?.name || '' };
       let memo2 = s.memo2 || '';
       if (e.pattern_code === 'B01') {
         memo2 = DEDUCT[`${l.account_code}|${l.sub_code || ''}`] || (l.account_code === '1120' ? s.note : '');
@@ -68,13 +71,13 @@ export async function journalList(c, q) {
         if (l.side === 'C' && l.account_code === '1131') memo2 = s.closings?.[creditNo++] || '';
       }
       // 在庫計上（C01）：現行 HAR463 と同じく 摘要1＝前月末在庫／当月末在庫（商品は 1360 の内訳1）。2026-10-28 摘要1＝商品・摘要2＝前月末在庫 から変更
-      if (e.pattern_code === 'C01') return { dept: l.department_code || '', account: l.account_code, accountName: l.account_name || '', sub, subName, sub2: '', tax: l.source_tax_code || '', amount: Number(l.amount),
+      if (e.pattern_code === 'C01') return { ...link, dept: l.department_code || '', account: l.account_code, accountName: l.account_name || '', sub, subName, sub2: '', tax: l.source_tax_code || '', amount: Number(l.amount),
         memo1Code: '', memo1: (l.side === 'D' ? l.account_code === '82316' : l.account_code === '1360') ? '前月末在庫' : '当月末在庫', memo2: '' };
       if (e.pattern_code === 'E01' && l.side === 'D' && s.lines) {
         const x = s.lines.filter(y => Number(y.gross_amount) > 0)[debitNo++];
-        if (x && (x.vendor_code || x.payee)) return { dept: l.department_code || '', account: l.account_code, accountName: l.account_name || '', sub, subName, sub2: '', tax: l.source_tax_code || '', amount: Number(l.amount), memo1Code: x.vendor_code || '', memo1: x.vendor_name || x.payee, memo2: x.memo || memo2 };
+        if (x && (x.vendor_code || x.payee)) return { ...link, dept: l.department_code || '', account: l.account_code, accountName: l.account_name || '', sub, subName, sub2: '', tax: l.source_tax_code || '', amount: Number(l.amount), memo1Code: x.vendor_code || '', memo1: x.vendor_name || x.payee, memo2: x.memo || memo2 };
       }
-      return { dept: l.department_code || '', account: l.account_code, accountName: l.account_name || '', sub, subName, sub2: '', tax: l.source_tax_code || '', amount: Number(l.amount),
+      return { ...link, dept: l.department_code || '', account: l.account_code, accountName: l.account_name || '', sub, subName, sub2: '', tax: l.source_tax_code || '', amount: Number(l.amount),
         memo1Code: partner?.code || '', memo1: partner?.name || '', memo2 };
     };
     const dr = lines.filter(l => l.side === 'D'), cr = lines.filter(l => l.side === 'C'), pairs = [];

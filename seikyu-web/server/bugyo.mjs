@@ -6,10 +6,11 @@ import { check, csv } from './domain.mjs';
 import { rows, audit } from './db.mjs';
 import { decode, taxOf } from './taxcode.mjs';
 
+// 補助科目は内訳科目だけ、得意先・業者は取引先コードで連携（2026-11-03）
 export const BUGYO_ITEMS = [
   ['date', '伝票日付'], ['slipNo', '伝票番号'], ['row', '行番号'],
-  ['drDept', '借方部門コード'], ['drAccount', '借方勘定科目コード'], ['drSub', '借方補助科目コード'], ['drTax', '借方税区分'], ['drAmount', '借方金額'], ['drTaxAmount', '借方消費税額'],
-  ['crDept', '貸方部門コード'], ['crAccount', '貸方勘定科目コード'], ['crSub', '貸方補助科目コード'], ['crTax', '貸方税区分'], ['crAmount', '貸方金額'], ['crTaxAmount', '貸方消費税額'],
+  ['drDept', '借方部門コード'], ['drAccount', '借方勘定科目コード'], ['drSub', '借方補助科目コード'], ['drPartner', '借方取引先コード'], ['drTax', '借方税区分'], ['drAmount', '借方金額'], ['drTaxAmount', '借方消費税額'],
+  ['crDept', '貸方部門コード'], ['crAccount', '貸方勘定科目コード'], ['crSub', '貸方補助科目コード'], ['crPartner', '貸方取引先コード'], ['crTax', '貸方税区分'], ['crAmount', '貸方金額'], ['crTaxAmount', '貸方消費税額'],
   ['memo', '摘要'],
 ];
 export async function bugyoSettings(c) {
@@ -27,13 +28,13 @@ export async function saveBugyoSettings(c, ctx, p) {
   await audit(c, ctx, 'kb_setting', 'obc', 'kb.setting.save', { symbols: Object.keys(symbols).length, tax: Object.keys(taxMap).length, encoding });
   return bugyoSettings(c);
 }
-// slips: [{ date, slipNo, memo, pairs: [{ dr: {dept, account, sub, tax, amount, taxAmount?}, cr: {...}, memo }] }]
+// slips: [{ date, slipNo, memo, pairs: [{ dr: {dept, account, sub, partner, tax, amount, taxAmount?}, cr: {...}, memo }] }]
 export function bugyoFile(slips, settings, name) {
   const head = BUGYO_ITEMS.map(([k, label]) => settings.symbols[k] || label);
   const tax = code => { if (!code) return ''; const t = decode(code); return settings.taxMap[t?.code] || t?.code || code; };
   // 消費税額：税込（内税）は金額から計算、外税・別記は仮受/仮払消費税の行で計上済みのため空欄
   const taxAmt = x => (decode(x.tax)?.excl ? '' : x.taxAmount !== undefined ? x.taxAmount : taxOf(x.amount, x.tax));
-  const side = x => (x ? [x.dept || '', x.account, x.sub || '', tax(x.tax), x.amount, taxAmt(x)] : ['', '', '', '', '', '']);
+  const side = x => (x ? [x.dept || '', x.account, x.sub || '', x.partner || '', tax(x.tax), x.amount, taxAmt(x)] : ['', '', '', '', '', '', '']);
   const out = [head];
   for (const s of slips) s.pairs.forEach((p, i) => out.push([s.date.replaceAll('-', '/'), s.slipNo, i + 1, ...side(p.dr), ...side(p.cr), String(p.memo || s.memo || '').slice(0, 60)]));
   const text = csv(out);

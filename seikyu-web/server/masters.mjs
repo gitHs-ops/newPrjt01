@@ -16,6 +16,7 @@ const siteKey = (code, suffix) => `${code}|${suffix}`;
 
 const F = (name, label, extra = {}) => ({ name, label, type: 'text', ...extra });
 // 得意先の締日（2026-10-23 指定：5・10・15・20・末日）
+const PARTNER_KINDS = [['C', '得意先'], ['V', '業者']];
 const CLOSINGS = [5, 10, 15, 20, 31], CLOSING_OPTIONS = CLOSINGS.map(d => [String(d), d === 31 ? '末日' : `${d}日`]);
 export const MASTERS = {
   customers: {
@@ -418,6 +419,21 @@ export const MASTERS = {
         await c.query('INSERT INTO account_subsubject (account_code,sub_code,sub_name,active) VALUES (?,?,?,?)', [r.account, r.code, r.name, r.active]);
       } else await c.query('UPDATE account_subsubject SET sub_name=?,active=? WHERE account_code=? AND sub_code=?', [r.name, r.active, r.account, r.code]);
     },
+  },  // 取引先コード変換表（2026-11-03）：会計連携の取引先コードにカナが使えない場合、得意先・業者コード → 会計の取引先コード（半角英数）。未登録は得意先・業者コードのまま
+  partnerCodes: {
+    label: '取引先コード変換表', table: 'code_m',
+    fields: [F('kind', '区分', { type: 'select', options: PARTNER_KINDS, key: true }), F('code', '得意先・業者コード', { max: 7, key: true }), F('name', '得意先・業者名', { readonly: true, optional: true }),
+      F('partner', '取引先コード（会計）', { max: 20, hint: '半角英数' }), F('active', '有効', { type: 'bool' })],
+    select: "SELECT m.*, COALESCE(cu.customers_name, v.vendor_name) ref_name FROM code_m m LEFT JOIN client_m cu ON m.category1='C' AND cu.customers_cd=m.category2 LEFT JOIN vendor v ON m.category1='V' AND v.vendor_code=m.category2 WHERE m.code_key='PCNV'",
+    where: 'm.code_dtl=?', keyOf: r => [`${r.kind}:${r.code}`],
+    decode: r => ({ kind: r.category1, code: r.category2, name: r.ref_name || '', partner: r.code_dtl_nam, active: r.category3 !== '0' }),
+    validate: r => ({ kind: (check(PARTNER_KINDS.some(k => k[0] === r.kind), '区分は得意先・業者から選択してください'), r.kind), code: text(r.code, '得意先・業者コード', 7, { pattern: CODE }),
+      partner: text(r.partner, '取引先コード（会計）', 20, { pattern: /^[0-9A-Za-z]+$/ }), active: bool(r.active ?? true) }),
+    async write(c, r, old) {
+      check(await one(c, r.kind === 'C' ? 'SELECT 1 x FROM client_m WHERE customers_cd=?' : 'SELECT 1 x FROM vendor WHERE vendor_code=?', [r.code]), `${r.kind === 'C' ? '得意先' : '業者'}「${r.code}」がマスタに登録されていません`);
+      if (!old) await c.query("INSERT INTO code_m (code_key,code_key_nam,code_dtl,code_dtl_nam,code_dtl_abr,category1,category2,category3) VALUES ('PCNV','取引先コード変換',?,?,'',?,?,?)", [`${r.kind}:${r.code}`, r.partner, r.kind, r.code, r.active ? '1' : '0']);
+      else await c.query("UPDATE code_m SET code_dtl_nam=?,category3=? WHERE code_key='PCNV' AND code_dtl=?", [r.partner, r.active ? '1' : '0', `${r.kind}:${r.code}`]);
+    },
   },
 };
 
@@ -496,6 +512,7 @@ const REMOVE = {
   accounts: { refs: [['仕訳', 'SELECT 1 x FROM journal_line WHERE account_code=? LIMIT 1'], ['財務会計の伝票', 'SELECT 1 x FROM kb_line WHERE account_code=? LIMIT 1'], ['期首残高（財務会計）', 'SELECT 1 x FROM kb_opening WHERE account_code=? LIMIT 1'],
     ['定時請求・小口現金', 'SELECT 1 x FROM expense_line WHERE account_code=? LIMIT 1'], ['内訳科目', 'SELECT 1 x FROM account_subsubject WHERE account_code=? LIMIT 1']],
     del: ['DELETE FROM kb_account WHERE account_code=?', 'DELETE FROM account_subject WHERE account_code=?'] },
+  partnerCodes: { refs: [], del: ["DELETE FROM code_m WHERE code_key='PCNV' AND code_dtl=?"] },
   subaccounts: { refs: [['仕訳', 'SELECT 1 x FROM journal_line WHERE account_code=? AND sub_code=? LIMIT 1'], ['財務会計の伝票', 'SELECT 1 x FROM kb_line WHERE account_code=? AND sub_code=? LIMIT 1'],
     ['期首残高（財務会計）', 'SELECT 1 x FROM kb_opening WHERE account_code=? AND sub_code=? LIMIT 1'], ['定時請求・小口現金', 'SELECT 1 x FROM expense_line WHERE account_code=? AND sub_code=? LIMIT 1']],
     del: ['DELETE FROM account_subsubject WHERE account_code=? AND sub_code=?'] },

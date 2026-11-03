@@ -1714,7 +1714,7 @@ const receiptScheduleCard = () => miscCard('入金予定チェックリスト', 
   '', '残高のある請求が対象（未発行を含み、発行の有無を表示）。入金方法・入金先は過去の入金実績から推定します。'); // 条件とボタンを1行に（2026-10-27）
 const accountingCard = () => miscCard('会計連携データ', '会計システムは勘定奉行（奉行クラウド）。受入は CSV／Excel（QA回答 2026-10-08）', rangeInputs('ac', '仕訳日'),
   '<button class="primary" data-act="acct" data-format="bugyo">⇩ 勘定奉行 受入CSV</button><button data-act="acct" data-format="generic">⇩ 汎用CSV（借貸併記・UTF-8）</button><button data-act="acct" data-format="yayoi">⇩ 弥生会計形式（Shift_JIS）</button>',
-  '勘定奉行CSVの見出しは「財務会計 → 会計設定 → 勘定奉行連携」で登録した OBC受入記号（未登録は項目名）、税区分は処税率→奉行税区分の対応表で変換します。受入記号・税区分コードは「データ受入形式一覧表」で確定予定（Q14/Q19）。出力は操作履歴に記録されます。');
+  '補助科目は内訳科目だけ、得意先・業者は取引先コードで連携します（カナを含むコードは「マスタ管理 → 取引先コード変換表」で会計の取引先コードを登録。未登録があると勘定奉行CSVは出力しません）。勘定奉行CSVの見出しは「財務会計 → 会計設定 → 勘定奉行連携」で登録した OBC受入記号（未登録は項目名）、税区分は処税率→奉行税区分の対応表で変換します。受入記号・税区分コードは「データ受入形式一覧表」で確定予定（Q14/Q19）。出力は操作履歴に記録されます。');
 async function accountingDownload(format) {
   const url = '/api/accounting/export?' + qs({ from: $('#ac-from').value, to: $('#ac-to').value, format }), res = await fetch(url, { cache: 'no-store' });
   if (!res.ok) return toast((await res.json().catch(() => ({}))).error || '出力できません', true);
@@ -1969,7 +1969,7 @@ function masterInput(f, r, isNew) {
   if (f.type === 'ref') input = `<select name="${f.name}" data-pick ${dis}>${v && !(masters[f.ref] || []).some(x => x.code === v) ? `<option value="${esc(v)}" selected>${esc(v)}（マスタ未登録）</option>` : ''}${options(isNew ? active(f.ref) : masters[f.ref], v, { blank: '選択してください' })}</select>`;
   else if (f.type === 'site') input = `<select name="${f.name}" data-pick ${dis}>${siteOptions(r?.customer || '', v, '（得意先共通）')}</select>`;
   // 選択肢に無い登録済みの値（移行データの規定外の締日など）は「（規定外）」として残し、黙って先頭の選択肢に変わらないようにする
-  else if (f.type === 'select') { const opts = f.options.map(([code, name]) => ({ code, name })); if (v !== undefined && v !== null && v !== '' && !opts.some(o => o.code === String(v))) opts.push({ code: String(v), name: `${v}（規定外）` }); input = `<select name="${f.name}">${options(opts, v || f.options[0][0], { label: x => x.name })}</select>`; }
+  else if (f.type === 'select') { const opts = f.options.map(([code, name]) => ({ code, name })); if (v !== undefined && v !== null && v !== '' && !opts.some(o => o.code === String(v))) opts.push({ code: String(v), name: `${v}（規定外）` }); input = `<select name="${f.name}" ${dis}>${options(opts, v || f.options[0][0], { label: x => x.name })}</select>`; }
   else input = `<input name="${f.name}" type="${f.type === 'date' || f.type === 'month' ? f.type : 'text'}" class="${f.type === 'int' || f.type === 'dec' ? 'num' : ''}" value="${esc(v)}" ${f.max ? `maxlength="${f.max}"` : ''} ${dis}>`;
   return field(f.label, input, { req: !f.optional, hint: f.hint });
 }

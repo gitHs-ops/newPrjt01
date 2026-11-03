@@ -294,6 +294,17 @@ test('workflow against PostgreSQL business tables', { skip, timeout: 900000 }, a
       const ylines = iconv.decode(y.bytes, 'Shift_JIS').trim().split('\r\n');
       assert.ok(ylines.length > 3); for (const l of ylines) assert.ok(/^(2000|2110|2100|2101),/.test(l), l);
       assert.ok(ylines.some(l => l.includes('売掛金')), 'account names in yayoi format');
+      // 補助科目は内訳科目だけ、得意先は取引先コード（変換表があれば会計の取引先コード）で連携（2026-11-03）
+      ok(await a.call('/api/masters/partnerCodes', { mode: 'create', record: { kind: 'C', code: C, partner: 'X' + tag, active: true } }));
+      assert.equal((await a.call('/api/masters/partnerCodes', { mode: 'create', record: { kind: 'C', code: 'ZZZZZ', partner: 'X1', active: true } })).status, 400, '未登録の得意先は変換表に登録できない');
+      assert.equal((await a.call('/api/masters/partnerCodes', { mode: 'create', record: { kind: 'V', code: 'V1', partner: 'ｱ1', active: true } })).status, 400, '取引先コードは半角英数');
+      const bg = await raw2('/api/accounting/export?' + span + '&format=bugyo');
+      if (bg.status === 200) {
+        const bl = iconv.decode(bg.bytes, 'Shift_JIS').trim().split('\r\n').map(l => l.split(',').map(x => x.replace(/^"|"$/g, '')));
+        const hi = 6; // 伝票日付・伝票番号・行番号・借方部門・借方勘定科目・借方補助科目・借方取引先（見出しは会計設定の受入記号で変わる）
+        const ar = bl.filter(r => r[4] === '1131' && r[hi] === 'X' + tag); assert.ok(ar.length, '売掛金の借方取引先コードは変換後のコード'); for (const r of ar) assert.equal(r[hi - 1], '', '売掛金の補助科目は空');
+      } else assert.fail('bugyo ' + bg.bytes.toString());
+      const gl = g.bytes.toString('utf8').replace(/^﻿/, '').split('\r\n')[0]; assert.match(gl, /借方補助名","借方取引先CD","借方取引先名"/);
       // NO25 estimate fields
       const mx = (await a.call('/api/reports/misc/mix?closing=31&month=' + d.slice(0, 7))).data;
       assert.ok(mx.suggest && typeof mx.suggest.tons === 'number' && Array.isArray(mx.usage));
