@@ -359,17 +359,19 @@ export async function miscBook(c, kind, q) {
       // 見出しは現行の出資金請求明細表と同じ：税率・支払金額・支払額本体・支払消費税、構成員は2段（構成員名／出資金額）（2026-11-02）
       const detail = d.layout === 'detail';
       if (!detail) return { name: `${d.title}_${d.from}_${d.to}.xlsx`, body: xlsx([summarySheet(d, out)]) };
-      const pre = ['支払日', '伝票No', '科目', '支払先', '摘要', '税率'];
+      // 現行 HJR011 の並び（2026-11-04）：支払日は支払日の 1 行目、科目は科目の 1 行目だけ。＊科目計＊ → ＊支払日計＊ → ＊合計＊ → 税率別（10%・0%）。伝票No は出さない
+      const pre = ['支払日', '科目名', '支払先', '摘要', '税率'], amt = x => [x.gross, x.net, x.tax, ...x.parts], sum = x => amt(x).map(S);
       out.push([...pre.map(() => ''), '', '', '', ...d.members.map(m => m.name)].map(H));
       out.push([...pre, '支払金額', '支払額本体', '支払消費税', ...d.members.map(() => '出資金額')].map(H));
       for (const day of d.days) {
-        for (const a of d.accounts.filter(x => x.due === day.due)) {
-          if (detail) { for (const r of a.rows) out.push([r.date, r.no, `${a.account} ${a.name}`, r.vendor, r.memo, r.rate, r.gross, r.net, r.tax, ...r.parts]); out.push(['', '', S('＊科目計＊'), '', '', '', S(a.gross), S(a.net), S(a.tax), ...a.parts.map(S)]); }
-          else out.push([a.due, `${a.account} ${a.name}`, a.count, '', '', '', a.gross, a.net, a.tax, ...a.parts]);
-        }
-        out.push([S(`${day.due} 支払日計`), '', '', '', '', '', S(day.gross), '', '', ...day.parts.map(S)]);
+        d.accounts.filter(x => x.due === day.due).forEach((ac, i) => {
+          ac.rows.forEach((r, k) => out.push([!i && !k ? day.due : '', k ? '' : `${ac.account} ${ac.name}`, r.vendor, r.memo, r.rate, r.gross, r.net, r.tax || '', ...r.parts]));
+          out.push(['', S('＊科目計＊'), '', '', '', ...sum(ac)], []);
+        });
+        out.push(['', S('＊支払日計＊'), '', '', '', ...sum(day)], []);
       }
-      out.push(['', '', S('合計'), '', '', '', S(d.totals.gross), S(d.totals.net), S(d.totals.tax), ...d.totals.parts.map(S)]);
+      out.push([S('＊合　計＊'), '', '', '', '', ...sum(d.totals)], []);
+      for (const g of d.rates) out.push(['', '', '', '', { v: g.rate, s: 'right' }, ...amt(g)]);
     } else {
       // 現行 HJR031 の見出し：入金日・入金科目・入金先・入金額、構成員は2段（構成員名／配分額）。入金科目は科目＋摘要（2026-11-02）
       out.push(['', '', '', '', ...d.members.map(m => m.name)].map(H));
@@ -380,7 +382,7 @@ export async function miscBook(c, kind, q) {
     }
     // 明細表の後ろに合計表を自動で付ける（同じブックの2枚目のシート。合計表のボタンは 2026-11-03 に画面から削除）
     const ds = await jvExpenses(c, { ...q, layout: 'summary' });
-    return { name: `${d.title}_${d.from}_${d.to}.xlsx`, body: xlsx([{ name: d.title.slice(0, 28), rows: out, widths: [11, 12, 18, 22, 20, 12, 12, 12, 12, 16, 16, 16, 16] }, summarySheet(ds, head(ds, `期間 ${ds.from} 〜 ${ds.to}`))]) };
+    return { name: `${d.title}_${d.from}_${d.to}.xlsx`, body: xlsx([{ name: d.title.slice(0, 28), rows: out, widths: [11, 20, 30, 24, 7, 13, 13, 12, ...d.members.map(() => 14)] }, summarySheet(ds, head(ds, `期間 ${ds.from} 〜 ${ds.to}`))]) };
   }
   check(false, '帳票の種類が不正です');
 }

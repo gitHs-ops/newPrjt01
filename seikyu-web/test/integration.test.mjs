@@ -293,6 +293,7 @@ test('workflow against PostgreSQL business tables', { skip, timeout: 900000 }, a
       const jvx = Buffer.from(await (await fetch(base + '/api/reports/misc/jv-expenses?' + span + '&format=xlsx', { headers: { cookie: a.cookie } })).arrayBuffer()).toString();
       for (const w of ['税率', '支払金額', '支払額本体', '支払消費税', '出資金額']) assert.ok(jvx.includes(w), w);
       for (const w of ['出資本体', '出資消費税', '出資金請求合計表']) assert.ok(jvx.includes(w), '明細表の後ろに合計表: ' + w); // 2026-11-03
+      for (const w of ['＊科目計＊', '＊支払日計＊', '＊合　計＊', '科目名']) assert.ok(jvx.includes(w), '現行 HJR011 の並び: ' + w); assert.ok(!jvx.includes('伝票No'), '伝票No は出さない'); // 2026-11-04
       const jvs = await a.call('/api/reports/misc/jv-expenses?' + span + '&layout=summary'); ok(jvs);
       for (const x of [...jvs.data.accounts, jvs.data.totals, ...jvs.data.rates]) x.parts.forEach((v, k) => assert.equal(x.netParts[k] + x.taxParts[k], v));
       // ⑫ 合計表＝明細の科目計（再按分しない）、出資消費税＝明細ごとの出資金額の内税逆算の合計、税率別の行（現行 HJR011。2026-11-04）

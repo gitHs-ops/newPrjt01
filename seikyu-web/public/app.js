@@ -1800,15 +1800,16 @@ async function miscReport(kind, src) {
     // 見出しは現行の出資金請求明細表と同じ（税率・支払金額・支払額本体・支払消費税・構成員名／出資金額。2026-11-02）
     const detail = d.layout === 'detail', mcols = d.members.map(m => `<th class="num">${esc(m.name)}<br>出資金額</th>`).join(''), money = v => `<td class="num">${yen(v)}</td>`;
     const m3 = x => x.parts.map((v, k) => money(v) + money(x.netParts[k]) + money(x.taxParts[k])).join(''); // 合計表：出資金額・出資本体・出資消費税
-    body = `` + (!d.accounts.length ? '<div class="empty">この締切日の月度の定時請求はありません</div>' : d.days.map(day => `<h3 style="margin:12px 0 4px">支払日 ${esc(day.due)}</h3><div class="table-wrap"><table><thead><tr>`
-      + (detail ? `<th>科目</th><th>伝票No</th><th>支払先</th><th>摘要</th><th>税率</th><th class="num">支払金額</th><th class="num">支払額本体</th><th class="num">支払消費税</th>${mcols}`
-        : `<th rowspan="2">科目名</th><th class="num" rowspan="2">支払金額</th><th class="num" rowspan="2">支払本体</th><th class="num" rowspan="2">支払消費税</th>${d.members.map(m => `<th colspan="3" style="text-align:center">${esc(m.name)}</th>`).join('')}</tr><tr>${d.members.map(() => '<th class="num">出資金額</th><th class="num">出資本体</th><th class="num">出資消費税</th>').join('')}`) + `</tr></thead><tbody>`
-      + d.accounts.filter(a => a.due === day.due).map(a => detail
-        ? a.rows.map((r, k) => `<tr><td>${k ? '' : esc(`${a.account} ${a.name}`)}</td><td>${esc(r.no)}</td><td>${esc(r.vendor)}</td><td>${esc(r.memo)}</td><td>${esc(r.rate)}</td>${money(r.gross)}${money(r.net)}${money(r.tax)}${r.parts.map(money).join('')}</tr>`).join('')
-          + `<tr class="subtotal"><td colspan="5" class="right">＊科目計＊</td>${money(a.gross)}${money(a.net)}${money(a.tax)}${a.parts.map(money).join('')}</tr>`
-        : `<tr><td>${esc(a.name)}</td>${money(a.gross)}${money(a.net)}${money(a.tax)}${m3(a)}</tr>`).join('')
-      + `</tbody><tfoot><tr>${detail ? `<td colspan="5">支払日計</td>${money(day.gross)}<td></td><td></td>${day.parts.map(money).join('')}` : `<td>支払日計</td>${money(day.gross)}${money(day.net)}${money(day.tax)}${m3(day)}`}</tr></tfoot></table></div>`).join('')
-      + `<p class="right"><b>合計 ${yen(d.totals.gross)} 円</b>（${d.members.map((m, k) => `${esc(m.name)} ${yen(d.totals.parts[k])}`).join(' ／ ')}）</p>`);
+    // 明細表は現行 HJR011 の並び（2026-11-04）：1 つの表に 支払日・科目名（各 1 行目だけ）・支払先・摘要・税率…。＊科目計＊・＊支払日計＊・＊合計＊・税率別
+    const sumRow = (label, x) => `<tr class="subtotal"><td></td><td>${label}</td><td colspan="3"></td>${money(x.gross)}${money(x.net)}${money(x.tax)}${x.parts.map(money).join('')}</tr>`;
+    body = `` + (!d.accounts.length ? '<div class="empty">この締切日の月度の定時請求はありません</div>' : detail
+      ? `<div class="table-wrap"><table><thead><tr><th>支払日</th><th>科目名</th><th>支払先</th><th>摘要</th><th>税率</th><th class="num">支払金額</th><th class="num">支払額本体</th><th class="num">支払消費税</th>${mcols}</tr></thead><tbody>`
+        + d.days.map(day => d.accounts.filter(a => a.due === day.due).map((a, i) => a.rows.map((r, k) => `<tr><td>${!i && !k ? esc(day.due) : ''}</td><td>${k ? '' : esc(`${a.account} ${a.name}`)}</td><td>${esc(r.vendor)}</td><td>${esc(r.memo)}</td><td>${esc(r.rate)}</td>${money(r.gross)}${money(r.net)}<td class="num">${r.tax ? yen(r.tax) : ''}</td>${r.parts.map(money).join('')}</tr>`).join('') + sumRow('＊科目計＊', a)).join('') + sumRow('＊支払日計＊', day)).join('')
+        + `</tbody><tfoot>${sumRow('＊合　計＊', d.totals)}${d.rates.map(g => `<tr><td colspan="4"></td><td class="right">${esc(g.rate)}</td>${money(g.gross)}${money(g.net)}${money(g.tax)}${g.parts.map(money).join('')}</tr>`).join('')}</tfoot></table></div>`
+      : d.days.map(day => `<h3 style="margin:12px 0 4px">支払日 ${esc(day.due)}</h3><div class="table-wrap"><table><thead><tr>`
+      + `<th rowspan="2">科目名</th><th class="num" rowspan="2">支払金額</th><th class="num" rowspan="2">支払本体</th><th class="num" rowspan="2">支払消費税</th>${d.members.map(m => `<th colspan="3" style="text-align:center">${esc(m.name)}</th>`).join('')}</tr><tr>${d.members.map(() => '<th class="num">出資金額</th><th class="num">出資本体</th><th class="num">出資消費税</th>').join('')}</tr></thead><tbody>`
+      + d.accounts.filter(a => a.due === day.due).map(a => `<tr><td>${esc(a.name)}</td>${money(a.gross)}${money(a.net)}${money(a.tax)}${m3(a)}</tr>`).join('')
+      + `</tbody><tfoot><tr><td>支払日計</td>${money(day.gross)}${money(day.net)}${money(day.tax)}${m3(day)}</tr></tfoot></table></div>`).join(''));
   }
   // 入金明細及び配分表：現行 HJR031 の見出し（入金日・入金科目・入金先・入金額・構成員名／配分額。入金科目は科目＋摘要。2026-11-02）
   if (kind === 'jv-receipts') body = `` + (!d.lines.length ? '<div class="empty">この締切日の月度の入金・現金売上はありません</div>' : `<div class="table-wrap"><table><thead><tr><th>入金日</th><th>入金科目</th><th>入金先</th><th class="num">入金額</th>${d.members.map(m => `<th class="num">${esc(m.name)}<br>配分額</th>`).join('')}</tr></thead><tbody>`
