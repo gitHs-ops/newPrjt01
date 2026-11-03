@@ -1826,10 +1826,11 @@ async function miscReport(kind, src) {
       ? `<div class="table-wrap"><table><thead><tr><th>支払日</th><th>科目名</th><th>支払先</th><th>摘要</th><th>税率</th><th class="num">支払金額</th><th class="num">支払額本体</th><th class="num">支払消費税</th>${mcols}</tr></thead><tbody>`
         + d.days.map(day => d.accounts.filter(a => a.due === day.due).map((a, i) => a.rows.map((r, k) => `<tr><td>${!i && !k ? esc(day.due) : ''}</td><td>${k ? '' : esc(`${a.account} ${a.name}`)}</td><td>${esc(r.vendor)}</td><td>${esc(r.memo)}</td><td>${esc(r.rate)}</td>${money(r.gross)}${money(r.net)}<td class="num">${r.tax ? yen(r.tax) : ''}</td>${r.parts.map(money).join('')}</tr>`).join('') + sumRow('＊科目計＊', a)).join('') + sumRow('＊支払日計＊', day)).join('')
         + `</tbody><tfoot>${sumRow('＊合　計＊', d.totals)}${d.rates.map(g => `<tr><td colspan="4"></td><td class="right">${esc(g.rate)}</td>${money(g.gross)}${money(g.net)}${money(g.tax)}${g.parts.map(money).join('')}</tr>`).join('')}</tfoot></table></div>`
-      : d.days.map(day => `<h3 style="margin:12px 0 4px">支払日 ${esc(day.due)}</h3><div class="table-wrap"><table><thead><tr>`
-      + `<th rowspan="2">科目名</th><th class="num" rowspan="2">支払金額</th><th class="num" rowspan="2">支払本体</th><th class="num" rowspan="2">支払消費税</th>${d.members.map(m => `<th colspan="3" style="text-align:center">${esc(m.name)}</th>`).join('')}</tr><tr>${d.members.map(() => '<th class="num">出資金額</th><th class="num">出資本体</th><th class="num">出資消費税</th>').join('')}</tr></thead><tbody>`
-      + d.accounts.filter(a => a.due === day.due).map(a => `<tr><td>${esc(a.name)}</td>${money(a.gross)}${money(a.net)}${money(a.tax)}${m3(a)}</tr>`).join('')
-      + `</tbody><tfoot><tr><td>支払日計</td>${money(day.gross)}${money(day.net)}${money(day.tax)}${m3(day)}</tr></tfoot></table></div>`).join(''));
+      // 合計表は現行 HJR011 の並び（2026-11-04）：1 つの表に 支払日・科目名。支払日計は出さず ＊合計＊ と税率別（10%・0%）。構成員は「** 構成員名 **」
+      : `<div class="table-wrap"><table><thead><tr>`
+      + `<th rowspan="2">支払日</th><th rowspan="2">科目名</th><th class="num" rowspan="2">支払金額</th><th class="num" rowspan="2">支払本体</th><th class="num" rowspan="2">支払消費税</th>${d.members.map(m => `<th colspan="3" style="text-align:center">**　${esc(m.name)}　**</th>`).join('')}</tr><tr>${d.members.map(() => '<th class="num">出資金額</th><th class="num">出資本体</th><th class="num">出資消費税</th>').join('')}</tr></thead><tbody>`
+      + d.accounts.map(a => `<tr><td>${esc(a.due)}</td><td>${esc(a.name)}</td>${money(a.gross)}${money(a.net)}${money(a.tax)}${m3(a)}</tr>`).join('')
+      + `</tbody><tfoot><tr class="subtotal"><td></td><td>＊合計＊</td>${money(d.totals.gross)}${money(d.totals.net)}${money(d.totals.tax)}${m3(d.totals)}</tr>${d.rates.map(g => `<tr><td></td><td class="right">${esc(g.rate)}</td>${money(g.gross)}${money(g.net)}${money(g.tax)}${m3(g)}</tr>`).join('')}</tfoot></table></div>`);
   }
   // 入金明細及び配分表：現行 HJR031 の見出し（入金日・入金科目・入金先・入金額・構成員名／配分額。入金科目は科目＋摘要。2026-11-02）
   // 現行 HJR031：構成員の欄は 5 つ固定、末尾は 配分する／配分しない／合計（2026-11-04）
@@ -1920,7 +1921,6 @@ async function journalListsView(q) {
   const url = kind === 'BANK' ? '/api/reports/bank-payments?' + qs({ from, to }) : '/api/reports/journal-list?' + qs({ pattern: kind, from, to });
   const d = await api(url);
   let body;
-  const side = s => s ? `<td>${esc(s.dept)} ${esc(s.account)}<br><span class="small">${esc(s.accountName)}</span></td><td>${esc(s.sub)}<br><span class="small">${esc(s.subName)}</span></td><td class="num">${esc(s.tax)}</td><td class="num">${yen(s.amount)}</td><td><span class="small">${esc(s.memo1Code)} ${esc(s.memo1)}<br>${esc(s.memo2)}</span></td>` : '<td></td><td></td><td></td><td></td><td></td>';
   if (kind === 'BANK') {
     // 現行 HAR321 の並び（2026-11-04）：銀行名・支店名は支払元。銀行計・日付計は金額 4 列と支払方法計
     const tot = (x, label, g) => ['', '', '', '', yen(x.billed), yen(x.offset), yen(x.safety), yen(x.fee), '', yen(x.total), label, g ? g.bankName : '', g ? g.branchName : ''];
@@ -1928,19 +1928,26 @@ async function journalListsView(q) {
       { label: '請求金額', num: 1, value: r => yen(r.billed) }, { label: '相殺金額', num: 1, value: r => yen(r.offset) }, { label: '安全協力費', num: 1, value: r => yen(r.safety) }, { label: '手数料', num: 1, value: r => yen(r.fee) }, { label: '業者計', num: 1, value: r => yen(r.vendorTotal) },
       { label: '支払方法計', num: 1, value: r => (r.methodTotal == null ? '' : yen(r.methodTotal)) }, { label: '支払方法', value: r => r.method }, { label: '銀行名', value: r => r.fromBankName }, { label: '支店名', value: r => r.fromBranchName }], g.rows, { foot: tot(g, '銀行計', g) })).join('') + `<p class="right small"><b>日付計</b>　請求金額 ${yen(day.sums.billed)}　相殺金額 ${yen(day.sums.offset)}　安全協力費 ${yen(day.sums.safety)}　手数料 ${yen(day.sums.fee)}　支払方法計 ${yen(day.sums.total)}</p>`; }).join('') : '<div class="empty">対象期間の支払はありません</div>';
   } else {
+    // 現行の自動仕訳リスト（HAR363・HAR413・HAR152・HAR733・CS5785）と同じ 2 段の並び（Excel の JOURNAL_HEAD と同じ 18 列。2026-11-04）。総合計の行は無い
+    const yy = x => (x ? `${x.slice(2, 4)}/${x.slice(5, 7)}/${x.slice(8, 10)}` : ''), amt = x => (x?.account ? x.amount : '');
+    const tr = (cells, cls = '', tag = 'td') => `<tr class="${cls}">${Array.from({ length: 18 }, (_, k) => { const v = cells[k] ?? ''; return `<${tag} class="${typeof v === 'number' ? 'num' : ''}">${typeof v === 'number' ? yen(v) : esc(v)}</${tag}>`; }).join('')}</tr>`;
+    const head = tr({ 0: '日付', 1: '部', 2: '科目', 3: '内訳1', 4: '内訳2', 5: '処税率', 6: '借方金額', 7: '工種CD', 8: '摘要1', 9: '摘要1（借方）', 10: '摘要2（借方）', 11: '部', 12: '科目', 13: '内訳1', 14: '内訳2', 15: '処税率', 17: '元伝票' }, '', 'th')
+      + tr({ 0: '伝票No', 1: '科目名', 3: '内訳1名', 7: '工種CD', 8: '摘要1', 9: '摘要1（貸方）', 10: '摘要2（貸方）', 11: '科目名', 13: '内訳1名', 16: '貸方金額', 17: '状態' }, '', 'th');
+    const total = (label, v) => tr({ 6: v, 9: label, 16: v }, 'subtotal');
     let html = '', last = null;
-    const dateTotal = dt => `<tr class="subtotal"><td></td><td colspan="3" class="right">日付合計</td><td class="num"><b>${yen(d.dates.find(x => x.date === dt).total)}</b></td><td colspan="7"></td></tr>`;
     for (const sl of d.slips) {
-      if (last && sl.date !== last) html += dateTotal(last); last = sl.date;
-      sl.pairs.forEach((p, i) => { html += `<tr class="${sl.status && !sl.status.endsWith('を含む') ? 'muted' : ''}"><td>${i ? '' : esc(sl.date)}<br><span class="small">${i ? '' : esc(sl.slipNo)}</span></td>${side(p.dr)}${side(p.cr)}<td class="small">${i ? '' : esc(sl.sourceNo) + (sl.status ? '<br>' + esc(sl.status) : '')}</td></tr>`; });
-      html += `<tr class="subtotal"><td></td><td colspan="2" class="right">伝票合計</td><td></td><td class="num"><b>${yen(sl.total)}</b></td><td></td><td colspan="3"></td><td class="num"><b>${yen(sl.total)}</b></td><td colspan="2"></td></tr>`;
+      if (last && sl.date !== last) html += total('日付合計', d.dates.find(x => x.date === last).total); last = sl.date;
+      const cls = sl.status && !sl.status.endsWith('を含む') ? 'muted' : '';
+      sl.pairs.forEach((p, k) => { const dr = p.dr || {}, cr = p.cr || {};
+        html += tr({ 0: k ? '' : yy(sl.date), 1: dr.dept, 2: dr.account, 3: dr.sub, 4: dr.sub2, 5: dr.tax, 6: amt(dr), 8: dr.memo1Code, 9: dr.memo1, 10: dr.memo2, 11: cr.dept, 12: cr.account, 13: cr.sub, 14: cr.sub2, 15: cr.tax, 17: k ? '' : sl.sourceNo }, cls)
+          + tr({ 0: k ? '' : sl.slipNo, 1: dr.accountName, 3: dr.subName, 8: cr.memo1Code, 9: cr.memo1, 10: cr.memo2, 11: cr.accountName, 13: cr.subName, 16: amt(cr), 17: k ? '' : sl.status }, cls); });
+      html += total('伝票合計', sl.total);
     }
-    if (last) html += dateTotal(last);
-    body = d.slips.length ? `<div class="table-wrap"><table class="jl"><thead><tr><th>日付<br>伝票No</th><th>借方 部・科目</th><th>内訳1</th><th class="num">処税率</th><th class="num">借方金額</th><th>摘要1／摘要2（借方）</th><th>貸方 部・科目</th><th>内訳1</th><th class="num">処税率</th><th class="num">貸方金額</th><th>摘要1／摘要2（貸方）</th><th>元伝票</th></tr></thead><tbody>${html}</tbody>
-      <tfoot><tr><td>総合計</td><td></td><td></td><td></td><td class="num">${yen(d.total)}</td><td></td><td></td><td></td><td></td><td class="num">${yen(d.total)}</td><td></td><td></td></tr></tfoot></table></div>` : '<div class="empty">対象期間の仕訳はありません</div>';
+    if (last) html += total('日付合計', d.dates.find(x => x.date === last).total);
+    body = d.slips.length ? `<div class="table-wrap"><table class="jl"><thead>${head}</thead><tbody>${html}</tbody></table></div>` : '<div class="empty">対象期間の仕訳はありません</div>';
   }
   const kinds = Object.entries(meta.journalLists).map(([code, v]) => ({ code, name: v.title }));
-  return page('仕訳・会計連携', '自動仕訳リストは現行帳票（⑥⑦⑨・資料ア〜エ）と同じ項目を、借方・貸方を1行に並べた形式で表示・Excel出力します（削減案5：同一フォーマット）。',
+  return page('仕訳・会計連携', '自動仕訳リストは現行帳票（⑥⑦⑨・資料ア〜エ）と同じ項目・2段の並びで表示・Excel出力します（削減案5：同一フォーマット）。',
     `<select name="list" data-filter>${options(kinds, kind, { label: r => r.name })}</select><input type="date" name="from" value="${from}" data-filter><input type="date" name="to" value="${to}" data-filter><input type="hidden" name="tab" value="lists" data-filter>
      <a class="button" href="${url}&format=xlsx" download>⇩ Excel</a>`,
     `<section class="card glass"><div class="card-head"><h2>${esc(d.title)}</h2><span class="muted small">${from} 〜 ${to}</span></div><div id="jl-body">${body}</div></section>`);

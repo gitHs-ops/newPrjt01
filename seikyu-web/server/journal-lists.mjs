@@ -34,7 +34,8 @@ export async function journalList(c, q) {
   if (srcIds.length) {
     const invRows = def.source === 'billing_head' ? await rows(c, `SELECT h.invoice_id id, h.closing_date, h.customers_cd, c.customers_name FROM billing_head h LEFT JOIN client_m c ON c.customers_cd=h.customers_cd WHERE h.invoice_id IN (${ph(srcIds)})`, srcIds) : [];
     const invNo = await invoiceNos(c, invRows.map(r => ({ id: r.id, closing: fromNum(r.closing_date) })));
-    for (const r of invRows) src.set(r.id, { no: invNo.get(Number(r.id)), memo2: `${fromNum(r.closing_date)}締` });
+    // 売掛金計上（A01）の摘要2 は現行 HAR363 どおり空欄（2026-11-04。従来は「締日＋締」）
+    for (const r of invRows) src.set(r.id, { no: invNo.get(Number(r.id)), memo2: '' });
     if (def.source === 'receipt') {
       for (const r of await rows(c, `SELECT receipt_id id, receipt_no FROM receipt WHERE receipt_id IN (${ph(srcIds)})`, srcIds)) src.set(r.id, { no: r.receipt_no, closings: [], note: '' });
       for (const a of await rows(c, `SELECT a.receipt_id, h.closing_date FROM receipt_allocation a JOIN billing_head h ON h.invoice_id=a.invoice_id WHERE a.receipt_id IN (${ph(srcIds)}) ORDER BY a.receipt_id, a.invoice_id`, srcIds)) src.get(a.receipt_id)?.closings.push(fromNum(a.closing_date));
@@ -70,11 +71,18 @@ export async function journalList(c, q) {
       if (e.pattern_code === 'B01') {
         memo2 = DEDUCT[`${l.account_code}|${l.sub_code || ''}`] || (l.account_code === '1120' ? s.note : '');
         if (l.side === 'D') { const k = kindOf(l); if (k && s.memo2Of?.[k]) memo2 = s.memo2Of[k]; }
-        if (l.side === 'C' && l.account_code === '1131') memo2 = s.closings?.[creditNo++] || '';
+        // 売掛金の摘要2＝消し込んだ請求の締日。表記は現行 HAR413 の YY/MM/DD（2026-11-04）
+        if (l.side === 'C' && l.account_code === '1131') { const cl = s.closings?.[creditNo++] || ''; memo2 = cl ? `${cl.slice(2, 4)}/${cl.slice(5, 7)}/${cl.slice(8, 10)}` : ''; }
       }
       // 在庫計上（C01）：現行 HAR463 と同じく 摘要1＝前月末在庫／当月末在庫（商品は 1360 の内訳1）。2026-10-28 摘要1＝商品・摘要2＝前月末在庫 から変更
       if (e.pattern_code === 'C01') return { ...link, dept: l.department_code || '', account: l.account_code, accountName: l.account_name || '', sub, subName, sub2: '', tax: l.source_tax_code || '', amount: Number(l.amount),
         memo1Code: '', memo1: (l.side === 'D' ? l.account_code === '82316' : l.account_code === '1360') ? '前月末在庫' : '当月末在庫', memo2: '' };
+      // 定時請求（D01）は現行 HAR152：摘要1 は借方だけ（業者）、摘要2＝明細の摘要（無ければ伝票の摘要）。貸方の摘要2 は下で借方と同じにする（2026-11-04）
+      if (e.pattern_code === 'D01' && s.lines) {
+        const x = l.side === 'D' ? s.lines.filter(y => Number(y.gross_amount) > 0)[debitNo++] : null;
+        return { ...link, dept: l.department_code || '', account: l.account_code, accountName: l.account_name || '', sub, subName, sub2: '', tax: l.source_tax_code || '', amount: Number(l.amount),
+          memo1Code: l.side === 'D' ? partner?.code || '' : '', memo1: l.side === 'D' ? partner?.name || '' : '', memo2: x?.memo || memo2 };
+      }
       if (e.pattern_code === 'E01' && l.side === 'D' && s.lines) {
         const x = s.lines.filter(y => Number(y.gross_amount) > 0)[debitNo++];
         if (x && (x.vendor_code || x.payee)) return { ...link, dept: l.department_code || '', account: l.account_code, accountName: l.account_name || '', sub, subName, sub2: '', tax: l.source_tax_code || '', amount: Number(l.amount), memo1Code: x.vendor_code || '', memo1: x.vendor_name || x.payee, memo2: x.memo || memo2 };
@@ -85,6 +93,15 @@ export async function journalList(c, q) {
     const dr = lines.filter(l => l.side === 'D'), cr = lines.filter(l => l.side === 'C'), pairs = [];
     // Inventory pairs follow the 洗替 order (前月末戻し, 当月末計上) even if one side is zero.
     for (let i = 0; i < Math.max(dr.length, cr.length); i++) pairs.push({ dr: side(dr[i]), cr: side(cr[i]) });
+    // 小口現金（E01）は現行 HAR733 の並び：現金 1111 の 1 行を相手の行ごとに同じ金額で分け、摘要1・摘要2 も相手の行と同じ（2026-11-04）
+    if (e.pattern_code === 'E01') {
+      const [one, many, k] = cr.length === 1 && dr.length > 1 ? [cr[0], dr, 'cr'] : dr.length === 1 && cr.length > 1 ? [dr[0], cr, 'dr'] : [null, null, null];
+      if (one?.account_code === '1111') { const base = pairs[0][k]; pairs.forEach(p => { const o = p[k === 'cr' ? 'dr' : 'cr']; p[k] = { ...base, amount: o.amount, memo1Code: o.memo1Code, memo1: o.memo1, memo2: o.memo2 }; }); }
+      else pairs.forEach(p => { if (p.dr && p.cr) Object.assign(p.cr, { memo1Code: p.dr.memo1Code, memo1: p.dr.memo1, memo2: p.dr.memo2 }); });
+    }
+    if (e.pattern_code === 'D01') pairs.forEach(p => { if (p.dr && p.cr) p.cr.memo2 = p.dr.memo2; });
+    // 支払内訳（F01）は現行 CS5785 の並び：貸方（当座預金・雑収入・業者立替金・預り金）を 1 行ずつ、最後に借方の買掛金だけの行。借方の行に摘要は出さない（2026-11-04）
+    if (e.pattern_code === 'F01') pairs.splice(0, pairs.length, ...cr.map(l => ({ dr: null, cr: side(l) })), ...dr.map(l => ({ dr: { ...side(l), memo1Code: '', memo1: '', memo2: '' }, cr: null })));
     // 在庫計上（C01）は現行 HAR463 の並び：前月末在庫（借 82316／貸 1360）を商品順に全部、続けて当月末在庫（借 1360／貸 82316）を商品順に（2026-11-04）
     if (e.pattern_code === 'C01') pairs.sort((a, b) => (a.dr?.memo1 === '前月末在庫' ? 0 : 1) - (b.dr?.memo1 === '前月末在庫' ? 0 : 1));
     const total = dr.reduce((n, l) => n + Number(l.amount), 0);
@@ -169,7 +186,7 @@ export async function journalListBook(c, q) {
     out.push(totalRow('伝　票　合　計', s.total));
   }
   if (lastDate) out.push(totalRow('日　付　合　計', d.dates.find(x => x.date === lastDate).total));
-  out.push(totalRow('総　合　計', d.total));
+  // 現行の自動仕訳リスト（HAR363・HAR413・HAR152・HAR733・CS5785）には総合計の行が無い（2026-11-04）
   if (!d.slips.length) out.push(['対象期間の仕訳はありません']);
   return { name: `${d.title}_${d.from}_${d.to}.xlsx`, body: xlsx([{ name: d.title.slice(0, 28), rows: out, widths: JOURNAL_WIDTHS, printTitles: '4:5', header: `&L${d.title}&R&P 頁` }]) };
 }

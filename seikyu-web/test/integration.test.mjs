@@ -164,6 +164,10 @@ test('workflow against PostgreSQL business tables', { skip, timeout: 900000 }, a
         }
         assert.equal(r.data.total, r.data.dates.reduce((n, x) => n + x.total, 0));
       }
+      // 現行 HAR733：小口現金の現金 1111 は相手の行ごと。現行 CS5785：支払内訳は貸方の行ごと → 借方だけの行（2026-11-04）
+      const e1 = (await a.call('/api/reports/journal-list?' + new URLSearchParams({ pattern: 'E01', ...span }))).data, f1 = (await a.call('/api/reports/journal-list?' + new URLSearchParams({ pattern: 'F01', ...span }))).data;
+      for (const sl of e1.slips) for (const p of sl.pairs) if (p.cr?.account === '1111' && p.dr) assert.deepEqual([p.cr.amount, p.cr.memo1], [p.dr.amount, p.dr.memo1]);
+      assert.ok(f1.slips.length && f1.slips.every(sl => !sl.pairs.some(p => p.dr && p.cr) && sl.pairs.at(-1).dr?.account === '4121' && !sl.pairs.at(-1).dr.memo1));
       const b = (await a.call('/api/reports/journal-list?' + new URLSearchParams({ pattern: 'B01', ...span }))).data;
       const memos = b.slips.flatMap(sl => sl.pairs.flatMap(p => [p.dr?.memo2, p.cr?.memo2]));
       assert.ok(memos.includes('手数料') && memos.includes('協力費') && memos.includes('預り金充当'), 'B01 deduction memos');
@@ -229,6 +233,8 @@ test('workflow against PostgreSQL business tables', { skip, timeout: 900000 }, a
       const prr = await a.call('/api/reports/misc/purchase-register?' + new URLSearchParams({ from: d, to: d })); ok(prr); const pr = prr.data;
       assert.deepEqual(pr.columns.map(x => x.label), ['仕入日', '区分', '伝票No.', '商品名', '仕入数量', '', '仕入単価', '仕入金額', '科目ｺｰﾄﾞ', '内訳名', '処税率']);
       assert.match(pr.groups.find(g => g.code === 'V' + tag).rows[0].no, /^P\d{9}-01$/);
+      // 現行 HAR011：仕入日・区分は仕入先の 1 行目だけ、計の行なし（2026-11-04）
+      assert.deepEqual([pr.groups.find(g => g.code === 'V' + tag).rows[0].date, pr.groups.find(g => g.code === 'V' + tag).totals, pr.totals], [`${d.slice(2, 4)}/${d.slice(5, 7)}/${d.slice(8, 10)}`, undefined, undefined]);
       // 単位は 1（t）・2（袋）・3 のみ入力でき、リストには単位名が出る（2026-11-03）
       assert.equal(pr.groups.find(g => g.code === 'V' + tag).rows[0].unit, 't');
       for (const unit of ['', '4', 'x']) { const r = await a.call('/api/purchases', { date: d, vendor: 'V' + tag, item: 'I' + tag, quantity: '1', unit, price: 1000, taxCode: '10%' }); assert.equal(r.status, 400); assert.match(r.data.error, /単位は 1/); }
@@ -236,7 +242,7 @@ test('workflow against PostgreSQL business tables', { skip, timeout: 900000 }, a
       const fz = await a.call('/api/purchases', { date: d, vendor: 'V' + tag, lines: [{ item: '', quantity: '0', amount: '3300', lineKind: '2', taxCode: '241' }] }); ok(fz);
       const fl = (await a.call('/api/purchases?' + new URLSearchParams({ month: d.slice(0, 7), vendor: 'V' + tag }))).data.find(x => x.no === fz.data.no);
       assert.deepEqual([fl.item, fl.itemName, fl.lineKind, fl.net], ['', '運賃', '2', 3300]);
-      assert.equal((await a.call('/api/reports/misc/purchase-register?' + new URLSearchParams({ from: d, to: d }))).data.groups.flatMap(g => g.rows).find(x => x.no.startsWith(fz.data.no)).item, '運賃');
+      assert.equal((await a.call('/api/reports/misc/purchase-register?' + new URLSearchParams({ from: d, to: d }))).data.groups.flatMap(g => g.rows).find(x => x.slip.startsWith(fz.data.no)).item, '運賃');
       const fe = await a.call('/api/purchases', { date: d, vendor: 'V' + tag, lines: [{ item: '', quantity: '2', amount: '100', taxCode: '241' }] }); assert.equal(fe.status, 400); assert.match(fe.data.error, /商品コードを入力/);
       ok(await a.call('/api/purchases/delete', { id: fl.id }));
       // 年度の最初の仕入が同時に来ても番号は重複せず、P＋年度＋連番で振られる
