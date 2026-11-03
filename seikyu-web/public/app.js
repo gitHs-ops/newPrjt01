@@ -764,7 +764,7 @@ const ISSUE_STATES = { unissued: '未発行', issued: '発行済', reissued: '�
 // 現場名の表記（請求書の「現場：」・現場別発行の単位。サーバーの siteLabel と同じ）
 const siteLabel = n => (n && String(n).trim() ? String(n) : '（現場なし）');
 // 現場ごとの発行回数（現場別発行より前の発行分は請求の発行回数）
-const siteNo = s => s.siteIssueNo?.[siteLabel(s.siteName)] ?? s.issueNo;
+const siteNo = s => s.pageIssueNo ?? s.siteIssueNo?.[siteLabel(s.siteName)] ?? s.issueNo; // pageIssueNo＝請求書1枚の発行回数（invoicePage）
 const issueState = r => (!r.issues ? 'unissued' : r.issues > 1 ? 'reissued' : 'issued'); // r＝現場の行（issues＝その現場の発行回数）
 const issueCell = r => badge(ISSUE_STATES[issueState(r)], r.issues ? 'green' : 'gray') + (r.issues ? ` <span class="small muted">${r.issues}回</span>` : '');
 async function invoiceIssueView(q) {
@@ -965,16 +965,29 @@ function legacyInvoice(s) {
         ${banks.length ? `<p class="lg-bank">${banks.map(esc).join('<br>')}</p><p class="lg-holder">${esc(c.name1 || c.name)}</p>` : ''}</div></div>
     <table class="lg-key"><tr><th>請求年月日</th><th>得意先コード</th><th>締日</th></tr><tr><td>${ymd(s.closing)}</td><td>${esc(u.code)}</td><td>${day >= 28 ? 31 : day}</td></tr></table>
     <table class="lg-sum"><tr><th class="lg-site">工　事　名</th><th>当月御買上額</th><th>消費税額</th><th>当月値引額</th><th>当月御請求額</th></tr>
-      <tr><td>${esc(s.siteName || '')}${s.pages > 1 ? `（${s.page}/${s.pages}）` : ''}</td><td class="num">${yen(s.net)}</td><td class="num">${yen(s.tax)}</td><td class="num">${yen(s.discount || 0)}</td><td class="num">${yen(s.total)}</td></tr></table>
+      <tr><td>${esc(s.siteName || '')}</td><td class="num">${yen(s.net)}</td><td class="num">${yen(s.tax)}</td><td class="num">${yen(s.discount || 0)}</td><td class="num">${yen(s.total)}</td></tr></table>
     <table class="lg-lines"><tr><th>年月日</th><th>伝票番号</th><th>商品名</th><th class="num">数量</th><th>単位</th><th class="num">単価</th><th class="num">金額</th><th>備考</th></tr>
       ${s.lines.map(l => `<tr><td>${ymd(l.date)}</td><td>${esc(l.orderNo)}</td><td>${esc(l.itemName)}</td><td class="num">${Number(l.quantity).toFixed(2)}</td><td>${esc(l.unit || '')}</td><td class="num">${yen(l.price)}</td><td class="num">${yen(l.net)}</td><td>${esc(l.siteName || '')}${l.remarks ? ' ' + esc(l.remarks) : ''}</td></tr>`).join('')}
       ${s.buckets.map(b => `<tr class="lg-rate"><td colspan="6"></td><td class="num">${yen(b.net)}</td><td>${b.rate}%</td></tr><tr class="lg-rate"><td colspan="6"></td><td class="num">${yen(b.tax)}</td><td>税</td></tr>`).join('')}</table>
     </section>`;
 }
-// site：請求一覧照会の現場の行から控えを出すとき、その現場の1枚だけ（現場ごとに1枚の請求書）
+// 2026-11-04 請求書は請求現場（明細の現場CD・枝番）ごとに1枚（現行 帳票③④⑤）。納入先（明細の現場名）は備考に出すだけ。工事名は請求現場の名称（現場マスタ。s.siteNames）。
+// 一部の納入先だけを発行した回（現場別発行）は、その納入先の明細・金額だけ。消費税は splitBySite と同じ按分（納入先ごと）を請求現場ごとに足す。want＝納入先の名前（無ければ全部）
+const invoicePages = (s, want) => {
+  const parts = splitBySite(s), mine = want ? parts.filter(p => want.includes(siteLabel(p.siteName))) : parts, g = new Map();
+  for (const p of mine) { const k = p.lines[0]?.site || '|'; if (!g.has(k)) g.set(k, []); g.get(k).push(p); }
+  const keys = [...g.keys()].sort((a, b) => (a === '|' ? -1 : b === '|' ? 1 : a < b ? -1 : a > b ? 1 : 0)), whole = keys.length === 1 && mine.length === parts.length;
+  return keys.map((k, i) => {
+    const ps = g.get(k), buckets = []; for (const p of ps) for (const b of p.buckets) { const x = buckets.find(y => y.rate === b.rate); if (x) { x.net += b.net; x.tax += b.tax; } else buckets.push({ ...b }); }
+    const net = whole ? s.net : ps.reduce((n, p) => n + p.net, 0), tax = whole ? s.tax : ps.reduce((n, p) => n + p.tax, 0), total = net + tax, keep = new Set(ps.flatMap(p => p.lines));
+    const no = Math.max(...ps.map(p => p.siteIssueNo?.[siteLabel(p.siteName)] ?? p.issueNo ?? 0));
+    return { ...s, lines: s.lines.filter(l => keep.has(l)), buckets: whole ? s.buckets : buckets, net, tax, total, discount: 0, prevBalance: 0, received: 0, carried: 0, grandTotal: total, siteName: s.siteNames?.[k] || '', page: i + 1, pages: keys.length, pageIssueNo: no || undefined };
+  });
+};
+// site：請求一覧照会の現場の行から控えを出すとき、その現場の明細だけの1枚
 function printDocs(docs, site = null) {
   // 現行の請求書（帳票一覧③）と同じ構成：当月御買上額・消費税額・当月値引額・当月御請求額、明細（年月日・伝票番号・商品名・数量・単位・単価・金額・備考）、税率別合計
-  const all = docs.flatMap(d => splitBySite(d).filter(s => !d.sites || d.sites.includes(siteLabel(s.siteName)))), mine = site ? all.filter(s => siteLabel(s.siteName) === siteLabel(site.siteName)) : all, pages = mine.length ? mine : all;
+  const pages = docs.flatMap(d => invoicePages(d, site ? [siteLabel(site.siteName)] : d.sites));
   $('#print-area').innerHTML = pages.map(s => {
     return (s.company.layout || 'legacy') === 'proposal' ? proposalInvoice(s) : legacyInvoice(s); }).join('');
   toast(docs.some(d => d.copy) ? `請求書の控え ${pages.length}枚を印刷します` : `請求書 ${pages.length}枚を印刷します`);

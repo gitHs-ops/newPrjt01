@@ -538,6 +538,12 @@ export async function companyProfile(c) {
   // 2026-11-04 現行の請求書（帳票③④⑤）の発行元：〒・住所・会社名1・登録番号・会社名2（共同企業体）・TEL・振込先・口座名義（会社名1）。様式の既定は現行（legacy）
   return { name1: co?.company_name1 || '', name2: co?.company_name2 || '', postcode: co?.postcode || '', pref: co?.pref || '', addr1: co?.addr1 || '', addr2: co?.addr2 || '', name: [co?.company_name1, co?.company_name2].filter(Boolean).join(' '), address: [co?.postcode && '〒' + co.postcode, co?.pref, co?.addr1, co?.addr2].filter(Boolean).join(' '), tel: co?.tel_no || '', fax: co?.fax_no || '', plant: co?.plant_name || '', invoiceNo: set.INVNO || '', bankText, banks: [bankText, bankText2].filter(Boolean), layout: set.INVLAYOUT || 'legacy' };
 }
+// 請求現場（現場CD|枝番）の名称（現場マスタ）。請求書の工事名（2026-11-04 現行 帳票③④⑤）
+async function siteNamesOf(c, customer, lines) {
+  const out = {};
+  for (const k of new Set((lines || []).map(l => l.site).filter(k => k && k !== '|'))) { const [fc, fs] = k.split('|'), f = await one(c, 'SELECT field_name1, field_name2 FROM field_name_m WHERE customers_cd=? AND field_cd=? AND field_suffix=?', [customer, fc, fs]); out[k] = f ? [f.field_name1, f.field_name2].map(v => String(v || '').trim()).filter(Boolean).join(' ') : ''; }
+  return out;
+}
 async function snapshot(c, inv) {
   const cu = await one(c, 'SELECT * FROM client_m WHERE customers_cd=?', [inv.customer]);
   const s = await statement(c, inv.customer, inv.month, inv.closingDay);
@@ -545,7 +551,7 @@ async function snapshot(c, inv) {
   return {
     company: await companyProfile(c), discount: 0, invoiceNo: (await invoiceNos(c, [inv])).get(Number(inv.id)),
     customer: { code: inv.customer, name: cu?.customers_name || inv.customerName, address: cu?.addr1 || '', postcode: cu?.postcode || '', pref: cu?.pref || '', addr1: cu?.addr1 || '', addr2: cu?.addr2 || '', tel: cu?.tel_no || '' },
-    site: { key: inv.site, name: inv.siteName }, invoiceId: inv.id, periodStart: s.start, closing: inv.closing, due: inv.due,
+    site: { key: inv.site, name: inv.siteName }, siteNames: await siteNamesOf(c, inv.customer, inv.lines), invoiceId: inv.id, periodStart: s.start, closing: inv.closing, due: inv.due,
     demo: process.env.SHOW_DEMO_NOTICE !== '0', prevBalance: s.prevBalance, received: s.received, carried: s.carried, net: inv.net, tax: inv.tax, total: inv.total, grandTotal: s.carried + inv.total, buckets, lines: await summaryLines(c, [inv.id], inv.lines),
   };
 }
@@ -596,6 +602,7 @@ export async function issuedDocument(c, id, site = null) {
   }
   // 2026-11-04 現行様式の請求書に要る項目（会社名1・2、郵便番号、住所の分割）が無い発行分は今のマスタで補う。金額・明細は発行時のまま。様式は今の設定
   const cur = await companyProfile(c); s.company = { ...cur, ...s.company, layout: cur.layout };
+  if (!s.siteNames) s.siteNames = await siteNamesOf(c, s.customer?.code, s.lines);
   if (s.customer && s.customer.postcode === undefined) { const cu = await one(c, 'SELECT postcode, pref, addr1, addr2 FROM client_m WHERE customers_cd=?', [s.customer.code]); if (cu) s.customer = { ...s.customer, postcode: cu.postcode || '', pref: cu.pref || '', addr1: cu.addr1 || '', addr2: cu.addr2 || '' }; }
   if (site) s.sites = [siteLabel(site)];
   return { ...s, issueNo: r.issue_no, reissue: r.issue_no > 1, copy: true };

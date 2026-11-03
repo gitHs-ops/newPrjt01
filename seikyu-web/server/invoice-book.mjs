@@ -5,7 +5,7 @@ import { xlsx } from './xlsx.mjs';
 
 const H = v => ({ v, s: 'bold' }), S = v => ({ v, s: 'sum' }), T = v => ({ v, s: 'title' });
 // 現場ごとの発行回数（現場別発行より前の発行分は請求の発行回数）
-const siteNo = s => s.siteIssueNo?.[siteLabel(s.siteName)] ?? s.issueNo;
+const siteNo = s => s.pageIssueNo ?? s.siteIssueNo?.[siteLabel(s.siteName)] ?? s.issueNo;
 const jp = d => (d ? `${d.slice(0, 4)}年${d.slice(5, 7)}月${d.slice(8, 10)}日` : '');
 // 請求書を現場ごとに分ける（画面の印刷 splitBySite と同じ）：前回残高・入金・繰越は載せない（2026-10-27 大西さん回答 A）。消費税は税率ごとに得意先の税額を現場の金額で按分（端数は金額の大きい現場）
 function splitBySite(s) {
@@ -20,6 +20,19 @@ function splitBySite(s) {
   return gs.map((g, k) => { const tax = bk[k].reduce((n, b) => n + b.tax, 0), total = g.net + tax;
     return { ...s, lines: g.lines, buckets: bk[k], net: g.net, tax, total, prevBalance: 0, received: 0, carried: 0, grandTotal: total, siteName: g.name, page: k + 1, pages: gs.length }; });
 }
+// 2026-11-04 請求書は請求現場（明細の現場CD・枝番）ごとに1枚（現行 帳票③④⑤）。納入先（明細の現場名）は備考に出すだけ。工事名は請求現場の名称（現場マスタ。s.siteNames）。
+// 一部の納入先だけを発行した回（現場別発行）は、その納入先の明細・金額だけ。消費税は splitBySite と同じ按分（納入先ごと）を請求現場ごとに足す。want＝納入先の名前（無ければ全部）
+const invoicePages = (s, want) => {
+  const parts = splitBySite(s), mine = want ? parts.filter(p => want.includes(siteLabel(p.siteName))) : parts, g = new Map();
+  for (const p of mine) { const k = p.lines[0]?.site || '|'; if (!g.has(k)) g.set(k, []); g.get(k).push(p); }
+  const keys = [...g.keys()].sort((a, b) => (a === '|' ? -1 : b === '|' ? 1 : a < b ? -1 : a > b ? 1 : 0)), whole = keys.length === 1 && mine.length === parts.length;
+  return keys.map((k, i) => {
+    const ps = g.get(k), buckets = []; for (const p of ps) for (const b of p.buckets) { const x = buckets.find(y => y.rate === b.rate); if (x) { x.net += b.net; x.tax += b.tax; } else buckets.push({ ...b }); }
+    const net = whole ? s.net : ps.reduce((n, p) => n + p.net, 0), tax = whole ? s.tax : ps.reduce((n, p) => n + p.tax, 0), total = net + tax, keep = new Set(ps.flatMap(p => p.lines));
+    const no = Math.max(...ps.map(p => p.siteIssueNo?.[siteLabel(p.siteName)] ?? p.issueNo ?? 0));
+    return { ...s, lines: s.lines.filter(l => keep.has(l)), buckets: whole ? s.buckets : buckets, net, tax, total, discount: 0, prevBalance: 0, received: 0, carried: 0, grandTotal: total, siteName: s.siteNames?.[k] || '', page: i + 1, pages: keys.length, pageIssueNo: no || undefined };
+  });
+};
 // 現行の請求書（帳票③④⑤、2026-11-04）：印刷の legacyInvoice と同じ並び。A4 横・目盛線なし
 const zipOf = z => (z ? `〒 ${String(z).replace(/^(\d{3})-?(\d{4})$/, '$1-$2')}` : '');
 function legacySheet(s) {
@@ -37,7 +50,7 @@ function legacySheet(s) {
   push(['', '', '', '', '', st(ymd(s.closing), 'rCenter'), st(u.code, 'rCenter'), st(day >= 28 ? 31 : day, 'rCenter')]);
   push([], 10);
   merges.push(ref(push([st('工　事　名', 'rCenter'), '', '', st('当月御買上額', 'rCenter'), '', st('消費税額', 'rCenter'), st('当月値引額', 'rCenter'), st('当月御請求額', 'rCenter')]), 0, 2), ref(rows.length, 3, 4));
-  merges.push(ref(push([st(`${s.siteName || ''}${s.pages > 1 ? `（${s.page}/${s.pages}）` : ''}`, 'rCenter'), '', '', st(s.net, 'rNum'), '', st(s.tax, 'rNum'), st(s.discount || 0, 'rNum'), st(s.total, 'rNum')]), 0, 2), ref(rows.length, 3, 4));
+  merges.push(ref(push([st(s.siteName || '', 'rCenter'), '', '', st(s.net, 'rNum'), '', st(s.tax, 'rNum'), st(s.discount || 0, 'rNum'), st(s.total, 'rNum')]), 0, 2), ref(rows.length, 3, 4));
   push([], 12);
   push(['年月日', '伝票番号', '商品名', '数量', '単位', '単価', '金額', '備考'].map(h => st(h, 'rHead')), 18);
   for (const l of s.lines) push([st(ymd(l.date), 'rCenter'), st(l.orderNo, 'rCell'), st(l.itemName, 'rCell'), st(l.quantity, 'rQty'), st(l.unit || '', 'rCenter'), st(l.price, 'rNum'), st(l.net, 'rNum'), st(`${l.siteName || ''}${l.remarks ? ' ' + l.remarks : ''}`, 'rCell')], 17);
@@ -54,13 +67,16 @@ export async function invoiceBook(c, q) {
   for (const id of ids) {
     const pages = [];
     if (Array.isArray(want[id]) && want[id].length) {
+      // 納入先ごとに最新の発行分を取り、同じ発行回の納入先は1枚にまとめる
+      const byIssue = new Map();
       for (const n of [...new Set(want[id].map(siteLabel))]) {
         let doc; try { doc = await issuedDocument(c, id, n); } catch { check(false, `請求No.${id} の現場「${n}」は未発行です。発行後にダウンロードしてください`); }
-        pages.push(...splitBySite(doc).filter(s => siteLabel(s.siteName) === n));
+        if (!byIssue.has(doc.issueNo)) byIssue.set(doc.issueNo, { doc, names: [] }); byIssue.get(doc.issueNo).names.push(n);
       }
+      for (const { doc, names } of byIssue.values()) pages.push(...invoicePages(doc, names));
     } else {
       let doc; try { doc = await issuedDocument(c, id); } catch { check(false, `請求No.${id} は未発行です。発行後にダウンロードしてください`); }
-      pages.push(...splitBySite(doc).filter(s => !doc.sites || doc.sites.includes(siteLabel(s.siteName))));
+      pages.push(...invoicePages(doc, doc.sites));
     }
     for (const s of pages) {
       if ((s.company.layout || 'legacy') !== 'proposal') { sheets.push(legacySheet(s)); continue; }
@@ -100,5 +116,7 @@ export async function invoiceBook(c, q) {
         footer: `&L&8請求書番号 ${no}&R&8&P / &N`, widths: [7, 12, 5.5, 30, 9, 5.5, 11, 14] });
     }
   }
+  // シート名は重複させない（同じ請求の別の発行回が並ぶとき）
+  const seen = new Map(); for (const sh of sheets) { const n = (seen.get(sh.name) || 0) + 1; seen.set(sh.name, n); if (n > 1) sh.name = `${sh.name.slice(0, 28)}_${n}`; }
   return { name: `請求書_${today()}_${ids.length}件.xlsx`, body: xlsx(sheets) };
 }
