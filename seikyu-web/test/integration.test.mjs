@@ -283,6 +283,7 @@ test('workflow against PostgreSQL business tables', { skip, timeout: 900000 }, a
       // 出資金請求明細表：現行と同じ見出し（2026-11-02）
       const jvx = Buffer.from(await (await fetch(base + '/api/reports/misc/jv-expenses?' + span + '&format=xlsx', { headers: { cookie: a.cookie } })).arrayBuffer()).toString();
       for (const w of ['税率', '支払金額', '支払額本体', '支払消費税', '出資金額']) assert.ok(jvx.includes(w), w);
+      for (const w of ['出資本体', '出資消費税', '出資金請求合計表']) assert.ok(jvx.includes(w), '明細表の後ろに合計表: ' + w); // 2026-11-03
       const jvs = await a.call('/api/reports/misc/jv-expenses?' + span + '&layout=summary'); ok(jvs);
       for (const x of [...jvs.data.accounts, jvs.data.totals]) x.parts.forEach((v, k) => assert.equal(x.netParts[k] + x.taxParts[k], v));
       const jvsx = Buffer.from(await (await fetch(base + '/api/reports/misc/jv-expenses?' + span + '&layout=summary&format=xlsx', { headers: { cookie: a.cookie } })).arrayBuffer()).toString();

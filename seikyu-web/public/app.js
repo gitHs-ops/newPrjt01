@@ -230,7 +230,7 @@ const SUBMENUS = {
   cash: [{ k: 'list', l: '小口現金出納登録' }, { k: 'book', l: '出納簿・定額資金・現金補充' }],
   payments: [{ k: 'list', l: '支払一覧・登録' }, { k: 'reports', l: '支払帳票・全銀データ' }, { k: 'transfer', l: '振込先一覧' }, { k: 'bank', l: '銀行別随時支払一覧表' }],
   journals: [{ k: 'list', l: '仕訳一覧' }, { k: 'tb', l: '月次残高試算', q: { tab: 'tb' } }, { k: 'lists', l: '自動仕訳リスト（帳票）', q: { tab: 'lists' } }, { k: 'export', l: '会計連携データ' }],
-  reports: [{ k: 'csv', l: 'CSV出力', tools: true }, { k: 'ar', l: '売掛金残高一覧' }, { k: 'ap', l: '未払残高一覧' }, { k: 'jv', l: '出資金（JV）帳票' }],
+  reports: [{ k: 'csv', l: 'CSV出力', tools: true }, { k: 'ar', l: '売掛金残高一覧' }, { k: 'ap', l: '未払残高一覧' }, { k: 'jv', l: '出資金（JV）帳票' }, { k: 'jvalloc', l: '入金額配賦登録（端数調整）' }], // 入金額配賦登録は 2026-11-03 に小メニューへ
 };
 const subsOf = name => (name === 'masters' && meta?.masters ? Object.entries(meta.masters).map(([k, x]) => ({ k, l: x.label, q: { kind: k } })) : SUBMENUS[name] || null);
 const TITLES = {};
@@ -1727,11 +1727,13 @@ async function accountingDownload(format) {
   toast('会計連携データを出力しました');
 }
 const jvReportsCard = () => miscCard('出資金（JV）帳票', 'JV構成員・出資比率で配分（10/21 打合せ：締切日＝対象月20日で指示）', `<label class="field">締切日<input type="date" id="jv-closing" value="${lastClosing()}"></label>`,
-  '<button data-act="misc" data-kind="jv-expenses" data-src="jv">出資金請求明細表（定時請求分）</button><button data-act="misc" data-kind="jv-expenses" data-src="jvs">出資金請求合計表（定時請求分）</button><button data-act="misc" data-kind="jv-receipts" data-src="jv">入金明細及び配分表</button>' + (canWrite() ? '<button data-act="jvAlloc">入金額配賦登録（端数調整）</button>' : ''),
-  '構成員と出資比率は「マスタ管理 → JV構成員・出資比率」で登録します（適用開始月度ごと。有効な構成員の合計100%）。帳票は締切日の月度で有効な比率で配分します。配分は各社切捨て、端数は第1構成員。端数を調整するときは「入金額配賦登録」で入金ごとに構成員別の金額を直し、はその金額で出力します。');
+  '<button data-act="misc" data-kind="jv-expenses" data-src="jv">出資金請求明細表（定時請求分）</button><button data-act="misc" data-kind="jv-receipts" data-src="jv">入金明細及び配分表</button>',
+  '構成員と出資比率は「マスタ管理 → JV構成員・出資比率」で登録します（適用開始月度ごと。有効な構成員の合計100%）。帳票は締切日の月度で有効な比率で配分します。配分は各社切捨て、端数は第1構成員。出資金請求明細表の Excel には合計表（2枚目のシート）が付きます。端数を調整するときは小メニュー「入金額配賦登録（端数調整）」で入金ごとに構成員別の金額を直し、入金明細及び配分表はその金額で出力します。');
+const jvAllocCard = () => miscCard('入金額配賦登録（端数調整）', '現行 HJW030：締切日の月度の入金ごとに構成員別の配分額を調整', `<label class="field">締切日<input type="date" id="jva-closing" value="${lastClosing()}"></label>`,
+  canWrite() ? '<button class="primary" data-act="jvAlloc">入金額配賦登録</button>' : '');
 // 入金額配賦登録（現行 HJW030）：締切日の月度の NO36 対象行ごとに構成員別の配分額（青字欄）を調整。行の合計＝入金額で登録
 async function jvAllocDialog() {
-  const closing = $('#jv-closing').value, d = await api('/api/reports/misc/jv-receipts?' + qs({ closing })), ms = d.members;
+  const closing = $('#jva-closing').value, d = await api('/api/reports/misc/jv-receipts?' + qs({ closing })), ms = d.members;
   if (!d.lines.length) return alertBox(`データがありません（締切日 ${closing} の月度 ${d.from}〜${d.to} の入金・現金売上はありません）`);
   const row = (l, i) => `<tr data-i="${i}"><td style="white-space:nowrap">${esc(l.date)}</td><td>${esc(l.account)}<br><span class="small muted">${esc(l.kbn || l.memo)}</span></td><td class="small">${esc(l.billed || '')}</td><td>${esc(l.customer || '')}</td><td class="num">${yen(l.amount)}</td>
     ${ms.map((m, k) => `<td><input class="num jv-part" style="width:110px;color:#0369a1" data-k="${k}" value="${l.parts[k]}"></td>`).join('')}<td class="small jv-st">${l.adjusted ? badge('調整済', 'amber') : ''}</td><td><button type="button" class="mini quiet" data-auto="${i}" title="出資比率で自動配分に戻す">自動</button></td></tr>`;
@@ -1918,7 +1920,7 @@ VIEWS.reports = async q => {
     <section class="card glass" data-sub="ar"><div class="card-head"><h2>売掛金残高一覧</h2></div><div class="filters" style="margin-bottom:10px"><a class="button" href="/api/reports/ar?format=xlsx" download>⇩ Excel</a></div>${table([{ label: '得意先', value: r => `${r.customer} ${r.name}` }, { label: '締日', num: 1, value: r => r.closing === 31 ? '月末' : r.closing + '日' }, { label: '開始残高', num: 1, value: r => yen(r.opening) },
       { label: '請求累計', num: 1, value: r => yen(r.billed) }, { label: '消込累計', num: 1, value: r => yen(r.received) }, { label: '売掛残高', num: 1, value: r => yen(r.balance) }, { label: '期日超過', num: 1, html: r => r.overdue ? `<span class="check-ng">${yen(r.overdue)}</span>` : '0' }, { label: '未請求(税抜)', num: 1, value: r => yen(r.unbilled) }], ar,
       { foot: ['合計', '', yen(ar.reduce((n, r) => n + r.opening, 0)), yen(ar.reduce((n, r) => n + r.billed, 0)), yen(ar.reduce((n, r) => n + r.received, 0)), yen(ar.reduce((n, r) => n + r.balance, 0)), yen(ar.reduce((n, r) => n + r.overdue, 0)), yen(ar.reduce((n, r) => n + r.unbilled, 0))] })}</section>
-    <section class="card glass" data-sub="ap"><div class="card-head"><h2>未払残高一覧</h2></div><div class="filters" style="margin-bottom:10px"><a class="button" href="/api/reports/ap?format=xlsx" download>⇩ Excel</a></div>${table([{ label: '業者', value: r => `${r.vendor} ${r.name}` }, { label: '計上累計', num: 1, value: r => yen(r.billed) }, { label: '支払累計', num: 1, value: r => yen(r.paid) }, { label: '未払残高', num: 1, value: r => yen(r.balance) }], ap)}</section><div data-sub="csv">${accountingCard()}</div><div data-sub="jv">${jvReportsCard()}</div>`);
+    <section class="card glass" data-sub="ap"><div class="card-head"><h2>未払残高一覧</h2></div><div class="filters" style="margin-bottom:10px"><a class="button" href="/api/reports/ap?format=xlsx" download>⇩ Excel</a></div>${table([{ label: '業者', value: r => `${r.vendor} ${r.name}` }, { label: '計上累計', num: 1, value: r => yen(r.billed) }, { label: '支払累計', num: 1, value: r => yen(r.paid) }, { label: '未払残高', num: 1, value: r => yen(r.balance) }], ap)}</section><div data-sub="csv">${accountingCard()}</div><div data-sub="jv">${jvReportsCard()}</div><div data-sub="jvalloc">${jvAllocCard()}</div>`);
 };
 
 // ----- 月次確定 -----
