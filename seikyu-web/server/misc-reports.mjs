@@ -225,7 +225,7 @@ export async function jvReceipts(c, q) {
     if (parts.every(Number.isSafeInteger) && parts.reduce((n, v) => n + v, 0) === l.amount) { l.parts = parts; l.adjusted = true; }
   }
   return { title: '入金明細及び配分表', ref: 'NO36 / 添付帳票⑬', closing, from, to, members: ms, lines, totals: { amount: lines.reduce((n, l) => n + l.amount, 0), parts: ms.map((_, k) => lines.reduce((n, l) => n + l.parts[k], 0)) },
-    note: `締切日 ${closing || to} の月度（${from}〜${to}）。対象は当座預金への入金（振込・受取手形）、入金時の手数料・協力費（雑費）、現金売上（10/21 打合せ）。${month} 月度の出資比率で配分。各社切捨て、端数は第1構成員。入金額配賦登録で調整した行は調整後の金額（${lines.filter(l => l.adjusted).length}行）。` };
+    note: `締切日 ${closing || to} の月度（${from}〜${to}）。対象は当座預金への入金（振込・受取手形）、入金時の手数料・協力費（雑費）、現金売上（10/21 打合せ）。${month} 月度の出資比率で配分。各社切捨て、端数は第1構成員。入金分配端数調整登録で調整した行は調整後の金額（${lines.filter(l => l.adjusted).length}行）。` };
 }
 // 入金額配賦登録（現行 HJW030）：締切日の月度の NO36 対象行について構成員別の配分額を調整して登録。行ごとに合計＝入金額。自動配分と同じなら調整を消す
 export async function saveJvAllocations(c, ctx, p) {

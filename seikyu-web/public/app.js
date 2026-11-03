@@ -230,7 +230,7 @@ const SUBMENUS = {
   cash: [{ k: 'list', l: '小口現金出納登録' }, { k: 'book', l: '出納簿・定額資金・現金補充' }],
   payments: [{ k: 'list', l: '支払一覧・登録' }, { k: 'reports', l: '支払帳票・全銀データ' }, { k: 'transfer', l: '振込先一覧' }, { k: 'bank', l: '銀行別随時支払一覧表' }],
   journals: [{ k: 'list', l: '仕訳一覧' }, { k: 'tb', l: '月次残高試算', q: { tab: 'tb' } }, { k: 'lists', l: '自動仕訳リスト（帳票）', q: { tab: 'lists' } }, { k: 'export', l: '会計連携データ' }],
-  reports: [{ k: 'csv', l: 'CSV出力', tools: true }, { k: 'ar', l: '売掛金残高一覧' }, { k: 'ap', l: '未払残高一覧' }, { k: 'jv', l: '出資金（JV）帳票' }, { k: 'jvalloc', l: '入金額配賦登録（端数調整）' }], // 入金額配賦登録は 2026-11-03 に小メニューへ
+  reports: [{ k: 'csv', l: 'CSV出力', tools: true }, { k: 'ar', l: '売掛金残高一覧' }, { k: 'ap', l: '未払残高一覧' }, { k: 'jv', l: '出資金（JV）帳票' }, { k: 'jvalloc', l: '入金分配端数調整登録' }], // 入金分配端数調整登録は 2026-11-03 に小メニューへ
 };
 const subsOf = name => (name === 'masters' && meta?.masters ? Object.entries(meta.masters).map(([k, x]) => ({ k, l: x.label, q: { kind: k } })) : SUBMENUS[name] || null);
 const TITLES = {};
@@ -1728,9 +1728,9 @@ async function accountingDownload(format) {
 }
 const jvReportsCard = () => miscCard('出資金（JV）帳票', 'JV構成員・出資比率で配分（10/21 打合せ：締切日＝対象月20日で指示）', `<label class="field">締切日<input type="date" id="jv-closing" value="${lastClosing()}"></label>`,
   '<button data-act="misc" data-kind="jv-expenses" data-src="jv">出資金請求明細表（定時請求分）</button><button data-act="misc" data-kind="jv-receipts" data-src="jv">入金明細及び配分表</button>',
-  '構成員と出資比率は「マスタ管理 → JV構成員・出資比率」で登録します（適用開始月度ごと。有効な構成員の合計100%）。帳票は締切日の月度で有効な比率で配分します。配分は各社切捨て、端数は第1構成員。出資金請求明細表の Excel には合計表（2枚目のシート）が付きます。端数を調整するときは小メニュー「入金額配賦登録（端数調整）」で入金ごとに構成員別の金額を直し、入金明細及び配分表はその金額で出力します。');
-const jvAllocCard = () => miscCard('入金額配賦登録（端数調整）', '現行 HJW030：締切日の月度の入金ごとに構成員別の配分額を調整', `<label class="field">締切日<input type="date" id="jva-closing" value="${lastClosing()}"></label>`,
-  canWrite() ? '<button class="primary" data-act="jvAlloc">入金額配賦登録</button>' : '');
+  '構成員と出資比率は「マスタ管理 → JV構成員・出資比率」で登録します（適用開始月度ごと。有効な構成員の合計100%）。帳票は締切日の月度で有効な比率で配分します。配分は各社切捨て、端数は第1構成員。出資金請求明細表の Excel には合計表（2枚目のシート）が付きます。端数を調整するときは小メニュー「入金分配端数調整登録」で入金ごとに構成員別の金額を直し、入金明細及び配分表はその金額で出力します。');
+const jvAllocCard = () => miscCard('入金分配端数調整登録', '現行 HJW030：締切日の月度の入金ごとに構成員別の配分額を調整', `<label class="field">締切日<input type="date" id="jva-closing" value="${lastClosing()}"></label>`,
+  canWrite() ? '<button class="primary" data-act="jvAlloc">入金分配端数調整登録</button>' : '');
 // 入金額配賦登録（現行 HJW030）：締切日の月度の NO36 対象行ごとに構成員別の配分額（青字欄）を調整。行の合計＝入金額で登録
 async function jvAllocDialog() {
   const closing = $('#jva-closing').value, d = await api('/api/reports/misc/jv-receipts?' + qs({ closing })), ms = d.members;
@@ -1738,7 +1738,7 @@ async function jvAllocDialog() {
   const row = (l, i) => `<tr data-i="${i}"><td style="white-space:nowrap">${esc(l.date)}</td><td>${esc(l.account)}<br><span class="small muted">${esc(l.kbn || l.memo)}</span></td><td class="small">${esc(l.billed || '')}</td><td>${esc(l.customer || '')}</td><td class="num">${yen(l.amount)}</td>
     ${ms.map((m, k) => `<td><input class="num jv-part" style="width:110px;color:#0369a1" data-k="${k}" value="${l.parts[k]}"></td>`).join('')}<td class="small jv-st">${l.adjusted ? badge('調整済', 'amber') : ''}</td><td><button type="button" class="mini quiet" data-auto="${i}" title="出資比率で自動配分に戻す">自動</button></td></tr>`;
   const foot = `<tr><td colspan="4"><b>入金計</b></td><td class="num" id="jva-total"></td>${ms.map((_, k) => `<td class="num" id="jva-t${k}"></td>`).join('')}<td colspan="2"></td></tr>`;
-  modal({ title: `入金額配賦登録　締切日 ${closing}（${d.from}〜${d.to}）`, wide: true, submit: '登録',
+  modal({ title: `入金分配端数調整登録　締切日 ${closing}（${d.from}〜${d.to}）`, wide: true, submit: '登録',
     body: `
       <div class="table-wrap" style="max-height:60vh;overflow:auto"><table id="jva"><thead><tr><th>入金日</th><th>入金科目<br><span class="small muted">区分</span></th><th title="消し込んだ請求の締日">請求締日</th><th>得意先</th><th class="num">入金額</th>${ms.map(m => `<th>${esc(m.name || m.code)}<br><span class="small muted">${m.ratio.toFixed(2)}%</span></th>`).join('')}<th></th><th></th></tr></thead>
       <tbody>${d.lines.map(row).join('')}</tbody><tfoot>${foot}</tfoot></table></div>`,
@@ -1763,7 +1763,7 @@ async function jvAllocDialog() {
       }
       if (!changed.length) { toast('変更はありません'); return; }
       const r = await post('/api/jv/allocations', { closing, rows: changed });
-      toast(`入金額配賦を登録しました（調整 ${r.saved}行${r.cleared ? `・自動配分に戻した行 ${r.cleared}行` : ''}）`);
+      toast(`入金分配の端数調整を登録しました（調整 ${r.saved}行${r.cleared ? `・自動配分に戻した行 ${r.cleared}行` : ''}）`);
     } });
 }
 function miscParams(kind, src) {
