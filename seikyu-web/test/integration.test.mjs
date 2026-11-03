@@ -356,6 +356,8 @@ test('workflow against PostgreSQL business tables', { skip, timeout: 900000 }, a
       // 10/21：業者コードはブランクなら出力しない、To に 9999999 で全業者
       const pi = (await a.call('/api/reports/misc/payable-input?closing=31&vendorTo=9999999&month=' + d.slice(0, 7))).data;
       assert.ok(pi.depts.some(dp => dp.vendors.some(v => v.vendor === 'V' + tag)));
+      // 現行 HAR136：業者の支払条件、業者合計の内消費税、部門末尾の当月支払額（税抜）・累計支払額
+      for (const dp of pi.depts) { assert.equal(dp.paid, dp.total - dp.tax); assert.ok(dp.cumPaid >= dp.paid); for (const v of dp.vendors) assert.match(v.term, /日払$/); }
       assert.equal((await a.call('/api/reports/misc/payable-input?closing=31&month=' + d.slice(0, 7))).data.depts.length, 0, 'blank vendor code outputs nothing');
       const pc = (await a.call('/api/reports/misc/petty-book?' + span)).data; assert.equal(pc.closing, pc.opening + pc.received - pc.spent);
       const sr = (await a.call('/api/reports/misc/sales-register?' + span)).data.customers.find(x => x.customer === C); assert.equal(sr.rows.length, 4); // 元・赤・黒＋別現場 assert.equal(sr.net, 12997);
