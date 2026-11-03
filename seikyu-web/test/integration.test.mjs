@@ -233,7 +233,7 @@ test('workflow against PostgreSQL business tables', { skip, timeout: 900000 }, a
       // 在庫登録リスト：コード・商品・製品名・在庫数量・単位だけ（評価は出さない。2026-11-03）
       const ir = (await a.call('/api/reports/misc/inventory-register?month=' + c1.data.month)).data;
       assert.deepEqual(ir.columns.map(x => x.label), ['コード', '商品・製品名', '在庫数量', '単位']);
-      assert.deepEqual([ir.groups.length, ir.groups[0].title, ir.groups[0].totals], [1, undefined, undefined]); // 区分見出し・小計は保留（2026-11-03）
+      assert.deepEqual([ir.groups.length, ir.groups[0].title, ir.groups[0].totals, ir.totals], [1, undefined, undefined, undefined]); // 区分見出し・小計・総合計は保留（2026-11-03）
       const irow = ir.groups.flatMap(g => g.rows).find(x => x.code === 'M' + tag); assert.deepEqual([irow.name, irow.qty, 'price' in irow], ['試験材料', 120, false]);
       ok(await a.call('/api/inventory/post', { month: c1.data.month }));
       mt = await mm(); assert.deepEqual([mt.prev.value, mt.end.value, mt.price], [60000, 50000, 500]);

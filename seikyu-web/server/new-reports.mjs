@@ -43,12 +43,12 @@ export async function inventoryRegister(c, q) {
   const month = isoMonth(q.month, '対象月');
   const rs = await rows(c, `SELECT n.*, i.item_nam, unit_name(i.unit) unit, i.item_product_kb FROM inventory_count n LEFT JOIN item_m i ON i.item_cd=n.item_cd WHERE n.period_start=? AND n.status IN ('POSTED','DRAFT') ORDER BY i.item_product_kb, n.item_cd`, [month + '-01']);
   const no = (await one(c, "SELECT doc_no FROM app_doc_no WHERE kind='count' AND ref=?", [month]))?.doc_no || ''; // 実在庫の伝票No（V＋年度＋連番。2026-11-03）
-  // 製品・材料の区分見出しと小計は保留（2026-11-03 ユーザー指示の見本）。並びは製品 → 材料・商品のまま
+  // 製品・材料の区分見出し・小計・総合計は保留（2026-11-03 ユーザー指示の見本）。並びは製品 → 材料・商品のまま
   const list = [...rs.filter(r => r.item_product_kb === '2'), ...rs.filter(r => r.item_product_kb !== '2')];
   const groups = list.length ? [{ rows: list.map(r => ({ code: r.item_cd, name: r.item_nam || '', qty: num(r.quantity), unit: r.unit || '' })) }] : [];
   return { title: '在庫登録リスト', ref: '帳票⑰（HAR061）', month, sub: `${month} 月度（${monthEnd(month)} 現在）${no ? '　伝票No ' + no : ''}`,
     columns: [{ key: 'code', label: 'コード' }, { key: 'name', label: '商品・製品名' }, { key: 'qty', label: '在庫数量', num: 1 }, { key: 'unit', label: '単位' }],
-    groups, totals: {} };
+    groups }; // 総合計も出さない（2026-11-03）
 }
 // 振込先一覧（10/19 打合せ）：支払予定日が基準日までの未払がある業者を、業者マスタの振込サイクル・振込元口座・振込先口座とともに一覧
 export async function transferList(c, q) {
@@ -78,6 +78,6 @@ export async function genericBook(c, kind, q) {
   const totalRow = (label, t) => d.columns.map((col, i) => (i === 0 ? S(label) : t[col.key] !== undefined ? S(t[col.key]) : ''));
   // g.head：上位ブレイクの見出し、g.label：グループ計の名称、g.foot：上位ブレイクの計（任意）。g.title・g.totals が無いグループは見出し・計の行を出さない
   for (const g of d.groups) { if (g.head) out.push([{ v: g.head, s: 'title' }]); if (g.title) out.push([H(g.title)]); for (const r of g.rows) out.push(d.columns.map(col => r[col.key] ?? '')); if (g.totals) out.push(totalRow(g.label || '計', g.totals)); if (g.foot) out.push(totalRow(g.foot.label, g.foot.totals)); }
-  out.push(totalRow('総合計', d.totals));
+  if (d.totals) out.push(totalRow('総合計', d.totals));
   return { name: `${d.title}_${(d.from || d.month || d.to || today())}.xlsx`, body: xlsx([{ name: d.title, rows: out, widths: d.columns.map(col => col.w ?? (col.num ? 13 : 18)) }]) };
 }
