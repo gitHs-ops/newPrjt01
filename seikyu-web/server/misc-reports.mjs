@@ -14,18 +14,24 @@ const r2 = v => Math.round(v * 100) / 100;
 // 締日（既定20日：現行の材料受払表は20日締め）による月度の期間
 const closingRange = (month, closing) => { const d = Number(closing || 20); if (d >= 31) return { from: month + '-01', to: monthEnd(month), label: '暦月' }; const prev = addMonths(month, -1); return { from: `${prev}-${String(Math.min(d, 28) + 1).padStart(2, '0')}`, to: `${month}-${String(d).padStart(2, '0')}`, label: `${d}日締め` }; };
 
-// ---------- NO41 商品・製品別出荷集計表 ----------
+// ---------- NO41 商品・製品別出荷集計表：現行 HAR031 の並び（2026-11-04） ----------
+// 商品（item_product_kb≠2）→【商品計】、製品（=2）→【製品計】→【合計】。他社納入（伝票区分 2・4）は別の表「（他社納入分）」にして【合計】、最後に【総合計】
+// 列は 商品名・製品名（コード＋名称）・数量（＋単位）・金額 だけ。赤黒（区分 5）は元伝票の区分で振り分ける
 export async function shipmentSummary(c, q) {
   const { from, to } = range(q);
-  const rs = await rows(c, `SELECT s.item_cd, MAX(s.item_name) item_name, MAX(unit_name(i.unit)) unit, s.payment_method_cd m, COUNT(*) n, SUM(s.quantity) qty, SUM(s.money) net, SUM(s.consumption_tax) tax
-    FROM sales_trn s LEFT JOIN item_m i ON i.item_cd=s.item_cd WHERE s.sales_date BETWEEN ? AND ? GROUP BY s.item_cd, s.payment_method_cd ORDER BY s.item_cd`, [toNum(from), toNum(to)]);
-  const items = [];
-  for (const r of rs) {
-    let it = items.find(x => x.item === r.item_cd); if (!it) items.push(it = { item: r.item_cd, name: r.item_name, unit: r.unit || '', count: 0, qty: 0, net: 0, tax: 0, credit: 0, cash: 0, card: 0 });
-    it.count += num(r.n); it.qty = r2(it.qty + num(r.qty)); it.net += num(r.net); it.tax += num(r.tax); it[{ 1: 'cash', 2: 'credit', 3: 'card' }[r.m] || 'credit'] += num(r.net);
-  }
-  const t = k => items.reduce((n, x) => n + x[k], 0);
-  return { title: '商品・製品別出荷集計表', ref: 'NO41 / 添付帳票⑯', from, to, items, totals: { count: t('count'), net: t('net'), tax: t('tax'), credit: t('credit'), cash: t('cash'), card: t('card') } };
+  const rs = await rows(c, `SELECT s.item_cd, MAX(COALESCE(NULLIF(i.item_nam, ''), s.item_name)) item_name, MAX(unit_name(i.unit)) unit, MAX(i.item_product_kb) pk,
+      CASE WHEN (CASE WHEN s.ship_kb='5' THEN o.ship_kb ELSE s.ship_kb END) IN ('2','4') THEN 1 ELSE 0 END other, SUM(s.quantity) qty, SUM(s.money) net
+    FROM sales_trn s LEFT JOIN item_m i ON i.item_cd=s.item_cd LEFT JOIN sales_trn o ON s.ship_kb='5' AND o.order_no=s.sales_no AND o.order_suffix=1
+    WHERE s.sales_date BETWEEN ? AND ? GROUP BY s.item_cd, 5 ORDER BY 5, s.item_cd`, [toNum(from), toNum(to)]);
+  const sections = [0, 1].map(other => {
+    const mine = rs.filter(r => Number(r.other) === other);
+    const groups = [['1', '商品'], ['2', '製品']].map(([kb, label]) => {
+      const items = mine.filter(r => (r.pk === '2' ? '2' : '1') === kb).map(r => ({ item: r.item_cd, name: String(r.item_name || '').trim(), unit: r.unit || '', qty: r2(num(r.qty)), net: num(r.net) }));
+      return { label, items, net: items.reduce((n, x) => n + x.net, 0) };
+    }).filter(g => g.items.length);
+    return { other: !!other, title: other ? '（他社納入分）' : '', groups, net: groups.reduce((n, g) => n + g.net, 0) };
+  }).filter(s => s.groups.length);
+  return { title: '商品・製品別出荷集計表', ref: 'NO41 / 添付帳票⑯（HAR031）', from, to, sections, total: sections.reduce((n, s) => n + s.net, 0) };
 }
 // ---------- NO42 得意先別商品別出荷累計表 ----------
 export async function customerItems(c, q) {
@@ -261,10 +267,14 @@ const head = (d, sub) => [[T(d.title)], [`${sub}　出力日 ${today()}`], []];
 export async function miscBook(c, kind, q) {
   if (kind === 'shipment-summary') {
     const d = await shipmentSummary(c, q), out = head(d, `期間 ${d.from} 〜 ${d.to}`);
-    out.push(['商品CD', '商品名', '単位', '件数', '出荷数量', '売上金額', '消費税', '掛売', '現金', 'カード'].map(H));
-    for (const x of d.items) out.push([x.item, x.name, x.unit, x.count, x.qty, x.net, x.tax, x.credit, x.cash, x.card]);
-    const t = d.totals; out.push([S('合計'), '', '', S(t.count), '', S(t.net), S(t.tax), S(t.credit), S(t.cash), S(t.card)]);
-    return { name: `商品別出荷集計表_${d.from}_${d.to}.xlsx`, body: xlsx([{ name: '出荷集計表', rows: out, widths: [10, 24, 6, 8, 12, 14, 12, 14, 12, 12] }]) };
+    d.sections.forEach((sc, k) => {
+      if (sc.other) out.push([], [T(`${d.title}${sc.title}`)]);
+      out.push(['', '商品名・製品名', '', '数量', '', '金額'].map(H));
+      for (const g of sc.groups) { g.items.forEach((x, i) => out.push([i ? '' : g.label, x.item, x.name, x.qty, x.unit, x.net])); out.push(['', '', S(`【${g.label}計】`), '', '', S(g.net)], []); }
+      out.push(['', '', S('【合　計】'), '', '', S(sc.net)]);
+      if (k === d.sections.length - 1 && sc.other) out.push([], ['', '', S('【総合計】'), '', '', S(d.total)]);
+    });
+    return { name: `商品・製品別出荷集計表_${d.from}_${d.to}.xlsx`, body: xlsx([{ name: '出荷集計表', rows: out, widths: [6, 8, 26, 11, 4, 14] }]) };
   }
   if (kind === 'customer-items') {
     const d = await customerItems(c, q), out = head(d, `期間 ${d.from} 〜 ${d.to}`);

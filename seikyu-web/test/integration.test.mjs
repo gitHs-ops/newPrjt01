@@ -207,7 +207,10 @@ test('workflow against PostgreSQL business tables', { skip, timeout: 900000 }, a
     await t.test('④ shipment totals, material ledger, mix and JV allocation', async () => {
       const ok = r => assert.equal(r.status, 200, JSON.stringify(r.data));
       const span = new URLSearchParams({ from: pm + '-01', to: d });
-      const ss = (await a.call('/api/reports/misc/shipment-summary?' + span)).data.items.find(x => x.item === 'I' + tag);
+      const sd = (await a.call('/api/reports/misc/shipment-summary?' + span)).data, ss = sd.sections.flatMap(sc => sc.groups.flatMap(g => g.items)).find(x => x.item === 'I' + tag);
+      // 現行 HAR031：商品／製品の区分ごとの計、合計＝各区分の計の和、総合計＝各表の合計の和
+      for (const sc of sd.sections) assert.equal(sc.net, sc.groups.reduce((n, g) => n + g.net, 0)); assert.equal(sd.total, sd.sections.reduce((n, sc) => n + sc.net, 0));
+      assert.ok(sd.sections.every(sc => sc.groups.every(g => ['商品', '製品'].includes(g.label))));
       assert.equal(ss.qty, 13); assert.equal(ss.net, 12997);
       const ci = (await a.call('/api/reports/misc/customer-items?' + span)).data.customers.find(x => x.customer === C); assert.equal(ci.net, 12997);
       ok(await a.call('/api/reports/misc/cash-sales?' + span));
