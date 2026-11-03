@@ -4,6 +4,7 @@ import { rows, one, audit } from './db.mjs';
 import { xlsx } from './xlsx.mjs';
 import { zenginFile } from './zengin.mjs';
 import { holidaySet } from './payables.mjs';
+import { companyProfile } from './sales.mjs';
 
 const TYPES = { 1: '普通', 2: '当座', 4: '貯蓄' };
 const H = v => ({ v, s: 'bold' }), S = v => ({ v, s: 'sum' }), T = v => ({ v, s: 'title' });
@@ -18,6 +19,9 @@ async function payments(c, where, args) {
   const al = ids.length ? await rows(c, `SELECT a.payment_id, a.amount, d.expense_id, d.document_no, d.booked_on, d.memo, d.gross_amount FROM payment_allocation a JOIN expense_document d ON d.expense_id=a.expense_id WHERE a.payment_id IN (${ids.map(() => '?').join(',')}) ORDER BY d.booked_on, d.document_no`, ids) : [];
   return ps.map(p => ({ ...p, bank: num(p.bank_amount), fee: num(p.fee_amount), offset: num(p.offset_amount), safety: num(p.safety), docs: al.filter(a => a.payment_id === p.payment_id) }));
 }
+// 支払元口座の銀行名・支店名（現行 HJR220 の見出し「名古屋　刈谷　御中」、HAR321 の銀行名・支店名）。2026-11-04
+const fromBankOf = async c => { const z = Object.fromEntries((await rows(c, "SELECT code_dtl, category1 bk, category2 bt FROM code_m WHERE code_key='ZGN'")).map(r => [r.code_dtl, r])), b = await banksMap(c);
+  return code => { const x = z[code], br = String(x?.bt || '').slice(0, 3); return { bankName: x ? DIR[x.bk]?.name || b[code] || '' : b[code] || '', branchName: x ? DIR[`${x.bk}-${br}`]?.name || '' : '' }; }; };
 const banksMap = async c => Object.fromEntries((await rows(c, "SELECT code_dtl, code_dtl_nam FROM code_m WHERE code_key='BANK'")).map(r => [r.code_dtl, r.code_dtl_nam]));
 let DIR = {};
 const loadDir = async c => { DIR = Object.fromEntries((await rows(c, "SELECT code_dtl, code_dtl_nam, code_dtl_abr FROM code_m WHERE code_key='BKDIR'")).map(r => [r.code_dtl, { name: r.code_dtl_nam, kana: r.code_dtl_abr }])); return DIR; };
@@ -66,10 +70,10 @@ export async function vendorPayments(c, q) {
 // ---------- NO46 振込依頼書 ----------
 export async function transferRequest(c, q) {
   const date = isoDate(q.date, '振込指定日'), banks = await banksMap(c);
-  const ps = await payments(c, 'p.paid_on=?', [date]);
+  const ps = await payments(c, 'p.paid_on=?', [date]), fb = await fromBankOf(c);
   const groups = [];
   for (const p of ps) {
-    const k = p.from_bank || ''; let g = groups.find(x => x.fromBank === k); if (!g) groups.push(g = { fromBank: k, fromBankName: banks[k] || '', rows: [], total: 0 });
+    const k = p.from_bank || ''; let g = groups.find(x => x.fromBank === k); if (!g) groups.push(g = { fromBank: k, fromBankName: banks[k] || '', ...fb(k), rows: [], total: 0 });
     g.rows.push({ vendor: p.vendor_code, name: p.vendor_name, no: p.payment_no, payee: payee(p), amount: p.bank }); g.total += p.bank;
   }
   const co = await one(c, 'SELECT * FROM company_info_m ORDER BY company_info_id LIMIT 1');
@@ -95,8 +99,10 @@ async function carryRows(c, date, vendorCode) {
 export async function payableCarryover(c, q) {
   const date = isoDate(q.date || today(), '基準日'), list = await carryRows(c, date);
   const sum = k => list.reduce((n, v) => n + v[k], 0);
+  // 現行 HJR241 は 3 か月（例 8/15 現在 → 5月 6月 7月）。当月分は直近の月（前月）の列に入れる。相殺繰越額（立替金残高）も直近の月の列（2026-11-04）
+  for (const v of list) { v.l1 = v.m1 + v.m0; v.o3 = 0; v.o2 = 0; v.o1 = v.offset; }
   return { title: '支払繰越一覧表', ref: 'NO47 / 添付帳票㉔', date, months: { m3: `${addMonths(date.slice(0, 7), -3)}以前`, m2: addMonths(date.slice(0, 7), -2), m1: addMonths(date.slice(0, 7), -1), m0: date.slice(0, 7) },
-    vendors: list, totals: { m3: sum('m3'), m2: sum('m2'), m1: sum('m1'), m0: sum('m0'), total: sum('total'), offset: sum('offset'), net: sum('net') }, note: '相殺繰越額＝業者立替金残高（業者マスタの開始残高−相殺済額、F-03 推定）。差引繰越額＝支払繰越合計−相殺繰越額。' };
+    vendors: list, totals: { m3: sum('m3'), m2: sum('m2'), m1: sum('m1'), m0: sum('m0'), l1: sum('l1'), total: sum('total'), offset: sum('offset'), net: sum('net') }, note: '相殺繰越額＝業者立替金残高（業者マスタの開始残高−相殺済額、F-03 推定）。差引繰越額＝支払繰越合計−相殺繰越額。' };
 }
 // ---------- NO48 支払案内書（支払日・業者ごと） ----------
 export async function paymentNotices(c, q) {
@@ -110,11 +116,15 @@ export async function paymentNotices(c, q) {
     n.bank += p.bank; n.fee += p.fee; n.offset += p.offset; n.safety = (n.safety || 0) + p.safety; n.total += p.bank + p.fee + p.offset + p.safety;
     n.docs.push(...p.docs.map(d => ({ no: d.document_no, date: d.booked_on, memo: d.memo, gross: num(d.gross_amount), paid: num(d.amount) })));
   }
+  // 現行 支払案内書の繰越表：繰越額＝支払前（前日まで）の未払残高、今回支払＝そのうち今回支払った額。3 か月（当月分は直近の月）。2026-11-04
+  const prev = new Date(Date.parse(date) - 864e5).toISOString().slice(0, 10), three = x => (x ? [x.m3, x.m2, x.m1 + x.m0] : [0, 0, 0]);
   for (const n of notices) {
-    const carry = (await carryRows(c, date, n.vendor))[0];
-    n.carry = carry ? { m3: carry.m3, m2: carry.m2, m1: carry.m1, m0: carry.m0, total: carry.total } : { m3: 0, m2: 0, m1: 0, m0: 0, total: 0 };
+    const after = (await carryRows(c, date, n.vendor))[0], before = (await carryRows(c, prev, n.vendor))[0];
+    n.carry = after ? { m3: after.m3, m2: after.m2, m1: after.m1, m0: after.m0, total: after.total } : { m3: 0, m2: 0, m1: 0, m0: 0, total: 0 };
+    const b = three(before), a = three(after); n.before = b; n.paidBy = b.map((x, i) => x - a[i]);
   }
-  return { title: '支払案内書', ref: 'NO48 / 添付帳票㉕', date, company: { name: [co?.company_name1, co?.company_name2].filter(Boolean).join(' '), address: [co?.postcode && '〒' + co.postcode, co?.pref, co?.addr1].filter(Boolean).join(' '), tel: co?.tel_no || '' },
+  const cp = await companyProfile(c);
+  return { title: '支払案内書', ref: 'NO48 / 添付帳票㉕', date, profile: cp, company: { name: [co?.company_name1, co?.company_name2].filter(Boolean).join(' '), address: [co?.postcode && '〒' + co.postcode, co?.pref, co?.addr1].filter(Boolean).join(' '), tel: co?.tel_no || '' },
     months: { m3: `${addMonths(date.slice(0, 7), -3)}以前`, m2: addMonths(date.slice(0, 7), -2), m1: addMonths(date.slice(0, 7), -1), m0: date.slice(0, 7) }, notices };
 }
 
@@ -122,38 +132,58 @@ export async function paymentNotices(c, q) {
 const head = (d, sub) => [[T(d.title)], [`${sub}　出力日 ${today()}`], []];
 const acct = p => (p ? `${p.bank} ${p.bankName} ${p.branch} ${p.branchName} ${p.typeName} ${p.account}`.replace(/ +/g, ' ') : '振込先未登録');
 export async function paymentBook(c, kind, q) {
+  const yy = x => `${x.slice(2, 4)}/${x.slice(5, 7)}/${x.slice(8, 10)}`, ymdJ = x => `${x.slice(2, 4)} 年 ${x.slice(5, 7)} 月 ${x.slice(8, 10)} 日`, mon = m => `${Number(m.slice(5, 7))} 月`;
   if (kind === 'vendor-payments') {
-    const d = await vendorPayments(c, q), out = head(d, `期間 ${d.from} 〜 ${d.to}`);
-    out.push(['業者CD', '業者名', '支払日', '支払No', '支払方法', '振込額', '手数料', '相殺額（前払金・立替金）', '安全協力費', '支払額', '支払元口座', '振込先', '対象伝票'].map(H));
-    for (const v of d.vendors) { for (const r of v.rows) out.push([v.vendor, v.name, r.date, r.no, r.method, r.bank, r.fee, r.offset, r.safety, r.paid, r.fromBank, acct(r.payee), r.docs]); out.push(['', S(`${v.name} 計`), '', '', '', '', '', '', '', S(v.total)]); }
-    out.push(['', S('総合計'), '', '', '', '', '', '', '', S(d.total)]);
-    return { name: `業者別支払内訳表_${d.from}_${d.to}.xlsx`, body: xlsx([{ name: '業者別支払内訳表', rows: out, widths: [10, 24, 11, 12, 10, 12, 9, 14, 12, 20, 26, 24] }]) };
+    // 現行 HJR211 の並び（2026-11-04）：業者ごとに 2 段。1 段目 業者コード 業者名 支払額 前払金 現金 小切手、2 段目 立替金 手数料 振込 手形 支払日。
+    // 立替金＝相殺額（安全協力費を含む）、振込＝振込額。前払金・現金・小切手・手形の支払は新システムに無いため 0
+    const d = await vendorPayments(c, q), out = [[T(d.title), '', '', '', '', `${ymdJ(d.from)}${d.from === d.to ? '' : ' 〜 ' + ymdJ(d.to)}`], [`出力日 ${today()}`], []];
+    out.push(['業者コード', '業　者　名', '支払額', '前払金', '', '現　金', '小切手', ''].map(H), ['', '', '', '立替金', '手数料', '振　込', '手　形', '支払日'].map(H));
+    const t = { paid: 0, adv: 0, offset: 0, fee: 0, bank: 0 };
+    for (const v of d.vendors) for (const r of v.rows) {
+      const off = r.offset + r.safety; out.push([v.vendor, v.name, r.paid, 0, '', 0, 0, ''], ['', '', '', off, r.fee, r.bank, 0, yy(r.date)]);
+      t.paid += r.paid; t.offset += off; t.fee += r.fee; t.bank += r.bank;
+    }
+    out.push(['', S('合　　計'), S(t.paid), S(0), '', S(0), S(0), ''], ['', '', '', S(t.offset), S(t.fee), S(t.bank), S(0), '']);
+    return { name: `業者別支払内訳表_${d.from}_${d.to}.xlsx`, body: xlsx([{ name: '業者別支払内訳表', rows: out, widths: [11, 34, 13, 13, 10, 13, 11, 10] }]) };
   }
   if (kind === 'transfer-request') {
-    const d = await transferRequest(c, q), out = head(d, `振込指定日 ${d.date}　依頼人 ${d.company}`);
+    // 現行 HJR220 の並び（2026-11-04）：支払元の「銀行　支店　御中」、振込指定日・依頼人。振込銀行名 支店名 種目 口座番号 受取人（上段カナ・下段名称） 金額 電信扱。支払元ごとに合計 件数・金額
+    const d = await transferRequest(c, q), out = [[T(d.title)], [`出力日 ${today()}`], []];
     for (const g of d.groups) {
-      out.push([H(`振込元口座 ${g.fromBank} ${g.fromBankName}`)], ['業者CD', '受取人（業者）', '振込先銀行', '支店', '種目', '口座番号', '受取人名（カナ）', '金額', '支払No'].map(H));
-      for (const r of g.rows) out.push([r.vendor, r.name, r.payee ?`${r.payee.bank} ${r.payee.bankName}` : '未登録', r.payee ? `${r.payee.branch} ${r.payee.branchName}` : '', r.payee?.typeName || '', r.payee?.account || '', r.payee?.holder || '', r.amount, r.no]);
-      out.push(['', S('件数 ' + g.rows.length), '', '', '', '', S('合計'), S(g.total)], []);
+      out.push([H(g.bankName || g.fromBankName), H(g.branchName), H('御中'), '', '', `振込指定日 : ${ymdJ(d.date)}`], ['', '', '', '', '', `依頼人 : ${d.company}`]);
+      out.push(['振込銀行名', '支店名', '種目', '口座番号', '受　取　人', '金　額', ''].map(H));
+      for (const r of g.rows) out.push(['', '', '', '', r.payee?.holder || '', '', ''], [r.payee?.bankName || '未登録', r.payee?.branchName || '', r.payee?.typeName || '', r.payee?.account || '', r.name, r.amount, '電信扱']);
+      out.push(['', '', '', '', S(`合　　計　　${g.rows.length} 件`), S(g.total), ''], []);
     }
-    return { name: `振込依頼書_${d.date}.xlsx`, body: xlsx([{ name: '振込依頼書', rows: out, widths: [10, 24, 10, 8, 8, 12, 24, 13, 12] }]) };
+    if (d.groups.length > 1) out.push(['', '', '', '', S(`総　合　計　　${d.groups.reduce((n, g) => n + g.rows.length, 0)} 件`), S(d.total), '']);
+    if (!d.groups.length) out.push(['この振込指定日の振込はありません']);
+    return { name: `振込依頼書_${d.date}.xlsx`, body: xlsx([{ name: '振込依頼書', rows: out, widths: [16, 14, 7, 11, 40, 13, 8] }]) };
   }
   if (kind === 'carryover') {
-    const d = await payableCarryover(c, q), m = d.months, out = head(d, `基準日 ${d.date}`);
-    out.push(['業者CD', '業者名', m.m3, m.m2, m.m1, m.m0, '支払繰越合計', '相殺繰越額', '差引繰越額'].map(H));
-    for (const v of d.vendors) out.push([v.vendor, v.name, v.m3, v.m2, v.m1, v.m0, v.total, v.offset, v.net]);
-    const t = d.totals; out.push([S('合計'), '', S(t.m3), S(t.m2), S(t.m1), S(t.m0), S(t.total), S(t.offset), S(t.net)]);
-    return { name: `支払繰越一覧表_${d.date}.xlsx`, body: xlsx([{ name: '支払繰越一覧表', rows: out, widths: [10, 26, 13, 13, 13, 13, 14, 12, 14] }]) };
+    // 現行 HJR241 の並び（2026-11-04）：業者CD 業者名 ／ 支払繰越額（3 か月・合計）／ 相殺繰越額（3 か月・合計）／ 差引繰越額。見出し 2 段
+    const d = await payableCarryover(c, q), m = d.months, out = [[T(d.title), '', '', '', '', '', `${ymdJ(d.date)}現在`], [`出力日 ${today()}`], []];
+    const ms = [mon(m.m3 + '-'), mon(m.m2), mon(m.m1)];
+    out.push(['業者CD', '業　者　名', '支　払　繰　越　額', '', '', '', '相　殺　繰　越　額', '', '', '', ''].map(H), ['', '', ...ms, '合　計', ...ms, '合　計', '差引繰越額'].map(H));
+    for (const v of d.vendors) out.push([v.vendor, v.name, v.m3, v.m2, v.l1, v.total, v.o3, v.o2, v.o1, v.offset, v.net]);
+    const t = d.totals; out.push([], ['', S('合　　計'), S(t.m3), S(t.m2), S(t.l1), S(t.total), S(0), S(0), S(t.offset), S(t.offset), S(t.net)]);
+    return { name: `支払繰越一覧表_${d.date}.xlsx`, body: xlsx([{ name: '支払繰越一覧表', rows: out, widths: [10, 34, 13, 13, 13, 14, 12, 12, 12, 12, 14] }]) };
   }
   if (kind === 'notices') {
-    const d = await paymentNotices(c, q), m = d.months, out = head(d, `支払日 ${d.date}　${d.company.name}`);
+    // 現行 支払案内書の並び（2026-11-04）：宛先（〒・住所・業者名 御中・（業者コード））と発行元（〒・住所・会社名・共同企業体・TEL・FAX・登録番号）、
+    // 締切日・必着日の案内、支払合計／手形／振込／振込手数料（内消費税）と支払日・振込銀行・口座、繰越額・今回支払（3 か月）。業者の住所は業者マスタに無いため空欄
+    const d = await paymentNotices(c, q), m = d.months, p = d.profile, ms = [mon(m.m3 + '-'), mon(m.m2), mon(m.m1)], out = [];
+    const zip = z => (z ? `〒 ${String(z).replace(/^(\d{3})-?(\d{4})$/, '$1-$2')}` : ''), jd = x => `${x.slice(2, 4)} 年 ${Number(x.slice(5, 7))} 月 ${Number(x.slice(8, 10))} 日`;
     for (const n of d.notices) {
-      out.push([H(`${n.vendor} ${n.name} 御中`)], ['支払日', d.date, '支払合計額', n.total, '振込額', n.bank, '振込手数料', n.fee], ['振込先', acct(n.payee), '', '', '支払元', n.fromBank]);
-      out.push(['伝票No', '計上日', '摘要', '請求額', '今回支払額'].map(H)); for (const x of n.docs) out.push([x.no, x.date, x.memo, x.gross, x.paid]);
-      out.push(['支払繰越（支払後の未払残高）'], [m.m3, m.m2, m.m1, m.m0, '合計'].map(H), [n.carry.m3, n.carry.m2, n.carry.m1, n.carry.m0, n.carry.total], []);
+      out.push(['', '', T('支　払　案　内　書'), '', jd(today())], []);
+      const left = ['', '', '', n.name, '', `（ ${n.vendor} ）`], right = [zip(p.postcode), [p.pref, p.addr1].filter(Boolean).join('') + (p.addr2 ? ' ' + p.addr2 : ''), p.name1, p.name2, `TEL : ${p.tel}`, p.fax ? `FAX : ${p.fax}` : '', p.invoiceNo ? `登録番号 ${p.invoiceNo}` : ''];
+      for (let k = 0; k < Math.max(left.length, right.length); k++) out.push([left[k] || '', k === 3 ? '御中' : '', '', '', right[k] || '']);
+      out.push([], ['毎月 20 日 ･･･ 締切日'], ['毎月 26 日 ･･･ 必着（ 26 日以降の請求については翌月へ繰越となります ）'], [], ['請求書には業者コードをお忘れなく'], []);
+      const feeTax = Math.floor(n.fee * 10 / 110);
+      out.push([H('支払合計'), n.total, '', `${jd(d.date)}支払`], ['', '', '', `振込銀行 : ${n.payee?.bankName || '未登録'}　${n.payee?.branchName || ''}`], ['手　形', 0, '', n.payee ? `${(n.payee.typeName || '').slice(0, 1)} ${n.payee.account}` : ''], ['振　込', n.bank], ['振込手数料', n.fee, `（ 内消費税　${feeTax}　税率 10% ）`], []);
+      out.push(['', ...ms].map(H), ['繰越額', ...n.before], ['今回支払', ...n.paidBy], [], []);
     }
     if (!d.notices.length) out.push(['この支払日の支払はありません']);
-    return { name: `支払案内書_${d.date}.xlsx`, body: xlsx([{ name: '支払案内書', rows: out, widths: [14, 14, 24, 14, 14, 14, 12, 12] }]) };
+    return { name: `支払案内書_${d.date}.xlsx`, body: xlsx([{ name: '支払案内書', rows: out, widths: [14, 14, 22, 30, 34], portrait: true }]) };
   }
   check(false, '帳票の種類が不正です');
 }

@@ -125,8 +125,17 @@ export async function bankPaymentList(c, q) {
       method: '銀行振込', fromBankCode: p.from_bank || '', fromBank: p.from_bank ? `${p.from_bank} ${banks[p.from_bank] || ''}` : '', payeeBank: p.bank_code ? `${p.bank_code} ${dir[p.bank_code] || ''}`.trim() : '未登録', payeeBranch: p.branch_code ? `${p.branch_code} ${dir[p.bank_code + '-' + p.branch_code] || ''}`.trim() : '' });
     d.total += bank;
   }
+  // 現行 HAR321：銀行名・支店名は支払元口座の銀行・支店（BANK → ZGN の銀行・支店コード → 銀行支店名 BKDIR）。2026-11-04
+  const zgn = Object.fromEntries((await rows(c, "SELECT code_dtl, category1 bk, category2 bt FROM code_m WHERE code_key='ZGN'")).map(r => [r.code_dtl, r]));
+  for (const d of days) for (const r of d.rows) { const z = zgn[r.fromBankCode], br = String(z?.bt || '').slice(0, 3); r.fromBankName = z ? dir[z.bk] || banks[r.fromBankCode] || '' : banks[r.fromBankCode] || ''; r.fromBranchName = z ? dir[`${z.bk}-${br}`] || '' : ''; }
   // 銀行別（支払元口座別）小計
-  for (const d of days) { d.banks = [...new Set(d.rows.map(r => r.fromBank))].map(b => ({ bank: b, rows: d.rows.filter(r => r.fromBank === b), total: d.rows.filter(r => r.fromBank === b).reduce((n, r) => n + r.vendorTotal, 0) })); }
+  // 銀行計・日付計は請求金額・相殺金額・安全協力費・手数料と支払方法計（業者計の合計）。支払方法計は銀行内の支払方法ごとに最後の行へ
+  const sums = rs => ({ billed: rs.reduce((n, r) => n + r.billed, 0), offset: rs.reduce((n, r) => n + r.offset, 0), safety: rs.reduce((n, r) => n + r.safety, 0), fee: rs.reduce((n, r) => n + r.fee, 0), total: rs.reduce((n, r) => n + r.vendorTotal, 0) });
+  for (const d of days) {
+    d.banks = [...new Set(d.rows.map(r => r.fromBank))].map(b => { const rs = d.rows.filter(r => r.fromBank === b); rs.sort((x, y) => (x.method < y.method ? -1 : x.method > y.method ? 1 : 0)); return { bank: b, bankName: rs[0]?.fromBankName || '', branchName: rs[0]?.fromBranchName || '', rows: rs, ...sums(rs) }; });
+    for (const g of d.banks) g.rows.forEach((r, i) => { const nx = g.rows[i + 1]; r.methodTotal = !nx || nx.method !== r.method ? g.rows.filter(x => x.method === r.method).reduce((n, x) => n + x.vendorTotal, 0) : null; });
+    Object.assign(d, { sums: sums(d.rows) });
+  }
   return { ...BANK_LIST, from, to, days, total: days.reduce((n, d) => n + d.total, 0) };
 }
 
@@ -164,17 +173,19 @@ export async function journalListBook(c, q) {
   if (!d.slips.length) out.push(['対象期間の仕訳はありません']);
   return { name: `${d.title}_${d.from}_${d.to}.xlsx`, body: xlsx([{ name: d.title.slice(0, 28), rows: out, widths: JOURNAL_WIDTHS, printTitles: '4:5', header: `&L${d.title}&R&P 頁` }]) };
 }
+// 現行 HAR321 の並び（2026-11-04）：ｺｰﾄﾞ 業者名 伝票No. 日付 請求金額 相殺金額 安全協力費 手数料 業者計 支払方法計 支払方法 銀行名 支店名（銀行・支店は支払元）。
+// 支払日ごとに「YY 年 M 月 D 日支払」、銀行ごとに銀行計、支払日ごとに日付計（金額 4 列と支払方法計）
 export async function bankPaymentBook(c, q) {
-  const d = await bankPaymentList(c, q);
+  const d = await bankPaymentList(c, q), yy = x => `${x.slice(2, 4)}/${x.slice(5, 7)}/${x.slice(8, 10)}`;
   const out = [[T(d.title)], [`期間 ${d.from} 〜 ${d.to}　出力日 ${today()}`], []];
-  const head = ['業者CD', '業者名', '伝票No', '日付', '請求金額', '相殺金額', '安全協力費', '手数料', '業者計', '支払方法', '支払元口座', '振込先銀行', '支店'].map(H);
+  const head = ['ｺｰﾄﾞ', '業　者　名', '伝票No.', '日付', '請求金額', '相殺金額', '安全協力費', '手数料', '業者計', '支払方法計', '支払方法', '銀　行　名', '支　店　名'].map(H);
+  const sum = (x, label, bank, branch) => ['', '', '', '', S(x.billed), S(x.offset), S(x.safety), S(x.fee), '', S(x.total), S(label), bank === undefined ? '' : S(bank), branch === undefined ? '' : S(branch)];
   for (const day of d.days) {
     const [y, m, dd] = day.date.split('-');
-    out.push([H(`${y.slice(2)}年${Number(m)}月${Number(dd)}日支払`)], head);
-    for (const g of day.banks) { for (const r of g.rows) out.push([r.vendor, r.vendorName, r.no, r.date, r.billed, r.offset, r.safety, r.fee, r.vendorTotal, r.method, r.fromBank, r.payeeBank, r.payeeBranch]); out.push(['', S(`銀行計 ${g.bank}`), '', '', '', '', '', '', S(g.total)]); }
-    out.push(['', S('支払日計'), '', '', S(day.rows.reduce((n, r) => n + r.billed, 0)), S(day.rows.reduce((n, r) => n + r.offset, 0)), S(0), S(day.rows.reduce((n, r) => n + r.fee, 0)), S(day.total)], []);
+    out.push(['', '', '', '', '', '', '', '', '', '', H(`${y.slice(2)} 年 ${Number(m)} 月 ${Number(dd)} 日支払`)], head);
+    for (const g of day.banks) { for (const r of g.rows) out.push([r.vendor, r.vendorName, r.no, yy(r.date), r.billed, r.offset, r.safety, r.fee, r.vendorTotal, r.methodTotal ?? '', r.method, r.fromBankName, r.fromBranchName]); out.push([], sum(g, '銀　行　計', g.bankName, g.branchName)); }
+    out.push([], sum(day.sums, '日　付　計'), []);
   }
-  out.push(['', S('総合計'), '', '', '', '', '', '', S(d.total)]);
   if (!d.days.length) out.push(['対象期間の支払はありません']);
-  return { name: `${d.title}_${d.from}_${d.to}.xlsx`, body: xlsx([{ name: d.title, rows: out, widths: [10, 26, 12, 11, 13, 11, 11, 10, 13, 10, 20, 10, 8] }]) };
+  return { name: `${d.title}_${d.from}_${d.to}.xlsx`, body: xlsx([{ name: d.title, rows: out, widths: [9, 26, 9, 10, 13, 11, 11, 10, 13, 13, 11, 16, 14] }]) };
 }

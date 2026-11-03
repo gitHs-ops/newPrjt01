@@ -154,11 +154,12 @@ export async function receiptSchedule(c, q) {
     if (!parts.length) parts = await partsOf('', []);
     if (!parts.length) parts = [{ field_cd: h.field_cd || '', field_suffix: h.field_suffix || '', name: '', net: 1 }];
     const net = parts.reduce((n, s) => n + num(s.net), 0) || 1; let left = balance;
-    parts.forEach((s, i) => {
+    for (const [i, s] of parts.entries()) {
       const billed = Math.round(total * num(s.net) / net), due = i === parts.length - 1 ? left : Math.round(balance * num(s.net) / net); left -= due;
-      cu.rows.push({ site: `${s.field_cd}-${s.field_suffix}`, siteName: s.name, closing: fromNum(h.closing_date), invoiceId: h.invoice_id, issued: !!h.issued, billed, dueDate: h.dueDate, computed: h.computed, due, overdue: h.dueDate < now });
+      const fm = s.field_cd ? await one(c, 'SELECT field_name1, field_name2 FROM field_name_m WHERE customers_cd=? AND field_cd=? AND field_suffix=?', [h.customers_cd, s.field_cd, s.field_suffix]) : null; // 工事略名＝現場マスタ（現行 HAR381）
+      cu.rows.push({ siteNo: s.field_cd ? `${s.field_cd}-${s.field_suffix}` : '', siteShort: fm ? [fm.field_name1, fm.field_name2].map(v => String(v || '').trim()).filter(Boolean).join(' ') : '', site: `${s.field_cd}-${s.field_suffix}`, siteName: s.name, closing: fromNum(h.closing_date), invoiceId: h.invoice_id, issued: !!h.issued, billed, dueDate: h.dueDate, computed: h.computed, due, overdue: h.dueDate < now });
       cu.billed += billed; cu.due += due;
-    });
+    }
   }
   return { title: overdueOnly ? '入金予定チェックリスト（予定日超過・未入金）' : '入金予定チェックリスト', ref: 'NO44 / 添付帳票⑳', from, to, sub: `入金予定日 ${from || '（最初）'} 〜 ${to || '（最後）'}${overdueOnly ? '・超過分のみ' : ''}`, overdue: customers.reduce((n, x) => n + x.rows.filter(r => r.overdue).reduce((m, r) => m + r.due, 0), 0), customers, total: customers.reduce((n, x) => n + x.due, 0),
     note: '対象は残高のある請求（未発行を含む。発行欄に表示）。入金予定日は請求の支払期日（得意先マスタの回収条件、未設定は締日の翌月末）。支払期日を持たない移行データは同じ規則で計算（※印）。入金予定額は請求残高を現場別売上比で按分。入金方法・入金先は得意先マスタ、未設定なら過去の入金実績から推定。' };
@@ -207,10 +208,14 @@ export async function extraBook(c, kind, q) {
   }
   if (kind === 'receipt-schedule') {
     const d = await receiptSchedule(c, q), out = head(d, d.sub);
-    out.push(['得意先CD', '得意先名', '工事（現場）', '現場名', '請求締日', '請求No', '発行', '請求金額', '入金予定日', '入金予定額', '現金・手形', '入金先'].map(H));
-    for (const cu of d.customers) { for (const r of cu.rows) out.push([cu.customer, cu.name, r.site, r.siteName, r.closing, r.invoiceId, r.issued ? '発行済' : '未発行', r.billed, r.dueDate + (r.computed ? ' ※' : '') + (r.overdue ? ' 超過' : ''), r.due, cu.method, cu.bank]); out.push(['', S(`${cu.name} 計`), '', '', '', '', '', S(cu.billed), '', S(cu.due)]); }
-    out.push(['', S('総合計'), '', '', '', '', '', '', '', S(d.total)]);
-    return { name: `入金予定チェックリスト_${today()}.xlsx`, body: xlsx([{ name: '入金予定チェックリスト', rows: out, widths: [9, 20, 12, 22, 11, 8, 7, 12, 14, 12, 9, 20] }]) };
+    // 現行 HAR381 の並び（2026-11-04）：得意先名（コード＋名称）工事No. 工事略名 請求金額 請求日 入金予定日 入金予定額 現金予定額 手形予定額 入金先名。
+    // 現金予定額＝振込・現金、手形予定額＝手形。入金先名（現行は入金する別の得意先）は得意先マスタに項目が無いため空欄
+    const yy = x => (x ? `${x.slice(2, 4)}/${x.slice(5, 7)}/${x.slice(8, 10)}` : '');
+    out.push(['得　意　先　名', '工事No.', '工　事　略　名', '請求金額', '請求日', '入金予定日', '入金予定額', '現金予定額', '手形予定額', '入　金　先　名'].map(H));
+    for (const cu of d.customers) for (const r of cu.rows) { const note = cu.method === '手形'; out.push([`${cu.customer} ${cu.name || ''}`, r.siteNo, r.siteShort, r.billed, yy(r.closing), yy(r.dueDate), r.due, note ? '' : r.due, note ? r.due : '', '']); }
+    const cash = d.customers.filter(x => x.method !== '手形').reduce((n, x) => n + x.due, 0);
+    out.push([], [S('合　計'), '', '', S(d.customers.reduce((n, x) => n + x.billed, 0)), '', '', S(d.total), S(cash), S(d.total - cash), '']);
+    return { name: `入金予定チェックリスト_${today()}.xlsx`, body: xlsx([{ name: '入金予定チェックリスト', rows: out, widths: [34, 9, 22, 13, 10, 10, 13, 13, 13, 30] }]) };
   }
   check(false, '帳票の種類が不正です');
 }
