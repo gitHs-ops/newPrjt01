@@ -71,7 +71,8 @@ test('workflow against PostgreSQL business tables', { skip, timeout: 900000 }, a
       const list = await a.call(`/api/reports/billing-list?month=${month}&closing=31`); assert.equal(list.status, 200);
       const row = list.data.rows.find(r => r.customer === C); assert.equal(row.current, inv.total); assert.equal(row.total, row.carried + inv.total); assert.equal(row.state, 'draft');
       const book = await fetch(base + `/api/reports/billing-list?month=${month}&closing=31&format=xlsx`, { headers: { cookie: a.cookie } });
-      assert.equal(book.status, 200); assert.equal(Buffer.from(await book.arrayBuffer()).subarray(0, 2).toString(), 'PK', 'xlsx is a zip');
+      assert.equal(book.status, 200); const bookx = Buffer.from(await book.arrayBuffer()); assert.equal(bookx.subarray(0, 2).toString(), 'PK', 'xlsx is a zip');
+      for (const w of ['得意先名', '現場名', '会社　合計']) assert.ok(bookx.toString().includes(w), '現行 HAR431: ' + w); assert.ok(!bookx.toString().includes('得意先CD'), '得意先はコード＋名称の 1 列'); // 2026-11-04
       assert.equal((await a.call('/api/billing/run', { month, closing: 31, customers: [C] })).status, 400, 'no double billing');
       assert.equal((await a.call('/api/shipments/delete', { orderNo: s1.data.orderNo })).status, 400, 'billed shipment locked');
       assert.equal((await a.call('/api/shipments/delete', { orderNo: cash.data.orderNo })).status, 200);
