@@ -1,6 +1,7 @@
 // ④ 在庫・出資金・出荷集計: NO25 配合計算, NO26 材料受払表, NO35 出資金請求明細表(定時), NO36 入金明細配分表, NO41〜43 出荷集計
 import { check, isoDate, isoMonth, toNum, fromNum, today, addMonths, METHODS, yen } from './domain.mjs';
-import { taxOf, decode as taxDecode } from './taxcode.mjs';
+import { taxOf, decode as taxDecode, TAX_RATE } from './taxcode.mjs';
+import { slipNoOf } from './sales.mjs';
 import { rows, one, audit } from './db.mjs';
 import { xlsx } from './xlsx.mjs';
 import { companyPeriod } from './period.mjs';
@@ -55,19 +56,26 @@ export async function customerItems(c, q) {
   }).filter(s => s.customers.length || (!s.other && (s.discount.qty || s.discount.net)));
   return { title: '得意先別商品別出荷累計表', ref: 'NO42 / 添付帳票⑱（HAR536）', from, to, sections };
 }
-// ---------- NO43 現金売上明細表 ----------
+// ---------- NO43 現金売上明細表：現行 HAR551 の並び（2026-11-04） ----------
+// 列は 得意先（コード＋名称、得意先の 1 行目だけ）・現場名・売上日・伝票No・商品名（コード＋名称）・数量・単位・単価・金額・処税率・運送・備考。得意先ごとに「*** 得意先計 ***」（金額）
+// 単価は売上単価（単価＋運賃）。処税率は売上の 3 桁コード「2 1 税率区分」。運送は納入区分が引取（category1=2）なら 2 先方、それ以外は 1 現場
+const RATE_DIGIT = Object.fromEntries(Object.entries(TAX_RATE).map(([k, v]) => [v, k]));
 export async function cashSales(c, q) {
   const { from, to } = range(q);
-  const rs = await rows(c, `SELECT s.*, c.customers_name FROM sales_trn s LEFT JOIN client_m c ON c.customers_cd=s.customers_cd WHERE s.payment_method_cd=1 AND s.sales_date BETWEEN ? AND ? ORDER BY s.customers_cd, s.sales_date, s.order_no`, [toNum(from), toNum(to)]);
+  const rs = await rows(c, `SELECT s.*, c.customers_name, unit_name(i.unit) unit, (SELECT COUNT(*) FROM sales_trn x WHERE x.sales_no=s.order_no AND x.order_no<>s.order_no) corrections,
+      (SELECT k.category1 FROM code_m k WHERE k.code_key='A0000' AND k.code_dtl=CAST(s.shipping_kb AS TEXT)) kbn_cat
+    FROM sales_trn s LEFT JOIN client_m c ON c.customers_cd=s.customers_cd LEFT JOIN item_m i ON i.item_cd=s.item_cd
+    WHERE s.payment_method_cd=1 AND s.sales_date BETWEEN ? AND ? ORDER BY s.customers_cd, s.sales_date, CASE WHEN s.ship_kb='5' AND COALESCE(s.sales_no, '')<>'' THEN s.sales_no ELSE s.order_no END, s.sales_suffix, s.order_no`, [toNum(from), toNum(to)]);
   const customers = [];
   for (const r of rs) {
-    let cu = customers.find(x => x.customer === r.customers_cd); if (!cu) customers.push(cu = { customer: r.customers_cd, name: r.customers_name, rows: [], net: 0, tax: 0, total: 0 });
-    const row = { date: fromNum(r.sales_date), no: r.order_no, site: [r.field_name1, r.field_name2].filter(Boolean).join(' '), item: r.item_name, qty: num(r.quantity), price: num(r.unit_price), net: num(r.money), tax: num(r.consumption_tax), total: num(r.payment_money) || num(r.money) + num(r.consumption_tax) };
-    cu.rows.push(row); cu.net += row.net; cu.tax += row.tax; cu.total += row.total;
+    let cu = customers.find(x => x.customer === r.customers_cd); if (!cu) customers.push(cu = { customer: r.customers_cd, name: r.customers_name || '', rows: [], net: 0 });
+    const rate = num(r.tax_rate);
+    cu.rows.push({ site: [r.field_name1, r.field_name2].map(v => String(v || '').trim()).filter(Boolean).join(' '), date: fromNum(r.sales_date), no: slipNoOf(r), item: r.item_cd || '', itemName: String(r.item_name || '').trim(),
+      qty: num(r.quantity), unit: r.unit || '', price: num(r.unit_price), net: num(r.money), tax: rate ? `21${RATE_DIGIT[rate] ?? ''}` : '090', carry: r.kbn_cat === '2' ? '2 先方' : '1 現場', remarks: r.remarks || '' });
+    cu.net += num(r.money);
   }
-  return { title: '現金売上明細表', ref: 'NO43 / 添付帳票⑲', from, to, customers, total: customers.reduce((n, x) => n + x.total, 0), note: '現金売上の得意先（実CDか諸口99999か）は確認待ち（Q17）。' };
+  return { title: '現金売上明細表', ref: 'NO43 / 添付帳票⑲（HAR551）', from, to, customers };
 }
-
 // ---------- NO26 材料受払表（月次：前月末在庫＋当月仕入−当月末在庫＝当月使用） ----------
 async function inv(c, month) {
   return Object.fromEntries((await rows(c, "SELECT item_cd, quantity, valuation_price, valuation_amount, status FROM inventory_count WHERE period_start=? AND location_code='MAIN' AND status IN ('POSTED','DRAFT')", [month + '-01'])).map(r => [r.item_cd, { posted: r.status === 'POSTED', qty: num(r.quantity), price: num(r.valuation_price), value: num(r.valuation_amount) }]));
@@ -298,10 +306,9 @@ export async function miscBook(c, kind, q) {
   }
   if (kind === 'cash-sales') {
     const d = await cashSales(c, q), out = head(d, `期間 ${d.from} 〜 ${d.to}`);
-    out.push(['得意先CD', '得意先名', '売上日', '伝票No', '現場', '商品', '数量', '単価', '金額', '消費税', '合計'].map(H));
-    for (const cu of d.customers) { for (const r of cu.rows) out.push([cu.customer, cu.name, r.date, r.no, r.site, r.item, r.qty, r.price, r.net, r.tax, r.total]); out.push(['', S(`${cu.name} 計`), '', '', '', '', '', '', S(cu.net), S(cu.tax), S(cu.total)]); }
-    out.push(['', S('総合計'), '', '', '', '', '', '', '', '', S(d.total)]);
-    return { name: `現金売上明細表_${d.from}_${d.to}.xlsx`, body: xlsx([{ name: '現金売上明細表', rows: out, widths: [10, 22, 11, 11, 22, 20, 9, 10, 12, 10, 12] }]) };
+    out.push(['得意先', '', '', '売上日', '伝票No', '商品名', '', '数量', '', '単価', '金額', '処税率', '運送', '備考'].map(H));
+    for (const cu of d.customers) { cu.rows.forEach((r, i) => out.push([i ? '' : cu.customer, i ? '' : cu.name, r.site, r.date, r.no, r.item, r.itemName, r.qty, r.unit, r.price, r.net, r.tax, r.carry, r.remarks])); out.push(['', '', '', '', '', '', S('*** 得意先計 ***'), '', '', '', S(cu.net)]); }
+    return { name: `現金売上明細表_${d.from}_${d.to}.xlsx`, body: xlsx([{ name: '現金売上明細表', rows: out, widths: [8, 18, 20, 11, 12, 7, 22, 9, 4, 10, 12, 7, 8, 20] }]) };
   }
   if (kind === 'material-ledger') {
     // 現行 HAR491（添付帳票⑧ p.1）の形式：1〜2行目の表題、期首残高〜当月末在庫の2段見出し、数量3桁・金額・単価1桁、0 は空欄、動きのない材料は出さない、【合計】に数量も（2026-11-02）

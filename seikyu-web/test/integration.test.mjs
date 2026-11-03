@@ -216,6 +216,8 @@ test('workflow against PostgreSQL business tables', { skip, timeout: 900000 }, a
       // 現行 HAR536：得意先計の数量は製品だけ、総合計＝得意先計の和、値引の行がある
       for (const sc of cd.sections) { assert.equal(sc.net, sc.customers.reduce((n, x) => n + x.net, 0)); assert.ok(sc.discount && typeof sc.discount.net === 'number'); }
       ok(await a.call('/api/reports/misc/cash-sales?' + span));
+      // 現行 HAR551：得意先計は金額だけ（行の金額の和）、総合計なし
+      for (const cu of (await a.call('/api/reports/misc/cash-sales?' + span)).data.customers) assert.equal(cu.net, cu.rows.reduce((n, r) => n + r.net, 0));
       // material: mark item as 材料, buy 10 @1000 this month, define a product recipe at 60%
       const it = (await a.call('/api/masters/items')).data.find(x => x.code === 'I' + tag);
       ok(await a.call('/api/masters/items', { mode: 'update', record: { ...it, kind: '1' } })); // 1=材料（現行 Java）
