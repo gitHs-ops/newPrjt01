@@ -156,7 +156,8 @@ export async function jvMembers(c, month) {
   return jvAsOf(await rows(c, 'SELECT code, start_month, name, ratio, seq, active FROM app_jv_member'), month).filter(m => m.active)
     .map(m => ({ code: m.code, name: m.name, ratio: num(m.ratio) / 100, seq: num(m.seq) })).sort((a, b) => a.seq - b.seq || a.code.localeCompare(b.code));
 }
-async function members(c, month) {
+// 構成員の登録なし・比率合計が100%でないときは帳票を出さずに理由を返す（⑪⑫⑬共通。⑪は 2026-11-04 から）
+export async function members(c, month) {
   const ms = await jvMembers(c, month);
   check(ms.length, `${month} 月度の JV構成員・出資比率をマスタ管理で登録してください`);
   const sum = Math.round(ms.reduce((n, m) => n + m.ratio * 100, 0)); check(sum === 10000, `${month} 月度の JV構成員の出資比率の合計が100%ではありません（${sum / 100}%）`);

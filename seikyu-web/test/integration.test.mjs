@@ -261,6 +261,7 @@ test('workflow against PostgreSQL business tables', { skip, timeout: 900000 }, a
       // JV members (deactivate leftovers first; this is a disposable test DB)
       for (const m of (await a.call('/api/masters/jv')).data.filter(x => x.active)) ok(await a.call('/api/masters/jv', { mode: 'update', record: { ...m, active: false } }));
       assert.equal((await a.call('/api/reports/misc/jv-expenses?' + span)).status, 400, 'no members');
+      assert.equal((await a.call('/api/reports/misc/petty-book?' + span)).status, 400, '⑪ も構成員なしはエラー（列を黙って消さない。2026-11-04）');
       // 構成員＝業者マスタ（HMW110）
       for (const [k, r] of [['A', '47.5'], ['B', '47.5'], ['C', '5']]) { ok(await a.call('/api/masters/vendors', { mode: 'create', record: { code: 'J' + k + tag, name: 'JV' + k, active: true } })); ok(await a.call('/api/masters/jv', { mode: 'create', record: { code: 'J' + k + tag, name: 'JV' + k, ratio: r, seq: k.charCodeAt(0), active: true } })); }
       const je = (await a.call('/api/reports/misc/jv-expenses?' + span)).data;
@@ -303,7 +304,7 @@ test('workflow against PostgreSQL business tables', { skip, timeout: 900000 }, a
       // 売掛金残高一覧・未払残高一覧の Excel（2026-11-02）
       for (const [k, w] of [['ar', '売掛金残高一覧'], ['ap', '未払残高一覧']]) { const r = await fetch(base + `/api/reports/${k}?format=xlsx`, { headers: { cookie: a.cookie } }); assert.equal(r.status, 200, k); assert.ok(Buffer.from(await r.arrayBuffer()).toString().includes(w), w); }
       assert.ok(!mlx.includes('材料CD'), '現行の見出しに材料CDの列名はない');
-      for (const m of (await a.call('/api/masters/jv')).data.filter(x => x.active && x.code.endsWith(tag))) await a.call('/api/masters/jv', { mode: 'update', record: { ...m, active: false } });
+      // JV 構成員は残す：⑪ 小口現金出納簿も構成員が必要（2026-11-04）。次回の実行では冒頭で無効化する
     });
     await t.test('△ items completed by estimation (NO3/9/10/20/25/30/33/40/44)', async () => {
       const ok = r => assert.equal(r.status, 200, JSON.stringify(r.data));
