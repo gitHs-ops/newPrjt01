@@ -1494,7 +1494,7 @@ function expenseView(kind) {
     // 小口現金：支払先は明細の行ごと。1支払日＝1伝票（画面レビュー No.9）
     // 2026-10-29 画面・帳票処理イメージ一覧 v4 の指摘：支払先は自由入力ではない（業者マスタのコード）・支払先名を表示・「金額」でなく「支払額」・右は科目名・内訳名と摘要名（内訳は科目の補助で摘要コード（工事）とは別。摘要名は手入力。2026-10-29 列名を「内訳」に訂正）
     const vendorName = code => active('vendors').find(x => x.code === String(code || '').trim())?.name;
-    const cols = [{ name: 'lvendor', label: '支払先コード', cell: () => '<input name="lvendor" list="dl-ex-payees" maxlength="12" placeholder="コード" style="width:84px" autocomplete="off">' }, { label: '支払先名', cell: () => '<span data-vname></span>' },
+    const cols = [{ name: 'lvendor', label: '支払先コード', cell: () => '<input name="lvendor" list="dl-ex-payees" maxlength="12" placeholder="コード" style="width:84px" autocomplete="off">' }, { label: '支払先名', cell: () => '<span data-vname></span><input name="lpayee" maxlength="100" placeholder="支払先名（手入力）" style="width:150px">' }, // コードが無い支払先は名称を手入力（2026-11-03）
       // 2026-11-03 ユーザー指示：科目・内訳コードの横に名称、摘要名は科目・内訳の下、支払額・処税率は右側
       { name: 'account', label: '科目・内訳／摘要名', cell: () => `<div class="l2"><div style="display:flex;gap:6px;align-items:center"><select name="account" style="width:170px;flex:none">${accOpts}</select><span data-accname class="muted small" style="width:8em;flex:none"></span><select name="sub" style="width:150px;flex:none"><option value="">（なし）</option></select><span data-subname class="muted small" style="width:8em;flex:none"></span></div><input name="lmemo" maxlength="500" placeholder="摘要名（手入力）"></div>` },
       { name: 'amount', label: '支払額（税込）', sum: 1, cell: () => '<input name="amount" class="num" style="width:120px">' }, { name: 'taxCode', label: '処税率', cell: () => `<div class="l2">${taxSelect('taxCode', '141')}<span data-taxname class="muted small"></span></div>` }];
@@ -1538,7 +1538,8 @@ function expenseView(kind) {
           // 上段は科目名・内訳名、下段の摘要名は手入力（小口現金も定時請求と同じ）
           if (an) { an.textContent = acc?.name || ''; tr.querySelector('[data-subname]').textContent = sub?.name || ''; return; }
           n.textContent = acc ? `${acc.name}${sub ? '　' + sub.name : ''}` : '科目を選択'; };
-        const vname = tr => { const el = tr.querySelector('[name=lvendor]'), s = tr.querySelector('[data-vname]'); if (!el || !s) return; const t = el.value.trim(), nm = vendorName(t); s.innerHTML = !t ? '' : nm ? esc(nm) : '<span class="check-ng">該当なし</span>'; };
+        // 支払先コードを入れたら業者名を表示、空欄なら支払先名の手入力欄を出す（2026-11-03）
+        const vname = tr => { const el = tr.querySelector('[name=lvendor]'), s = tr.querySelector('[data-vname]'), inp = tr.querySelector('[name=lpayee]'); if (!el || !s) return; const t = el.value.trim(), nm = vendorName(t); s.innerHTML = !t ? '' : nm ? esc(nm) : '<span class="check-ng">該当なし</span>'; if (inp) inp.hidden = !!t; };
         g.addEventListener('input', e => { if (e.target.name === 'lvendor') vname(e.target.closest('tr')); });
         if (payable) {
           $('#ex-lines-total')?.parentElement && ($('#ex-lines-total').parentElement.hidden = true);
@@ -1558,7 +1559,7 @@ function expenseView(kind) {
         g.addEventListener('input', recalc); g.addEventListener('click', () => setTimeout(recalc)); recalc();
         if (R) showDoc(R, f); },
       onSubmit: async v => {
-        const lines = readLines('ex-lines').map(({ lvendor, ...l }) => ({ ...l, memo: l.lmemo, ...(payable ? {} : { vendor: String(lvendor || '').trim() }) }));
+        const lines = readLines('ex-lines').map(({ lvendor, lpayee, ...l }) => ({ ...l, memo: l.lmemo, ...(payable ? {} : { vendor: String(lvendor || '').trim(), payee: String(lvendor || '').trim() ? '' : String(lpayee || '').trim() }) }));
         let total, extTax;
         if (payable) {
           const raw = String(v.total || '').replace(/[,，\s]/g, ''); if (!raw) throw Error('合計金額を入力してください');
@@ -1580,7 +1581,7 @@ function expenseView(kind) {
       if (payable) { set(q('vendor'), R.vendor); set(q('due'), R.due, 'input'); set(q('total'), R.amount, 'input'); }
       $$('#ex-lines tbody tr').forEach((tr, i) => { const l = R.lines[i], t = n => tr.querySelector(`[name=${n}]`);
         // 行に支払先が無い旧データ（伝票の見出しに支払先）は見出しの業者・支払先を出す。自由入力の支払先は名称だけ
-        if (!payable) { set(t('lvendor'), l.vendor || (!l.payee && R.vendor) || '', 'input'); const vn = tr.querySelector('[data-vname]'); if (vn && !vn.textContent) vn.textContent = l.payee || R.payee || ''; } set(t('account'), l.account); set(t('sub'), l.sub); set(t('taxCode'), l.taxCode);
+        if (!payable) { set(t('lvendor'), l.vendor || (!l.payee && R.vendor) || '', 'input'); if (!t('lvendor').value) set(t('lpayee'), l.payee || R.payee || '', 'input'); } set(t('account'), l.account); set(t('sub'), l.sub); set(t('taxCode'), l.taxCode);
         set(t('amount'), taxClass(l.taxCode).kind === 'ex' ? l.net : l.amount, 'input'); set(t('memoCode'), l.memoCode, 'input'); set(t('lmemo'), l.memo, 'input'); });
       if (payable) { const ext = q('extTax'); ext.dataset.manual = '1'; set(ext, R.lines.filter(l => taxClass(l.taxCode).kind === 'ex').reduce((n, l) => n + l.tax, 0), 'input'); }
       // 値を入れ終えてから（候補入力の欄は後から作られるため次の順番で）全項目を入力不可にし、行追加・行削除を隠す

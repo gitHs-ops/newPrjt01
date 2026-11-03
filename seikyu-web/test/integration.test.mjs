@@ -374,14 +374,20 @@ test('workflow against PostgreSQL business tables', { skip, timeout: 900000 }, a
       ok(await a.call('/api/petty/refill', { date: d, amount: '5000', bankCode: 'B' + tag }));
       const pb = ok(await a.call('/api/reports/misc/petty-book?' + new URLSearchParams({ from: d, to: d })));
       assert.ok(pb.rows.some(r => r.received === 5000)); assert.equal(pb.closing, pb.opening + pb.received - pb.spent);
-      // 小口現金：1支払日＝1伝票、明細の行ごとに支払先（業者コード）。行の摘要名は支払先で上書きしない。支払先の自由入力は不可（2026-10-29）
+      // 小口現金：1支払日＝1伝票、明細の行ごとに支払先（業者コード）。行の摘要名は支払先で上書きしない。業者マスタにない支払先は支払先名の手入力（2026-11-03）
       const pcm = ok(await a.call('/api/expenses', { kind: 'PETTY_CASH', date: d, dept: '063', lines: [
         { vendor: 'V' + tag, account: '8231', taxCode: '141', amount: 1100, memo: 'ボールペン' }, { vendor: 'V' + tag, account: '8231', taxCode: '141', amount: 2200, memo: '部品' }, { vendor: '', account: '', amount: '' }] }));
       const pcl = ok(await a.call('/api/expenses?' + new URLSearchParams({ kind: 'PETTY_CASH', month: d.slice(0, 7) }))).filter(r => r.id === pcm.id);
       assert.equal(pcl.length, 1); assert.equal(pcl[0].amount, 3300); assert.equal(pcl[0].taxRate, 10); assert.deepEqual(pcl[0].lines.map(l => [l.vendor, l.memo]), [['V' + tag, 'ボールペン'], ['V' + tag, '部品']]);
       const pb2 = ok(await a.call('/api/reports/misc/petty-book?' + new URLSearchParams({ from: d, to: d })));
       assert.ok(pb2.rows.some(r => r.amount === 1100 && r.payee));
-      assert.equal((await a.call('/api/expenses', { kind: 'PETTY_CASH', date: d, lines: [{ payee: '文具店', account: '8231', amount: 100 }] })).status, 400);
+      // 業者マスタにない支払先は支払先名の手入力（2026-11-03）。コードも名称も無い行・マスタにないコードはエラー
+      const pcf = ok(await a.call('/api/expenses', { kind: 'PETTY_CASH', date: d, lines: [{ payee: '文具店', account: '8231', taxCode: '141', amount: 100, memo: 'のり' }] }));
+      const pcfl = ok(await a.call('/api/expenses?' + new URLSearchParams({ kind: 'PETTY_CASH', month: d.slice(0, 7) }))).find(r => r.id === pcf.id);
+      assert.deepEqual(pcfl.lines.map(l => [l.vendor, l.payee, l.memo]), [['', '文具店', 'のり']]);
+      assert.ok(ok(await a.call('/api/reports/misc/petty-book?' + new URLSearchParams({ from: d, to: d }))).rows.some(r => r.no === pcf.no && r.payee === '文具店'));
+      assert.equal((await a.call('/api/expenses', { kind: 'PETTY_CASH', date: d, lines: [{ account: '8231', amount: 100 }] })).status, 400);
+      assert.equal((await a.call('/api/expenses', { kind: 'PETTY_CASH', date: d, lines: [{ vendor: 'NOSUCH', payee: '文具店', account: '8231', amount: 100 }] })).status, 400);
       assert.equal((await a.call('/api/expenses', { kind: 'PETTY_CASH', date: d, lines: [{ vendor: 'V' + tag, account: '8231', amount: 100 }, { vendor: 'V' + tag, account: '0000', amount: 100 }] })).status, 400);
       // 金融機関 master names in transfer request / payment notice
       await a.call('/api/masters/bankdir', { mode: 'create', record: { bank: '0001', name: '試験銀行本体', kana: 'ｼｹﾝ', active: true } });
