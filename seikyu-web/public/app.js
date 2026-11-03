@@ -227,7 +227,7 @@ const SUBMENUS = {
   inventory: [{ k: 'count', l: '実在庫登録', tools: false }, { k: 'register', l: '在庫登録リスト' }, { k: 'mix', l: '配合計算', to: 'ledger' }, { k: 'ledger', l: '材料受払表' }, { k: 'post', l: '在庫計上', tools: false }, { k: 'list', l: '在庫一覧', tools: true }],
   purchases: [{ k: 'list', l: '商品仕入一覧・登録' }, { k: 'reports', l: '商品仕入登録リスト' }], // 2026-10-29 帳票を小メニューに分けた
   payables: [{ k: 'list', l: '定時請求一覧・入力' }, { k: 'reports', l: '定時請求入力明細表' }],
-  cash: [{ k: 'list', l: '小口現金一覧・登録' }, { k: 'book', l: '出納簿・定額資金・現金補充' }],
+  cash: [{ k: 'list', l: '小口現金出納登録' }, { k: 'book', l: '出納簿・定額資金・現金補充' }],
   payments: [{ k: 'list', l: '支払一覧・登録' }, { k: 'reports', l: '支払帳票・全銀データ' }, { k: 'transfer', l: '振込先一覧' }, { k: 'bank', l: '銀行別随時支払一覧表' }],
   journals: [{ k: 'list', l: '仕訳一覧' }, { k: 'tb', l: '月次残高試算', q: { tab: 'tb' } }, { k: 'lists', l: '自動仕訳リスト（帳票）', q: { tab: 'lists' } }, { k: 'export', l: '会計連携データ' }],
   reports: [{ k: 'csv', l: 'CSV出力', tools: true }, { k: 'ar', l: '売掛金残高一覧' }, { k: 'ap', l: '未払残高一覧' }, { k: 'jv', l: '出資金（JV）帳票' }],
@@ -1494,10 +1494,9 @@ function expenseView(kind) {
     // 2026-10-29 画面・帳票処理イメージ一覧 v4 の指摘：支払先は自由入力ではない（業者マスタのコード）・支払先名を表示・「金額」でなく「支払額」・右は科目名・内訳名と摘要名（内訳は科目の補助で摘要コード（工事）とは別。摘要名は手入力。2026-10-29 列名を「内訳」に訂正）
     const vendorName = code => active('vendors').find(x => x.code === String(code || '').trim())?.name;
     const cols = [{ name: 'lvendor', label: '支払先コード', cell: () => '<input name="lvendor" list="dl-ex-payees" maxlength="12" placeholder="コード" style="width:84px" autocomplete="off">' }, { label: '支払先名', cell: () => '<span data-vname></span>' },
-      // 科目名・内訳名は各コードの入力欄の下に表示（2026-11-02 ユーザー指示。右端の列から移した）
-      { name: 'account', label: '科目', cell: () => `<div class="l2"><select name="account">${accOpts}</select><span data-accname class="muted small"></span></div>` }, { name: 'sub', label: '内訳', cell: () => '<div class="l2"><select name="sub"><option value="">（なし）</option></select><span data-subname class="muted small"></span></div>' },
-      { name: 'amount', label: '支払額（税込）', sum: 1, cell: () => '<input name="amount" class="num" style="width:120px">' }, { name: 'taxCode', label: '処税率', cell: () => `<div class="l2">${taxSelect('taxCode', '141')}<span data-taxname class="muted small"></span></div>` },
-      { label: '摘要名', cell: () => '<input name="lmemo" maxlength="500" placeholder="摘要名（手入力）">' }];
+      // 2026-11-03 ユーザー指示：科目・内訳コードの横に名称、摘要名は科目・内訳の下、支払額・処税率は右側
+      { name: 'account', label: '科目・内訳／摘要名', cell: () => `<div class="l2"><div style="display:flex;gap:6px;align-items:center"><select name="account" style="width:170px;flex:none">${accOpts}</select><span data-accname class="muted small" style="width:8em;flex:none"></span><select name="sub" style="width:150px;flex:none"><option value="">（なし）</option></select><span data-subname class="muted small" style="width:8em;flex:none"></span></div><input name="lmemo" maxlength="500" placeholder="摘要名（手入力）"></div>` },
+      { name: 'amount', label: '支払額（税込）', sum: 1, cell: () => '<input name="amount" class="num" style="width:120px">' }, { name: 'taxCode', label: '処税率', cell: () => `<div class="l2">${taxSelect('taxCode', '141')}<span data-taxname class="muted small"></span></div>` }];
     // 定時請求データ入力は現行 HAW050（10/21 打合せ資料 スライド5）の並び：組織・締切日／請求No／業者／支払繰延区分・合計金額 → 明細（2段）→ 対象外・内税・外税・外税消費税・合計
     const deptSel = `<select name="dept">${options(active('depts').length ? active('depts') : [{ code: '063', name: '部門063' }], '063')}</select>`;
     // 小口現金の組織（部門）は表示のみ。現行 HAW150 に入力欄がなく、HAR733 の部は 063（登録時はサーバーの既定値 063）
@@ -1588,13 +1587,13 @@ function expenseView(kind) {
     };
     A.rev = d => confirmBox('伝票の取消', `${d.no} を取消し、逆仕訳を計上します。`, () => post('/api/expenses/reverse', { id: Number(d.id) }).then(() => { toast('取消しました'); render(); }), '取消する');
     A.lines = d => { const r = list.find(x => x.id === Number(d.id)); modal({ title: `${r.no} の明細`, wide: true, body: table([{ label: '行', value: l => l.no }, { label: '科目', value: l => `${l.account} ${l.accountName}` }, { label: '内訳', value: l => (l.sub ? `${l.sub} ${l.subName}` : '') },
-      ...(payable ? [] : [{ label: '支払先', value: l => l.payee }]), { label: '処税率', value: l => taxLabel(l.taxCode) }, { label: '金額', num: 1, value: l => yen(l.amount) }, { label: 'うち消費税', num: 1, value: l => yen(l.tax) }, { label: '摘要コード', value: l => l.memoCode }, { label: '摘要名', value: l => l.memo }], r.lines) }); };
+      ...(payable ? [] : [{ label: '支払先', value: l => l.payee }]), { label: '処税率', value: l => taxLabel(l.taxCode) }, { label: payable ? '金額' : '支払額', num: 1, value: l => yen(l.amount) }, { label: 'うち消費税', num: 1, value: l => yen(l.tax) }, { label: '摘要コード', value: l => l.memoCode }, { label: '摘要名', value: l => l.memo }], r.lines) }); };
     const cols2 = [{ label: '伝票No', value: r => r.no }, ...(payable ? [{ label: '請求No', value: r => r.billNo }] : []), { label: payable ? '締切日' : '支払日', value: r => r.date }, ...(payable ? [{ label: '業者', value: r => r.vendorName }, { label: '支払予定日', value: r => r.due }] : [{ label: '支払先', value: r => r.payee }]),
-      { label: '科目', html: r => `${esc(r.account)} ${esc(r.accountName || '')}${r.lines.length > 1 ? ` <button class="mini quiet" data-act="lines" data-id="${r.id}">他${r.lines.length - 1}行</button>` : ''}` }, { label: '処税率', value: r => payable ? taxLabel(r.taxCode) : r.taxRate == null ? r.taxCode : `${r.taxRate}%` }, { label: '金額', num: 1, value: r => yen(r.amount) },
+      { label: '科目', html: r => `${esc(r.account)} ${esc(r.accountName || '')}${r.lines.length > 1 ? ` <button class="mini quiet" data-act="lines" data-id="${r.id}">他${r.lines.length - 1}行</button>` : ''}` }, { label: '処税率', value: r => payable ? taxLabel(r.taxCode) : r.taxRate == null ? r.taxCode : `${r.taxRate}%` }, { label: payable ? '金額' : '支払額', num: 1, value: r => yen(r.amount) }, // 小口現金は「支払額」（2026-11-03）
       ...(payable ? [{ label: '支払済', num: 1, value: r => yen(r.paid) }, { label: '未払残高', num: 1, value: r => yen(r.balance) }] : []), { label: '摘要', value: r => r.memo }, { label: '状態', html: r => (!payable && r.status === 'POSTED' ? badge('支払済', 'green') : status(r.status)) }, // 小口現金は登録＝現金で支払済み（2026-11-03 計上済→支払済）
       { label: '', html: r => canWrite() && r.status === 'POSTED' && !r.paid ? `<button class="mini danger" data-act="rev" data-id="${r.id}" data-no="${esc(r.no)}">取消</button>` : '' },
       { label: '', html: r => `<button class="mini" data-act="detail" data-id="${r.id}">詳細</button>` }];
-    return page(payable ? '定時請求' : '小口現金', payable ? '業者からの請求（買掛金）を伝票＋明細で計上します（expense_document / expense_line、仕訳 D01）。' : '小口現金での経費支出を伝票＋明細で計上します（仕訳 E01）。',
+    return page(payable ? '定時請求' : '小口現金出納登録', payable ? '業者からの請求（買掛金）を伝票＋明細で計上します（expense_document / expense_line、仕訳 D01）。' : '小口現金での経費支出を伝票＋明細で計上します（仕訳 E01）。',
       `${monthInput('month', month)}${payable ? filterSelect('vendor', masters.vendors, q.vendor, 'すべての業者') : ''}${csvLink('expenses', { month })}${canWrite() ? '<button class="primary" data-act="new">＋ 登録</button>' : ''}`,
       `<section class="card glass" data-sub="list">${table(cols2, list, { rowClass: r => r.status === 'REVERSED' ? 'reversed' : '' })}</section><div data-sub="${payable ? 'reports' : 'book'}">${payable ? payableReportsCard() : pettyReportsCard()}</div>`);
   };
