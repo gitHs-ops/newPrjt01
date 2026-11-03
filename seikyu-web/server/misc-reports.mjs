@@ -230,25 +230,30 @@ export async function jvExpenses(c, q) {
   return { title: summary ? '出資金請求合計表（定時請求分）' : '出資金請求明細表（定時請求分）', ref: 'NO35 / 添付帳票⑫', layout: summary ? 'summary' : 'detail', closing, from, to, members: ms, accounts, days, totals, rates,
     note: `締切日 ${closing || to} の月度（${from}〜${to}）の定時請求を、支払日ごと・科目ごとに${summary ? '集計して' : '明細行単位で'}${month} 月度の出資比率で按分。各社切捨て、端数は第1構成員${summary ? '。出資金額は明細ごとの按分の合計、出資消費税は明細ごとに出資金額から税率で逆算（切捨て）した合計' : ''}。端数調整の入力（現行の「データの読込 0/1」）は要検討。` };
 }
-const PART_ACCOUNT = { BANK: '当座預金（振込）', NOTE: '受取手形', FEE: '雑費（手数料）', COOP: '雑費（協力費）' };
-const PART_MEMO = { FEE: '入金時の手数料', COOP: '入金時の協力費' };
+// 入金科目は現行 HJR031 の表記（2026-11-04）：当座預金　売掛金入金／当座預金　受取手形満期日／雑　費　売掛金入金／雑損失　売掛金入金／（空白）現金売上
+const PART_ACCOUNT = { BANK: '当座預金', NOTE: '当座預金', FEE: '雑　費', COOP: '雑　費', LOSS: '雑損失' };
+const PART_MEMO = { NOTE: '受取手形満期日' };
+// 末尾の合計（現行 HJR031）：＊配分する入金額＊＝当座預金への入金と現金売上、＊配分しない入金額＊＝雑費・雑損失（手数料・協力費・端数の損失）、＊入金額　合計＊＝両方
+export const JV_NOALLOC = new Set(['FEE', 'COOP', 'LOSS']);
 // NO36 入金明細及び配分表
 // 10/21 打合せ：対象は当座預金に入金されるもの（振込・受取手形）、入金に付随する手数料（雑費）、現金売上。指示画面は締切日。
 // 2026-11-01：雑費に協力費（8330-107）も含める（現行 HJW030 の見本で雑費の行が 手数料＋協力費 の金額。例 新晃 550）
+// 2026-11-04：現行どおり 雑損失（LOSS）も入れる。受取手形は満期日の行（当座預金　受取手形満期日）にし、満期日で期間に入れる。現金売上の入金先は現場名
 // 入金額配賦登録（HJW030）の表示用に 区分（売掛金入金／受取手形／現金売上）と 請求締日（消し込んだ請求の締日）を返す
 export async function jvReceipts(c, q) {
   const { from, to, closing, month } = await jvRange(c, q), ms = await members(c, month);
-  const rs = await rows(c, `SELECT r.receipt_id, r.receipt_no, r.receipt_date, c.customers_name, k.component_no, k.component_kind, k.amount FROM receipt r JOIN receipt_component k ON k.receipt_id=r.receipt_id LEFT JOIN client_m c ON c.customers_cd=r.customers_cd
-    WHERE r.status='POSTED' AND r.receipt_date BETWEEN ? AND ? AND k.component_kind IN ('BANK','NOTE','FEE','COOP') ORDER BY r.receipt_date, r.receipt_id, k.component_no`, [from, to]);
-  const lines = rs.map(r => { const amount = num(r.amount); return { key: `R:${r.receipt_id}:${r.component_no}`, date: String(r.receipt_date).slice(0, 10), no: r.receipt_no, account: PART_ACCOUNT[r.component_kind] || r.component_kind, memo: PART_MEMO[r.component_kind] || '売掛金入金', kbn: r.component_kind === 'NOTE' ? '受取手形' : '売掛金入金', customer: r.customers_name, amount, parts: allocate(amount, ms) }; });
+  const rs = await rows(c, `SELECT r.receipt_id, r.receipt_no, CASE WHEN k.component_kind='NOTE' THEN COALESCE(k.maturity_date, r.receipt_date) ELSE r.receipt_date END d, c.customers_name, k.component_no, k.component_kind, k.amount FROM receipt r JOIN receipt_component k ON k.receipt_id=r.receipt_id LEFT JOIN client_m c ON c.customers_cd=r.customers_cd
+    WHERE r.status='POSTED' AND k.component_kind IN ('BANK','NOTE','FEE','COOP','LOSS') AND (CASE WHEN k.component_kind='NOTE' THEN COALESCE(k.maturity_date, r.receipt_date) ELSE r.receipt_date END) BETWEEN ? AND ? ORDER BY 3, r.receipt_id, k.component_no`, [from, to]);
+  const lines = rs.map(r => { const amount = num(r.amount); return { key: `R:${r.receipt_id}:${r.component_no}`, date: String(r.d instanceof Date ? r.d.toISOString() : r.d).slice(0, 10), no: r.receipt_no, account: PART_ACCOUNT[r.component_kind] || r.component_kind, memo: PART_MEMO[r.component_kind] || '売掛金入金', kbn: r.component_kind === 'NOTE' ? '受取手形' : '売掛金入金', noAlloc: JV_NOALLOC.has(r.component_kind), customer: r.customers_name, amount, parts: allocate(amount, ms) }; });
   const ids = [...new Set(rs.map(r => r.receipt_id))], billed = {};
   if (ids.length) for (const a of await rows(c, `SELECT DISTINCT a.receipt_id, h.closing_date FROM receipt_allocation a JOIN billing_head h ON h.invoice_id=a.invoice_id WHERE a.receipt_id IN (${ids.map(() => '?').join(',')}) ORDER BY h.closing_date`, ids)) (billed[a.receipt_id] ||= []).push(fromNum(a.closing_date));
   const span = ds => (ds.length > 2 ? `${ds[0]}〜${ds[ds.length - 1]}（${ds.length}件）` : ds.join('・'));   // 何か月分もまとめて消し込んだ入金は 最初〜最後（件数）
   for (const l of lines) l.billed = span(billed[l.key.split(':')[1]] || []);
   // 現金売上（決済方法 1＝現金）：売上日・得意先ごとに集計
-  const cash = await rows(c, `SELECT s.sales_date d, s.customers_cd, c.customers_name, COUNT(*) n, SUM(s.money + s.consumption_tax) v FROM sales_trn s LEFT JOIN client_m c ON c.customers_cd=s.customers_cd
-    WHERE s.payment_method_cd=1 AND s.sales_date BETWEEN ? AND ? GROUP BY s.sales_date, s.customers_cd, c.customers_name ORDER BY s.sales_date, s.customers_cd`, [toNum(from), toNum(to)]);
-  for (const r of cash) { const amount = num(r.v); if (amount) lines.push({ key: `C:${fromNum(r.d)}:${r.customers_cd}`, date: fromNum(r.d), no: `${num(r.n)}件`, account: '現金売上', memo: '現金売上', kbn: '現金売上', billed: '', customer: r.customers_name || r.customers_cd, amount, parts: allocate(amount, ms) }); }
+  // 現金売上：売上日・得意先・現場名ごとに集計。入金先は現場名（現行 HJR031 の見本：現金売上　緑区藤塚）、現場名がなければ得意先名
+  const cash = await rows(c, `SELECT s.sales_date d, s.customers_cd, MAX(c.customers_name) customers_name, TRIM(CONCAT_WS(' ', NULLIF(TRIM(s.field_name1), ''), NULLIF(TRIM(s.field_name2), ''))) site, COUNT(*) n, SUM(s.money + s.consumption_tax) v FROM sales_trn s LEFT JOIN client_m c ON c.customers_cd=s.customers_cd
+    WHERE s.payment_method_cd=1 AND s.sales_date BETWEEN ? AND ? GROUP BY s.sales_date, s.customers_cd, 4 ORDER BY s.sales_date, s.customers_cd, 4`, [toNum(from), toNum(to)]);
+  for (const r of cash) { const amount = num(r.v); if (amount) lines.push({ key: `C:${fromNum(r.d)}:${r.customers_cd}${r.site ? ':' + r.site : ''}`, date: fromNum(r.d), no: `${num(r.n)}件`, account: '', memo: '現金売上', kbn: '現金売上', billed: '', noAlloc: false, customer: r.site || r.customers_name || r.customers_cd, amount, parts: allocate(amount, ms) }); }
   lines.sort((a, b) => a.date.localeCompare(b.date));
   // 入金額配賦登録（端数調整）の値があれば使う。金額が変わった行（合計が一致しない）は自動配分に戻す
   const adj = lines.length ? Object.fromEntries((await rows(c, `SELECT alloc_key, parts FROM app_jv_alloc WHERE alloc_key IN (${lines.map(() => '?').join(',')})`, lines.map(l => l.key))).map(r => [r.alloc_key, JSON.parse(r.parts)])) : {};
@@ -257,8 +262,9 @@ export async function jvReceipts(c, q) {
     const parts = ms.map(m => Number(a[m.code] ?? NaN));
     if (parts.every(Number.isSafeInteger) && parts.reduce((n, v) => n + v, 0) === l.amount) { l.parts = parts; l.adjusted = true; }
   }
-  return { title: '入金明細及び配分表', ref: 'NO36 / 添付帳票⑬', closing, from, to, members: ms, lines, totals: { amount: lines.reduce((n, l) => n + l.amount, 0), parts: ms.map((_, k) => lines.reduce((n, l) => n + l.parts[k], 0)) },
-    note: `締切日 ${closing || to} の月度（${from}〜${to}）。対象は当座預金への入金（振込・受取手形）、入金時の手数料・協力費（雑費）、現金売上（10/21 打合せ）。${month} 月度の出資比率で配分。各社切捨て、端数は第1構成員。入金分配端数調整登録で調整した行は調整後の金額（${lines.filter(l => l.adjusted).length}行）。` };
+  const sum = ls => ({ amount: ls.reduce((n, l) => n + l.amount, 0), parts: ms.map((_, k) => ls.reduce((n, l) => n + l.parts[k], 0)) });
+  return { title: '入金明細及び配分表', ref: 'NO36 / 添付帳票⑬（HJR031）', closing, from, to, members: ms, lines, alloc: sum(lines.filter(l => !l.noAlloc)), noAlloc: sum(lines.filter(l => l.noAlloc)), totals: sum(lines),
+    note: `締切日 ${closing || to} の月度（${from}〜${to}）。対象は当座預金への入金（振込・受取手形の満期日）、入金時の手数料・協力費（雑費）・雑損失、現金売上（10/21 打合せ・現行 HJR031）。${month} 月度の出資比率で配分。各社切捨て、端数は第1構成員。入金分配端数調整登録で調整した行は調整後の金額（${lines.filter(l => l.adjusted).length}行）。` };
 }
 // 入金額配賦登録（現行 HJW030）：締切日の月度の NO36 対象行について構成員別の配分額を調整して登録。行ごとに合計＝入金額。自動配分と同じなら調整を消す
 export async function saveJvAllocations(c, ctx, p) {
@@ -280,7 +286,7 @@ export async function saveJvAllocations(c, ctx, p) {
 
 // ---------- Excel ----------
 // 入金明細及び配分表の入金科目＝科目＋摘要（同じ文字なら1つだけ。例 当座預金　売掛金入金）
-const jvAccount = l => (l.memo && l.memo !== l.account ? `${l.account}　${l.memo}` : l.account);
+const jvAccount = l => (l.memo && l.memo !== l.account ? `${l.account}　${l.memo}`.trim() : l.account);
 const head = (d, sub) => [[T(d.title)], [`${sub}　出力日 ${today()}`], []];
 export async function miscBook(c, kind, q) {
   if (kind === 'shipment-summary') {
@@ -374,11 +380,13 @@ export async function miscBook(c, kind, q) {
       for (const g of d.rates) out.push(['', '', '', '', { v: g.rate, s: 'right' }, ...amt(g)]);
     } else {
       // 現行 HJR031 の見出し：入金日・入金科目・入金先・入金額、構成員は2段（構成員名／配分額）。入金科目は科目＋摘要（2026-11-02）
-      out.push(['', '', '', '', ...d.members.map(m => m.name)].map(H));
-      out.push(['入金日', '入金科目', '入金先', '入金額', ...d.members.map(() => '配分額')].map(H));
+      // 現行 HJR031：構成員の欄は 5 つ固定（空きは見出し「配分額」だけ）。末尾は ＊配分する入金額＊・＊配分しない入金額＊・＊入金額　合計＊（2026-11-04）
+      const pad = Math.max(0, 5 - d.members.length), blank = Array(pad).fill('');
+      out.push(['', '', '', '', ...d.members.map(m => m.name), ...blank].map(H));
+      out.push(['入金日', '入金科目', '入金先', '入金額', ...d.members.map(() => '配分額'), ...blank.map(() => '配分額')].map(H));
       for (const l of d.lines) out.push([l.date, jvAccount(l), l.customer, l.amount, ...l.parts]);
-      out.push(['', S('合計'), '', S(d.totals.amount), ...d.totals.parts.map(S)]);
-      return { name: `${d.title}_${d.from}_${d.to}.xlsx`, body: xlsx([{ name: d.title.slice(0, 28), rows: out, widths: [11, 26, 34, 13, ...d.members.map(() => 18)] }]) };
+      for (const [label, t] of [['＊配分する入金額＊', d.alloc], ['＊配分しない入金額＊', d.noAlloc], ['＊入金額　合計＊', d.totals]]) out.push([], ['', '', S(label), S(t.amount), ...t.parts.map(S)]);
+      return { name: `${d.title}_${d.from}_${d.to}.xlsx`, body: xlsx([{ name: d.title.slice(0, 28), rows: out, widths: [11, 26, 34, 13, ...d.members.map(() => 14), ...blank.map(() => 10)] }]) };
     }
     // 明細表の後ろに合計表を自動で付ける（同じブックの2枚目のシート。合計表のボタンは 2026-11-03 に画面から削除）
     const ds = await jvExpenses(c, { ...q, layout: 'summary' });

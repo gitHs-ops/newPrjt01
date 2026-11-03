@@ -1812,9 +1812,11 @@ async function miscReport(kind, src) {
       + `</tbody><tfoot><tr><td>支払日計</td>${money(day.gross)}${money(day.net)}${money(day.tax)}${m3(day)}</tr></tfoot></table></div>`).join(''));
   }
   // 入金明細及び配分表：現行 HJR031 の見出し（入金日・入金科目・入金先・入金額・構成員名／配分額。入金科目は科目＋摘要。2026-11-02）
-  if (kind === 'jv-receipts') body = `` + (!d.lines.length ? '<div class="empty">この締切日の月度の入金・現金売上はありません</div>' : `<div class="table-wrap"><table><thead><tr><th>入金日</th><th>入金科目</th><th>入金先</th><th class="num">入金額</th>${d.members.map(m => `<th class="num">${esc(m.name)}<br>配分額</th>`).join('')}</tr></thead><tbody>`
-    + d.lines.map(l => `<tr><td>${esc(l.date)}</td><td>${esc(l.memo && l.memo !== l.account ? `${l.account}　${l.memo}` : l.account)}</td><td>${esc(l.customer)}</td><td class="num">${yen(l.amount)}</td>${l.parts.map(v => `<td class="num">${yen(v)}</td>`).join('')}</tr>`).join('')
-    + `</tbody><tfoot><tr><td colspan="3">合計</td><td class="num">${yen(d.totals.amount)}</td>${d.totals.parts.map(v => `<td class="num">${yen(v)}</td>`).join('')}</tr></tfoot></table></div>`);
+  // 現行 HJR031：構成員の欄は 5 つ固定、末尾は 配分する／配分しない／合計（2026-11-04）
+  if (kind === 'jv-receipts') { const pad = Math.max(0, 5 - d.members.length), blanks = n => '<td></td>'.repeat(n), tr = (label, x) => `<tr><td colspan="3" class="right">${label}</td><td class="num">${yen(x.amount)}</td>${x.parts.map(v => `<td class="num">${yen(v)}</td>`).join('')}${blanks(pad)}</tr>`;
+    body = !d.lines.length ? '<div class="empty">この締切日の月度の入金・現金売上はありません</div>' : `<div class="table-wrap"><table><thead><tr><th>入金日</th><th>入金科目</th><th>入金先</th><th class="num">入金額</th>${d.members.map(m => `<th class="num">${esc(m.name)}<br>配分額</th>`).join('')}${'<th class="num">配分額</th>'.repeat(pad)}</tr></thead><tbody>`
+    + d.lines.map(l => `<tr><td>${esc(l.date)}</td><td>${esc(l.memo && l.memo !== l.account ? `${l.account}　${l.memo}`.trim() : l.account)}</td><td>${esc(l.customer)}</td><td class="num">${yen(l.amount)}</td>${l.parts.map(v => `<td class="num">${yen(v)}</td>`).join('')}${blanks(pad)}</tr>`).join('')
+    + `</tbody><tfoot>${tr('＊配分する入金額＊', d.alloc)}${tr('＊配分しない入金額＊', d.noAlloc)}${tr('＊入金額　合計＊', d.totals)}</tfoot></table></div>`; }
   // 現行 HAR021 の並び：得意先は小見出し、明細の売上日・区分は前の行と同じなら空白。小計・合計なし（2026-11-04）
   if (kind === 'sales-register') body = d.customers.length ? d.customers.map(cu => `<h3 style="margin:10px 0 4px">${esc(cu.customer)} ${esc(cu.name)}</h3>` + table([{ label: '売上日', value: r => r.showDate ? r.date : '' }, { label: '区分', value: r => r.showKind ? r.kind : '' }, { label: '伝票No', value: r => r.no }, { label: '商品名', value: r => `${r.item} ${r.itemName}` },
     { label: '数量', num: 1, value: r => `${r.qty.toFixed(2)} ${r.unit}` }, { label: '売上単価', num: 1, value: r => yen(r.price) }, { label: '売上金額', num: 1, value: r => yen(r.net) }, { label: '処税率', value: r => r.tax }, { label: '運送区分', value: r => r.carry }, { label: '運賃', num: 1, value: r => yen(r.freight) },

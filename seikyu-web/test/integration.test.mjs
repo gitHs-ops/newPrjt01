@@ -285,6 +285,9 @@ test('workflow against PostgreSQL business tables', { skip, timeout: 900000 }, a
       assert.deepEqual((await a.call('/api/reports/misc/jv-expenses?' + fut)).data.members.map(m => m.ratio), [50, 50]);
       const jr = (await a.call('/api/reports/misc/jv-receipts?' + span)).data;
       for (const l of jr.lines) assert.equal(l.parts.reduce((x, y) => x + y, 0), l.amount);
+      // 現行 HJR031：配分する（当座預金・現金売上）＋配分しない（雑費・雑損失）＝入金額合計
+      assert.equal(jr.alloc.amount + jr.noAlloc.amount, jr.totals.amount); jr.members.forEach((_, k) => assert.equal(jr.alloc.parts[k] + jr.noAlloc.parts[k], jr.totals.parts[k]));
+      assert.ok(jr.lines.every(l => ['当座預金', '雑　費', '雑損失', ''].includes(l.account)), JSON.stringify(jr.lines.map(l => l.account)));
       for (const k of ['shipment-summary', 'customer-items', 'cash-sales', 'material-ledger', 'mix', 'jv-expenses', 'jv-receipts']) {
         const x = await fetch(base + '/api/reports/misc/' + k + '?' + new URLSearchParams({ from: pm + '-01', to: d, month: d.slice(0, 7), format: 'xlsx' }), { headers: { cookie: a.cookie } });
         assert.equal(Buffer.from(await x.arrayBuffer()).subarray(0, 2).toString(), 'PK', k);
@@ -306,6 +309,7 @@ test('workflow against PostgreSQL business tables', { skip, timeout: 900000 }, a
       for (const w of ['科目名', '支払本体', '支払消費税', '出資金額', '出資本体', '出資消費税']) assert.ok(jvsx.includes(w), w);
       const jvrx = Buffer.from(await (await fetch(base + '/api/reports/misc/jv-receipts?' + span + '&format=xlsx', { headers: { cookie: a.cookie } })).arrayBuffer()).toString();
       for (const w of ['入金日', '入金科目', '入金先', '入金額', '配分額']) assert.ok(jvrx.includes(w), w);
+      for (const w of ['＊配分する入金額＊', '＊配分しない入金額＊', '＊入金額　合計＊']) assert.ok(jvrx.includes(w), w);
       // 材料受払表：現行 HAR491 の様式（表題・2段見出し）
       const mlx = Buffer.from(await (await fetch(base + '/api/reports/misc/material-ledger?' + new URLSearchParams({ month: d.slice(0, 7), format: 'xlsx' }), { headers: { cookie: a.cookie } })).arrayBuffer()).toString();
       for (const w of ['HAR491', '材　料　受　払　表', '期　首　残　高', '当　月　末　在　庫', '【合計】']) assert.ok(mlx.includes(w), w);
