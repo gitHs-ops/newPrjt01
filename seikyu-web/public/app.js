@@ -1185,7 +1185,8 @@ function receiptForm(customer, receiptId = 0) {
 
 // ----- 現行入金処理（AS400 HAW110 入金登録の流れ。2026-10-31 ユーザー指示。出典：山田様資料 システム移行.xlsx「入金処理」）-----
 // ① 入金日・得意先 → ② 借方（科目・内訳・入金額）→ ③ 請求ごとの今回入金額 → 登録。登録は入金消込と同じ API（receipt・仕訳 B01）。
-// 入力できるのは科目・内訳1・内訳2（手形は手形期日）・工種・入金額・処税率・消費税額・摘要2（2026-10-31・11-01 現行画面に合わせて追加。摘要2の初期値は内訳の名称（手数料など）。処税率の初期値は createReceipt の仕訳と同じ、消費税額は入金額から自動計算）。部門・摘要は表示するだけ。
+// 工種は 2026-11-04 打合せ No.8「使わないため入力なし」で入力欄を削除（サーバーの work_type は残し空で保存）
+// 入力できるのは科目・内訳1・内訳2（手形は手形期日）・入金額・処税率・消費税額・摘要2（2026-10-31・11-01 現行画面に合わせて追加。摘要2の初期値は内訳の名称（手数料など）。処税率の初期値は createReceipt の仕訳と同じ、消費税額は入金額から自動計算）。部門・摘要は表示するだけ。
 const LR_MAX_LINES = 8;
 const LR_ACC = {
   1112: { name: '当座預金', kind: () => 'bank', tax: '9', dept: '' }, 1111: { name: '現金', kind: () => 'cash', tax: '9', dept: '' }, 1120: { name: '受取手形', kind: () => 'notes', tax: '9', dept: '' },
@@ -1234,14 +1235,13 @@ function lrLine(l, i) {
   return `<tbody class="lr-line"><tr><td class="line-no" rowspan="3">${String(i + 1).padStart(3, '0')}</td><td class="lr-ro">${esc(a?.dept || '')}</td>
       <td><select data-lr="acc" data-i="${i}" aria-label="科目"><option value=""></option>${Object.entries(LR_ACC).map(([k, x]) => `<option value="${k}" ${k === l.acc ? 'selected' : ''}>${k} ${esc(x.name)}</option>`).join('')}</select></td>
       <td>${sub}</td><td>${kind === 'notes' ? `<input type="date" data-lr="due" data-i="${i}" value="${esc(l.due)}" title="手形期日" aria-label="手形期日">` : `<input data-lr="sub2" data-i="${i}" value="${esc(l.sub2)}" maxlength="20" aria-label="内訳2" ${l.acc ? '' : 'disabled'}>`}</td>
-      <td><input data-lr="work" data-i="${i}" value="${esc(l.work)}" maxlength="20" aria-label="工種" ${l.acc ? '' : 'disabled'}></td>
       <td><input class="num" data-lr="amount" data-i="${i}" value="${esc(l.amount)}" inputmode="numeric" aria-label="入金額" ${l.acc ? '' : 'disabled'}></td><td>${l.acc ? `<select name="taxCode" data-lr="tax" data-i="${i}" aria-label="処税率" style="width:130px">${lrTaxDef(l) ? '' : '<option value="">選択</option>'}${meta.taxCodes.map(t => `<option value="${t.code}" title="${esc(t.name)}" ${t.code === lrTaxEff(l) ? 'selected' : ''}>${esc(t.code)}</option>`).join('')}</select><small class="muted lr-taxname">${esc(meta.taxCodes.find(t => t.code === lrTaxEff(l))?.name || '')}</small>` : ''}</td><td><input class="num" data-lr="taxamt" data-i="${i}" value="${l.acc && lrTaxable(l) ? esc(l.taxAmt !== '' ? l.taxAmt : String(lrTax(l))) : ''}" inputmode="numeric" aria-label="消費税額" ${l.acc && lrTaxable(l) ? '' : 'disabled'}></td></tr>
-    <tr><th>摘要1</th><td colspan="7">${l.acc ? `${esc(lr.customer)} ${esc(lrName())}` : ''}</td></tr>
-    <tr><th>摘要2</th><td colspan="7">${l.acc ? `<div style="display:flex;gap:6px"><input data-lr="tcode" data-i="${i}" value="${esc(l.tcode || '')}" list="dl-tekiyo" maxlength="7" inputmode="numeric" placeholder="適用コード" aria-label="適用コード" style="width:100px;flex:none" autocomplete="off"><input data-lr="memo2" data-i="${i}" value="${esc(l.memo2 || lrSub(l)?.[3] || '')}" data-auto="${esc(l.memo2Auto ?? (l.memo2 ? '' : lrSub(l)?.[3] || ''))}" maxlength="100" placeholder="${kind === 'notes' ? '空欄なら「手形 期日…」' : ''}" aria-label="摘要2" style="width:100%"></div>` : ''}</td></tr></tbody>`;
+    <tr><th>摘要1</th><td colspan="6">${l.acc ? `${esc(lr.customer)} ${esc(lrName())}` : ''}</td></tr>
+    <tr><th>摘要2</th><td colspan="6">${l.acc ? `<div style="display:flex;gap:6px"><input data-lr="tcode" data-i="${i}" value="${esc(l.tcode || '')}" list="dl-tekiyo" maxlength="7" inputmode="numeric" placeholder="適用コード" aria-label="適用コード" style="width:100px;flex:none" autocomplete="off"><input data-lr="memo2" data-i="${i}" value="${esc(l.memo2 || lrSub(l)?.[3] || '')}" data-auto="${esc(l.memo2Auto ?? (l.memo2 ? '' : lrSub(l)?.[3] || ''))}" maxlength="100" placeholder="${kind === 'notes' ? '空欄なら「手形 期日…」' : ''}" aria-label="摘要2" style="width:100%"></div>` : ''}</td></tr></tbody>`;
 }
 const lrTotals = () => { const used = lrUsed(), fund = used.filter(l => ['bank', 'cash'].includes(lrKind(l))).reduce((n, l) => n + (lrNum(l.amount) || 0), 0), tax = used.reduce((n, l) => n + lrTax(l), 0); return `<div class="lr-totals"><span>借方合計 <b>${yen(lrSum())}</b></span><span>貸方合計 <b>0</b></span><span>仮払消費税 <b>${yen(tax)}</b></span><span>仮受消費税 <b>0</b></span><span>資金残高 <b>${yen(fund)}</b></span></div>`; };
 function lrStep2() {
-  return `<div class="table-wrap lr-detail"><table class="lr-grid"><thead><tr><th>行</th><th>部門</th><th>科目</th><th>内訳1</th><th>内訳2</th><th>工種</th><th class="num">入金額</th><th>処税率</th><th class="num">消費税額</th></tr></thead>${lr.lines.map(lrLine).join('')}</table></div>
+  return `<div class="table-wrap lr-detail"><table class="lr-grid"><thead><tr><th>行</th><th>部門</th><th>科目</th><th>内訳1</th><th>内訳2</th><th class="num">入金額</th><th>処税率</th><th class="num">消費税額</th></tr></thead>${lr.lines.map(lrLine).join('')}</table></div>
     <p>${lr.lines.length < LR_MAX_LINES ? '<button type="button" class="mini" data-act="lrAddLine">＋ 行追加</button>' : ''}</p><div id="lr-totals">${lrTotals()}</div>
     ${lrKeys([['lrNext', '次画面', 1], ['lrNext', '貸方'], ['lrBack', '前画面'], ['lrEnd', '終了']])}`;
 }
