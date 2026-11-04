@@ -1549,7 +1549,7 @@ function expenseView(kind) {
     const deptLabel = (code = '063') => { const d = (masters.depts || []).find(x => x.code === code); return d ? `${d.code} ${d.name}` : code; };
     const head = payable ? `<div class="hw-head">
         ${field('組織', deptSel)}<div></div>${field('締切日', `<input type="date" name="date" value="${lastClosing()}">`, { req: 1 })}
-        ${field('請求No', '<input value="自動採番（業者ごと4桁）" disabled>')}<div class="span2"></div>
+        ${field('伝票No', '<input name="docNo" value="（登録時に自動採番）" disabled>')}<div class="span2"></div>
         <div class="span2">${field('業者', '<div style="display:flex;gap:12px;align-items:center"><input name="vendor" list="dl-hw-vendors" maxlength="7" autocomplete="off" placeholder="業者コード" style="width:140px;min-width:0"><output id="hw-vname"></output></div>', { req: 1 })}</div><div></div>
         ${tekiyoList()}<datalist id="dl-hw-vendors">${active('vendors').map(x => `<option value="${esc(x.code)}">${esc(x.name)}</option>`).join('')}</datalist>
         ${field('支払繰延区分', '<output id="ex-defer" class="muted">業者コードを入力すると業者マスタから表示</output>')}${field('支払予定日', '<input type="date" name="due" readonly tabindex="-1" style="background:transparent;border-style:dashed" title="業者マスタの支払繰延区分から自動計算（入力不可）">', { hint: '業者マスタから自動' })}${field('合計金額', '<input name="total" class="num" inputmode="numeric">', { req: 1, hint: '明細の合計と一致させる' })}
@@ -1618,7 +1618,7 @@ function expenseView(kind) {
         const body = { kind, date: v.date, dept: v.dept, vendor: v.vendor, payee: v.payee, due: v.due, memo: v.memo, total, extTax, lines };
         if (edit) { const r = await post('/api/expenses/update', { ...body, id: R.id }); toast(`${r.no} を更新しました${r.due ? '・支払予定日 ' + r.due : ''}（仕訳 D01 を作り直しました）`); render(); return; }
         const r = await post('/api/expenses', body);
-        toast(`${r.no}${r.billNo ? '（請求No ' + r.billNo + '）' : ''}${r.docs > 1 ? `（支払先ごとに ${r.docs} 伝票）` : ''} を登録しました${r.due ? '・支払予定日 ' + r.due : ''}（仕訳 ${payable ? 'D01' : 'E01'}）`); render(); } });
+        toast(`${r.no}${r.docs > 1 ? `（支払先ごとに ${r.docs} 伝票）` : ''} を登録しました${r.due ? '・支払予定日 ' + r.due : ''}（仕訳 ${payable ? 'D01' : 'E01'}）`); render(); } });
     A.new = () => form();
     A.detail = d => form(list.find(x => x.id === Number(d.id)));
     A.edit = d => form(list.find(x => x.id === Number(d.id)), true);
@@ -1627,7 +1627,7 @@ function expenseView(kind) {
       const q = n => f.querySelector(`[name=${n}]`);
       set(q('date'), R.date); set(q('dept'), R.dept);
       const deptOut = f.querySelector('#ex-dept'); if (deptOut) deptOut.textContent = deptLabel(R.dept || undefined);
-      const bill = $$('input', f).find(e => e.value.startsWith('自動採番')); if (bill) bill.value = R.billNo || '';
+      const docNo = f.querySelector('[name=docNo]'); if (docNo) docNo.value = R.no;   // 請求No は表示しない（11/04 打合せ No.12）
       if (payable) { set(q('vendor'), R.vendor); set(q('due'), R.due, 'input'); set(q('total'), R.amount, 'input'); }
       $$('#ex-lines tbody tr').forEach((tr, i) => { const l = R.lines[i], t = n => tr.querySelector(`[name=${n}]`);
         // 行に支払先が無い旧データ（伝票の見出しに支払先）は見出しの業者・支払先を出す。自由入力の支払先は名称だけ
@@ -1641,7 +1641,7 @@ function expenseView(kind) {
     A.rev = d => confirmBox(payable ? '伝票の削除' : '伝票の取消', `${d.no} を削除します。自動仕訳（${payable ? 'D01' : 'E01'}）も削除し、逆仕訳は計上しません。`, () => post('/api/expenses/reverse', { id: Number(d.id) }).then(() => { toast('削除しました'); render(); }), '削除する');
     A.lines = d => { const r = list.find(x => x.id === Number(d.id)); modal({ title: `${r.no} の明細`, wide: true, body: table([{ label: '行', value: l => l.no }, { label: '科目', value: l => `${l.account} ${l.accountName}` }, { label: '内訳', value: l => (l.sub ? `${l.sub} ${l.subName}` : '') },
       ...(payable ? [] : [{ label: '支払先', value: l => l.payee }]), { label: '処税率', value: l => taxLabel(l.taxCode) }, { label: payable ? '金額' : '支払額', num: 1, value: l => yen(l.amount) }, { label: 'うち消費税', num: 1, value: l => yen(l.tax) }, { label: '摘要コード', value: l => l.memoCode }, { label: '摘要名', value: l => l.memo }], r.lines) }); };
-    const cols2 = [{ label: '伝票No', value: r => r.no }, ...(payable ? [{ label: '請求No', value: r => r.billNo }] : []), { label: payable ? '締切日' : '支払日', value: r => r.date }, ...(payable ? [{ label: '業者', value: r => r.vendorName }, { label: '支払予定日', value: r => r.due }] : [{ label: '支払先', value: r => r.payee }]),
+    const cols2 = [{ label: '伝票No', value: r => r.no }, { label: payable ? '締切日' : '支払日', value: r => r.date }, ...(payable ? [{ label: '業者', value: r => r.vendorName }, { label: '支払予定日', value: r => r.due }] : [{ label: '支払先', value: r => r.payee }]),
       { label: '科目', html: r => `${esc(r.account)} ${esc(r.accountName || '')}${r.lines.length > 1 ? ` <button class="mini quiet" data-act="lines" data-id="${r.id}">他${r.lines.length - 1}行</button>` : ''}` }, { label: '処税率', value: r => payable ? taxLabel(r.taxCode) : r.taxRate == null ? r.taxCode : `${r.taxRate}%` }, { label: payable ? '金額' : '支払額', num: 1, value: r => yen(r.amount) }, // 小口現金は「支払額」（2026-11-03）
       ...(payable ? [{ label: '支払済', num: 1, value: r => yen(r.paid) }, { label: '未払残高', num: 1, value: r => yen(r.balance) }] : []), { label: '摘要', value: r => r.memo }, { label: '状態', html: r => (!payable && r.status === 'POSTED' ? badge('支払済', 'green') : status(r.status)) }, // 小口現金は登録＝現金で支払済み（2026-11-03 計上済→支払済）
       { label: '', html: r => canWrite() && r.status === 'POSTED' && !r.paid ? `<button class="mini danger" data-act="rev" data-id="${r.id}" data-no="${esc(r.no)}">${payable ? '削除' : '取消'}</button>` : '' },
