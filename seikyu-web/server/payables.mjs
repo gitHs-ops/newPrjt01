@@ -52,7 +52,8 @@ export async function createPurchase(c, ctx, p) {
     const tax = mustDecode(l.taxCode || '241', `${label}の処税率`).code;
     if (freight) {
       const amount = yen(l.amount, `${label}の運賃`, { negative: true }); check(amount !== 0, `${label}: 運賃を入力してください`);
-      out.push({ item: it.item_cd, qty: '0.00', price: 0, net: amount, tax, lineKind: '2', unit: null, memo: text(l.memo, `${label}の摘要`, 500, { required: false }) || '運賃' });
+      // 運賃の商品以外の金額だけの行（単価調整のマイナスなど。11/04 打合せ No.17・18）は摘要に「運賃」と入れない
+      out.push({ item: it.item_cd, qty: '0.00', price: 0, net: amount, tax, lineKind: '2', unit: null, memo: text(l.memo, `${label}の摘要`, 500, { required: false }) || (/運賃/.test(it.item_nam || '') ? '運賃' : '') });
     } else {
       const q = qty(l.quantity, `${label}の数量`, { max: 9999999, positive: false, allowNegative: true });
       // 単価は小数2桁まで（10-29 画面レビュー No.15：現行の画面どおり 2,267.40 など）。金額＝数量×単価の円未満切り捨て

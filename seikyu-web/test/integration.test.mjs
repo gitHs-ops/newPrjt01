@@ -260,6 +260,11 @@ test('workflow against PostgreSQL business tables', { skip, timeout: 900000 }, a
       assert.equal((await a.call('/api/reports/misc/purchase-register?' + new URLSearchParams({ from: d, to: d }))).data.groups.flatMap(g => g.rows).find(x => x.slip.startsWith(fz.data.no)).item, '運賃');
       const fe = await a.call('/api/purchases', { date: d, vendor: 'V' + tag, lines: [{ item: '', quantity: '2', amount: '100', taxCode: '241' }] }); assert.equal(fe.status, 400); assert.match(fe.data.error, /商品コードを入力/);
       ok(await a.call('/api/purchases/delete', { id: fl.id }));
+      // 単価調整（11/04 打合せ No.18）：商品コード＋数量なしで金額だけ、マイナス可。数量は変えず金額だけ。摘要に「運賃」は入れない
+      const adj = await a.call('/api/purchases', { date: d, vendor: 'V' + tag, lines: [{ item: 'I' + tag, quantity: '', amount: '-2000', lineKind: '2', taxCode: '241' }] }); ok(adj);
+      const al = (await a.call('/api/purchases?' + new URLSearchParams({ month: d.slice(0, 7), vendor: 'V' + tag }))).data.find(x => x.no === adj.data.no);
+      assert.deepEqual([al.item, al.lineKind, al.quantity, al.net], ['I' + tag, '2', 0, -2000]); assert.ok(!/運賃/.test(al.memo || ''), al.memo);
+      ok(await a.call('/api/purchases/delete', { id: al.id }));
       // 年度の最初の仕入が同時に来ても番号は重複せず、P＋年度＋連番で振られる
       const pus = await Promise.all([1, 2, 3, 4].map(() => a.call('/api/purchases', { date: '2031-01-10', vendor: 'V' + tag, item: 'I' + tag, quantity: '1', unit: '1', price: 1000, taxCode: '10%' })));
       pus.forEach(ok); assert.deepEqual(pus.map(x => x.data.no).sort(), ['P203000001', 'P203000002', 'P203000003', 'P203000004']);
