@@ -253,12 +253,15 @@ export async function jvReceipts(c, q) {
   // 現金売上：売上日・得意先・現場名ごとに集計。入金先は現場名（現行 HJR031 の見本：現金売上　緑区藤塚）、現場名がなければ得意先名
   const cash = await rows(c, `SELECT s.sales_date d, s.customers_cd, MAX(c.customers_name) customers_name, TRIM(CONCAT_WS(' ', NULLIF(TRIM(s.field_name1), ''), NULLIF(TRIM(s.field_name2), ''))) site, COUNT(*) n, SUM(s.money + s.consumption_tax) v FROM sales_trn s LEFT JOIN client_m c ON c.customers_cd=s.customers_cd
     WHERE s.payment_method_cd=1 AND s.sales_date BETWEEN ? AND ? GROUP BY s.sales_date, s.customers_cd, 4 ORDER BY s.sales_date, s.customers_cd, 4`, [toNum(from), toNum(to)]);
-  for (const r of cash) { const amount = num(r.v); if (amount) lines.push({ key: `C:${fromNum(r.d)}:${r.customers_cd}${r.site ? ':' + r.site : ''}`, date: fromNum(r.d), no: `${num(r.n)}件`, account: '', memo: '現金売上', kbn: '現金売上', billed: '', noAlloc: false, customer: r.site || r.customers_name || r.customers_cd, amount, parts: allocate(amount, ms) }); }
+  for (const r of cash) { const amount = num(r.v); if (amount) lines.push({ key: `C:${fromNum(r.d)}:${r.customers_cd}${r.site ? ':' + r.site : ''}`, legacy: r.site ? `C:${fromNum(r.d)}:${r.customers_cd}` : '', date: fromNum(r.d), no: `${num(r.n)}件`, account: '', memo: '現金売上', kbn: '現金売上', billed: '', noAlloc: false, customer: r.site || r.customers_name || r.customers_cd, amount, parts: allocate(amount, ms) }); }
   lines.sort((a, b) => a.date.localeCompare(b.date));
   // 入金額配賦登録（端数調整）の値があれば使う。金額が変わった行（合計が一致しない）は自動配分に戻す
-  const adj = lines.length ? Object.fromEntries((await rows(c, `SELECT alloc_key, parts FROM app_jv_alloc WHERE alloc_key IN (${lines.map(() => '?').join(',')})`, lines.map(l => l.key))).map(r => [r.alloc_key, JSON.parse(r.parts)])) : {};
+  // N-39（2026-11-04）：現金売上のキーに現場名を足す前（b773b13 より前）の調整（C:売上日:得意先）は、その日・得意先の現金売上が 1 行だけなら引き継ぐ（合計が合わなければ下で自動配分に戻る）
+  const keys = [...new Set(lines.flatMap(l => [l.key, l.legacy].filter(Boolean)))], legacyCount = {};
+  for (const l of lines) if (l.legacy) legacyCount[l.legacy] = (legacyCount[l.legacy] || 0) + 1;
+  const adj = lines.length ? Object.fromEntries((await rows(c, `SELECT alloc_key, parts FROM app_jv_alloc WHERE alloc_key IN (${keys.map(() => '?').join(',')})`, keys)).map(r => [r.alloc_key, JSON.parse(r.parts)])) : {};
   for (const l of lines) {
-    l.auto = l.parts; const a = adj[l.key]; if (!a) continue;
+    l.auto = l.parts; const a = adj[l.key] || (l.legacy && legacyCount[l.legacy] === 1 ? adj[l.legacy] : null); if (!a) continue;
     const parts = ms.map(m => Number(a[m.code] ?? NaN));
     if (parts.every(Number.isSafeInteger) && parts.reduce((n, v) => n + v, 0) === l.amount) { l.parts = parts; l.adjusted = true; }
   }
@@ -276,7 +279,7 @@ export async function saveJvAllocations(c, ctx, p) {
     const parts = ms.map(m => yen(r.parts?.[m.code] ?? 0, `${l.date} ${l.customer} ${m.name}`, { negative: true }));
     const sum = parts.reduce((n, v) => n + v, 0);
     check(sum === l.amount, `${l.date} ${l.customer}：配分の合計 ${sum.toLocaleString()} が入金額 ${l.amount.toLocaleString()} と一致しません`);
-    await c.query('DELETE FROM app_jv_alloc WHERE alloc_key=?', [l.key]);
+    await c.query('DELETE FROM app_jv_alloc WHERE alloc_key IN (?,?)', [l.key, l.legacy || l.key]);   // 旧キー（N-39）も消す
     if (parts.every((v, k) => v === l.auto[k])) { cleared++; continue; }
     await c.query('INSERT INTO app_jv_alloc (alloc_key,parts,updated_by,updated_at) VALUES (?,?,?,UTC_TIMESTAMP(6))', [l.key, JSON.stringify(Object.fromEntries(ms.map((m, k) => [m.code, parts[k]]))), ctx.user.login_id]); saved++;
   }

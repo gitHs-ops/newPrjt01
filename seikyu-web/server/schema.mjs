@@ -138,6 +138,7 @@ export async function prepare(pool, env = process.env) {
   await pool.query(`CREATE TABLE IF NOT EXISTS app_invoice_issue_site (invoice_id bigint NOT NULL REFERENCES billing_head (invoice_id) ON DELETE CASCADE, issue_no integer NOT NULL,
     site_name varchar(80) NOT NULL, PRIMARY KEY (invoice_id, issue_no, site_name))`);
   await pool.query(`CREATE TABLE IF NOT EXISTS app_jv_alloc (alloc_key varchar(40) COLLATE "C" PRIMARY KEY, parts text NOT NULL, updated_by varchar(256) COLLATE "C" NOT NULL, updated_at timestamp(6) NOT NULL)`);
+  await pool.query('ALTER TABLE app_jv_alloc ALTER COLUMN alloc_key TYPE varchar(200)'); // 現金売上のキーに現場名が入る（2026-11-04 N-39。40 では長い現場名で登録できない）
   // JV 構成員・出資比率の履歴（2026-11-02。11/01 決定：適用開始日を持たせ、帳票は月度時点の比率で配分）。start_month＝適用開始の月度 YYYY-MM（''＝最初から）、ratio＝出資比率×100
   // 旧 code_m 'JV'（1 件 1 値）は表を作るときに一度だけ「最初から」の行として写す（code_m の行は消さない）
   if (!(await rows(pool, "SELECT to_regclass('app_jv_member') t"))[0].t) {

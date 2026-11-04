@@ -300,6 +300,20 @@ test('workflow against PostgreSQL business tables', { skip, timeout: 900000 }, a
       // 現行 HJR031：配分する（当座預金・現金売上）＋配分しない（雑費・雑損失）＝入金額合計
       assert.equal(jr.alloc.amount + jr.noAlloc.amount, jr.totals.amount); jr.members.forEach((_, k) => assert.equal(jr.alloc.parts[k] + jr.noAlloc.parts[k], jr.totals.parts[k]));
       assert.ok(jr.lines.every(l => ['当座預金', '雑　費', '雑損失', ''].includes(l.account)), JSON.stringify(jr.lines.map(l => l.account)));
+      // N-39（2026-11-04）：現場名を足す前のキー（C:売上日:得意先）の調整を引き継ぎ、保存すると新キーに移る
+      ok(await a.call('/api/shipments', { date: d, customer: C, site: `S${tag}|000`, item: 'I' + tag, quantity: '1', price: 700, taxRate: 10, operator: '1', deliveryKbn: '1', method: 1 }));
+      const cashWhere = 'payment_method_cd=1 AND customers_cd=? AND sales_date=? AND unit_price=700', cashArgs = [C, Number(d.replaceAll('-', ''))], legacyKey = `C:${d}:${C}`;
+      await pool.query(`UPDATE sales_trn SET field_name1=?, field_name2=? WHERE ${cashWhere}`, ['現場名の長い現金売上テスト現場ＡＢＣＤＥ', '二行目の現場名も長いテスト用の名称ＸＹ', ...cashArgs]);
+      const cl = (await a.call('/api/reports/misc/jv-receipts?' + span)).data.lines.find(l => l.legacy === legacyKey);
+      assert.ok(cl && cl.key.length > 40, '現場名つきのキー（40 字超）');
+      const adjParts = cl.auto.map((v, k) => v + (k === 0 ? -1 : k === 1 ? 1 : 0)), byCode = ps => Object.fromEntries(jr.members.map((m, k) => [m.code, ps[k]]));
+      await pool.query('DELETE FROM app_jv_alloc WHERE alloc_key IN (?,?)', [cl.key, cl.legacy]);
+      await pool.query("INSERT INTO app_jv_alloc (alloc_key,parts,updated_by,updated_at) VALUES (?,?,'t',UTC_TIMESTAMP(6))", [cl.legacy, JSON.stringify(byCode(adjParts))]);
+      assert.deepEqual((await a.call('/api/reports/misc/jv-receipts?' + span)).data.lines.find(l => l.key === cl.key).parts, adjParts, '旧キーの調整を引き継ぐ');
+      ok(await a.call('/api/jv/allocations', { closing: d, rows: [{ key: cl.key, parts: byCode(adjParts) }] }));
+      assert.equal((await pool.query('SELECT COUNT(*)::int n FROM app_jv_alloc WHERE alloc_key=?', [cl.legacy]))[0][0].n, 0, '旧キーは消える');
+      assert.equal((await pool.query('SELECT COUNT(*)::int n FROM app_jv_alloc WHERE alloc_key=?', [cl.key]))[0][0].n, 1, '新キーで保存');
+      await pool.query(`DELETE FROM sales_trn WHERE ${cashWhere}`, cashArgs);   // 後のテストの件数に影響させない
       for (const k of ['shipment-summary', 'customer-items', 'cash-sales', 'material-ledger', 'mix', 'jv-expenses', 'jv-receipts']) {
         const x = await fetch(base + '/api/reports/misc/' + k + '?' + new URLSearchParams({ from: pm + '-01', to: d, month: d.slice(0, 7), format: 'xlsx' }), { headers: { cookie: a.cookie } });
         assert.equal(Buffer.from(await x.arrayBuffer()).subarray(0, 2).toString(), 'PK', k);
