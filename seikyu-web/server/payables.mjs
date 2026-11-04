@@ -119,7 +119,8 @@ const isPosted = async (c, month) => !!(await one(c, "SELECT 1 x FROM inventory_
 export async function listCounts(c, q = {}) {
   const P = await companyPeriod(c), date = isoDate(q.date || '', '調査日'), month = P.labelOf(date);
   const counts = Object.fromEntries((await rows(c, "SELECT item_cd, quantity, counted_on, status FROM inventory_count WHERE period_start=? AND location_code='MAIN'", [month + '-01'])).map(r => [r.item_cd, r]));
-  const items = (await rows(c, "SELECT item_cd, item_nam, unit_name(unit) unit, item_product_kb FROM item_m WHERE delete_f<>'1' ORDER BY item_product_kb DESC, item_cd")).map(i => ({
+  // 表示フラグ（実在庫登録に表示）が立った商品だけ。その月度に登録済みの商品はフラグが無くても出す（数量を消せるように。11/04 打合せ No.20）
+  const items = (await rows(c, "SELECT item_cd, item_nam, unit_name(unit) unit, item_product_kb, stock_count_f FROM item_m WHERE delete_f<>'1' ORDER BY item_product_kb DESC, item_cd")).filter(i => i.stock_count_f === '1' || counts[i.item_cd]).map(i => ({
     code: i.item_cd, name: i.item_nam || '', unit: i.unit || '', kind: i.item_product_kb === '2' ? '製品' : '商品・材料', quantity: counts[i.item_cd] ? Number(counts[i.item_cd].quantity) : null }));
   for (const code of Object.keys(counts)) if (!items.some(i => i.code === code)) items.push({ code, name: code, unit: '', kind: '', quantity: Number(counts[code].quantity) });
   const any = Object.values(counts)[0];

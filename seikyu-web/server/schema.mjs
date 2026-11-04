@@ -160,6 +160,11 @@ export async function prepare(pool, env = process.env) {
   await pool.query('ALTER TABLE sales_trn ADD COLUMN IF NOT EXISTS correction_date numeric(8)');
   await pool.query(`ALTER TABLE purchase ADD COLUMN IF NOT EXISTS purchase_kb varchar(1) COLLATE "C" NOT NULL DEFAULT '1'`);
   await pool.query(`ALTER TABLE purchase ADD COLUMN IF NOT EXISTS line_kind varchar(1) COLLATE "C" NOT NULL DEFAULT '1'`);
+  // 実在庫登録の表示フラグ（11/04 打合せ No.20）。列を作ったときだけ、実在庫を登録したことのある商品を 1 にする（それ以外はマスタで付ける）
+  if (!(await rows(pool, "SELECT 1 x FROM information_schema.columns WHERE table_schema=current_schema() AND table_name='item_m' AND column_name='stock_count_f'")).length) {
+    await pool.query(`ALTER TABLE item_m ADD COLUMN IF NOT EXISTS stock_count_f varchar(1) COLLATE "C" NOT NULL DEFAULT ''`);
+    await pool.query("UPDATE item_m SET stock_count_f='1' WHERE item_cd IN (SELECT DISTINCT item_cd FROM inventory_count)");
+  }
   await pool.query(`ALTER TABLE purchase ADD COLUMN IF NOT EXISTS unit varchar(1) COLLATE "C"`);
   await pool.query('ALTER TABLE purchase ALTER COLUMN item_cd DROP NOT NULL'); // 商品コードなしの運賃行（2026-11-03） // 単位 1=t 2=袋 3（2026-11-03。以前の行は NULL＝商品マスタの単位）
   await pool.query(`ALTER TABLE expense_document ADD COLUMN IF NOT EXISTS bill_no varchar(4) COLLATE "C"`);
