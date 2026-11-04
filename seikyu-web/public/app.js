@@ -1673,8 +1673,8 @@ function paymentReportsCard() {
   const lastDay = new Date(Date.UTC(+thisMonth().slice(0, 4), +thisMonth().slice(5, 7), 0)).toISOString().slice(0, 10);
   return `<section class="card glass"><div class="card-head"><h2>支払帳票・支払データ</h2></div>
     <div class="filters"><label class="field">支払日／基準日<input type="date" id="pr-date" value="${today()}"></label><label class="field">期間（開始）<input type="date" id="pr-from" value="${thisMonth()}-01"></label><label class="field">期間（終了）<input type="date" id="pr-to" value="${lastDay}"></label>
-      <label class="field">振込元口座<select id="pr-bank">${options(active('banks'), active('banks')[0]?.code)}</select></label>
-    <button data-act="zengin">支払データ作成（全銀）</button><button data-act="prep" data-kind="vendor-payments">業者別支払内訳表</button>
+      <label class="field">振込元口座<select id="pr-bank">${options(active('banks'), active('banks')[0]?.code)}</select></label></div>
+    <div class="filters" style="margin-top:8px"><button data-act="zengin">支払データ作成（全銀）</button><button data-act="prep" data-kind="vendor-payments">業者別支払内訳表</button>
       <button data-act="prep" data-kind="transfer-request">振込依頼書</button><button data-act="prep" data-kind="carryover">支払繰越一覧表</button><button data-act="prep" data-kind="notices">支払案内書</button></div>
     </section>`;
 }
