@@ -359,12 +359,14 @@ export async function createPayment(c, ctx, p) {
     check(a.amount <= Number(d.gross_amount) - Number(d.paid), `伝票${d.document_no}の未払残高を超えています`);
   }
   const total = allocs.reduce((n, a) => n + a.amount, 0), bank = total - fee - offset - safety;
+  // 振込手数料は現行 CS5785 どおり雑収入 8790-001（税抜）と仮受消費税 4415 に分ける。内消費税＝floor(手数料×10/110)（支払案内書の内消費税と同じ。2026-11-04）
+  const feeTax = Math.floor(fee * 10 / 110);
   check(bank >= 0, '手数料・相殺額が支払額を超えています');
   const no = await nextSlipNoFy(c, DOC_SERIES.payment, date);
   const [r] = await c.query("INSERT INTO payment (payment_no,vendor_id,paid_on,bank_account_id,bank_amount,fee_amount,offset_amount,status,idempotency_key) VALUES (?,?,?,?,?,?,?,'POSTED',?)", [no, v.vendor_id, date, v.bank_account_id, bank, fee, offset, idem]);
   for (const a of allocs) await c.query('INSERT INTO payment_allocation (payment_id,expense_id,amount) VALUES (?,?,?)', [r.insertId, a.id, a.amount]);
   await postJournal(c, { date, pattern: 'F01', sourceType: 'payment', sourceId: r.insertId, lines: [line('D', '4121', total, { vendor: v.vendor_id, tax: '9' }), line('C', '1112', bank, { sub: bankCode, tax: '9' }),
-    line('C', '8790', fee, { sub: '001', tax: '9' }), line('C', '1431', offset, { vendor: v.vendor_id, tax: '9' }), line('C', '4171', safety, { vendor: v.vendor_id, tax: '9' })] });
+    line('C', '8790', fee - feeTax, { sub: '001', tax: '9' }), line('C', '4415', feeTax, { tax: '9' }), line('C', '1431', offset, { vendor: v.vendor_id, tax: '9' }), line('C', '4171', safety, { vendor: v.vendor_id, tax: '9' })] });
   await audit(c, ctx, 'payment', r.insertId, 'payment.create', { no, vendor: v.vendor_code, amount: total, bank, fee, offset, safety, documents: allocs.map(a => a.id) });
   return { id: r.insertId, no };
 }
