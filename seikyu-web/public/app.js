@@ -1479,9 +1479,9 @@ VIEWS.inventory = async q => {
   const countCard = `<section class="card glass" data-sub="count"><div class="card-head"><h2>実在庫登録</h2></div>
     <div class="filters"><label class="field">調査日<input type="date" id="ic-date" name="date" data-filter value="${esc(cnt.date)}"></label><span>月度 <b>${esc(cnt.month)}</b></span>${cnt.no ? `<span>伝票No <b>${esc(cnt.no)}</b></span>` : ''}${cnt.posted ? badge('在庫計上済', 'green') : badge(`登録 ${cnt.registered}品目`, cnt.registered ? '' : 'gray')}
       <label class="field">区分<select id="ic-kind"><option value="">すべて</option><option>製品</option><option>商品・材料</option></select></label>${!canWrite() ? '' : cnt.posted ? '<button class="primary" disabled title="この月度は在庫計上済みです。「在庫計上」で取消すと登録できます">登録</button><span class="muted small">（在庫計上済みのため登録できません）</span>' : '<button class="primary" data-act="countSave">登録</button>'}<button type="button" data-act="misc" data-kind="inventory-register" data-src="ir" ${icSaved.has(cnt.month) ? '' : 'disabled'} title="［登録］すると使えます。この月度の在庫登録リストを表示">在庫登録リスト</button></div>
-    ${cnt.posted ? '<p class="note small">この月度は在庫計上済みのため変更できません（入力欄はロック）。未計上の月度は上の「調査日」を変えて［検索］すると入力できます。</p>' : '<p class="note small">① ここで品目ごとの在庫数量を入力して［登録］ → ② <a href="#inventory/mix">配合計算</a>・<a href="#inventory/ledger">材料受払表</a> → ③ <a href="#inventory/post">在庫計上</a> で［在庫計上］（月度ごとに1回）。</p>'}
+    ${cnt.posted ? '<p class="note small">この月度は在庫計上済みのため変更できません（入力欄はロック）。未計上の月度は上の「調査日」を変えて［検索］すると入力できます。</p>' : '<p class="note small">表示するのは商品マスタの「実在庫登録に表示」に○がある商品だけです（この月度に登録済みの商品は○が無くても表示）。<br>① ここで品目ごとの在庫数量を入力して［登録］ → ② <a href="#inventory/mix">配合計算</a>・<a href="#inventory/ledger">材料受払表</a> → ③ <a href="#inventory/post">在庫計上</a> で［在庫計上］（月度ごとに1回）。</p>'}
     <div class="table-wrap" style="max-height:60vh;overflow:auto"><table id="ic-grid"><thead><tr><th>区分</th><th>コード</th><th>商品名／製品名</th><th class="num">在庫数量</th><th>単位</th><th style="width:40%"></th></tr></thead><tbody>
-    ${cnt.items.map(r => `<tr data-text="${esc((r.code + ' ' + r.name).toLowerCase())}" data-kind="${esc(r.kind)}"><td class="small muted">${esc(r.kind)}</td><td>${esc(r.code)}</td><td>${esc(r.name)}</td><td class="num"><input class="num ic-qty" data-item="${esc(r.code)}" data-orig="${esc(qtyOf(r.quantity))}" value="${esc(qtyOf(r.quantity))}" inputmode="decimal" style="width:130px" ${ro ? 'disabled' : ''}></td><td>${esc(r.unit)}</td><td></td></tr>`).join('')}
+    ${cnt.items.length || emptyShown ? '' : '<tr><td colspan="6" class="muted">表示する商品がありません。商品マスタで「実在庫登録に表示」に○を付けてください。</td></tr>'}${cnt.items.map(r => `<tr data-text="${esc((r.code + ' ' + r.name).toLowerCase())}" data-kind="${esc(r.kind)}"><td class="small muted">${esc(r.kind)}</td><td>${esc(r.code)}</td><td>${esc(r.name)}</td><td class="num"><input class="num ic-qty" data-item="${esc(r.code)}" data-orig="${esc(qtyOf(r.quantity))}" value="${esc(qtyOf(r.quantity))}" inputmode="decimal" style="width:130px" ${ro ? 'disabled' : ''}></td><td>${esc(r.unit)}</td><td></td></tr>`).join('')}
     </tbody></table></div>
     <div class="filters" style="margin-top:10px"><span class="muted small">空欄は未登録。登録済みの数量を消して登録すると、その品目の実在庫を取り消します。数量は小数2桁まで。</span></div></section>`;
   const postCard = `<section class="card glass" data-sub="post"><div class="card-head"><h2>在庫計上（月次1回）</h2></div>
@@ -1806,6 +1806,9 @@ async function jvAllocDialog() {
     },
     onSubmit: async () => {
       const t = $('#jva'), val = x => Number(String(x.value).replace(/[,\s]/g, '')), changed = [];
+      // 11/04 打合せ No.24：直した結果の合計が入金額と合わない行があればエラー（どの行か示す）
+      const ng = $$('tbody tr', t).map(tr => d.lines[tr.dataset.i]).filter((l, i) => $$('.jv-part', $$('tbody tr', t)[i]).reduce((n, x) => n + val(x), 0) !== l.amount);
+      if (ng.length) throw Error(`配分の合計が入金額と合わない行があります（${ng.length}行。赤い行）：${ng.slice(0, 3).map(l => `${l.date} ${l.customer || ''} 入金額 ${yen(l.amount)}`).join('／')}${ng.length > 3 ? ' ほか' : ''}`);
       for (const tr of $$('tbody tr', t)) {
         const l = d.lines[tr.dataset.i], parts = $$('.jv-part', tr).map(val);
         if (parts.some((v, k) => v !== l.parts[k])) changed.push({ key: l.key, parts: Object.fromEntries(ms.map((m, k) => [m.code, parts[k]])) });
@@ -2042,8 +2045,8 @@ VIEWS.masters = async q => {
       { label: '', html: r => canWrite() && !m.readOnly ? `<button class="mini" data-act="edit" data-key="${esc(r.key)}">編集</button>` : '' }], list, { rowClass: r => r.active ? '' : 'muted' })}</section>`);
 };
 function masterInput(f, r, isNew) {
-  const v = r?.[f.name] ?? (f.type === 'bool' ? true : ''), dis = f.key && !isNew ? 'disabled' : '';
-  if (f.type === 'bool') return `<label class="field"><span>${esc(f.label)}</span><span><input type="checkbox" name="${f.name}" ${v ? 'checked' : ''}> 有効</span></label>`;
+  const v = r?.[f.name] ?? (f.type === 'bool' ? f.def ?? true : ''), dis = f.key && !isNew ? 'disabled' : '';
+  if (f.type === 'bool') return `<label class="field"><span>${esc(f.label)}</span><span><input type="checkbox" name="${f.name}" ${v ? 'checked' : ''}> ${esc(f.check || '有効')}</span></label>`;
   let input;
   if (f.readonly) return field(f.label, `<input value="${esc(v)}" disabled>`, { hint: f.hint });
   // 参照先にないコード（商品マスタ差し替え前の登録など）もそのまま表示する

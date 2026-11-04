@@ -278,6 +278,13 @@ test('workflow against PostgreSQL business tables', { skip, timeout: 900000 }, a
       assert.match(c1.data.no, /^V\d{9}$/); assert.notEqual(c1.data.no, c2.data.no);
       assert.equal((await a.call('/api/inventory/counts', { date: '2032-04-05', lines: [{ item: 'M' + tag, quantity: '100' }] })).data.no, c2.data.no);
       assert.equal((await a.call('/api/inventory/counts?date=2032-04-05')).data.no, c2.data.no);
+      // 実在庫登録に出すのは商品マスタの表示フラグが立った商品だけ。登録済みの月度はフラグが無くても出す（11/04 打合せ No.20）
+      const shown = async date => (await a.call('/api/inventory/counts?date=' + date)).data.items.some(x => x.code === 'M' + tag);
+      assert.equal(await shown('2032-05-05'), false, 'フラグなし・未登録は出さない'); assert.equal(await shown('2032-04-05'), true, '登録済みの月度は出す');
+      const mi = (await a.call('/api/masters/items')).data.find(x => x.code === 'M' + tag); assert.equal(mi.countFlag, false);
+      ok(await a.call('/api/masters/items', { mode: 'update', record: { ...mi, countFlag: true } }));
+      assert.equal(await shown('2032-05-05'), true, 'フラグありは出す');
+      assert.equal((await a.call('/api/masters/items')).data.find(x => x.code === 'M' + tag).countFlag, true);
       const mm = async () => (await a.call('/api/reports/misc/material-ledger?month=' + c2.data.month)).data.items.find(x => x.item === 'M' + tag);
       let mt = await mm(); assert.deepEqual([mt.prev.value, mt.end.value, mt.used.qty, mt.used.value, mt.price], [60000, 50000, 20, 10000, 500]);
       // 在庫登録リスト：コード・商品・製品名・在庫数量・単位だけ（評価は出さない。2026-11-03）
@@ -330,6 +337,8 @@ test('workflow against PostgreSQL business tables', { skip, timeout: 900000 }, a
       await pool.query('DELETE FROM app_jv_alloc WHERE alloc_key IN (?,?)', [cl.key, cl.legacy]);
       await pool.query("INSERT INTO app_jv_alloc (alloc_key,parts,updated_by,updated_at) VALUES (?,?,'t',UTC_TIMESTAMP(6))", [cl.legacy, JSON.stringify(byCode(adjParts))]);
       assert.deepEqual((await a.call('/api/reports/misc/jv-receipts?' + span)).data.lines.find(l => l.key === cl.key).parts, adjParts, '旧キーの調整を引き継ぐ');
+      // 11/04 打合せ No.24：直した合計が入金額と合わなければエラー
+      { const bad = await a.call('/api/jv/allocations', { closing: d, rows: [{ key: cl.key, parts: byCode(adjParts.map((v, k) => (k ? v : v + 1))) }] }); assert.equal(bad.status, 400); assert.match(bad.data.error, /入金額 .* と一致しません/); }
       ok(await a.call('/api/jv/allocations', { closing: d, rows: [{ key: cl.key, parts: byCode(adjParts) }] }));
       assert.equal((await pool.query('SELECT COUNT(*)::int n FROM app_jv_alloc WHERE alloc_key=?', [cl.legacy]))[0][0].n, 0, '旧キーは消える');
       assert.equal((await pool.query('SELECT COUNT(*)::int n FROM app_jv_alloc WHERE alloc_key=?', [cl.key]))[0][0].n, 1, '新キーで保存');
