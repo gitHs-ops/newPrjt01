@@ -470,6 +470,12 @@ test('workflow against PostgreSQL business tables', { skip, timeout: 900000 }, a
       const tr = ok(await a.call('/api/reports/payments/transfer-request?date=' + d)).groups.flatMap(g => g.rows).find(r => r.vendor === 'V' + tag);
       assert.equal(tr.payee.bankName, '試験銀行本体'); assert.equal(tr.payee.branchName, '試験支店');
       ok(await a.call('/api/masters/depts', { mode: 'create', record: { code: 'D' + tag, name: '試験部門', active: true } }));
+      // 適用コード（摘要）マスタ（2026-11-04）：数字 7 桁以内、登録・変更・削除
+      const tk = String(Date.now() % 9000000 + 1000000);
+      assert.equal((await a.call('/api/masters/tekiyo', { mode: 'create', record: { code: 'A1', name: 'x', active: true } })).status, 400, '数字のみ');
+      ok(await a.call('/api/masters/tekiyo', { mode: 'create', record: { code: tk, name: '振込手数料', active: true } }));
+      const tkr = (await a.call('/api/masters/tekiyo')).data.find(x => x.code === tk); ok(await a.call('/api/masters/tekiyo', { mode: 'update', record: { ...tkr, name: '振込手数料（変更）' } }));
+      assert.equal((await a.call('/api/masters/tekiyo')).data.find(x => x.code === tk).name, '振込手数料（変更）');
       // 自社情報：登録番号・振込先口座が請求書スナップショットに入る（現行請求書③の項目）
       const comp = ok(await a.call('/api/masters/company')).find(x => x.id === '1');
       assert.equal((await a.call('/api/masters/company', { mode: 'update', record: { ...comp, invoiceNo: 'X123' } })).status, 400, 'invalid registration number');

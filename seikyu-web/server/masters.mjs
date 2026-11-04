@@ -248,6 +248,19 @@ export const MASTERS = {
       else await c.query("UPDATE code_m SET code_dtl_nam=?,category1=? WHERE code_key='DEPT' AND code_dtl=?", [r.name, r.active ? '1' : '0', r.code]);
     },
   },
+  // 適用コード（摘要）マスタ（2026-11-04 打合せ No.7・11・13：コードを入れると摘要の名称が出る。入金の手数料 101・協力費など、定時請求の摘要コード、小口現金の摘要）
+  // 区分は持たない（No.7「摘要の区分は不要」）。コードは半角数字 1〜7 桁（入金 101、工事 7 桁）。code_m 'TKYO'
+  tekiyo: {
+    label: '適用コード（摘要）', table: 'code_m',
+    fields: [F('code', '適用コード', { max: 7, key: true, hint: '半角数字7桁以内' }), F('name', '摘要', { max: 40 }), F('active', '有効', { type: 'bool' })],
+    select: "SELECT * FROM code_m WHERE code_key='TKYO'", where: 'code_dtl=?', keyOf: r => [r.code],
+    decode: r => ({ code: r.code_dtl, name: r.code_dtl_nam, active: r.category1 !== '0' }),
+    validate: r => ({ code: text(r.code, '適用コード', 7, { pattern: /^\d{1,7}$/ }), name: text(r.name, '摘要', 40), active: bool(r.active ?? true) }),
+    async write(c, r, old) {
+      if (!old) await c.query("INSERT INTO code_m (code_key,code_key_nam,code_dtl,code_dtl_nam,code_dtl_abr,category1,category2,category3) VALUES ('TKYO','適用コード',?,?,'',?,'','')", [r.code, r.name, r.active ? '1' : '0']);
+      else await c.query("UPDATE code_m SET code_dtl_nam=?,category1=? WHERE code_key='TKYO' AND code_dtl=?", [r.name, r.active ? '1' : '0', r.code]);
+    },
+  },
   jv: {
     label: 'JV構成員・出資比率', table: 'app_jv_member',
     // 現行 HMW110「構成員 登録」（出資比率の変更.xlsx 2026-10-14）：構成員コード＝業者コード、最大7社、比率は小数2桁
@@ -495,6 +508,7 @@ const REMOVE = {
     del: ["DELETE FROM code_m WHERE code_key='BKDIR' AND code_dtl=?"] },
   depts: { refs: [['仕訳', 'SELECT 1 x FROM journal_line WHERE department_code=? LIMIT 1'], ['定時請求・小口現金', 'SELECT 1 x FROM expense_line WHERE department_code=? LIMIT 1'], ['財務会計の伝票', 'SELECT 1 x FROM kb_line WHERE dept_code=? LIMIT 1']],
     del: ["DELETE FROM code_m WHERE code_key='DEPT' AND code_dtl=?"] },
+  tekiyo: { refs: [['定時請求・小口現金の摘要コード', 'SELECT 1 x FROM expense_line WHERE memo_code=? LIMIT 1']], del: ["DELETE FROM code_m WHERE code_key='TKYO' AND code_dtl=?"] },
   jv: { refs: [], del: ['DELETE FROM app_jv_member WHERE code=? AND start_month=?'] },
   mixes: { refs: [], del: ["DELETE FROM code_m WHERE code_key='MIX' AND code_dtl=?"] },
   matPrices: { refs: [], del: ["DELETE FROM code_m WHERE code_key='MATPR' AND code_dtl=?"] },
