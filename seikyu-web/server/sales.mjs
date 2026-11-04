@@ -324,8 +324,8 @@ export async function runBilling(c, ctx, { month, closing, customers, slip: cont
       await docNo(c, 'invoice', r.insertId, end);
     }
     for (const s2 of list) {
-      await c.query("INSERT INTO billing_detail (closing_yymm,closingdd,claim_processing_period,customers_cd,sales_date,order_no,ship_kb,item_cd,item_name,quantity,unit_cd,unit_price,money,tax_kb,tax_rate,consumption_tax,remarks,field_cd,field_suffix,field_name,payment_method_cd,shipping_kb,invoice_issud_flag,update_day,update_time,update_pgm,update_ws) VALUES (?,?,?,?,?,?,?,?,?,?,NULL,?,?,?,?,?,?,?,?,?,?,NULL,'0',?,?,?,?)",
-        [yymm, day, toNum(end), cu.customers_cd, s2.sales_date, s2.order_no, s2.ship_kb, s2.item_cd, (s2.item_name || '').slice(0, 22), s2.quantity, s2.unit_price, s2.money, s2.tax_kb, Math.round(num(s2.tax_rate)), s2.consumption_tax, s2.remarks, s2.field_cd, s2.field_suffix, [s2.field_name1, s2.field_name2].filter(Boolean).join(' ').slice(0, 40), s2.payment_method_cd, st.update_day, st.update_time, st.update_pgm, st.update_ws]);
+      await c.query("INSERT INTO billing_detail (closing_yymm,closingdd,claim_processing_period,customers_cd,sales_date,order_no,ship_kb,item_cd,item_name,quantity,unit_cd,unit_price,money,tax_kb,tax_rate,consumption_tax,remarks,field_cd,field_suffix,field_name,payment_method_cd,shipping_kb,invoice_issud_flag,update_day,update_time,update_pgm,update_ws) VALUES (?,?,?,?,?,?,?,?,?,?,NULL,?,?,?,?,?,?,?,?,?,?,?,'0',?,?,?,?)",
+        [yymm, day, toNum(end), cu.customers_cd, s2.sales_date, s2.order_no, s2.ship_kb, s2.item_cd, (s2.item_name || '').slice(0, 22), s2.quantity, s2.unit_price, s2.money, s2.tax_kb, Math.round(num(s2.tax_rate)), s2.consumption_tax, s2.remarks, s2.field_cd, s2.field_suffix, [s2.field_name1, s2.field_name2].filter(Boolean).join(' ').slice(0, 40), s2.payment_method_cd, s2.shipping_kb, st.update_day, st.update_time, st.update_pgm, st.update_ws]);
       await c.query("UPDATE sales_trn SET process_status='1', claim_processing_period=? WHERE order_no=? AND order_suffix=?", [toNum(end), s2.order_no, s2.order_suffix]);
       await c.query('UPDATE shipment_slip SET claim_status=1, claim_processing_period=? WHERE order_no=?', [yymm, s2.order_no]);
     }
@@ -382,8 +382,9 @@ export async function listInvoices(c, q = {}) {
   else if (q.status) list = list.filter(i => i.status === q.status);
   return list;
 }
-// 運送（現行 HAR430「1 当方／2 先方」）：納入区分が引取（category1=2）なら先方、それ以外は当方（推定）
-const CARRY = cat => (cat === '2' ? '2 先方' : '1 当方');
+// 運送（11/04 打合せ No.26）：出荷伝票の納入区分（code_m A0000：大型現着・8t現着・4t現着・引取・その他など）の名称をそのまま出す。
+// 区分の追加・変更は納入区分マスタで行う。明細は伝票ごとの行なので、同じ日・同じ商品でも納入区分が違えば別の行になる
+const CARRY = l => { const k = l.kbn_cd ?? l.shipping_kb; return l.kbn_name || (k == null ? '' : String(k)); };
 // 赤黒（区分 5）の伝票No は 元伝票No－枝番（2 赤・3 黒）で表示（10/23 打合せ：帳票②´ と同じ番号で元伝票の下に並べる）
 // 伝票No の表示（10/24 採番方式の回答、2026-10-27）：赤黒は「元伝票No-02（赤）／-03（黒）」、赤黒のある元伝票は「元伝票No-01」、それ以外は枝番なし。
 // l.corrections＝その伝票を元にした赤黒の件数（一覧・明細の SQL で取る）
@@ -391,13 +392,13 @@ const BRANCH = n => String(Number(n)).padStart(2, '0');
 export const slipNoOf = l => (String(l.ship_kb) === '5' && l.sales_no && l.sales_no !== l.order_no ? `${l.sales_no}-${BRANCH(l.sales_suffix)}` : Number(l.corrections) > 0 ? `${l.order_no}-${BRANCH(1)}` : l.order_no);
 // 赤黒の起票・取消で元伝票の番号（-01 の有無）が変わるので、元伝票を含む請求の保存済みのまとめを消す（読むときは明細から作り、次の起動で作り直す）
 async function dropSummaryOf(c, orderNo) { await c.query(`DELETE FROM app_billing_line WHERE invoice_id IN (SELECT h.invoice_id FROM billing_detail d JOIN billing_head h ON ${DETAIL_JOIN} WHERE d.order_no=?)`, [String(orderNo)]); }
-const decodeLine = l => ({ carry: CARRY(l.kbn_cat), unit: l.unit || '', orderNo: slipNoOf(l), ownNo: l.order_no, date: fromNum(l.sales_date), site: `${l.field_cd}|${l.field_suffix}`, siteName: l.field_name || l.st_site || '', item: l.item_cd, itemName: l.item_name, quantity: num(l.quantity), price: num(l.unit_price),
+const decodeLine = l => ({ carry: CARRY(l), unit: l.unit || '', orderNo: slipNoOf(l), ownNo: l.order_no, date: fromNum(l.sales_date), site: `${l.field_cd}|${l.field_suffix}`, siteName: l.field_name || l.st_site || '', item: l.item_cd, itemName: l.item_name, quantity: num(l.quantity), price: num(l.unit_price),
   net: num(l.money), taxRate: num(l.tax_rate), remarks: l.remarks || '', shipKb: Number(l.ship_kb || 1) });
 // 請求書・請求書発行確認表・請求詳細の明細はまとめずに全行を現場別に出す（2026-10-27 内部会議 No.3：「明細は現場別に全行を出力」）。
 // 以前の「得意先×現場×出荷日×商品でまとめる」（指摘 No.9、app_billing_line に保存）は廃止。テーブルは残すが読み書きしない
 export const summaryLines = async (c, ids, lines) => lines;
 // 赤・黒は元伝票の直後に並べる（元伝票の売上日・番号で並べ、枝番 2 赤・3 黒の順）
-async function headLines(c, h) { const w = detailWhere(h); return (await rows(c, `SELECT d.*, st.sales_no, st.sales_suffix, (SELECT COUNT(*) FROM sales_trn x WHERE x.sales_no=d.order_no AND x.order_no<>d.order_no) corrections, NULLIF(TRIM(CONCAT_WS(' ', st.field_name1, st.field_name2)), '') st_site, unit_name(i.unit) unit, (SELECT k.category1 FROM code_m k WHERE k.code_key='A0000' AND k.code_dtl=CAST(d.shipping_kb AS TEXT)) kbn_cat FROM billing_detail d LEFT JOIN item_m i ON i.item_cd=d.item_cd
+async function headLines(c, h) { const w = detailWhere(h); return (await rows(c, `SELECT d.*, st.sales_no, st.sales_suffix, (SELECT COUNT(*) FROM sales_trn x WHERE x.sales_no=d.order_no AND x.order_no<>d.order_no) corrections, COALESCE(d.shipping_kb, st.shipping_kb) kbn_cd, NULLIF(TRIM(CONCAT_WS(' ', st.field_name1, st.field_name2)), '') st_site, unit_name(i.unit) unit, (SELECT k.category1 FROM code_m k WHERE k.code_key='A0000' AND k.code_dtl=CAST(COALESCE(d.shipping_kb, st.shipping_kb) AS TEXT)) kbn_cat, (SELECT k.code_dtl_nam FROM code_m k WHERE k.code_key='A0000' AND k.code_dtl=CAST(COALESCE(d.shipping_kb, st.shipping_kb) AS TEXT)) kbn_name FROM billing_detail d LEFT JOIN item_m i ON i.item_cd=d.item_cd
     LEFT JOIN sales_trn st ON st.order_no=d.order_no AND st.order_suffix=1 LEFT JOIN sales_trn o ON st.ship_kb='5' AND o.order_no=st.sales_no AND o.order_suffix=1
     WHERE ${w.sql.replace(/(^|AND )(\w+)=/g, '$1d.$2=')} ORDER BY d.field_cd, d.field_suffix, COALESCE(o.sales_date, d.sales_date), COALESCE(o.order_no, d.order_no), COALESCE(st.sales_suffix, 1)`, w.args)).map(decodeLine); }
 export async function invoiceDetail(c, id) {
@@ -425,7 +426,7 @@ export async function statement(c, customer, month, closing) {
     net = heads.reduce((n, h) => n + num(h.money), 0); tax = heads.reduce((n, h) => n + num(h.consumption_tax), 0);
     lines = []; for (const h of heads) lines.push(...await headLines(c, h));
   } else {
-    const sales = await rows(c, "SELECT s.*, unit_name(i.unit) unit, (SELECT COUNT(*) FROM sales_trn x WHERE x.sales_no=s.order_no AND x.order_no<>s.order_no) corrections FROM sales_trn s LEFT JOIN item_m i ON i.item_cd=s.item_cd WHERE s.customers_cd=? AND s.process_status='0' AND s.payment_method_cd=2 AND s.sales_date<=? ORDER BY s.field_cd, s.field_suffix, s.sales_date, s.order_no", [customer, toNum(end)]);
+    const sales = await rows(c, "SELECT s.*, unit_name(i.unit) unit, (SELECT COUNT(*) FROM sales_trn x WHERE x.sales_no=s.order_no AND x.order_no<>s.order_no) corrections, (SELECT k.code_dtl_nam FROM code_m k WHERE k.code_key='A0000' AND k.code_dtl=CAST(s.shipping_kb AS TEXT)) kbn_name FROM sales_trn s LEFT JOIN item_m i ON i.item_cd=s.item_cd WHERE s.customers_cd=? AND s.process_status='0' AND s.payment_method_cd=2 AND s.sales_date<=? ORDER BY s.field_cd, s.field_suffix, s.sales_date, s.order_no", [customer, toNum(end)]);
     ({ net, tax } = totals(sales));
     lines = sales.map(s => decodeLine({ ...s, field_name: s.field_name1 }));
   }
@@ -473,7 +474,7 @@ async function billingPrecheckOne(c, { month, closing, customer }) {
   const custs = await rows(c, `SELECT customers_cd, customers_name FROM client_m WHERE delete_f<>'1' AND CAST(substring(deadline from '^ *([0-9]+)') AS INTEGER)=?${cw} ORDER BY customers_cd`, args);
   const out = [];
   for (const cu of custs) {
-    const sales = await rows(c, "SELECT s.*, unit_name(i.unit) unit, (SELECT COUNT(*) FROM sales_trn x WHERE x.sales_no=s.order_no AND x.order_no<>s.order_no) corrections, (SELECT k.category1 FROM code_m k WHERE k.code_key='A0000' AND k.code_dtl=CAST(s.shipping_kb AS TEXT)) kbn_cat FROM sales_trn s LEFT JOIN item_m i ON i.item_cd=s.item_cd WHERE s.customers_cd=? AND s.process_status='0' AND s.payment_method_cd=2 AND s.sales_date<=? ORDER BY s.field_cd, s.field_suffix, s.sales_date, s.order_no", [cu.customers_cd, toNum(end)]);
+    const sales = await rows(c, "SELECT s.*, unit_name(i.unit) unit, (SELECT COUNT(*) FROM sales_trn x WHERE x.sales_no=s.order_no AND x.order_no<>s.order_no) corrections, (SELECT k.category1 FROM code_m k WHERE k.code_key='A0000' AND k.code_dtl=CAST(s.shipping_kb AS TEXT)) kbn_cat, (SELECT k.code_dtl_nam FROM code_m k WHERE k.code_key='A0000' AND k.code_dtl=CAST(s.shipping_kb AS TEXT)) kbn_name FROM sales_trn s LEFT JOIN item_m i ON i.item_cd=s.item_cd WHERE s.customers_cd=? AND s.process_status='0' AND s.payment_method_cd=2 AND s.sales_date<=? ORDER BY s.field_cd, s.field_suffix, s.sales_date, s.order_no", [cu.customers_cd, toNum(end)]);
     if (!sales.length) continue;
     const { net, tax } = totals(sales), lines = sales.map(s => decodeLine({ ...s, field_name: s.field_name1 }));
     const h = await one(c, 'SELECT invoice_id, invoice_flag FROM billing_head WHERE customers_cd=? AND closing_date=?', [cu.customers_cd, toNum(end)]);

@@ -902,7 +902,7 @@ async function invoiceDetail(id, site = null) {
   const inv = await api('/api/invoices/' + id);
   const mine = l => (!site.site || l.site === site.site) && (l.siteName || '') === (site.siteName || ''), pick = ls => (site ? ls.filter(mine) : ls);
   // 明細：まとめずに伝票ごとの全行（請求書・請求書発行確認表と同じ。2026-10-27 内部会議 No.3）
-  // 明細の列は請求書発行確認表と同じ（運送＝1 自社手配・2 先方引取、備考＝現場名。2026-10-27、10/27 打合せ）
+  // 明細の列は請求書発行確認表と同じ（運送＝納入区分の名称（11/04 打合せ No.26）、備考＝現場名。2026-10-27、10/27 打合せ）
   const lineTable = () => table([{ label: '日付', value: r => r.date }, { label: '売上No', value: r => r.orderNo }, { label: '区分', html: r => r.shipKb === 5 ? badge('訂正', 'amber') : '売上' }, { label: '商品', value: r => r.itemName }, { label: '数量', num: 1, value: r => r.quantity }, { label: '単価', num: 1, value: r => yen(r.price) }, { label: '金額', num: 1, value: r => yen(r.net) }, { label: '処税率', num: 1, value: r => r.taxRate + '%' },
     { label: '運送', value: r => r.carry || '' }, { label: '備考', value: r => r.siteName }], pick(inv.lines));
   modal({ title: `請求 No.${inv.id} ${inv.customerName}${site ? ' ／ ' + (site.siteName || '（現場なし）') : ''}`, wide: true, body: `

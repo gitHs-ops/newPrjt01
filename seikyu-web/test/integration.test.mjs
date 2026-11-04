@@ -583,6 +583,18 @@ test('workflow against PostgreSQL business tables', { skip, timeout: 900000 }, a
       ok(await a.call('/api/invoices/cancel', { id, site: lb.site, siteName: lb.siteName }));
       assert.notEqual((await a.call('/api/invoices/' + id)).status, 200, 'invoice removed after its last site');
     });
+    await t.test('請求書発行確認表の運送＝納入区分の名称、区分が違えば同じ日・同じ商品でも別の行（11/04 打合せ No.26）', async () => {
+      const ok = r => { assert.equal(r.status, 200, JSON.stringify(r.data)); return r.data; };
+      const U = 'U' + tag;
+      ok(await a.call('/api/masters/customers', { mode: 'create', record: { code: U, name: '運送区分試験', closing: 15, active: true } }));
+      ok(await a.call('/api/masters/sites', { mode: 'create', record: { customer: U, code: U, suffix: '000', name: '現場U', active: true } }));
+      // 納入区分マスタに 8t現着 を足す（区分の追加はマスタで行う）
+      ok(await a.call('/api/masters/deliveryKinds', { mode: 'create', record: { code: '4', name: '8t現着', pickup: false, active: true } }));
+      for (const k of ['1', '4', '7']) ok(await a.call('/api/shipments', { date: pm + '-03', customer: U, site: U + '|000', item: 'I' + tag, quantity: '2', price: 1000, taxRate: 10, operator: '1', deliveryKbn: k, method: 2 }));
+      ok(await a.call('/api/billing/run', { month: pm, closing: 15, customers: [U] }));
+      const conf = ok(await a.call(`/api/reports/billing-confirm?month=${pm}&closing=15&unissued=1&customer=${encodeURIComponent(U)}`));
+      assert.deepEqual(conf.rows[0].lines.map(l => l.carry).sort(), ['8t現着', '大型現着', '引取']);
+    });
     // 奉行の受入記号は 200 字を超えても欠けずに保存される（2026-10-28）
     const meta = (await a.call('/api/kb/bugyo')).data, symbols = Object.fromEntries(meta.items.map(([k]) => [k, 'OBC_' + k.padEnd(30, 'X')]));
     assert.ok(JSON.stringify(symbols).length > 200);
