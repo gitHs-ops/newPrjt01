@@ -249,6 +249,9 @@ test('workflow against PostgreSQL business tables', { skip, timeout: 900000 }, a
       assert.deepEqual([pr.groups.find(g => g.code === 'V' + tag).rows[0].date, pr.groups.find(g => g.code === 'V' + tag).totals, pr.totals], [`${d.slice(2, 4)}/${d.slice(5, 7)}/${d.slice(8, 10)}`, undefined, undefined]);
       // 単位は 1（t）・2（袋）・3 のみ入力でき、リストには単位名が出る（2026-11-03）
       assert.equal(pr.groups.find(g => g.code === 'V' + tag).rows[0].unit, 't');
+      // 11/04 No.19：月指定で前月21日〜当月20日、仕入先別（2026-11-05）
+      { const pm = d.slice(8) > '20' ? new Date(Date.UTC(+d.slice(0, 4), +d.slice(5, 7), 1)).toISOString().slice(0, 7) : d.slice(0, 7); const mr = (await a.call('/api/reports/misc/purchase-register?' + new URLSearchParams({ month: pm }))).data;
+        assert.ok(mr.from <= d && d <= mr.to && mr.to === `${pm}-20` && mr.from.slice(8) === '21'); assert.equal(mr.groups.filter(g => g.code === 'V' + tag).length, 1); }
       for (const unit of ['', '4', 'x']) { const r = await a.call('/api/purchases', { date: d, vendor: 'V' + tag, item: 'I' + tag, quantity: '1', unit, price: 1000, taxCode: '10%' }); assert.equal(r.status, 400); assert.match(r.data.error, /単位は 1/); }
       // 運賃は商品コードなし・数量 0 で金額だけ入力でき、商品名は「運賃」（2026-11-03）
       const fz = await a.call('/api/purchases', { date: d, vendor: 'V' + tag, lines: [{ item: '', quantity: '0', amount: '3300', lineKind: '2', taxCode: '241' }] }); ok(fz);

@@ -14,22 +14,27 @@ const sum = (list, k) => list.reduce((n, r) => n + num(r[k]), 0);
 // 伝票No.：P＋処理年度4桁＋5桁連番（10/24 大西さん回答）＋行番号2桁の枝番（10/28 打合せ No.21）。例 P202600001-01
 export const purchaseNo = (no, line) => `${no || ''}-${String(line || 1).padStart(2, '0')}`;
 export async function purchaseRegister(c, q) {
-  const from = isoDate(q.from, '開始日'), to = isoDate(q.to, '終了日'); check(from <= to, '期間が不正です');
+  // 11/04 打合せ No.19：月 1 回、指定月（初期表示は当月）の前月21日〜当月20日を仕入先別・仕入日ごとに出す。month 指定がなければ従来の from/to
+  let from, to;
+  if (q.month) { check(/^\d{4}-\d{2}$/.test(q.month), '月を指定してください'); const [y, m] = q.month.split('-').map(Number); from = new Date(Date.UTC(y, m - 2, 21)).toISOString().slice(0, 10); to = `${q.month}-20`; }
+  else { from = isoDate(q.from, '開始日'); to = isoDate(q.to, '終了日'); }
+  check(from <= to, '期間が不正です');
   const rs = await rows(c, `SELECT p.*, v.vendor_code, v.vendor_name, i.item_nam, unit_name(i.unit) item_unit FROM purchase p JOIN vendor v ON v.vendor_id=p.vendor_id LEFT JOIN item_m i ON i.item_cd=p.item_cd
-    WHERE p.purchase_date BETWEEN ? AND ? ORDER BY p.purchase_date, v.vendor_code, p.source_document_no, p.line_no`, [from, to]);
+    WHERE p.purchase_date BETWEEN ? AND ? ORDER BY v.vendor_code, p.purchase_date, p.source_document_no, p.line_no`, [from, to]);
   const groups = [];
   for (const r of rs) {
-    let g = groups.find(x => x.date === r.purchase_date && x.code === r.vendor_code);
+    let g = groups.find(x => x.code === r.vendor_code);   // 仕入先別（11/04 No.19）。仕入日・区分は仕入日が変わった行だけ
     // 仕入先の見出しは現行 HAR011 どおり「コード　仕入先名」（2026-11-04）
-    if (!g) groups.push(g = { date: r.purchase_date, code: r.vendor_code, title: `${r.vendor_code}　${r.vendor_name}`, rows: [] });
+    if (!g) groups.push(g = { code: r.vendor_code, title: `${r.vendor_code}　${r.vendor_name}`, rows: [] });
     // 運賃の行は現行どおり数量・単価 0.00 で、処税率の右に「運賃」。処税率はコードの右に名称（画面の選択リストと同じ。2026-11-01）
     const fr = r.line_kind === '2';
     // 現行 HAR011：仕入日・区分は仕入先の 1 行目だけ、伝票No. は伝票の 1 行目だけ（2 行目からは枝番だけ）。slip＝伝票No.＋枝番（2026-11-04）
-    const first = !g.rows.length, slip = purchaseNo(r.source_document_no, r.line_no), sameSlip = g.rows.at(-1)?.doc === r.source_document_no;
+    const first = g.last !== r.purchase_date; g.last = r.purchase_date; const slip = purchaseNo(r.source_document_no, r.line_no), sameSlip = g.rows.at(-1)?.doc === r.source_document_no;
     g.rows.push({ date: first ? `${r.purchase_date.slice(2, 4)}/${r.purchase_date.slice(5, 7)}/${r.purchase_date.slice(8, 10)}` : '', kind: first ? PURCHASE_KINDS[r.purchase_kb || '1'] : '', no: sameSlip ? slip.slice(-2) : slip, slip, doc: r.source_document_no, item: r.item_cd ? `${r.item_cd} ${r.item_nam || ''}` : '運賃',
       qty: fr ? 0 : num(r.quantity), unit: r.unit ? PURCHASE_UNITS[r.unit] ?? '' : r.item_unit || '', price: fr ? 0 : num(r.unit_price), net: num(r.net_amount), account: '', subName: '', tax: `${r.source_tax_code || ''}${fr ? ' 運賃' : ''}` });   // 処税率はコードだけ（現行 HAR011。2026-11-04）
   }
   // 現行 HAR011 には仕入日の見出し・仕入先計・仕入日計・総合計が無い（2026-11-04）
+  for (const g of groups) delete g.last;
   return { title: '商品仕入登録リスト', ref: '帳票⑭（HAR011）', from, to, sub: `仕入日 ${from} 〜 ${to}`,
     // 項目名は現行の見本（HAR011・添付帳票⑭ p.1-2）どおり（2026-10-29）。単位は仕入数量の右で見出しなし。科目ｺｰﾄﾞ・内訳名は見本でも空欄。摘要は見本にないので出さない
     columns: [{ key: 'date', label: '仕入日', w: 11 }, { key: 'kind', label: '区分', w: 8 }, { key: 'no', label: '伝票No.', w: 15 }, { key: 'item', label: '商品名', w: 30 }, { key: 'qty', label: '仕入数量', num: 1, w: 11 }, { key: 'unit', label: '', w: 4 },

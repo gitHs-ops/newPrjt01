@@ -1450,7 +1450,7 @@ VIEWS.purchases = async q => {
       { label: '商品', value: r => `${r.itemName || r.item}${r.lineKind === '2' && !/運賃/.test(r.itemName || '') ? '（運賃）' : ''}` }, { label: '数量', num: 1, value: r => (r.lineKind === '2' ? '' : `${r.quantity} ${r.unit || ''}`) },
       { label: '単価', num: 1, value: r => (r.lineKind === '2' ? '' : Number(r.price).toLocaleString('ja-JP', { minimumFractionDigits: 2, maximumFractionDigits: 2 })) }, { label: '金額', num: 1, value: r => yen(r.net) }, { label: '処税率', value: r => r.taxCode },
       { label: '', html: r => canWrite() && r.line === 1 ? `<button class="mini danger" data-act="del" data-id="${r.id}" data-no="${esc(r.no)}">取消</button>` : '' }], list, { foot: ['合計', '', '', '', '', '', '', yen(list.reduce((n, r) => n + r.net, 0)), '', ''] })}</section>
-    <div data-sub="reports">${miscCard('商品仕入登録リスト', '業者別・伝票明細', rangeInputs('pl', '仕入日'), '<button data-act="misc" data-kind="purchase-register" data-src="pl">⇩ Excel</button>')}</div>`);
+    <div data-sub="reports">${miscCard('商品仕入登録リスト', '仕入先別・仕入日ごと', `<label class="field">対象月（前月21日〜当月20日）<input type="month" id="pl-month" value="${thisMonth()}"></label>`, '<button data-act="misc" data-kind="purchase-register" data-src="pl">⇩ Excel</button>')}</div>`);
 };
 
 // ----- 在庫計上 -----
@@ -1823,6 +1823,7 @@ function miscParams(kind, src) {
   if (src === 'pc') return { from: $('#pc-from').value, to: $('#pc-to').value };
   if (src === 'rs') return { from: $('#rs-from').value, to: $('#rs-to').value, overdue: $('#rs-over').checked ? '1' : '' };
   if (src === 'ir') return { month: $('#ir-month').value };
+  if (src === 'pl') return { month: $('#pl-month').value };
   if (src === 'tl') return { to: $('#tl-to').value };
   return { from: $(`#${src}-from`).value, to: $(`#${src}-to`).value };
 }
