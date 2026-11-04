@@ -90,6 +90,11 @@ const STATUS = { draft: ['未発行', 'gray'], issued: ['発行済', ''], partia
 const status = s => badge(...(STATUS[s] || [s, 'gray']));
 const nameOf = (kind, code) => masters[kind]?.find(r => r.code === code)?.name || code || '';
 const active = kind => (masters[kind] || []).filter(r => r.active);
+// 適用コード（摘要）マスタ（2026-11-04 打合せ No.7・11・13）：コードを入れると摘要の名称を出す。候補は datalist dl-tekiyo
+const tekiyoName = code => { const c = String(code || '').trim(); return c ? active('tekiyo').find(x => x.code === c)?.name : undefined; };
+const tekiyoList = () => `<datalist id="dl-tekiyo">${active('tekiyo').map(x => `<option value="${esc(x.code)}">${esc(x.name)}</option>`).join('')}</datalist>`;
+// 摘要名の欄（直接入れたものが優先：手で書き換えた欄は上書きしない。前回コードから入れた名称のままなら入れ替える）
+const tekiyoFill = (codeEl, memoEl) => { if (!codeEl || !memoEl) return; const nm = tekiyoName(codeEl.value); if (nm === undefined) return; if (!memoEl.value.trim() || memoEl.value === memoEl.dataset.auto) { memoEl.value = nm; memoEl.dataset.auto = nm; memoEl.dispatchEvent(new Event('input', { bubbles: true })); } };
 const options = (list, value, { blank, label = r => `${r.code} ${r.name}`, val = r => r.code } = {}) =>
   (blank !== undefined ? `<option value="">${esc(blank)}</option>` : '') + list.map(r => `<option value="${esc(val(r))}" ${String(val(r)) === String(value ?? '') ? 'selected' : ''}>${esc(label(r))}</option>`).join('');
 const siteOptions = (customer, value, blank) => options((masters.sites || []).filter(s => s.customer === customer && (s.active || `${s.code}|${s.suffix}` === value)), value, { blank, val: s => `${s.code}|${s.suffix}`, label: s => `${s.code}-${s.suffix} ${s.name}` });
@@ -1187,7 +1192,7 @@ const LR_ACC = {
   8330: { name: '雑費', subs: [['101', '各種手数料', 'fee', '手数料'], ['107', 'その他雑品', 'coop', '協力費']], tax: '141', dept: '063' }, 4170: { name: '預り金', kind: () => 'deposit', tax: '9', dept: '' },
   8850: { name: '値引・雑損失', subs: [['D', '値引き', 'discount', '値引き'], ['L', '雑損失', 'loss', '雑損失']], dept: '063' },
 };
-const lrBlank = () => ({ acc: '', sub: '', amount: '', due: '', tax: '', sub2: '', work: '', taxAmt: '', memo2: '' });
+const lrBlank = () => ({ acc: '', sub: '', amount: '', due: '', tax: '', sub2: '', work: '', taxAmt: '', memo2: '', tcode: '' });
 // 借方の明細は最初 3 行（足りなければ［＋ 行追加］）。入金日の初期値は今日（いずれも 2026-11-01）
 const lrNew = () => ({ step: 1, date: today(), customer: '', lines: [lrBlank(), lrBlank(), lrBlank()], billTo: '', billInput: '', invoices: [], deposit: 0, from: '', to: today(), key: uuid() });
 let lr = lrNew();
@@ -1232,7 +1237,7 @@ function lrLine(l, i) {
       <td><input data-lr="work" data-i="${i}" value="${esc(l.work)}" maxlength="20" aria-label="工種" ${l.acc ? '' : 'disabled'}></td>
       <td><input class="num" data-lr="amount" data-i="${i}" value="${esc(l.amount)}" inputmode="numeric" aria-label="入金額" ${l.acc ? '' : 'disabled'}></td><td>${l.acc ? `<select name="taxCode" data-lr="tax" data-i="${i}" aria-label="処税率" style="width:130px">${lrTaxDef(l) ? '' : '<option value="">選択</option>'}${meta.taxCodes.map(t => `<option value="${t.code}" title="${esc(t.name)}" ${t.code === lrTaxEff(l) ? 'selected' : ''}>${esc(t.code)}</option>`).join('')}</select><small class="muted lr-taxname">${esc(meta.taxCodes.find(t => t.code === lrTaxEff(l))?.name || '')}</small>` : ''}</td><td><input class="num" data-lr="taxamt" data-i="${i}" value="${l.acc && lrTaxable(l) ? esc(l.taxAmt !== '' ? l.taxAmt : String(lrTax(l))) : ''}" inputmode="numeric" aria-label="消費税額" ${l.acc && lrTaxable(l) ? '' : 'disabled'}></td></tr>
     <tr><th>摘要1</th><td colspan="7">${l.acc ? `${esc(lr.customer)} ${esc(lrName())}` : ''}</td></tr>
-    <tr><th>摘要2</th><td colspan="7">${l.acc ? `<input data-lr="memo2" data-i="${i}" value="${esc(l.memo2 || lrSub(l)?.[3] || '')}" maxlength="100" placeholder="${kind === 'notes' ? '空欄なら「手形 期日…」' : ''}" aria-label="摘要2" style="width:100%">` : ''}</td></tr></tbody>`;
+    <tr><th>摘要2</th><td colspan="7">${l.acc ? `<div style="display:flex;gap:6px"><input data-lr="tcode" data-i="${i}" value="${esc(l.tcode || '')}" list="dl-tekiyo" maxlength="7" inputmode="numeric" placeholder="適用コード" aria-label="適用コード" style="width:100px;flex:none" autocomplete="off"><input data-lr="memo2" data-i="${i}" value="${esc(l.memo2 || lrSub(l)?.[3] || '')}" data-auto="${esc(l.memo2Auto ?? (l.memo2 ? '' : lrSub(l)?.[3] || ''))}" maxlength="100" placeholder="${kind === 'notes' ? '空欄なら「手形 期日…」' : ''}" aria-label="摘要2" style="width:100%"></div>` : ''}</td></tr></tbody>`;
 }
 const lrTotals = () => { const used = lrUsed(), fund = used.filter(l => ['bank', 'cash'].includes(lrKind(l))).reduce((n, l) => n + (lrNum(l.amount) || 0), 0), tax = used.reduce((n, l) => n + lrTax(l), 0); return `<div class="lr-totals"><span>借方合計 <b>${yen(lrSum())}</b></span><span>貸方合計 <b>0</b></span><span>仮払消費税 <b>${yen(tax)}</b></span><span>仮受消費税 <b>0</b></span><span>資金残高 <b>${yen(fund)}</b></span></div>`; };
 function lrStep2() {
@@ -1262,7 +1267,7 @@ function lrStep3() {
       <tfoot><tr id="lr-foot">${lrPayFoot()}</tr></tfoot></table></div>
     ${canWrite() ? '' : '<p class="check-ng small">この利用者は登録できません</p>'}${lrKeys([...(canWrite() ? [['lrNext', '登録', 1]] : []), ['lrBack', '前画面'], ['lrEnd', '終了']])}</div>`;
 }
-const lrDraw = () => { const b = $('#lr-body'); if (!b) return; b.innerHTML = lrStep1(); };
+const lrDraw = () => { const b = $('#lr-body'); if (!b) return; b.innerHTML = lrStep1() + tekiyoList(); };
 function lrCheckLines() {
   const used = lrUsed(); if (!used.length) throw Error('科目と入金額を入力してください');
   const kinds = new Set();
@@ -1339,6 +1344,8 @@ document.addEventListener('input', e => {
   // 消費税額を空にすると自動計算に戻す
   else if (t.dataset.lr === 'taxamt') { lr.lines[t.dataset.i].taxAmt = t.value.trim(); $('#lr-totals').innerHTML = lrTotals(); }
   else if (['due', 'sub2', 'work', 'memo2'].includes(t.dataset.lr)) lr.lines[t.dataset.i][t.dataset.lr] = t.value;
+  // 適用コード → 摘要2 に名称（11/04 打合せ No.7）。コードは保存しない（摘要2 の文字だけ）
+  else if (t.dataset.lr === 'tcode') { const l = lr.lines[t.dataset.i], m = $(`[data-lr="memo2"][data-i="${t.dataset.i}"]`); l.tcode = t.value; tekiyoFill(t, m); if (m?.dataset.auto) l.memo2Auto = m.dataset.auto; }
 });
 document.addEventListener('change', e => {
   const t = e.target; if (!t.closest?.('#lr-body')) return;
@@ -1511,7 +1518,7 @@ function expenseView(kind) {
     const accs = active('accounts').filter(a => !['1111', '1112', '1120', '1131', '4121', '4415'].includes(a.code)), top = payable ? [] : PETTY_ACCOUNTS.map(c => accs.find(a => a.code === c)).filter(Boolean);
     const accOpts = top.length ? `<option value="">（科目）</option><optgroup label="小口現金でよく使う科目">${options(top, '')}</optgroup><optgroup label="その他の科目">${options(accs.filter(a => !top.includes(a)), '')}</optgroup>` : options(accs, '', { blank: '（科目）' });
     const hwCols = [{ name: 'account', label: '科目', cell: () => `<select name="account">${accOpts}</select>` },
-      { name: 'sub', label: '内訳／摘要コード', cell: () => '<div class="l2"><select name="sub"><option value="">（なし）</option></select><input name="memoCode" maxlength="7" placeholder="摘要コード（工事・7桁）"></div>' },
+      { name: 'sub', label: '内訳／摘要コード', cell: () => '<div class="l2"><select name="sub"><option value="">（なし）</option></select><input name="memoCode" maxlength="7" list="dl-tekiyo" autocomplete="off" placeholder="摘要コード（適用コード）"></div>' },
       { label: '科目名・内訳名／摘要', cell: () => '<div class="l2"><span class="hw-names muted small">科目を選択</span><input name="lmemo" maxlength="500" placeholder="摘要（自由入力）"></div>' },
       { name: 'amount', label: '支払金額／処税率', sum: 1, cell: () => `<div class="l2"><input name="amount" class="num" inputmode="numeric">${taxSelect('taxCode', '141')}</div>` }];
     // 小口現金：支払先は明細の行ごと。1支払日＝1伝票（画面レビュー No.9）
@@ -1519,7 +1526,7 @@ function expenseView(kind) {
     const vendorName = code => active('vendors').find(x => x.code === String(code || '').trim())?.name;
     const cols = [{ name: 'lvendor', label: '支払先コード', cell: () => '<input name="lvendor" list="dl-ex-payees" maxlength="12" placeholder="コード" style="width:84px" autocomplete="off">' }, { label: '支払先名', cell: () => '<span data-vname></span><input name="lpayee" maxlength="100" placeholder="支払先名（手入力）" style="width:150px">' }, // コードが無い支払先は名称を手入力（2026-11-03）
       // 2026-11-03 ユーザー指示：科目・内訳コードの横に名称、摘要名は科目・内訳の下、支払額・処税率は右側
-      { name: 'account', label: '科目・内訳／摘要名', cell: () => `<div class="l2"><div style="display:flex;gap:6px;align-items:center"><select name="account" style="width:170px;flex:none">${accOpts}</select><span data-accname class="muted small" style="width:8em;flex:none"></span><select name="sub" style="width:150px;flex:none"><option value="">（なし）</option></select><span data-subname class="muted small" style="width:8em;flex:none"></span></div><input name="lmemo" maxlength="500" placeholder="摘要名（手入力）"></div>` },
+      { name: 'account', label: '科目・内訳／摘要名', cell: () => `<div class="l2"><div style="display:flex;gap:6px;align-items:center"><select name="account" style="width:170px;flex:none">${accOpts}</select><span data-accname class="muted small" style="width:8em;flex:none"></span><select name="sub" style="width:150px;flex:none"><option value="">（なし）</option></select><span data-subname class="muted small" style="width:8em;flex:none"></span></div><div style="display:flex;gap:6px"><input name="memoCode" maxlength="7" list="dl-tekiyo" inputmode="numeric" autocomplete="off" placeholder="適用コード" style="width:100px;flex:none"><input name="lmemo" maxlength="500" placeholder="摘要名（コードが無ければ手入力）"></div></div>` },
       { name: 'amount', label: '支払額（税込）', sum: 1, cell: () => '<input name="amount" class="num" style="width:120px">' }, { name: 'taxCode', label: '処税率', cell: () => `<div class="l2">${taxSelect('taxCode', '141')}<span data-taxname class="muted small"></span></div>` }];
     // 定時請求データ入力は現行 HAW050（10/21 打合せ資料 スライド5）の並び：組織・締切日／請求No／業者／支払繰延区分・合計金額 → 明細（2段）→ 対象外・内税・外税・外税消費税・合計
     const deptSel = `<select name="dept">${options(active('depts').length ? active('depts') : [{ code: '063', name: '部門063' }], '063')}</select>`;
@@ -1529,12 +1536,12 @@ function expenseView(kind) {
         ${field('組織', deptSel)}<div></div>${field('締切日', `<input type="date" name="date" value="${lastClosing()}">`, { req: 1 })}
         ${field('請求No', '<input value="自動採番（業者ごと4桁）" disabled>')}<div class="span2"></div>
         <div class="span2">${field('業者', '<div style="display:flex;gap:12px;align-items:center"><input name="vendor" list="dl-hw-vendors" maxlength="7" autocomplete="off" placeholder="業者コード" style="width:140px;min-width:0"><output id="hw-vname"></output></div>', { req: 1 })}</div><div></div>
-        <datalist id="dl-hw-vendors">${active('vendors').map(x => `<option value="${esc(x.code)}">${esc(x.name)}</option>`).join('')}</datalist>
+        ${tekiyoList()}<datalist id="dl-hw-vendors">${active('vendors').map(x => `<option value="${esc(x.code)}">${esc(x.name)}</option>`).join('')}</datalist>
         ${field('支払繰延区分', '<output id="ex-defer" class="muted">業者コードを入力すると業者マスタから表示</output>')}${field('支払予定日', '<input type="date" name="due" readonly tabindex="-1" style="background:transparent;border-style:dashed" title="業者マスタの支払繰延区分から自動計算（入力不可）">', { hint: '業者マスタから自動' })}${field('合計金額', '<input name="total" class="num" inputmode="numeric">', { req: 1, hint: '明細の合計と一致させる' })}
       </div>` : `<div class="inline-fields">
       ${field('支払日（領収書の日付）', `<input type="date" name="date" value="${today()}">`, { req: 1 })}${field('組織（部門）', `<output id="ex-dept">${esc(deptLabel())}</output>`)}
 </div>
-      <datalist id="dl-ex-payees">${active('vendors').map(x => `<option value="${esc(x.code)}">${esc(x.name)}</option>`).join('')}</datalist>`;
+      ${tekiyoList()}<datalist id="dl-ex-payees">${active('vendors').map(x => `<option value="${esc(x.code)}">${esc(x.name)}</option>`).join('')}</datalist>`;
     const sumBar = payable ? `<div class="hw-sum"><span>対象外 <b id="hw-out">0</b></span><span>内税 <b id="hw-in">0</b></span><span>外税 <b id="hw-ex">0</b></span>
       <label>外税消費税 <input name="extTax" class="num" value="0" inputmode="numeric" style="width:110px"></label><span>合計 <b id="hw-total">0</b> 円</span><span id="hw-check" class="small"></span></div>` : '';
     // 処税率の区分（1桁目 1＝内税、2・空白＝外税、税率0や対象外は対象外）
@@ -1564,7 +1571,7 @@ function expenseView(kind) {
           n.textContent = acc ? `${acc.name}${sub ? '　' + sub.name : ''}` : '科目を選択'; };
         // 支払先コードを入れたら業者名を表示、空欄なら支払先名の手入力欄を出す（2026-11-03）
         const vname = tr => { const el = tr.querySelector('[name=lvendor]'), s = tr.querySelector('[data-vname]'), inp = tr.querySelector('[name=lpayee]'); if (!el || !s) return; const t = el.value.trim(), nm = vendorName(t); s.innerHTML = !t ? '' : nm ? esc(nm) : '<span class="check-ng">該当なし</span>'; if (inp) inp.hidden = !!t; };
-        g.addEventListener('input', e => { if (e.target.name === 'lvendor') vname(e.target.closest('tr')); });
+        g.addEventListener('input', e => { if (e.target.name === 'lvendor') vname(e.target.closest('tr')); if (e.target.name === 'memoCode') { const tr = e.target.closest('tr'); tekiyoFill(e.target, tr.querySelector('[name=lmemo]')); } });
         if (payable) {
           $('#ex-lines-total')?.parentElement && ($('#ex-lines-total').parentElement.hidden = true);
           // 支払予定日は入力項目ではない（10-29 画面レビュー No.6）。業者マスタの支払繰延区分から計算して表示するだけ
