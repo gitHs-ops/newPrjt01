@@ -1260,7 +1260,7 @@ const lrRows = () => {
   if (!shown.length) return `<tr><td colspan="6" class="muted">${lr.invoices.length ? 'この請求日の請求はありません' : 'この入金日までに締めた、残高のある請求がありません'}</td></tr>`;
   const who = `${esc(lr.billTo)} ${esc(lrNameOf(lr.billTo))}`;
   if (lr.pays) return lr.pays.map((p, i) => { const r = lr.invoices.find(x => String(x.id) === String(p.id)), used = new Set(lr.pays.filter((_, k) => k !== i).map(x => String(x.id)));
-    return `<tr><td>${who}</td><td>${esc(r?.closing || '')}</td><td><select data-lp="id" data-i="${i}" aria-label="請求No"><option value="">請求を選択</option>${lrShown().filter(x => !used.has(String(x.id))).map(x => `<option value="${x.id}" ${String(x.id) === String(p.id) ? 'selected' : ''}>${x.id}（${esc(x.closing)}）</option>`).join('')}</select></td><td>${esc(r?.due || '')}</td><td class="num">${r ? yen(r.balance) : ''}</td>`
+    return `<tr><td>${who}</td><td>${esc(r?.closing || '')}</td><td><select data-lp="id" data-i="${i}" aria-label="請求No"><option value="">請求を選択</option>${lrShown().filter(x => !used.has(String(x.id))).map(x => `<option value="${x.id}" ${String(x.id) === String(p.id) ? 'selected' : ''}>${esc(x.closing)}（No.${x.id}）</option>`).join('')}</select></td><td>${esc(r?.due || '')}</td><td class="num">${r ? yen(r.balance) : ''}</td>`
       + `<td class="num"><input class="num" data-lp="amount" data-i="${i}" value="${esc(p.amount)}" inputmode="numeric" aria-label="今回入金額" style="width:120px"> <button type="button" class="mini" data-act="lrDelPay" data-i="${i}" title="この行を削除">✕</button></td></tr>`; }).join('');
   return shown.map(({ r, n }) => `<tr><td>${who}</td><td>${esc(r.closing)}</td><td>${r.id}</td><td>${esc(r.due || '')}</td><td class="num">${yen(r.balance)}</td><td class="num">${n ? yen(n) : ''}</td></tr>`).join('');
 };
