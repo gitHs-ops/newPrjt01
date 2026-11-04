@@ -79,6 +79,18 @@ def menu(p, idle):
     print(f'メニュー: {len(items)} 件・小メニュー {sum(len(m["subs"]) for m in items)} 件')
 
 
+def shoot(p, x, f):
+    """画面図は実際の画面だけ（サイドバーのメニューと上のバー（パンくず・利用者・ログアウト）は写さない。2026-11-05 ユーザー指示）。
+    el：その要素だけ。clip：その範囲から本文（#content）の外を切り落とす。指定なし：モーダルが開いていればモーダル、なければ本文全体"""
+    if 'el' in x: return p.locator(x['el']).first.screenshot(path=str(f))
+    if 'clip' in x:
+        b = p.locator('#content').bounding_box(); cx, cy, cw, ch = x['clip']
+        x0, y0 = max(cx, b['x']), max(cy, b['y']); x1, y1 = min(cx + cw, b['x'] + b['width']), cy + ch
+        return p.screenshot(path=str(f), clip={'x': x0, 'y': y0, 'width': x1 - x0, 'height': y1 - y0})
+    dlg = p.locator('dialog[open]')
+    return (dlg if dlg.count() else p.locator('#content')).first.screenshot(path=str(f))
+
+
 def run(only=None):
     screens = {f.stem: json.loads(f.read_text(encoding='utf-8')) for f in sorted(cfg.SCREENS.glob('SC-*.json'))}
     out_dir = cfg.WORK / 'capture'; (out_dir / 'png').mkdir(parents=True, exist_ok=True)
@@ -123,8 +135,7 @@ def run(only=None):
                     elif 'shot' in st:
                         x = st['shot']; w, h = x.get('viewport', [1440, 900]); p.set_viewport_size({'width': w, 'height': h}); idle(300)
                         f = out_dir / 'png' / f'{x["name"]}.png'
-                        if 'el' in x: p.locator(x['el']).first.screenshot(path=str(f))
-                        else: p.screenshot(path=str(f), clip=dict(zip(('x', 'y', 'width', 'height'), x['clip'])) if 'clip' in x else None)
+                        shoot(p, x, f)
                         view['shots'].append(x['name']); p.set_viewport_size({'width': 1440, 'height': 900})
                     elif 'download' in st:
                         x = st['download']
