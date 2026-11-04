@@ -119,6 +119,7 @@ export async function createApp({ pool, publicDir, secureCookies = process.env.N
   w('/api/inventory/unpost', (c, x, b) => P.unpostInventory(c, x, b));
   w('/api/expenses', (c, x, b) => P.createExpense(c, x, b));
   w('/api/expenses/reverse', (c, x, b) => P.reverseExpense(c, x, b));
+  w('/api/expenses/update', (c, x, b) => P.updateExpense(c, x, b));
   w('/api/payments', (c, x, b) => P.createPayment(c, x, b));
   w('/api/payments/reverse', (c, x, b) => P.reversePayment(c, x, b));
   w('/api/periods/close', (c, x, b) => L.closeMonth(c, x, b), 'admin');

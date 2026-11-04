@@ -127,6 +127,18 @@ test('workflow against PostgreSQL business tables', { skip, timeout: 900000 }, a
       const over = await a.call('/api/expenses', { kind: 'PAYABLE', date: d, vendor: 'V' + tag, account: '8231', taxCode: '090', amount: 30000, memo: '限度額以上' });
       near(under.data.due, ymd(1, 15)); near(over.data.due, ymd(3, 0));
       for (const x of [under, over]) assert.equal((await a.call('/api/expenses/reverse', { id: x.data.id })).status, 200);
+      // 定時請求の修正・削除（11/04 打合せ No.11）：修正は同じ伝票No で明細と仕訳 D01 を作り直す。削除は伝票と仕訳を削除（逆仕訳なし）
+      const jsum = async id => (await pool.query("SELECT COUNT(DISTINCT je.journal_id)::int n, COALESCE(SUM(CASE WHEN jl.account_code='4121' THEN jl.amount END),0)::int ap FROM journal_entry je JOIN journal_line jl ON jl.journal_id=je.journal_id WHERE je.source_type='expense_document' AND je.source_id=?", [String(id)]))[0][0];
+      const ed = await a.call('/api/expenses', { kind: 'PAYABLE', date: d, vendor: 'V' + tag, total: 1000, lines: [{ account: '8231', taxCode: '090', amount: 1000, memoCode: '1234567', memo: '工事' }] }); assert.equal(ed.status, 200, JSON.stringify(ed.data));
+      const eu = await a.call('/api/expenses/update', { id: ed.data.id, date: d, vendor: 'V' + tag, total: 3000, lines: [{ account: '8231', taxCode: '090', amount: 1000 }, { account: '8231', taxCode: '090', amount: 2000, memo: '追加' }] }); assert.equal(eu.status, 200, JSON.stringify(eu.data));
+      assert.equal(eu.data.no, ed.data.no); assert.equal(eu.data.billNo, ed.data.billNo);
+      const eRow = (await a.call('/api/expenses?' + new URLSearchParams({ kind: 'PAYABLE', month: d.slice(0, 7) }))).data.find(r => r.id === ed.data.id);
+      assert.equal(eRow.amount, 3000); assert.equal(eRow.lines.length, 2);
+      assert.deepEqual(await jsum(ed.data.id), { n: 1, ap: 3000 });
+      assert.equal((await a.call('/api/expenses/update', { id: ed.data.id, date: d, vendor: 'V' + tag, total: 999, lines: [{ account: '8231', taxCode: '090', amount: 1000 }] })).status, 400, '合計不一致は修正しない');
+      assert.equal((await a.call('/api/expenses/reverse', { id: ed.data.id })).data.deleted, true);
+      assert.deepEqual(await jsum(ed.data.id), { n: 0, ap: 0 });
+      assert.ok(!(await a.call('/api/expenses?' + new URLSearchParams({ kind: 'PAYABLE', month: d.slice(0, 7) }))).data.some(r => r.id === ed.data.id));
       // 小口現金の取消は逆仕訳を作らず、伝票と自動仕訳を削除する（2026-11-03）
       const pd = await a.call('/api/expenses', { kind: 'PETTY_CASH', date: d, lines: [{ payee: '削除テスト', account: '8231', taxCode: '141', amount: 100, memo: 'x' }] }); assert.equal(pd.status, 200, JSON.stringify(pd.data));
       const pr = await a.call('/api/expenses/reverse', { id: pd.data.id }); assert.equal(pr.status, 200); assert.equal(pr.data.deleted, true);

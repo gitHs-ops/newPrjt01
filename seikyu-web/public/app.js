@@ -396,7 +396,7 @@ VIEWS.dashboard = async () => {
     </div>`);
 };
 const ACTIONS = { 'shipment.create': '出荷登録', 'shipment.update': '出荷修正', 'shipment.delete': '出荷取消', 'shipment.correct': '出荷伝票訂正', 'billing.create': '請求作成', 'billing.cancel': '請求取消', 'invoice.issue': '請求書発行', 'invoice.reissue': '請求書再発行',
-  'receipt.create': '入金消込', 'receipt.reverse': '入金取消', 'purchase.create': '仕入登録', 'purchase.delete': '仕入取消', 'inventory.create': '在庫計上', 'inventory.delete': '在庫取消', 'payable.create': '定時請求登録', 'pettycash.create': '小口現金登録',
+  'receipt.create': '入金消込', 'receipt.reverse': '入金取消', 'purchase.create': '仕入登録', 'purchase.delete': '仕入取消', 'inventory.create': '在庫計上', 'inventory.delete': '在庫取消', 'payable.create': '定時請求登録', 'payable.update': '定時請求修正', 'payable.delete': '定時請求削除', 'pettycash.create': '小口現金登録',
   'expense.reverse': '経費取消', 'payment.create': '支払登録', 'payment.reverse': '支払取消', 'period.close': '月次確定', 'period.reopen': '確定解除', 'master.create': 'マスタ登録', 'master.update': 'マスタ更新', 'user.create': '利用者登録', 'user.update': '利用者更新', 'user.login': 'ログイン', 'user.password': 'パスワード変更' };
 
 // ----- 出荷・売上 -----
@@ -1533,7 +1533,7 @@ function expenseView(kind) {
     const accs = active('accounts').filter(a => !['1111', '1112', '1120', '1131', '4121', '4415'].includes(a.code)), top = payable ? [] : PETTY_ACCOUNTS.map(c => accs.find(a => a.code === c)).filter(Boolean);
     const accOpts = top.length ? `<option value="">（科目）</option><optgroup label="小口現金でよく使う科目">${options(top, '')}</optgroup><optgroup label="その他の科目">${options(accs.filter(a => !top.includes(a)), '')}</optgroup>` : options(accs, '', { blank: '（科目）' });
     const hwCols = [{ name: 'account', label: '科目', cell: () => `<select name="account">${accOpts}</select>` },
-      { name: 'sub', label: '内訳／摘要コード', cell: () => '<div class="l2"><select name="sub"><option value="">（なし）</option></select><input name="memoCode" maxlength="7" list="dl-tekiyo" autocomplete="off" placeholder="摘要コード（適用コード）"></div>' },
+      { name: 'sub', label: '内訳／摘要コード', cell: () => '<div class="l2"><select name="sub"><option value="">（なし）</option></select><input name="memoCode" maxlength="7" list="dl-tekiyo" autocomplete="off" placeholder="摘要コード（適用・工事コード）" title="適用コードマスタの候補から選ぶか、工事コードなどを直接入力（摘要名は直接入れたものが優先）"></div>' },
       { label: '科目名・内訳名／摘要', cell: () => '<div class="l2"><span class="hw-names muted small">科目を選択</span><input name="lmemo" maxlength="500" placeholder="摘要（自由入力）"></div>' },
       { name: 'amount', label: '支払金額／処税率', sum: 1, cell: () => `<div class="l2"><input name="amount" class="num" inputmode="numeric">${taxSelect('taxCode', '141')}</div>` }];
     // 小口現金：支払先は明細の行ごと。1支払日＝1伝票（画面レビュー No.9）
@@ -1563,7 +1563,7 @@ function expenseView(kind) {
     const RATE = { 0: 0, 1: 10, 2: 3, 3: 6, 4: 2.8, 5: 5, 8: 8 }, taxClass = code => { const s3 = String(code || '').padStart(3, '0'), rate = RATE[s3[2]] || 0, taxable = rate > 0 && [1, 4, 5, 6].includes(Number(s3[1])); return { kind: !taxable ? 'out' : s3[0] === '1' ? 'in' : 'ex', rate }; };
     const num = v => Number(String(v || '').replace(/[,，\s]/g, '')) || 0;
     // 登録画面と詳細（R：登録済みの伝票）は同じ様式。詳細は値を入れて全項目を入力不可にする（2026-10-29）
-    const form = R => modal({ title: R ? `${R.no} の詳細` : payable ? '定時請求データ入力' : '小口現金出納登録', submit: R ? '' : payable ? '登録' : '登録する', wide: true, sample: R ? false : payable ? f => { const vs = active('vendors'); if (vs.length && !vendorName(f.vendor.value)) { f.vendor.value = vs[Math.floor(Math.random() * vs.length)].code; f.vendor.dispatchEvent(new Event('input', { bubbles: true })); } f.total.value = $('#hw-total').textContent.replace(/[^\d-]/g, ''); f.total.dispatchEvent(new Event('input', { bubbles: true })); } : f => { const el = f.querySelector('#ex-lines tbody tr [name=lvendor]'), vs = active('vendors'); if (el && vs.length && !vendorName(el.value)) { el.value = vs[Math.floor(Math.random() * vs.length)].code; el.dispatchEvent(new Event('input', { bubbles: true })); } }, body: `${head}${lineGrid('ex-lines', payable ? hwCols : cols, R ? R.lines.map(() => ({})) : undefined)}${sumBar}
+    const form = (R, edit = false) => modal({ title: R ? `${R.no} の${edit ? '修正' : '詳細'}` : payable ? '定時請求データ入力' : '小口現金出納登録', submit: R && !edit ? '' : payable ? (edit ? '更新' : '登録') : '登録する', wide: true, sample: R ? false : payable ? f => { const vs = active('vendors'); if (vs.length && !vendorName(f.vendor.value)) { f.vendor.value = vs[Math.floor(Math.random() * vs.length)].code; f.vendor.dispatchEvent(new Event('input', { bubbles: true })); } f.total.value = $('#hw-total').textContent.replace(/[^\d-]/g, ''); f.total.dispatchEvent(new Event('input', { bubbles: true })); } : f => { const el = f.querySelector('#ex-lines tbody tr [name=lvendor]'), vs = active('vendors'); if (el && vs.length && !vendorName(el.value)) { el.value = vs[Math.floor(Math.random() * vs.length)].code; el.dispatchEvent(new Event('input', { bubbles: true })); } }, body: `${head}${lineGrid('ex-lines', payable ? hwCols : cols, R ? R.lines.map(() => ({})) : undefined)}${sumBar}
       `,
       onOpen: () => { const g = $('#ex-lines'), f = $('#modal-body');
         const recalc = () => {
@@ -1604,7 +1604,7 @@ function expenseView(kind) {
         g.addEventListener('change', e => { if (e.target.name === 'account') { const tr = e.target.closest('tr'), acc = masters.accounts.find(a => a.code === e.target.value); tr.querySelector('[name=sub]').innerHTML = '<option value="">（なし）</option>' + options(active('subaccounts').filter(s => s.account === e.target.value), ''); if (acc?.tax && tr.querySelector(`[name=taxCode] option[value="${acc.tax}"]`)) tr.querySelector('[name=taxCode]').value = acc.tax; }
           if (['account', 'sub'].includes(e.target.name)) names(e.target.closest('tr')); recalc(); });
         g.addEventListener('input', recalc); g.addEventListener('click', () => setTimeout(recalc)); recalc();
-        if (R) showDoc(R, f); },
+        if (R) showDoc(R, f, edit); },
       onSubmit: async v => {
         const lines = readLines('ex-lines').map(({ lvendor, lpayee, ...l }) => ({ ...l, memo: l.lmemo, ...(payable ? {} : { vendor: String(lvendor || '').trim(), payee: String(lvendor || '').trim() ? '' : String(lpayee || '').trim() }) }));
         let total, extTax;
@@ -1615,11 +1615,14 @@ function expenseView(kind) {
           const t = lines.reduce((n, l) => n + num(l.amount), 0) + extTax;
           if (total !== t) throw Error(`合計金額（${yen(total)}円）と明細の合計（対象外＋内税＋外税＋外税消費税 ${yen(t)}円）が一致しません`);
         }
-        const r = await post('/api/expenses', { kind, date: v.date, dept: v.dept, vendor: v.vendor, payee: v.payee, due: v.due, memo: v.memo, total, extTax, lines });
+        const body = { kind, date: v.date, dept: v.dept, vendor: v.vendor, payee: v.payee, due: v.due, memo: v.memo, total, extTax, lines };
+        if (edit) { const r = await post('/api/expenses/update', { ...body, id: R.id }); toast(`${r.no} を更新しました${r.due ? '・支払予定日 ' + r.due : ''}（仕訳 D01 を作り直しました）`); render(); return; }
+        const r = await post('/api/expenses', body);
         toast(`${r.no}${r.billNo ? '（請求No ' + r.billNo + '）' : ''}${r.docs > 1 ? `（支払先ごとに ${r.docs} 伝票）` : ''} を登録しました${r.due ? '・支払予定日 ' + r.due : ''}（仕訳 ${payable ? 'D01' : 'E01'}）`); render(); } });
     A.new = () => form();
     A.detail = d => form(list.find(x => x.id === Number(d.id)));
-    const showDoc = (R, f) => {
+    A.edit = d => form(list.find(x => x.id === Number(d.id)), true);
+    const showDoc = (R, f, edit) => {
       const set = (el, v, ev = 'change') => { if (!el) return; if (el._flatpickr) el._flatpickr.setDate(v || '', false); el.value = v ?? ''; el.dispatchEvent(new Event(ev, { bubbles: true })); };
       const q = n => f.querySelector(`[name=${n}]`);
       set(q('date'), R.date); set(q('dept'), R.dept);
@@ -1632,17 +1635,17 @@ function expenseView(kind) {
         set(t('amount'), taxClass(l.taxCode).kind === 'ex' ? l.net : l.amount, 'input'); set(t('memoCode'), l.memoCode, 'input'); set(t('lmemo'), l.memo, 'input'); });
       if (payable) { const ext = q('extTax'); ext.dataset.manual = '1'; set(ext, R.lines.filter(l => taxClass(l.taxCode).kind === 'ex').reduce((n, l) => n + l.tax, 0), 'input'); }
       // 値を入れ終えてから（候補入力の欄は後から作られるため次の順番で）全項目を入力不可にし、行追加・行削除を隠す
-      setTimeout(() => { $$('input, select, textarea', f).forEach(el => (el.disabled = true)); $$('[data-line]', f).forEach(b => (b.style.display = 'none')); });
+      if (!edit) setTimeout(() => { $('input, select, textarea', f).forEach(el => (el.disabled = true)); $$('[data-line]', f).forEach(b => (b.style.display = 'none')); });
     };
     // 小口現金は逆仕訳を作らず伝票と仕訳を削除（2026-11-03）。定時請求は従来どおり逆仕訳
-    A.rev = d => confirmBox('伝票の取消', payable ? `${d.no} を取消し、逆仕訳を計上します。` : `${d.no} を削除します。自動仕訳も削除し、逆仕訳は計上しません。`, () => post('/api/expenses/reverse', { id: Number(d.id) }).then(() => { toast(payable ? '取消しました' : '削除しました'); render(); }), payable ? '取消する' : '削除する');
+    A.rev = d => confirmBox(payable ? '伝票の削除' : '伝票の取消', `${d.no} を削除します。自動仕訳（${payable ? 'D01' : 'E01'}）も削除し、逆仕訳は計上しません。`, () => post('/api/expenses/reverse', { id: Number(d.id) }).then(() => { toast('削除しました'); render(); }), '削除する');
     A.lines = d => { const r = list.find(x => x.id === Number(d.id)); modal({ title: `${r.no} の明細`, wide: true, body: table([{ label: '行', value: l => l.no }, { label: '科目', value: l => `${l.account} ${l.accountName}` }, { label: '内訳', value: l => (l.sub ? `${l.sub} ${l.subName}` : '') },
       ...(payable ? [] : [{ label: '支払先', value: l => l.payee }]), { label: '処税率', value: l => taxLabel(l.taxCode) }, { label: payable ? '金額' : '支払額', num: 1, value: l => yen(l.amount) }, { label: 'うち消費税', num: 1, value: l => yen(l.tax) }, { label: '摘要コード', value: l => l.memoCode }, { label: '摘要名', value: l => l.memo }], r.lines) }); };
     const cols2 = [{ label: '伝票No', value: r => r.no }, ...(payable ? [{ label: '請求No', value: r => r.billNo }] : []), { label: payable ? '締切日' : '支払日', value: r => r.date }, ...(payable ? [{ label: '業者', value: r => r.vendorName }, { label: '支払予定日', value: r => r.due }] : [{ label: '支払先', value: r => r.payee }]),
       { label: '科目', html: r => `${esc(r.account)} ${esc(r.accountName || '')}${r.lines.length > 1 ? ` <button class="mini quiet" data-act="lines" data-id="${r.id}">他${r.lines.length - 1}行</button>` : ''}` }, { label: '処税率', value: r => payable ? taxLabel(r.taxCode) : r.taxRate == null ? r.taxCode : `${r.taxRate}%` }, { label: payable ? '金額' : '支払額', num: 1, value: r => yen(r.amount) }, // 小口現金は「支払額」（2026-11-03）
       ...(payable ? [{ label: '支払済', num: 1, value: r => yen(r.paid) }, { label: '未払残高', num: 1, value: r => yen(r.balance) }] : []), { label: '摘要', value: r => r.memo }, { label: '状態', html: r => (!payable && r.status === 'POSTED' ? badge('支払済', 'green') : status(r.status)) }, // 小口現金は登録＝現金で支払済み（2026-11-03 計上済→支払済）
-      { label: '', html: r => canWrite() && r.status === 'POSTED' && !r.paid ? `<button class="mini danger" data-act="rev" data-id="${r.id}" data-no="${esc(r.no)}">取消</button>` : '' },
-      { label: '', html: r => `<button class="mini" data-act="detail" data-id="${r.id}">詳細</button>` }];
+      { label: '', html: r => canWrite() && r.status === 'POSTED' && !r.paid ? `<button class="mini danger" data-act="rev" data-id="${r.id}" data-no="${esc(r.no)}">${payable ? '削除' : '取消'}</button>` : '' },
+      { label: '', html: r => payable && canWrite() && r.status === 'POSTED' && !r.paid ? `<button class="mini" data-act="edit" data-id="${r.id}">修正</button>` : `<button class="mini" data-act="detail" data-id="${r.id}">詳細</button>` }];
     return page(payable ? '定時請求' : '小口現金出納登録', payable ? '業者からの請求（買掛金）を伝票＋明細で計上します（expense_document / expense_line、仕訳 D01）。' : '小口現金での経費支出を伝票＋明細で計上します（仕訳 E01）。',
       `${monthInput('month', month)}${payable ? filterSelect('vendor', masters.vendors, q.vendor, 'すべての業者') : ''}${csvLink('expenses', { month })}${canWrite() ? '<button class="primary" data-act="new">＋ 登録</button>' : ''}`,
       `<section class="card glass" data-sub="list">${table(cols2, payable ? list : list.filter(r => r.status !== 'REVERSED'), { rowClass: r => r.status === 'REVERSED' ? 'reversed' : '' })}</section><div data-sub="${payable ? 'reports' : 'book'}">${payable ? payableReportsCard() : pettyReportsCard()}</div>`);

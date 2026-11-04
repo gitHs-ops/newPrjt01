@@ -234,9 +234,29 @@ export async function advanceBalance(c, vendorId) {
 }
 // 10/19 打合せ：定時請求・小口現金は 1伝票＝複数明細（科目・内訳・処税率・金額・摘要コード7桁・摘要名）、合計は明細から自動集計。
 // 定時請求の請求No は業者ごとの4桁連番。
-export async function createExpense(c, ctx, p) {
+// 伝票の明細と自動仕訳を消す（小口現金・定時請求の削除、定時請求の修正で作り直す前）
+async function dropExpenseRows(c, id) {
+  const js = (await rows(c, "SELECT journal_id FROM journal_entry WHERE source_type='expense_document' AND source_id=?", [String(id)])).map(r => r.journal_id);
+  if (js.length) { const ph = js.map(() => '?').join(','); for (const t of ['journal_line', 'app_slip_no', 'journal_entry']) await c.query(`DELETE FROM ${t} WHERE journal_id IN (${ph})`, js); }
+  await c.query('DELETE FROM expense_line WHERE expense_id=?', [id]);
+  return js.length;
+}
+// 修正・削除できる伝票か（登録済み・支払なし・月次確定前）
+async function editableExpense(c, id) {
+  const d = await one(c, 'SELECT * FROM expense_document WHERE expense_id=? FOR UPDATE', [Number(id)]); check(d, '伝票が見つかりません');
+  check(d.status === 'POSTED', '取消済みです'); await assertOpen(c, d.booked_on);
+  check(!(await one(c, "SELECT 1 x FROM payment_allocation a JOIN payment p ON p.payment_id=a.payment_id AND p.status='POSTED' WHERE a.expense_id=? LIMIT 1", [d.expense_id])), '支払済みの伝票は修正・取消できません（先に支払を取消してください）');
+  return d;
+}
+// 定時請求の修正（11/04 打合せ No.11「一覧で行を選んで修正・削除する」）：伝票No はそのまま、明細と自動仕訳 D01 を作り直す
+export async function updateExpense(c, ctx, p) {
+  const d = await editableExpense(c, p.id); check(d.expense_kind === 'PAYABLE', '修正できるのは定時請求の伝票です');
+  return createExpense(c, ctx, { ...p, kind: 'PAYABLE' }, d);
+}
+export async function createExpense(c, ctx, p, old = null) {
   const kind = String(p.kind); check(['PAYABLE', 'PETTY_CASH'].includes(kind), '区分が不正です');
   const date = isoDate(p.date, kind === 'PAYABLE' ? '締切日' : '支払日'); await assertOpen(c, date);
+  if (old) await dropExpenseRows(c, old.expense_id);   // 立替金の残高チェックの前に旧の仕訳を外す
   // 小口現金：1支払日＝1伝票、明細の行ごとに支払先（業者コード または 自由入力）と科目（2026-10-29 画面レビュー No.9：「支払日を上に入れ、どこに払ったか・どの科目かを打ち込む。日付ごとにある」。支払先ごとに伝票を分けない。現行 HAR733 K02080 と同じ）
   const v = kind === 'PAYABLE' || p.vendor ? await vendorOf(c, p.vendor) : null;
   const payee = kind === 'PETTY_CASH' ? text(p.payee, '支払先', 100, { required: false }) : '';
@@ -279,38 +299,28 @@ export async function createExpense(c, ctx, p) {
   const extTax = ls.filter(l => l.excl).reduce((n, l) => n + l.taxAmt, 0);
   // 10/21 打合せ：定時請求の合計金額は現行どおり手入力し、明細の合計と一致するかチェックする
   if (kind === 'PAYABLE' && p.total !== undefined) { const t = yen(p.total, '合計金額', { max: 9999999999, positive: false }); check(t === amount, `合計金額（${t.toLocaleString('ja-JP')}円）と明細の合計（${amount.toLocaleString('ja-JP')}円）が一致しません`); }
-  const memo = text(p.memo || ls[0].memo || (kind === 'PAYABLE' ? '定時請求' : '小口現金'), '摘要', 500), no = await nextSlipNoFy(c, kind === 'PAYABLE' ? DOC_SERIES.payable : DOC_SERIES.petty, date);
-  let billNo = null;
-  if (kind === 'PAYABLE') {
+  const memo = text(p.memo || ls[0].memo || (kind === 'PAYABLE' ? '定時請求' : '小口現金'), '摘要', 500), no = old ? old.document_no : await nextSlipNoFy(c, kind === 'PAYABLE' ? DOC_SERIES.payable : DOC_SERIES.petty, date);
+  let billNo = old && old.vendor_id === v?.vendor_id ? old.bill_no : null;
+  if (kind === 'PAYABLE' && !billNo) {
     const m = await one(c, "SELECT MAX(CAST(bill_no AS INTEGER)) n FROM expense_document WHERE vendor_id=? AND bill_no ~ '^[0-9]+$'", [v.vendor_id]);
     billNo = String((Number(m?.n || 0) % 9999) + 1).padStart(4, '0');
   }
-  const [r] = await c.query("INSERT INTO expense_document (document_no,expense_kind,vendor_id,booked_on,due_on,gross_amount,memo,status,bill_no,payee) VALUES (?,?,?,?,?,?,?,'POSTED',?,?)", [no, kind, v?.vendor_id || null, date, due, amount, memo, billNo, kind === 'PETTY_CASH' ? (payee || [...new Set(ls.map(l => l.lineVendor?.vendor_name || l.linePayee).filter(Boolean))].join('・').slice(0, 100)) : null]); // payee NULL＝旧データ（支払先は1行目の摘要）
+  const [r] = old ? (await c.query('UPDATE expense_document SET vendor_id=?, booked_on=?, due_on=?, gross_amount=?, memo=?, bill_no=?, row_version=row_version+1 WHERE expense_id=?', [v.vendor_id, date, due, amount, memo, billNo, old.expense_id]), [{ insertId: old.expense_id }]) : await c.query("INSERT INTO expense_document (document_no,expense_kind,vendor_id,booked_on,due_on,gross_amount,memo,status,bill_no,payee) VALUES (?,?,?,?,?,?,?,'POSTED',?,?)", [no, kind, v?.vendor_id || null, date, due, amount, memo, billNo, kind === 'PETTY_CASH' ? (payee || [...new Set(ls.map(l => l.lineVendor?.vendor_name || l.linePayee).filter(Boolean))].join('・').slice(0, 100)) : null]); // payee NULL＝旧データ（支払先は1行目の摘要）
   for (const [i, l] of ls.entries())
     await c.query('INSERT INTO expense_line (expense_id,line_no,account_code,sub_code,department_code,source_tax_code,net_amount,tax_amount,gross_amount,memo,memo_code,payee,vendor_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)',
       [r.insertId, i + 1, l.account, l.sub, dept, l.tax, l.gross - l.taxAmt, l.taxAmt, l.gross, l.memo || memo, l.memoCode || null, l.linePayee || null, l.lineVendor?.vendor_id || null]);
   // 外税の明細は科目に税抜金額、消費税は仮払消費税 1465 に計上（推定）。内税・対象外は従来どおり科目に金額
   await postJournal(c, { date, pattern: kind === 'PAYABLE' ? 'D01' : 'E01', sourceType: 'expense_document', sourceId: r.insertId, lines: [
     ...ls.map(l => line(l.amount < 0 ? 'C' : 'D', l.account, Math.abs(l.amount), { sub: l.sub, dept, tax: l.tax, ...(l.account === ADVANCE_ACCOUNT ? { vendor: v.vendor_id } : {}) })), ...(extTax ? [line(extTax < 0 ? 'C' : 'D', '1465', Math.abs(extTax), { tax: '9' })] : []), kind === 'PAYABLE' ? line('C', '4121', amount, { vendor: v.vendor_id, tax: '9' }) : line('C', '1111', amount, { tax: '9' })] });
-  await audit(c, ctx, 'expense_document', r.insertId, kind === 'PAYABLE' ? 'payable.create' : 'pettycash.create', { no, billNo, vendor: v?.vendor_code, lines: ls.length, amount });
+  await audit(c, ctx, 'expense_document', r.insertId, old ? 'payable.update' : kind === 'PAYABLE' ? 'payable.create' : 'pettycash.create', { no, billNo, vendor: v?.vendor_code, lines: ls.length, amount, ...(old ? { before: Number(old.gross_amount) } : {}) });
   return { id: r.insertId, no, billNo, due };
 }
+// 削除：逆仕訳を作らず、伝票と自動仕訳を削除する（小口現金 E01 は 2026-11-03 ユーザー指示「単純削除」、定時請求 D01 は 11/04 打合せ No.11「行を選んで修正・削除」）
 export async function reverseExpense(c, ctx, { id }) {
-  const d = await one(c, 'SELECT * FROM expense_document WHERE expense_id=? FOR UPDATE', [Number(id)]); check(d, '伝票が見つかりません');
-  check(d.status === 'POSTED', '取消済みです'); await assertOpen(c, d.booked_on);
-  check(!(await one(c, "SELECT 1 x FROM payment_allocation a JOIN payment p ON p.payment_id=a.payment_id AND p.status='POSTED' WHERE a.expense_id=? LIMIT 1", [d.expense_id])), '支払済みの伝票は取消できません（先に支払を取消してください）');
-  // 小口現金は逆仕訳を作らず、伝票と自動仕訳（E01）を削除する（2026-11-03 ユーザー指示「単純削除」）
-  if (d.expense_kind === 'PETTY_CASH') {
-    const js = (await rows(c, "SELECT journal_id FROM journal_entry WHERE source_type='expense_document' AND source_id=?", [String(d.expense_id)])).map(r => r.journal_id);
-    if (js.length) { const ph = js.map(() => '?').join(','); for (const t of ['journal_line', 'app_slip_no', 'journal_entry']) await c.query(`DELETE FROM ${t} WHERE journal_id IN (${ph})`, js); }
-    await c.query('DELETE FROM expense_line WHERE expense_id=?', [d.expense_id]); await c.query('DELETE FROM expense_document WHERE expense_id=?', [d.expense_id]);
-    await audit(c, ctx, 'expense_document', d.expense_id, 'pettycash.delete', { no: d.document_no, amount: Number(d.gross_amount), journals: js.length });
-    return { id: d.expense_id, deleted: true };
-  }
-  await c.query("UPDATE expense_document SET status='REVERSED', row_version=row_version+1 WHERE expense_id=?", [d.expense_id]);
-  await reverseJournal(c, { sourceType: 'expense_document', sourceId: d.expense_id, date: d.booked_on });
-  await audit(c, ctx, 'expense_document', d.expense_id, 'expense.reverse', { no: d.document_no });
-  return { id: d.expense_id };
+  const d = await editableExpense(c, id), journals = await dropExpenseRows(c, d.expense_id);
+  await c.query('DELETE FROM expense_document WHERE expense_id=?', [d.expense_id]);
+  await audit(c, ctx, 'expense_document', d.expense_id, d.expense_kind === 'PETTY_CASH' ? 'pettycash.delete' : 'payable.delete', { no: d.document_no, amount: Number(d.gross_amount), journals });
+  return { id: d.expense_id, deleted: true };
 }
 
 // ---------- 支払 (payment + payment_allocation, journal F01) ----------
