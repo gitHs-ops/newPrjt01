@@ -2053,17 +2053,33 @@ function masterInput(f, r, isNew) {
   else input = `<input name="${f.name}" type="${f.type === 'date' || f.type === 'month' ? f.type : 'text'}" class="${f.type === 'int' || f.type === 'dec' ? 'num' : ''}" value="${esc(v)}" ${f.max ? `maxlength="${f.max}"` : ''} ${dis}>`;
   return field(f.label, input, { req: !f.optional, hint: f.hint });
 }
+// JV構成員・出資比率（2026-11-05 ユーザー指示、11/04 打合せ No.16）：編集中の値で「有効な構成員の出資比率の合計」を月度ごとに計算し、100% でなければ画面に赤字で出す。
+// 保存はエラー（比率の入れ替えは 1 行ずつしか直せないため「合計が100%でなくても保存する」にチェックすれば保存できる）。帳票の出力時も合計100%を確認する
+function jvSumCheck(f, r) {
+  let box = $('#jv-sum');
+  if (!box) { $('#modal-body').insertAdjacentHTML('beforeend', '<div id="jv-sum" style="margin-top:10px"></div>'); box = $('#jv-sum'); ['ratio', 'start', 'active', 'code'].forEach(n => f[n]?.addEventListener(n === 'active' ? 'change' : 'input', () => jvSumCheck(f, r))); f.code?.addEventListener('change', () => jvSumCheck(f, r)); }
+  const code = f.code?.value || r?.code || '', start = f.start?.value || '', ratio = Number(String(f.ratio?.value || '').trim()) || 0, act = !!f.active?.checked;
+  const rows = (masters.jv || []).filter(x => !(r && x.code === r.code && (x.start || '') === (r.start || '')) && !(x.code === code && (x.start || '') === start)).concat(code ? [{ code, start, ratio, active: act }] : []);
+  const asOf = m => { const o = {}; for (const x of rows) if ((x.start || '') <= m && (!o[x.code] || (o[x.code].start || '') < (x.start || ''))) o[x.code] = x; return Object.values(o).filter(x => x.active); };
+  const months = [...new Set([start, ...rows.map(x => x.start || '').filter(m => m >= start)])].sort();
+  let bad = '';
+  for (const m of months) { const sum = Math.round(asOf(m).reduce((n, x) => n + Number(x.ratio || 0) * 100, 0)); if (sum !== 10000) { bad = `${m || '最初'}の月度：有効な構成員の出資比率の合計が ${(sum / 100).toFixed(2)}% です（100% にしてください）`; break; } }
+  box.innerHTML = bad ? `<p class="check-ng small">${esc(bad)}</p><label class="small"><input type="checkbox" name="jvForce"> 合計が100%でなくても保存する（他の構成員を続けて修正する）</label>` : '<p class="check-ok small">有効な構成員の出資比率の合計は 100% です</p>';
+  return bad;
+}
 function masterForm(kind, r) {
   const m = meta.masters[kind];
   // サンプル入力は新規・編集・自社情報のすべてに付ける（2026-10-29。空欄だけを埋めるので入力済みの値は変わらない）
   modal({ title: `${m.label}の${r ? '編集' : '新規登録'}`, submit: r ? '更新する' : '登録する', sample: true, body: `<div class="form-grid">${m.fields.map(f => masterInput(f, r, !r)).join('')}</div>${r?.system ? '<p class="note small">自動仕訳で使用する科目のため無効化できません。</p>' : ''}`,
     onOpen: f => {
+      if (kind === 'jv') jvSumCheck(f, r);
       if (f.site && f.customer) f.customer.onchange = () => (f.site.innerHTML = siteOptions(f.customer.value, '', '（得意先共通）'));
       // 削除：使用中のコードはサーバーが拒否し、無効化を案内する
       if (r && kind !== 'company' && !r.system) { $('#modal-body').insertAdjacentHTML('beforeend', '<div class="filters" style="margin-top:10px"><button type="button" class="danger" id="m-del">削除</button><span class="muted small">取引などで使われているコードは削除できません（「有効」を外して無効化）</span></div>');
         $('#m-del').onclick = () => confirmBox(`${m.label}の削除`, `「${r.key.split('|').filter(Boolean).join('-')}」を削除します。元に戻せません。`, async () => { await post(`/api/masters/${kind}/delete`, { record: r }); toast('削除しました'); await loadMasters(); render(); }, '削除する'); }
     },
     onSubmit: async (v, f) => {
+      if (kind === 'jv') { const bad = jvSumCheck(f, r); if (bad && !f.jvForce?.checked) throw Error(`${bad}。他の構成員も続けて修正する場合は「合計が100%でなくても保存する」にチェックしてください`); }
       const rec = { ...(r || {}), ...v }; for (const x of m.fields) if (x.type === 'bool') rec[x.name] = f[x.name].checked;
       await post('/api/masters/' + kind, { mode: r ? 'update' : 'create', record: rec }); toast(r ? '更新しました' : '登録しました'); await loadMasters(); render();
     } });
