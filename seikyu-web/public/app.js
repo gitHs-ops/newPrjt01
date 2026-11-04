@@ -1338,7 +1338,7 @@ const lrRun = fn => Promise.resolve().then(fn).catch(e => toast(e.message, true)
 function legacyReceiptView() {
   const A = actions;
   A.lrNext = () => lrRun(lrNext); A.lrSearch = () => lrRun(() => { lr.step = 1; return lrNext(); }); A.lrBack = lrBack; A.lrEnd = lrEnd; A.lrFind = lrFind;
-  A.lrAddPay = () => { lrManual(); lr.pays.push({ id: '', amount: '' }); lrPaintRows(); };
+  A.lrAddPay = () => { lrManual(); if (lr.pays.length >= lrShown().length) { lrPaintRows(); return toast('ほかに入金できる請求（入金日までに締めた残高のある請求）がありません', true); } lr.pays.push({ id: '', amount: '' }); lrPaintRows(); };
   A.lrDelPay = d => { lrManual(); lr.pays.splice(Number(d.i), 1); lrPaintRows(); };
   A.lrAddLine = () => { if (lr.lines.length < LR_MAX_LINES) { lr.lines.push(lrBlank()); lrDraw(); } };
   return page('入金処理', '', '', `<section class="card glass lr" id="lr-body">${lrStep1()}</section>`);
