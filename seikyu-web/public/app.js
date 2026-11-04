@@ -1248,23 +1248,33 @@ function lrStep2() {
 // 今回入金額は表示のみ（2026-10-31 ユーザー指示：現場別の入力を決めるまで）。入金額を表示中の請求へ請求No の古い順に配分する（入金消込の自動配分と同じ）
 const lrShown = () => lr.invoices.filter(r => (!lr.from || r.closing >= lr.from) && (!lr.to || r.closing <= lr.to)).sort((a, b) => a.id - b.id);
 const lrAlloc = () => { let rest = lrSum(); return lrShown().map(r => { const n = Math.min(rest, r.balance); rest -= n; return { r, n }; }); };
-const lrPayTotal = () => lrAlloc().reduce((a, x) => a + x.n, 0);
+// 今回入金額の行（2026-11-05 ユーザー指示：行追加。11/04 打合せ No.10「複数の請求日の分が 1 回で入金される。多くても 3〜4 行」）
+// lr.pays が null のあいだは古い請求から自動で割り当て（従来どおり）。［＋ 行追加］か金額・請求を変えると手入力の行（lr.pays）に切り替わる
+const lrPays = () => (lr.pays ? lr.pays.map(p => ({ r: lr.invoices.find(x => String(x.id) === String(p.id)), n: lrNum(p.amount) || 0, p })) : lrAlloc());
+const lrManual = () => { if (!lr.pays) lr.pays = lrAlloc().filter(x => x.n > 0).map(x => ({ id: String(x.r.id), amount: String(x.n) })); };
+const lrPayTotal = () => lrPays().reduce((a, x) => a + (Number.isFinite(x.n) ? x.n : 0), 0);
 const lrPayFoot = () => `<th colspan="5">合計</th><td class="num"><b>${yen(lrPayTotal())}</b></td>`;
 const lrRows = () => {
   const shown = lrAlloc();
   if (!lr.billTo) return '<tr><td colspan="6" class="muted">請求先を選択してください</td></tr>';
   if (!shown.length) return `<tr><td colspan="6" class="muted">${lr.invoices.length ? 'この請求日の請求はありません' : 'この入金日までに締めた、残高のある請求がありません'}</td></tr>`;
-  return shown.map(({ r, n }) => `<tr><td>${esc(lr.billTo)} ${esc(lrNameOf(lr.billTo))}</td><td>${esc(r.closing)}</td><td>${r.id}</td><td>${esc(r.due || '')}</td><td class="num">${yen(r.balance)}</td><td class="num">${n ? yen(n) : ''}</td></tr>`).join('');
+  const who = `${esc(lr.billTo)} ${esc(lrNameOf(lr.billTo))}`;
+  if (lr.pays) return lr.pays.map((p, i) => { const r = lr.invoices.find(x => String(x.id) === String(p.id)), used = new Set(lr.pays.filter((_, k) => k !== i).map(x => String(x.id)));
+    return `<tr><td>${who}</td><td>${esc(r?.closing || '')}</td><td><select data-lp="id" data-i="${i}" aria-label="請求No"><option value="">請求を選択</option>${lrShown().filter(x => !used.has(String(x.id))).map(x => `<option value="${x.id}" ${String(x.id) === String(p.id) ? 'selected' : ''}>${x.id}（${esc(x.closing)}）</option>`).join('')}</select></td><td>${esc(r?.due || '')}</td><td class="num">${r ? yen(r.balance) : ''}</td>`
+      + `<td class="num"><input class="num" data-lp="amount" data-i="${i}" value="${esc(p.amount)}" inputmode="numeric" aria-label="今回入金額" style="width:120px"> <button type="button" class="mini" data-act="lrDelPay" data-i="${i}" title="この行を削除">✕</button></td></tr>`; }).join('');
+  return shown.map(({ r, n }) => `<tr><td>${who}</td><td>${esc(r.closing)}</td><td>${r.id}</td><td>${esc(r.due || '')}</td><td class="num">${yen(r.balance)}</td><td class="num">${n ? yen(n) : ''}</td></tr>`).join('');
 };
 const lrDepNote = () => (lrUsed().some(l => lrKind(l) === 'deposit') && lr.billTo ? `請求先の預り金残高 ${yen(lr.deposit)} 円` : '');
 // 請求日の範囲（任意の絞込）。初期値は 自＝空欄・至＝今日（2026-11-01）
 const lrRange = () => `<div class="filters lr-range"><label class="field">請求日<input type="date" id="lr-from" value="${esc(lr.from)}"></label><span>〜</span><label class="field">　<input type="date" id="lr-to" value="${esc(lr.to)}" aria-label="請求日（至）"></label></div>`;
+const lrAddPayBtn = () => (canWrite() && lr.billTo && lrShown().length > (lr.pays ? lr.pays.length : 0) ? '<button type="button" class="mini" data-act="lrAddPay">＋ 行追加</button>' : '');
 function lrStep3() {
   return `<div class="lr-detail"><div class="lr-amount">入金額 <b>${yen(lrSum())}</b></div>
     <div class="inline-fields lr-bill">${field('請求先', `<input id="lr-bill" list="dl-pcust" autocomplete="off" value="${esc(lr.billInput)}" placeholder="請求先コード" style="width:140px"><small id="lr-bname" class="muted">${esc(lrNameOf(lr.billInput))}</small><small id="lr-dep" class="muted">${esc(lrDepNote())}</small>`, { req: 1 })}</div>
     <div class="table-wrap"><table class="lr-pay"><thead><tr><th>請求先</th><th>請求日</th><th>請求No</th><th>予定日</th><th class="num">入金予定額</th><th class="num">今回入金額</th></tr></thead>
       <tbody id="lr-rows">${lrRows()}</tbody>
       <tfoot><tr id="lr-foot">${lrPayFoot()}</tr></tfoot></table></div>
+    <p id="lr-addpay">${lrAddPayBtn()}</p>
     ${canWrite() ? '' : '<p class="check-ng small">この利用者は登録できません</p>'}${lrKeys([...(canWrite() ? [['lrNext', '登録', 1]] : []), ['lrBack', '前画面'], ['lrEnd', '終了']])}</div>`;
 }
 const lrDraw = () => { const b = $('#lr-body'); if (!b) return; b.innerHTML = lrStep1() + tekiyoList(); };
@@ -1284,10 +1294,11 @@ function lrCheckLines() {
 }
 async function lrRegister() {
   if (!lr.billTo) throw Error('請求先を選択してください');
-  const pays = lrAlloc().filter(x => x.n > 0);
+  if (lr.pays) lr.pays.forEach((p, i) => { const x = lrPays()[i]; if (!p.id && !String(p.amount).trim()) return; if (!x.r) throw Error(`${i + 1}行目の請求を選択してください`); if (!Number.isInteger(x.n) || x.n <= 0) throw Error(`${i + 1}行目の今回入金額を正しく入力してください`); if (x.n > x.r.balance) throw Error(`請求No ${x.r.id} の今回入金額が入金予定額（${yen(x.r.balance)}円）を超えています`); });
+  const pays = lrPays().filter(x => x.r && x.n > 0);
   if (!pays.length) throw Error('入金できる請求がありません');
   const total = pays.reduce((a, x) => a + x.n, 0), sum = lrSum();
-  if (total !== sum) throw Error(`入金額（${yen(sum)}円）が入金予定額の合計（${yen(total)}円）を超えているため登録できません`);
+  if (total !== sum) throw Error(lr.pays ? `今回入金額の合計（${yen(total)}円）が入金額（${yen(sum)}円）と一致しません` : `入金額（${yen(sum)}円）が入金予定額の合計（${yen(total)}円）を超えているため登録できません`);
   const body = { idempotencyKey: lr.key, date: lr.date, customer: lr.billTo, allocations: pays.map(x => ({ invoiceId: x.r.id, amount: x.n })) };
   const PART = { bank: 'BANK', cash: 'CASH', notes: 'NOTE', fee: 'FEE', coop: 'COOP', deposit: 'DEPOSIT', discount: 'DISCOUNT', loss: 'LOSS' };
   for (const l of lrUsed()) { const k = lrKind(l); body[k] = lrNum(l.amount); if (k === 'bank') body.bankCode = l.sub; if (k === 'notes') body.noteDue = l.due; if (l.tax && l.tax !== lrTaxDef(l)) (body.tax ||= {})[PART[k]] = l.tax;
@@ -1303,7 +1314,7 @@ async function lrLoadBill(code) {
   lr.billTo = code; lr.invoices = ctx.invoices.filter(r => r.closing <= lr.date); lr.deposit = ctx.deposit;
   return true;
 }
-const lrPaintRows = () => { const b = $('#lr-rows'); if (!b) return; b.innerHTML = lrRows(); $('#lr-foot').innerHTML = lrPayFoot(); $('#lr-dep').textContent = lrDepNote(); };
+const lrPaintRows = () => { const b = $('#lr-rows'); if (!b) return; b.innerHTML = lrRows(); $('#lr-foot').innerHTML = lrPayFoot(); $('#lr-dep').textContent = lrDepNote(); const ap = $('#lr-addpay'); if (ap) ap.innerHTML = lrAddPayBtn(); };
 async function lrNext() {
   if (lr.step === 1) {
     if (!lr.date) throw Error('入金日を入力してください');
@@ -1316,7 +1327,7 @@ async function lrNext() {
     // 請求先の初期値は得意先。前画面から戻ったときは選んだ請求先のまま
     if (!lr.billInput) lr.billInput = lr.customer;
     if (lr.billTo || masters.customers.some(c => c.code === lr.billInput)) await lrLoadBill(lr.billTo || lr.billInput);
-    lr.key = uuid(); lr.step = 3; return lrDraw();
+    lr.key = uuid(); lr.step = 3; lr.pays = null; return lrDraw();   // 入金額が変わることがあるので行は自動割り当てに戻す
   }
   await lrRegister();
 }
@@ -1327,6 +1338,8 @@ const lrRun = fn => Promise.resolve().then(fn).catch(e => toast(e.message, true)
 function legacyReceiptView() {
   const A = actions;
   A.lrNext = () => lrRun(lrNext); A.lrSearch = () => lrRun(() => { lr.step = 1; return lrNext(); }); A.lrBack = lrBack; A.lrEnd = lrEnd; A.lrFind = lrFind;
+  A.lrAddPay = () => { lrManual(); lr.pays.push({ id: '', amount: '' }); lrPaintRows(); };
+  A.lrDelPay = d => { lrManual(); lr.pays.splice(Number(d.i), 1); lrPaintRows(); };
   A.lrAddLine = () => { if (lr.lines.length < LR_MAX_LINES) { lr.lines.push(lrBlank()); lrDraw(); } };
   return page('入金処理', '', '', `<section class="card glass lr" id="lr-body">${lrStep1()}</section>`);
 }
@@ -1336,12 +1349,13 @@ document.addEventListener('input', e => {
   else if (t.id === 'lr-cust') { lr.customer = t.value.trim(); lr.billInput = ''; lr.billTo = ''; lr.invoices = []; $('#lr-cname').textContent = lrName(); }
   else if (t.id === 'lr-bill') {
     // 1 回の登録で請求先は 1 つ
-    lr.billInput = t.value.trim(); lr.key = uuid(); lr.invoices = []; lr.billTo = ''; lrLoadSeq++;
+    lr.billInput = t.value.trim(); lr.key = uuid(); lr.invoices = []; lr.billTo = ''; lr.pays = null; lrLoadSeq++;
     $('#lr-bname').textContent = lrNameOf(lr.billInput); lrPaintRows();
     if (masters.customers.some(c => c.code === lr.billInput)) lrRun(() => lrLoadBill(lr.billInput).then(ok => { if (ok) lrPaintRows(); }));
   }
   else if (t.dataset.lr === 'amount') { const l = lr.lines[t.dataset.i], c = $(`[data-lr="taxamt"][data-i="${t.dataset.i}"]`); l.amount = t.value; if (c && l.taxAmt === '') c.value = lrTaxable(l) ? String(lrTax(l)) : ''; $('#lr-totals').innerHTML = lrTotals(); }
   // 消費税額を空にすると自動計算に戻す
+  else if (t.dataset.lp === 'amount') { lrManual(); lr.pays[t.dataset.i].amount = t.value; $('#lr-foot').innerHTML = lrPayFoot(); }
   else if (t.dataset.lr === 'taxamt') { lr.lines[t.dataset.i].taxAmt = t.value.trim(); $('#lr-totals').innerHTML = lrTotals(); }
   else if (['due', 'sub2', 'work', 'memo2'].includes(t.dataset.lr)) lr.lines[t.dataset.i][t.dataset.lr] = t.value;
   // 適用コード → 摘要2 に名称（11/04 打合せ No.7）。コードは保存しない（摘要2 の文字だけ）
@@ -1352,7 +1366,8 @@ document.addEventListener('change', e => {
   if (t.dataset.lr === 'acc') { const l = lr.lines[t.dataset.i]; l.acc = t.value; l.sub = ''; l.due = ''; l.tax = ''; l.taxAmt = ''; l.memo2 = ''; if (!t.value) Object.assign(l, { amount: '', sub2: '', work: '' }); lrDraw(); }
   else if (t.dataset.lr === 'sub') { const l = lr.lines[t.dataset.i]; l.sub = t.value; l.tax = ''; l.taxAmt = ''; lrDraw(); }
   else if (t.dataset.lr === 'tax') { const l = lr.lines[t.dataset.i]; l.tax = t.value; l.taxAmt = ''; lrDraw(); }
-  else if (t.id === 'lr-from' || t.id === 'lr-to') { lr[t.id === 'lr-from' ? 'from' : 'to'] = t.value; lrDraw(); }
+  else if (t.id === 'lr-from' || t.id === 'lr-to') { lr[t.id === 'lr-from' ? 'from' : 'to'] = t.value; lr.pays = null; lrDraw(); }
+  else if (t.dataset.lp === 'id') { lrManual(); lr.pays[t.dataset.i].id = t.value; lrPaintRows(); }
 });
 // ファンクションキーはこの画面だけ
 document.addEventListener('keydown', e => {
