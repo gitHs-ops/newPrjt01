@@ -525,3 +525,4 @@ input:disabled, select:disabled, textarea:disabled { background: rgba(120,130,15
 .lr-fixed .lr-range { font-size: .9rem; margin: 0; align-items: center; }
 /* 請求先：ラベル・コード・名称・預り金残高を1行に（2026-10-31） */
 .lr-bill { margin-bottom: 10px; }
+.ext-frame { display: block; width: 100%; height: calc(100vh - 150px); min-height: 480px; border: 1px solid var(--border, #dfe7e7); border-radius: 12px; background: #fff; }

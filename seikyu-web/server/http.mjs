@@ -209,6 +209,12 @@ export async function createApp({ pool, publicDir, secureCookies = process.env.N
         if (!user) { res.writeHead(302, { Location: '/login' }); return res.end(); }
         return send(200, await readFile(new URL('index.html', publicDir)), MIME.html);
       }
+      // 外部システム gsLink（2026-11-05）：ログイン後だけ。画面内の枠で開くため同一オリジンの枠を許し、ページ内のスクリプトを許す
+      if (path === '/gs-link.html') {
+        if (!user) { res.writeHead(302, { Location: '/login' }); return res.end(); }
+        res.setHeader('X-Frame-Options', 'SAMEORIGIN'); res.setHeader('Content-Security-Policy', CSP.replace("script-src 'self'", "script-src 'self' 'unsafe-inline'").replace("frame-ancestors 'none'", "frame-ancestors 'self'"));
+        return send(200, await readFile(new URL('gs-link.html', publicDir)), MIME.html);
+      }
       const name = path.slice(1);
       if (/^[\w.\-]+$/.test(name) && files.has(name) && !name.endsWith('.html')) return send(200, await readFile(new URL(name, publicDir)), MIME[name.split('.').pop()] || 'application/octet-stream', { 'Cache-Control': 'no-cache' });
       return send(404, 'Not found', 'text/plain; charset=utf-8');

@@ -1,0 +1,698 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GS-LINK 物流管理システム</title>
+<link rel="preconnect" href="https://cdn.jsdelivr.net">
+<link href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable.min.css" rel="stylesheet">
+<style>
+:root{
+  --teal-900:#064b4e; --teal-700:#086266; --teal-500:#179a9b; --teal-300:#5fc4c2; --teal-100:#9adcda;
+  --grad:linear-gradient(135deg,#086266 0%,#179a9b 55%,#9adcda 100%);
+  --gold:#c9a227; --gold-soft:#f3e3ad;
+  --bg:#f3f6f6; --card:#ffffff; --line:#dfe7e7; --ink:#15302f; --muted:#6c8382;
+  --danger:#c0392b; --radius:14px; --shadow:0 2px 10px rgba(8,98,102,.08);
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{font-family:'Pretendard Variable',Pretendard,-apple-system,'Noto Sans JP','Hiragino Sans',sans-serif;
+  background:var(--bg);color:var(--ink);font-size:14px;line-height:1.55;-webkit-font-smoothing:antialiased}
+button,input,select,textarea{font:inherit;color:inherit}
+a{color:inherit;text-decoration:none}
+
+/* ===== header ===== */
+header{background:var(--grad);color:#fff;padding:0 20px;height:58px;display:flex;align-items:center;
+  justify-content:space-between;box-shadow:0 2px 12px rgba(6,75,78,.25);position:sticky;top:0;z-index:50}
+.brand{display:flex;align-items:center;gap:10px;cursor:pointer}
+.brand .mark{width:30px;height:30px;border-radius:9px;background:rgba(255,255,255,.16);
+  border:1px solid rgba(255,255,255,.35);display:grid;place-items:center;font-weight:800;font-size:13px;letter-spacing:-.5px}
+.brand b{font-size:19px;letter-spacing:.5px;font-weight:800}
+.brand span{font-size:11px;opacity:.85;border-left:1px solid rgba(255,255,255,.4);padding-left:10px;margin-left:2px}
+.hdr-right{display:flex;align-items:center;gap:14px;font-size:12.5px}
+.hdr-right .user{display:flex;align-items:center;gap:7px}
+.avatar{width:26px;height:26px;border-radius:50%;background:var(--gold);color:#3a2d00;display:grid;place-items:center;
+  font-weight:700;font-size:12px}
+.icon-btn{background:rgba(255,255,255,.14);border:1px solid rgba(255,255,255,.28);color:#fff;border-radius:8px;
+  width:32px;height:32px;cursor:pointer;display:grid;place-items:center}
+.icon-btn:hover{background:rgba(255,255,255,.26)}
+
+/* ===== breadcrumb ===== */
+.crumb{background:#fff;border-bottom:1px solid var(--line);padding:9px 22px;font-size:12.5px;color:var(--muted);
+  display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.crumb a:hover{color:var(--teal-700);text-decoration:underline}
+.crumb .sep{opacity:.45}
+.crumb .now{color:var(--ink);font-weight:600}
+
+main{max-width:1180px;margin:0 auto;padding:24px 20px 60px}
+
+/* ===== top menu ===== */
+.hero{background:var(--grad);border-radius:18px;padding:26px 28px;color:#fff;margin-bottom:22px;
+  display:flex;justify-content:space-between;align-items:flex-end;gap:20px;flex-wrap:wrap;position:relative;overflow:hidden}
+.hero::after{content:"";position:absolute;right:-40px;top:-60px;width:240px;height:240px;border-radius:50%;
+  background:rgba(255,255,255,.08)}
+.hero h1{margin:0 0 6px;font-size:22px;font-weight:800;letter-spacing:-.3px}
+.hero p{margin:0;font-size:13px;opacity:.9}
+.hero .kpis{display:flex;gap:10px;flex-wrap:wrap;position:relative;z-index:1}
+.kpi{background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.28);border-radius:12px;padding:10px 14px;min-width:104px}
+.kpi small{display:block;font-size:11px;opacity:.85}
+.kpi b{font-size:19px;font-weight:800}
+.kpi b i{font-size:11px;font-style:normal;opacity:.8;font-weight:600;margin-left:2px}
+
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(238px,1fr));gap:16px}
+.tile{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:20px 18px 18px;
+  cursor:pointer;position:relative;transition:.16s;box-shadow:var(--shadow);text-align:center}
+.tile:hover{transform:translateY(-3px);border-color:var(--teal-300);box-shadow:0 10px 24px rgba(8,98,102,.16)}
+.tile .no{position:absolute;left:14px;top:10px;font-size:13px;font-weight:800;color:#e3eceb;letter-spacing:1px}
+.tile:hover .no{color:var(--gold-soft)}
+.tile .ico{font-size:30px;line-height:1;margin:10px 0 12px;filter:saturate(1.1)}
+.tile .nm{font-weight:700;font-size:15px}
+.tile .desc{font-size:11.5px;color:var(--muted);margin-top:5px}
+.tile .bar{height:3px;border-radius:3px;background:var(--grad);width:38px;margin:12px auto 0;opacity:.75}
+
+/* ===== submenu ===== */
+.sub-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:12px}
+.sub{background:#fff;border:1px solid var(--line);border-left:4px solid var(--teal-500);border-radius:10px;
+  padding:14px 16px;cursor:pointer;transition:.14s;box-shadow:var(--shadow)}
+.sub:hover{border-left-color:var(--gold);transform:translateX(3px)}
+.sub b{display:block;font-size:14px}
+.sub small{color:var(--muted);font-size:11.5px}
+
+/* ===== page head ===== */
+.page-head{display:flex;justify-content:space-between;align-items:center;gap:14px;margin-bottom:16px;flex-wrap:wrap}
+.page-head h2{margin:0;font-size:19px;font-weight:800;display:flex;align-items:center;gap:9px}
+.page-head h2::before{content:"";width:5px;height:20px;border-radius:3px;background:var(--grad)}
+.toolbar{display:flex;gap:8px;flex-wrap:wrap}
+
+/* ===== buttons ===== */
+.btn{border:1px solid var(--line);background:#fff;border-radius:9px;padding:8px 15px;cursor:pointer;font-size:13px;
+  font-weight:600;transition:.14s;white-space:nowrap}
+.btn:hover{border-color:var(--teal-500);color:var(--teal-700)}
+.btn.primary{background:var(--grad);color:#fff;border:none;box-shadow:0 2px 8px rgba(8,98,102,.3)}
+.btn.primary:hover{filter:brightness(1.07);color:#fff}
+.btn.gold{background:var(--gold);border-color:var(--gold);color:#3a2d00}
+.btn.gold:hover{filter:brightness(1.06);color:#3a2d00}
+.btn.ghost{background:transparent}
+.btn.sm{padding:5px 11px;font-size:12px;border-radius:7px}
+.btn.danger{color:var(--danger);border-color:#f0c9c4}
+.btn.danger:hover{background:#fdf1ef;border-color:var(--danger)}
+
+/* ===== panel / search ===== */
+.panel{background:#fff;border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow);margin-bottom:16px}
+.panel-h{padding:11px 16px;border-bottom:1px solid var(--line);font-weight:700;font-size:13.5px;
+  display:flex;justify-content:space-between;align-items:center;background:#fafcfc;border-radius:var(--radius) var(--radius) 0 0}
+.panel-b{padding:16px}
+.search{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px}
+.fld label{display:block;font-size:11.5px;color:var(--muted);font-weight:600;margin-bottom:4px}
+.fld input,.fld select,.fld textarea{width:100%;padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:#fff}
+.fld input:focus,.fld select:focus,.fld textarea:focus{outline:none;border-color:var(--teal-500);box-shadow:0 0 0 3px rgba(23,154,155,.13)}
+.fld.req label::after{content:" *";color:var(--danger)}
+
+/* ===== table ===== */
+.tbl-wrap{overflow-x:auto}
+table{width:100%;border-collapse:collapse;font-size:13px;min-width:680px}
+thead th{background:#eef5f4;color:var(--teal-900);text-align:left;padding:10px 12px;font-weight:700;font-size:12px;
+  white-space:nowrap;border-bottom:2px solid var(--teal-300)}
+tbody td{padding:9px 12px;border-bottom:1px solid #eef2f2;white-space:nowrap}
+tbody tr:hover{background:#f6fbfb}
+tbody tr.sel{background:#eaf7f6}
+td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
+.empty{padding:38px;text-align:center;color:var(--muted)}
+
+.tag{display:inline-block;padding:2px 9px;border-radius:999px;font-size:11px;font-weight:700;border:1px solid}
+.t-wait{color:#8a6d00;background:#fdf6df;border-color:#f0e0a8}
+.t-ship{color:#0d6e55;background:#e6f6f0;border-color:#b6e3d4}
+.t-done{color:#265fa8;background:#e8f1fb;border-color:#c2daf4}
+.t-cancel{color:#8a4a44;background:#fbeeec;border-color:#f0cbc5}
+
+/* ===== pager ===== */
+.pager{display:flex;justify-content:space-between;align-items:center;padding:11px 16px;border-top:1px solid var(--line);
+  font-size:12.5px;color:var(--muted);flex-wrap:wrap;gap:10px}
+.pager .pages{display:flex;gap:5px}
+.pager .pg{min-width:29px;height:29px;border:1px solid var(--line);border-radius:7px;background:#fff;cursor:pointer;font-size:12.5px}
+.pager .pg.on{background:var(--teal-700);color:#fff;border-color:var(--teal-700);font-weight:700}
+
+/* ===== modal ===== */
+.mask{position:fixed;inset:0;background:rgba(10,40,40,.45);display:grid;place-items:center;z-index:100;padding:18px}
+.modal{background:#fff;border-radius:16px;width:min(720px,100%);max-height:88vh;overflow:auto;box-shadow:0 20px 50px rgba(0,0,0,.28)}
+.modal-h{padding:15px 20px;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;align-items:center;
+  background:var(--grad);color:#fff;border-radius:16px 16px 0 0;position:sticky;top:0}
+.modal-h b{font-size:15.5px}
+.modal-b{padding:20px}
+.modal-f{padding:14px 20px;border-top:1px solid var(--line);display:flex;justify-content:flex-end;gap:9px;background:#fafcfc}
+.form-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.form-grid .full{grid-column:1/-1}
+
+/* ===== misc ===== */
+.toast{position:fixed;right:20px;bottom:22px;background:var(--teal-900);color:#fff;padding:12px 18px;border-radius:10px;
+  box-shadow:0 8px 24px rgba(0,0,0,.25);z-index:200;font-size:13px;border-left:4px solid var(--gold)}
+.stat-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;margin-bottom:16px}
+.stat{background:#fff;border:1px solid var(--line);border-radius:12px;padding:14px 16px;box-shadow:var(--shadow);
+  border-top:3px solid var(--teal-500)}
+.stat small{color:var(--muted);font-size:11.5px;font-weight:600}
+.stat b{display:block;font-size:22px;font-weight:800;margin-top:3px}
+.stat b i{font-size:12px;font-style:normal;color:var(--muted);font-weight:600;margin-left:3px}
+.bars{display:flex;align-items:flex-end;gap:12px;height:170px;padding:10px 4px 0}
+.bars .b{flex:1;display:flex;flex-direction:column;align-items:center;gap:6px;height:100%;justify-content:flex-end}
+.bars .b .v{width:100%;max-width:52px;border-radius:7px 7px 0 0;background:var(--grad);min-height:4px;transition:.5s}
+.bars .b .l{font-size:11px;color:var(--muted)}
+.bars .b .n{font-size:11px;font-weight:700;color:var(--teal-700)}
+.note{font-size:12px;color:var(--muted);background:#fafcfc;border:1px dashed var(--line);border-radius:10px;padding:12px 14px}
+footer{text-align:center;color:var(--muted);font-size:11.5px;padding:18px}
+@media(max-width:640px){
+  .form-grid{grid-template-columns:1fr}
+  header{padding:0 12px}.brand span{display:none}
+  main{padding:16px 12px 50px}
+}
+</style>
+</head>
+<body>
+<header>
+  <div class="brand" onclick="go('#/')">
+    <div class="mark">GS</div>
+    <b>GS-LINK</b><span>物流管理システム</span>
+  </div>
+  <div class="hdr-right">
+    <div class="user"><div class="avatar">金</div><span id="hdrUser">金 現洙 / 管理者</span></div>
+    <button class="icon-btn" title="ログアウト" onclick="toast('ログアウトしました（デモ）')">⏻</button>
+  </div>
+</header>
+<nav class="crumb" id="crumb"></nav>
+<main id="app"></main>
+<footer>GS-LINK Prototype · 感性ソフトウェア · デモデータはブラウザのメモリ上のみで保持されます</footer>
+
+<script>
+/* ================= サンプルデータ ================= */
+const today = new Date();
+const d = (o)=>{const t=new Date(today);t.setDate(t.getDate()+o);return t.toISOString().slice(0,10)};
+const money = n => (n||0).toLocaleString('ja-JP');
+const uid = p => p + '-' + String(Math.floor(Math.random()*9000)+1000);
+
+const DB = {
+  shukka:[
+    {id:'SH-1001',date:d(-2),cust:'ポハン商事',item:'鋼材パイプ 50A',qty:120,unit:'本',veh:'5t-01',driver:'李 大韓',dest:'浦項市 南区',status:'出荷済'},
+    {id:'SH-1002',date:d(-1),cust:'東海物産',item:'セメント 25kg',qty:400,unit:'袋',veh:'11t-02',driver:'朴 民秀',dest:'盈徳郡',status:'出荷済'},
+    {id:'SH-1003',date:d(0),cust:'永徳建設',item:'砕石 40mm',qty:28,unit:'m3',veh:'ダンプ-03',driver:'崔 英浩',dest:'盈徳郡 江口面',status:'出荷待'},
+    {id:'SH-1004',date:d(0),cust:'ポハン商事',item:'H形鋼 200x100',qty:36,unit:'本',veh:'11t-02',driver:'朴 民秀',dest:'慶州市',status:'出荷待'},
+    {id:'SH-1005',date:d(1),cust:'大邱鋼業',item:'鉄筋 D13',qty:900,unit:'本',veh:'5t-01',driver:'李 大韓',dest:'大邱市 達城郡',status:'予定'},
+    {id:'SH-1006',date:d(-3),cust:'東海物産',item:'合板 12mm',qty:250,unit:'枚',veh:'4t-04',driver:'鄭 昌植',dest:'浦項市 北区',status:'納品完了'},
+    {id:'SH-1007',date:d(-4),cust:'永徳建設',item:'生コン 18-8-25',qty:16,unit:'m3',veh:'ミキサ-05',driver:'韓 志成',dest:'盈徳郡 丑山面',status:'納品完了'},
+    {id:'SH-1008',date:d(-5),cust:'大邱鋼業',item:'鋼材パイプ 50A',qty:60,unit:'本',veh:'5t-01',driver:'李 大韓',dest:'亀尾市',status:'キャンセル'}
+  ],
+  uriage:[
+    {id:'UA-2001',date:d(-5),cust:'大邱鋼業',item:'鋼材パイプ 50A',qty:60,price:8500,amount:510000,tax:51000,staff:'金 賢秀'},
+    {id:'UA-2002',date:d(-4),cust:'永徳建設',item:'生コン 18-8-25',qty:16,price:92000,amount:1472000,tax:147200,staff:'金 賢秀'},
+    {id:'UA-2003',date:d(-3),cust:'東海物産',item:'合板 12mm',qty:250,price:3200,amount:800000,tax:80000,staff:'尹 相赫'},
+    {id:'UA-2004',date:d(-2),cust:'ポハン商事',item:'鋼材パイプ 50A',qty:120,price:8500,amount:1020000,tax:102000,staff:'尹 相赫'},
+    {id:'UA-2005',date:d(-1),cust:'東海物産',item:'セメント 25kg',qty:400,price:7800,amount:3120000,tax:312000,staff:'金 賢秀'}
+  ],
+  seikyu:[
+    {id:'IV-3001',month:'2026-09',cust:'ポハン商事',amount:4820000,tax:482000,total:5302000,due:d(-6),status:'入金済'},
+    {id:'IV-3002',month:'2026-09',cust:'東海物産',amount:3920000,tax:392000,total:4312000,due:d(-6),status:'入金済'},
+    {id:'IV-3003',month:'2026-10',cust:'ポハン商事',amount:5160000,tax:516000,total:5676000,due:d(9),status:'請求済'},
+    {id:'IV-3004',month:'2026-10',cust:'永徳建設',amount:2980000,tax:298000,total:3278000,due:d(9),status:'請求済'},
+    {id:'IV-3005',month:'2026-10',cust:'大邱鋼業',amount:1510000,tax:151000,total:1661000,due:d(9),status:'未請求'}
+  ],
+  cust:[
+    {id:'C-001',name:'ポハン商事',tel:'054-123-4567',mgr:'呉 成民',addr:'慶北 浦項市 南区 大島路 12',close:'末日',site:'30日',use:'使用'},
+    {id:'C-002',name:'東海物産',tel:'054-222-8890',mgr:'申 美来',addr:'慶北 浦項市 北区 竹島路 88',close:'20日',site:'45日',use:'使用'},
+    {id:'C-003',name:'永徳建設',tel:'054-733-1120',mgr:'車 俊成',addr:'慶北 盈徳郡 盈徳邑 中央路 5',close:'末日',site:'30日',use:'使用'},
+    {id:'C-004',name:'大邱鋼業',tel:'053-555-7712',mgr:'林 宰赫',addr:'大邱市 達城郡 論工邑 工団路 44',close:'10日',site:'60日',use:'使用'},
+    {id:'C-005',name:'慶州資材',tel:'054-771-3300',mgr:'黄 多恵',addr:'慶北 慶州市 川北面',close:'末日',site:'30日',use:'停止'}
+  ],
+  item:[
+    {id:'P-101',name:'鋼材パイプ 50A',cat:'鋼材',unit:'本',price:8500,cost:6900,stock:380},
+    {id:'P-102',name:'H形鋼 200x100',cat:'鋼材',unit:'本',price:24500,cost:20100,stock:92},
+    {id:'P-103',name:'鉄筋 D13',cat:'鋼材',unit:'本',price:4100,cost:3350,stock:1540},
+    {id:'P-201',name:'セメント 25kg',cat:'資材',unit:'袋',price:7800,cost:6200,stock:860},
+    {id:'P-202',name:'合板 12mm',cat:'資材',unit:'枚',price:3200,cost:2450,stock:430},
+    {id:'P-301',name:'砕石 40mm',cat:'骨材',unit:'m3',price:31000,cost:24000,stock:210},
+    {id:'P-302',name:'生コン 18-8-25',cat:'骨材',unit:'m3',price:92000,cost:78000,stock:0}
+  ],
+  veh:[
+    {id:'5t-01',no:'慶北 80나 1234',type:'カーゴ 5t',driver:'李 大韓',insp:d(48),use:'稼働'},
+    {id:'11t-02',no:'慶北 81다 5678',type:'カーゴ 11t',driver:'朴 民秀',insp:d(120),use:'稼働'},
+    {id:'ダンプ-03',no:'慶北 82라 9012',type:'ダンプ 15t',driver:'崔 英浩',insp:d(15),use:'稼働'},
+    {id:'4t-04',no:'慶北 80마 3456',type:'カーゴ 4t',driver:'鄭 昌植',insp:d(-3),use:'整備中'},
+    {id:'ミキサ-05',no:'慶北 83바 7890',type:'ミキサ 6m3',driver:'韓 志成',insp:d(210),use:'稼働'}
+  ],
+  user:[
+    {id:'admin',name:'金 現洙',dept:'経営',role:'管理者',last:d(0),use:'有効'},
+    {id:'kim.hs',name:'金 賢秀',dept:'営業',role:'一般',last:d(0),use:'有効'},
+    {id:'yoon.sh',name:'尹 相赫',dept:'営業',role:'一般',last:d(-1),use:'有効'},
+    {id:'lee.dh',name:'李 大韓',dept:'運送',role:'ドライバー',last:d(-2),use:'有効'},
+    {id:'old.staff',name:'呉 旧員',dept:'総務',role:'一般',last:d(-180),use:'無効'}
+  ],
+  dump:[
+    {id:'DP-401',date:d(0),veh:'ダンプ-03',driver:'崔 英浩',from:'浦項採石場',to:'盈徳現場A',trips:6,ton:84,fee:420000},
+    {id:'DP-402',date:d(-1),veh:'ダンプ-03',driver:'崔 英浩',from:'浦項採石場',to:'盈徳現場B',trips:5,ton:70,fee:350000},
+    {id:'DP-403',date:d(-2),veh:'ダンプ-03',driver:'崔 英浩',from:'慶州土取場',to:'浦項現場C',trips:4,ton:56,fee:300000},
+    {id:'DP-404',date:d(-3),veh:'ダンプ-03',driver:'崔 英浩',from:'浦項採石場',to:'盈徳現場A',trips:7,ton:98,fee:490000}
+  ],
+  renkei:[
+    {id:'LG-501',time:d(0)+' 06:00',kind:'受注取込',file:'order_20261105.csv',cnt:42,result:'成功',msg:'-'},
+    {id:'LG-502',time:d(0)+' 06:05',kind:'在庫連携',file:'stock_sync.json',cnt:310,result:'成功',msg:'-'},
+    {id:'LG-503',time:d(-1)+' 06:00',kind:'受注取込',file:'order_20261104.csv',cnt:38,result:'警告',msg:'得意先コード未登録 2件'},
+    {id:'LG-504',time:d(-2)+' 06:00',kind:'会計連携',file:'ac_202610.txt',cnt:0,result:'失敗',msg:'接続タイムアウト'}
+  ]
+};
+
+/* ================= メニュー定義 ================= */
+const MODULES = [
+  {no:'01',id:'shukka',ico:'🚚',nm:'出荷管理',desc:'出荷指示・配車・実績',subs:[
+    {id:'shukka-list',nm:'出荷一覧／登録',desc:'出荷指示の検索・登録・修正'},
+    {id:'shukka-plan',nm:'配車計画',desc:'車両別の積載状況を確認'},
+    {id:'shukka-stat',nm:'出荷実績集計',desc:'期間別の出荷件数グラフ'}
+  ]},
+  {no:'02',id:'uriage',ico:'📈',nm:'売上管理',desc:'売上計上・分析',subs:[
+    {id:'uriage-list',nm:'売上一覧／登録',desc:'売上伝票の検索・登録'},
+    {id:'uriage-stat',nm:'得意先別売上',desc:'得意先別の売上構成'}
+  ]},
+  {no:'03',id:'seikyu',ico:'🧾',nm:'請求管理',desc:'締め・請求・入金',subs:[
+    {id:'seikyu-list',nm:'請求一覧／発行',desc:'月次請求の作成・入金消込'},
+    {id:'seikyu-close',nm:'締め処理',desc:'締日に応じた請求データ生成'}
+  ]},
+  {no:'04',id:'master',ico:'🗂️',nm:'マスター管理',desc:'得意先・商品・車両',subs:[
+    {id:'m-cust',nm:'得意先マスター',desc:'取引先情報・締日・サイト'},
+    {id:'m-item',nm:'商品マスター',desc:'単価・原価・在庫'},
+    {id:'m-veh',nm:'車両マスター',desc:'車両・乗務員・車検'}
+  ]},
+  {no:'05',id:'renkei',ico:'🔗',nm:'データ連携管理',desc:'取込／出力・連携ログ',subs:[
+    {id:'renkei-log',nm:'連携ログ',desc:'バッチ実行結果の確認'},
+    {id:'renkei-io',nm:'データ取込／出力',desc:'CSV の取込・出力（デモ）'}
+  ]},
+  {no:'06',id:'system',ico:'🛠️',nm:'システム管理',desc:'利用者・権限・環境',subs:[
+    {id:'sys-user',nm:'利用者管理',desc:'ユーザー登録・権限設定'},
+    {id:'sys-env',nm:'環境設定',desc:'会社情報・税率・採番'}
+  ]},
+  {no:'07',id:'dump',ico:'🏗️',nm:'ダンプ運行管理',desc:'運行日報・運賃',subs:[
+    {id:'dump-list',nm:'運行日報',desc:'台数・往復・積載トン数'},
+    {id:'dump-stat',nm:'運行実績集計',desc:'日別運搬量の推移'}
+  ]}
+];
+
+/* ================= 画面定義（一覧系は共通エンジン） ================= */
+const tag = (s)=>{
+  const m={'出荷待':'t-wait','予定':'t-wait','未請求':'t-wait','警告':'t-wait',
+    '出荷済':'t-ship','請求済':'t-ship','成功':'t-ship','使用':'t-ship','稼働':'t-ship','有効':'t-ship',
+    '納品完了':'t-done','入金済':'t-done',
+    'キャンセル':'t-cancel','失敗':'t-cancel','停止':'t-cancel','整備中':'t-cancel','無効':'t-cancel'};
+  return `<span class="tag ${m[s]||'t-done'}">${s}</span>`;
+};
+const SCREENS = {
+ 'shukka-list':{mod:'shukka',title:'出荷一覧／登録',key:'shukka',idf:'id',
+   search:[{k:'id',l:'出荷番号'},{k:'cust',l:'得意先'},{k:'status',l:'状態',opt:['','出荷待','予定','出荷済','納品完了','キャンセル']}],
+   cols:[{k:'id',l:'出荷番号'},{k:'date',l:'出荷日'},{k:'cust',l:'得意先'},{k:'item',l:'品名'},
+         {k:'qty',l:'数量',num:1},{k:'unit',l:'単位'},{k:'veh',l:'車両'},{k:'driver',l:'乗務員'},
+         {k:'dest',l:'納品先'},{k:'status',l:'状態',fmt:tag}],
+   form:[{k:'id',l:'出荷番号',req:1,auto:'SH'},{k:'date',l:'出荷日',t:'date',req:1},
+         {k:'cust',l:'得意先',t:'select',src:'cust',req:1},{k:'item',l:'品名',t:'select',src:'item',req:1},
+         {k:'qty',l:'数量',t:'number',req:1},{k:'unit',l:'単位'},
+         {k:'veh',l:'車両',t:'select',src:'veh'},{k:'driver',l:'乗務員'},
+         {k:'dest',l:'納品先',full:1},{k:'status',l:'状態',t:'select',opt:['出荷待','予定','出荷済','納品完了','キャンセル']}]},
+ 'uriage-list':{mod:'uriage',title:'売上一覧／登録',key:'uriage',idf:'id',
+   search:[{k:'id',l:'伝票番号'},{k:'cust',l:'得意先'},{k:'staff',l:'担当者'}],
+   cols:[{k:'id',l:'伝票番号'},{k:'date',l:'売上日'},{k:'cust',l:'得意先'},{k:'item',l:'品名'},
+         {k:'qty',l:'数量',num:1},{k:'price',l:'単価',num:1,fmt:money},{k:'amount',l:'金額',num:1,fmt:money},
+         {k:'tax',l:'消費税',num:1,fmt:money},{k:'staff',l:'担当者'}],
+   form:[{k:'id',l:'伝票番号',req:1,auto:'UA'},{k:'date',l:'売上日',t:'date',req:1},
+         {k:'cust',l:'得意先',t:'select',src:'cust',req:1},{k:'item',l:'品名',t:'select',src:'item',req:1},
+         {k:'qty',l:'数量',t:'number',req:1},{k:'price',l:'単価',t:'number',req:1},
+         {k:'amount',l:'金額',t:'number',calc:(f)=>(+f.qty||0)*(+f.price||0)},
+         {k:'tax',l:'消費税',t:'number',calc:(f)=>Math.round((+f.qty||0)*(+f.price||0)*0.1)},
+         {k:'staff',l:'担当者'}]},
+ 'seikyu-list':{mod:'seikyu',title:'請求一覧／発行',key:'seikyu',idf:'id',
+   search:[{k:'month',l:'請求月'},{k:'cust',l:'得意先'},{k:'status',l:'状態',opt:['','未請求','請求済','入金済']}],
+   cols:[{k:'id',l:'請求番号'},{k:'month',l:'請求月'},{k:'cust',l:'得意先'},
+         {k:'amount',l:'請求額',num:1,fmt:money},{k:'tax',l:'消費税',num:1,fmt:money},
+         {k:'total',l:'合計',num:1,fmt:money},{k:'due',l:'入金予定日'},{k:'status',l:'状態',fmt:tag}],
+   form:[{k:'id',l:'請求番号',req:1,auto:'IV'},{k:'month',l:'請求月',req:1},
+         {k:'cust',l:'得意先',t:'select',src:'cust',req:1},{k:'amount',l:'請求額',t:'number',req:1},
+         {k:'tax',l:'消費税',t:'number',calc:(f)=>Math.round((+f.amount||0)*0.1)},
+         {k:'total',l:'合計',t:'number',calc:(f)=>Math.round((+f.amount||0)*1.1)},
+         {k:'due',l:'入金予定日',t:'date'},{k:'status',l:'状態',t:'select',opt:['未請求','請求済','入金済']}]},
+ 'm-cust':{mod:'master',title:'得意先マスター',key:'cust',idf:'id',
+   search:[{k:'id',l:'得意先コード'},{k:'name',l:'得意先名'},{k:'use',l:'区分',opt:['','使用','停止']}],
+   cols:[{k:'id',l:'コード'},{k:'name',l:'得意先名'},{k:'mgr',l:'担当者'},{k:'tel',l:'電話番号'},
+         {k:'addr',l:'住所'},{k:'close',l:'締日'},{k:'site',l:'サイト'},{k:'use',l:'区分',fmt:tag}],
+   form:[{k:'id',l:'得意先コード',req:1,auto:'C'},{k:'name',l:'得意先名',req:1},{k:'mgr',l:'担当者'},
+         {k:'tel',l:'電話番号'},{k:'addr',l:'住所',full:1},
+         {k:'close',l:'締日',t:'select',opt:['末日','10日','20日','25日']},
+         {k:'site',l:'入金サイト',t:'select',opt:['30日','45日','60日','90日']},
+         {k:'use',l:'区分',t:'select',opt:['使用','停止']}]},
+ 'm-item':{mod:'master',title:'商品マスター',key:'item',idf:'id',
+   search:[{k:'id',l:'商品コード'},{k:'name',l:'商品名'},{k:'cat',l:'分類',opt:['','鋼材','資材','骨材']}],
+   cols:[{k:'id',l:'コード'},{k:'name',l:'商品名'},{k:'cat',l:'分類'},{k:'unit',l:'単位'},
+         {k:'price',l:'販売単価',num:1,fmt:money},{k:'cost',l:'原価',num:1,fmt:money},{k:'stock',l:'在庫',num:1,fmt:money}],
+   form:[{k:'id',l:'商品コード',req:1,auto:'P'},{k:'name',l:'商品名',req:1},
+         {k:'cat',l:'分類',t:'select',opt:['鋼材','資材','骨材']},{k:'unit',l:'単位'},
+         {k:'price',l:'販売単価',t:'number'},{k:'cost',l:'原価',t:'number'},{k:'stock',l:'在庫数',t:'number'}]},
+ 'm-veh':{mod:'master',title:'車両マスター',key:'veh',idf:'id',
+   search:[{k:'id',l:'車両コード'},{k:'driver',l:'乗務員'},{k:'use',l:'状態',opt:['','稼働','整備中']}],
+   cols:[{k:'id',l:'車両コード'},{k:'no',l:'車両番号'},{k:'type',l:'車種'},{k:'driver',l:'乗務員'},
+         {k:'insp',l:'次回車検'},{k:'use',l:'状態',fmt:tag}],
+   form:[{k:'id',l:'車両コード',req:1,auto:'V'},{k:'no',l:'車両番号',req:1},{k:'type',l:'車種'},
+         {k:'driver',l:'乗務員'},{k:'insp',l:'次回車検日',t:'date'},
+         {k:'use',l:'状態',t:'select',opt:['稼働','整備中']}]},
+ 'sys-user':{mod:'system',title:'利用者管理',key:'user',idf:'id',
+   search:[{k:'id',l:'ユーザーID'},{k:'name',l:'氏名'},{k:'role',l:'権限',opt:['','管理者','一般','ドライバー']}],
+   cols:[{k:'id',l:'ユーザーID'},{k:'name',l:'氏名'},{k:'dept',l:'所属'},{k:'role',l:'権限'},
+         {k:'last',l:'最終ログイン'},{k:'use',l:'状態',fmt:tag}],
+   form:[{k:'id',l:'ユーザーID',req:1},{k:'name',l:'氏名',req:1},{k:'dept',l:'所属'},
+         {k:'role',l:'権限',t:'select',opt:['管理者','一般','ドライバー']},
+         {k:'last',l:'最終ログイン',t:'date'},{k:'use',l:'状態',t:'select',opt:['有効','無効']}]},
+ 'dump-list':{mod:'dump',title:'運行日報',key:'dump',idf:'id',
+   search:[{k:'date',l:'運行日'},{k:'veh',l:'車両'},{k:'driver',l:'乗務員'}],
+   cols:[{k:'id',l:'日報番号'},{k:'date',l:'運行日'},{k:'veh',l:'車両'},{k:'driver',l:'乗務員'},
+         {k:'from',l:'積込地'},{k:'to',l:'荷降地'},{k:'trips',l:'往復',num:1},
+         {k:'ton',l:'積載t',num:1},{k:'fee',l:'運賃',num:1,fmt:money}],
+   form:[{k:'id',l:'日報番号',req:1,auto:'DP'},{k:'date',l:'運行日',t:'date',req:1},
+         {k:'veh',l:'車両',t:'select',src:'veh',req:1},{k:'driver',l:'乗務員'},
+         {k:'from',l:'積込地'},{k:'to',l:'荷降地'},{k:'trips',l:'往復回数',t:'number'},
+         {k:'ton',l:'積載トン数',t:'number'},{k:'fee',l:'運賃',t:'number'}]},
+ 'renkei-log':{mod:'renkei',title:'連携ログ',key:'renkei',idf:'id',readonly:1,
+   search:[{k:'kind',l:'種別',opt:['','受注取込','在庫連携','会計連携']},{k:'result',l:'結果',opt:['','成功','警告','失敗']}],
+   cols:[{k:'id',l:'ログ番号'},{k:'time',l:'実行日時'},{k:'kind',l:'種別'},{k:'file',l:'ファイル'},
+         {k:'cnt',l:'件数',num:1},{k:'result',l:'結果',fmt:tag},{k:'msg',l:'メッセージ'}]}
+};
+
+/* ================= ルーター ================= */
+let route = {view:'top'};
+function go(h){location.hash=h}
+window.addEventListener('hashchange',render);
+
+function parse(){
+  const h=location.hash.replace(/^#\/?/,'');
+  if(!h) return {view:'top'};
+  const [a,b]=h.split('/');
+  if(a==='m') return {view:'module',mod:b};
+  if(a==='s') return {view:'screen',sc:b};
+  return {view:'top'};
+}
+
+/* ================= 描画 ================= */
+function render(){
+  route=parse();
+  const app=document.getElementById('app');
+  if(route.view==='top'){crumbs([]);app.innerHTML=viewTop();}
+  else if(route.view==='module'){
+    const m=MODULES.find(x=>x.id===route.mod); if(!m) return go('#/');
+    crumbs([{t:m.nm}]); app.innerHTML=viewModule(m);
+  } else {
+    const id=route.sc;
+    const m=MODULES.find(x=>x.subs.some(s=>s.id===id));
+    const sub=m&&m.subs.find(s=>s.id===id);
+    if(!m) return go('#/');
+    crumbs([{t:m.nm,h:'#/m/'+m.id},{t:sub.nm}]);
+    app.innerHTML = SCREENS[id] ? viewList(id) : viewSpecial(id,m,sub);
+    if(SCREENS[id]) bindList(id);
+    if(id==='shukka-stat'||id==='dump-stat'||id==='uriage-stat') animBars();
+  }
+  window.scrollTo(0,0);
+}
+function crumbs(arr){
+  const c=document.getElementById('crumb');
+  let h=`<a href="#/">🏠 トップメニュー</a>`;
+  arr.forEach(x=>{h+=`<span class="sep">›</span>`+(x.h?`<a href="${x.h}">${x.t}</a>`:`<span class="now">${x.t}</span>`)});
+  c.innerHTML=h;
+}
+
+function viewTop(){
+  const wait=DB.shukka.filter(s=>s.status==='出荷待').length;
+  const sales=DB.uriage.reduce((a,b)=>a+b.amount,0);
+  const unpaid=DB.seikyu.filter(s=>s.status!=='入金済').reduce((a,b)=>a+b.total,0);
+  return `
+  <div class="hero">
+    <div>
+      <h1>GS-LINK 物流管理システム</h1>
+      <p>${today.getFullYear()}年${today.getMonth()+1}月${today.getDate()}日 · ようこそ、金 現洙 様</p>
+    </div>
+    <div class="kpis">
+      <div class="kpi"><small>本日の出荷待</small><b>${wait}<i>件</i></b></div>
+      <div class="kpi"><small>当月売上</small><b>${money(sales)}<i>円</i></b></div>
+      <div class="kpi"><small>未入金残</small><b>${money(unpaid)}<i>円</i></b></div>
+      <div class="kpi"><small>稼働車両</small><b>${DB.veh.filter(v=>v.use==='稼働').length}<i>台</i></b></div>
+    </div>
+  </div>
+  <div class="grid">
+    ${MODULES.map(m=>`
+      <div class="tile" onclick="go('#/m/${m.id}')">
+        <div class="no">${m.no}</div>
+        <div class="ico">${m.ico}</div>
+        <div class="nm">${m.nm}</div>
+        <div class="desc">${m.desc}</div>
+        <div class="bar"></div>
+      </div>`).join('')}
+  </div>`;
+}
+
+function viewModule(m){
+  return `
+  <div class="page-head">
+    <h2>${m.ico} ${m.nm}</h2>
+    <div class="toolbar"><button class="btn ghost" onclick="go('#/')">← トップメニュー</button></div>
+  </div>
+  <div class="sub-grid">
+    ${m.subs.map(s=>`<div class="sub" onclick="go('#/s/${s.id}')"><b>${s.nm}</b><small>${s.desc}</small></div>`).join('')}
+  </div>`;
+}
+
+/* ---------- 共通一覧画面 ---------- */
+const PAGE=6;
+let listState={};
+function viewList(id){
+  const S=SCREENS[id];
+  listState[id]=listState[id]||{q:{},page:1,sel:null};
+  return `
+  <div class="page-head">
+    <h2>${S.title}</h2>
+    <div class="toolbar">
+      ${S.readonly?'':`<button class="btn primary" onclick="openForm('${id}')">＋ 新規登録</button>`}
+      <button class="btn" onclick="exportCsv('${id}')">⬇ CSV出力</button>
+      <button class="btn ghost" onclick="go('#/m/${S.mod}')">← 戻る</button>
+    </div>
+  </div>
+  <div class="panel">
+    <div class="panel-h">検索条件</div>
+    <div class="panel-b">
+      <div class="search">
+        ${S.search.map(f=>`<div class="fld"><label>${f.l}</label>${
+          f.opt?`<select data-q="${f.k}">${f.opt.map(o=>`<option value="${o}">${o||'すべて'}</option>`).join('')}</select>`
+               :`<input data-q="${f.k}" placeholder="部分一致">`}</div>`).join('')}
+      </div>
+      <div style="margin-top:14px;display:flex;gap:8px">
+        <button class="btn primary" onclick="doSearch('${id}')">🔍 検索</button>
+        <button class="btn" onclick="resetSearch('${id}')">条件クリア</button>
+      </div>
+    </div>
+  </div>
+  <div class="panel">
+    <div class="panel-h"><span>検索結果</span><span id="cnt-${id}" style="font-weight:600;color:var(--muted)"></span></div>
+    <div class="tbl-wrap" id="tbl-${id}"></div>
+    <div class="pager" id="pgr-${id}"></div>
+  </div>`;
+}
+function bindList(id){drawTable(id)}
+function doSearch(id){
+  const q={};document.querySelectorAll(`[data-q]`).forEach(e=>{if(e.value)q[e.dataset.q]=e.value});
+  listState[id]={...listState[id],q,page:1};drawTable(id);
+}
+function resetSearch(id){document.querySelectorAll('[data-q]').forEach(e=>e.value='');listState[id]={q:{},page:1,sel:null};drawTable(id)}
+function filtered(id){
+  const S=SCREENS[id],st=listState[id];
+  return DB[S.key].filter(r=>Object.entries(st.q).every(([k,v])=>String(r[k]??'').includes(v)));
+}
+function drawTable(id){
+  const S=SCREENS[id],st=listState[id],rows=filtered(id);
+  const tot=Math.max(1,Math.ceil(rows.length/PAGE));
+  if(st.page>tot)st.page=tot;
+  const page=rows.slice((st.page-1)*PAGE,st.page*PAGE);
+  document.getElementById('cnt-'+id).textContent=`全 ${rows.length} 件`;
+  document.getElementById('tbl-'+id).innerHTML = rows.length? `
+    <table><thead><tr>${S.cols.map(c=>`<th class="${c.num?'num':''}">${c.l}</th>`).join('')}
+    ${S.readonly?'':'<th>操作</th>'}</tr></thead><tbody>
+    ${page.map(r=>`<tr>${S.cols.map(c=>`<td class="${c.num?'num':''}">${c.fmt?c.fmt(r[c.k]):(r[c.k]??'')}</td>`).join('')}
+      ${S.readonly?'':`<td><button class="btn sm" onclick="openForm('${id}','${r[S.idf]}')">修正</button>
+       <button class="btn sm danger" onclick="delRow('${id}','${r[S.idf]}')">削除</button></td>`}</tr>`).join('')}
+    </tbody></table>`:`<div class="empty">該当するデータがありません</div>`;
+  let pg='';for(let i=1;i<=tot;i++)pg+=`<button class="pg ${i===st.page?'on':''}" onclick="setPage('${id}',${i})">${i}</button>`;
+  document.getElementById('pgr-'+id).innerHTML=`<span>${st.page} / ${tot} ページ</span><div class="pages">${pg}</div>`;
+}
+function setPage(id,p){listState[id].page=p;drawTable(id)}
+function delRow(id,key){
+  const S=SCREENS[id];
+  if(!confirm('選択したデータを削除します。よろしいですか？'))return;
+  DB[S.key]=DB[S.key].filter(r=>r[S.idf]!==key);drawTable(id);toast('削除しました');
+}
+function exportCsv(id){
+  const S=SCREENS[id],rows=filtered(id);
+  const csv=[S.cols.map(c=>c.l).join(','),...rows.map(r=>S.cols.map(c=>r[c.k]).join(','))].join('\n');
+  toast(`CSV ${rows.length} 件を出力しました（デモ）`);
+  console.log(csv);
+}
+
+/* ---------- 入力フォーム ---------- */
+let formCtx=null;
+function openForm(id,key){
+  const S=SCREENS[id];
+  const rec=key?{...DB[S.key].find(r=>r[S.idf]===key)}:{};
+  if(!key)S.form.forEach(f=>{if(f.auto)rec[f.k]=uid(f.auto);if(f.t==='date')rec[f.k]=d(0)});
+  formCtx={id,key,rec};
+  const srcOpt=(src)=>DB[src].map(x=>x.name||x.id);
+  document.body.insertAdjacentHTML('beforeend',`
+  <div class="mask" id="mask">
+    <div class="modal">
+      <div class="modal-h"><b>${S.title} ${key?'修正':'新規登録'}</b>
+        <button class="icon-btn" onclick="closeForm()">✕</button></div>
+      <div class="modal-b"><div class="form-grid">
+        ${S.form.map(f=>{
+          const v=rec[f.k]??'';
+          const ro=(key&&f.req&&f.auto)||f.calc?'readonly':'';
+          let el;
+          if(f.t==='select'){
+            const opts=f.opt||srcOpt(f.src);
+            el=`<select data-f="${f.k}" onchange="recalc()">${opts.map(o=>`<option ${o==v?'selected':''}>${o}</option>`).join('')}</select>`;
+          } else el=`<input data-f="${f.k}" type="${f.t||'text'}" value="${v}" ${ro} oninput="recalc()">`;
+          return `<div class="fld ${f.req?'req':''} ${f.full?'full':''}"><label>${f.l}</label>${el}</div>`;
+        }).join('')}
+      </div></div>
+      <div class="modal-f">
+        <button class="btn" onclick="closeForm()">キャンセル</button>
+        <button class="btn gold" onclick="saveForm()">💾 保存</button>
+      </div>
+    </div>
+  </div>`);
+  recalc();
+}
+function readForm(){const o={};document.querySelectorAll('[data-f]').forEach(e=>o[e.dataset.f]=e.value);return o}
+function recalc(){
+  if(!formCtx)return;const S=SCREENS[formCtx.id],f=readForm();
+  S.form.filter(x=>x.calc).forEach(x=>{const el=document.querySelector(`[data-f="${x.k}"]`);if(el)el.value=x.calc(f)});
+}
+function closeForm(){const m=document.getElementById('mask');if(m)m.remove();formCtx=null}
+function saveForm(){
+  const {id,key}=formCtx,S=SCREENS[id],o=readForm();
+  const miss=S.form.filter(f=>f.req&&!String(o[f.k]||'').trim());
+  if(miss.length)return alert('必須項目が未入力です：'+miss.map(f=>f.l).join('、'));
+  S.form.forEach(f=>{if(f.t==='number')o[f.k]=Number(o[f.k])||0});
+  if(key){const i=DB[S.key].findIndex(r=>r[S.idf]===key);DB[S.key][i]={...DB[S.key][i],...o}}
+  else{
+    if(DB[S.key].some(r=>r[S.idf]===o[S.idf]))return alert('同じコードが既に登録されています。');
+    DB[S.key].unshift(o);
+  }
+  closeForm();drawTable(id);toast(key?'修正しました':'登録しました');
+}
+
+/* ---------- 個別画面 ---------- */
+function viewSpecial(id,m,sub){
+  const head=(extra='')=>`
+  <div class="page-head"><h2>${sub.nm}</h2>
+    <div class="toolbar">${extra}<button class="btn ghost" onclick="go('#/m/${m.id}')">← 戻る</button></div></div>`;
+
+  if(id==='shukka-plan'){
+    const byVeh={};DB.shukka.filter(s=>['出荷待','予定','出荷済'].includes(s.status))
+      .forEach(s=>{(byVeh[s.veh]=byVeh[s.veh]||[]).push(s)});
+    return head()+`<div class="stat-row">
+      ${DB.veh.map(v=>{const l=byVeh[v.id]||[];return `
+        <div class="stat"><small>${v.id} / ${v.driver}</small><b>${l.length}<i>件</i></b>
+        <div style="font-size:11.5px;color:var(--muted);margin-top:6px">${v.type} · ${tag(v.use)}</div></div>`}).join('')}
+    </div>
+    <div class="panel"><div class="panel-h">車両別 積載予定</div><div class="tbl-wrap">
+      <table><thead><tr><th>車両</th><th>乗務員</th><th>出荷日</th><th>得意先</th><th>品名</th><th class="num">数量</th><th>納品先</th><th>状態</th></tr></thead>
+      <tbody>${DB.shukka.filter(s=>s.status!=='キャンセル').map(s=>{const v=DB.veh.find(x=>x.id===s.veh)||{};
+        return `<tr><td>${s.veh}</td><td>${v.driver||s.driver}</td><td>${s.date}</td><td>${s.cust}</td><td>${s.item}</td>
+        <td class="num">${money(s.qty)} ${s.unit}</td><td>${s.dest}</td><td>${tag(s.status)}</td></tr>`}).join('')}
+      </tbody></table></div></div>`;
+  }
+  if(id==='shukka-stat'){
+    const map={};DB.shukka.forEach(s=>map[s.date]=(map[s.date]||0)+1);
+    return head()+barPanel('日別 出荷件数',map,'件')+`<div class="note">※ デモデータに基づく集計です。実運用では期間指定・得意先別のドリルダウンを想定しています。</div>`;
+  }
+  if(id==='uriage-stat'){
+    const map={};DB.uriage.forEach(s=>map[s.cust]=(map[s.cust]||0)+s.amount);
+    const tot=Object.values(map).reduce((a,b)=>a+b,0);
+    return head()+`<div class="stat-row">
+      <div class="stat"><small>売上合計</small><b>${money(tot)}<i>円</i></b></div>
+      <div class="stat"><small>伝票件数</small><b>${DB.uriage.length}<i>件</i></b></div>
+      <div class="stat"><small>平均単価</small><b>${money(Math.round(tot/DB.uriage.length))}<i>円</i></b></div>
+    </div>`+barPanel('得意先別 売上',map,'円');
+  }
+  if(id==='seikyu-close'){
+    return head()+`<div class="panel"><div class="panel-h">締め処理</div><div class="panel-b">
+      <div class="search">
+        <div class="fld"><label>締め対象年月</label><input type="month" value="2026-11"></div>
+        <div class="fld"><label>締日区分</label><select><option>すべて</option><option>末日</option><option>10日</option><option>20日</option></select></div>
+        <div class="fld"><label>得意先</label><select><option>すべて</option>${DB.cust.map(c=>`<option>${c.name}</option>`).join('')}</select></div>
+      </div>
+      <div style="margin-top:16px;display:flex;gap:8px">
+        <button class="btn primary" onclick="toast('締め処理を実行しました（対象 ${DB.uriage.length} 件 / デモ）')">▶ 締め処理実行</button>
+        <button class="btn" onclick="toast('締め取消を実行しました（デモ）')">締め取消</button>
+      </div>
+      <div class="note" style="margin-top:16px">締め処理を実行すると、対象期間の売上伝票から請求データが自動生成されます（本プロトタイプでは実行結果のみ表示）。</div>
+    </div></div>`;
+  }
+  if(id==='renkei-io'){
+    return head()+`<div class="panel"><div class="panel-h">データ取込</div><div class="panel-b">
+      <div class="search">
+        <div class="fld"><label>連携種別</label><select><option>受注取込</option><option>在庫連携</option><option>会計連携</option></select></div>
+        <div class="fld"><label>ファイル</label><input type="file"></div>
+        <div class="fld"><label>文字コード</label><select><option>UTF-8</option><option>Shift_JIS</option><option>EUC-KR</option></select></div>
+      </div>
+      <div style="margin-top:14px"><button class="btn primary" onclick="toast('取込を実行しました（デモ）')">⬆ 取込実行</button></div>
+    </div></div>
+    <div class="panel"><div class="panel-h">データ出力</div><div class="panel-b">
+      <div class="search">
+        <div class="fld"><label>出力対象</label><select><option>出荷データ</option><option>売上データ</option><option>請求データ</option></select></div>
+        <div class="fld"><label>期間（開始）</label><input type="date" value="${d(-30)}"></div>
+        <div class="fld"><label>期間（終了）</label><input type="date" value="${d(0)}"></div>
+      </div>
+      <div style="margin-top:14px"><button class="btn gold" onclick="toast('CSV を出力しました（デモ）')">⬇ CSV出力</button></div>
+    </div></div>`;
+  }
+  if(id==='sys-env'){
+    const f=(l,v,t='text')=>`<div class="fld"><label>${l}</label><input type="${t}" value="${v}"></div>`;
+    return head()+`<div class="panel"><div class="panel-h">会社情報</div><div class="panel-b"><div class="search">
+      ${f('会社名','感性ソフトウェア')}${f('代表者','金 現洙')}${f('所在地','慶尚北道 浦項市')}
+      ${f('電話番号','054-000-0000')}${f('事業者番号','000-00-00000')}
+    </div></div></div>
+    <div class="panel"><div class="panel-h">運用設定</div><div class="panel-b"><div class="search">
+      ${f('消費税率（%）','10','number')}${f('端数処理','四捨五入')}${f('出荷番号採番','SH-####')}
+      ${f('請求番号採番','IV-####')}${f('データ保持期間（年）','7','number')}
+    </div>
+    <div style="margin-top:14px"><button class="btn gold" onclick="toast('設定を保存しました（デモ）')">💾 設定保存</button></div>
+    </div></div>`;
+  }
+  if(id==='dump-stat'){
+    const map={};DB.dump.forEach(x=>map[x.date]=(map[x.date]||0)+x.ton);
+    const tot=DB.dump.reduce((a,b)=>a+b.fee,0),ton=DB.dump.reduce((a,b)=>a+b.ton,0);
+    return head()+`<div class="stat-row">
+      <div class="stat"><small>総運搬量</small><b>${money(ton)}<i>t</i></b></div>
+      <div class="stat"><small>総運賃</small><b>${money(tot)}<i>円</i></b></div>
+      <div class="stat"><small>日報件数</small><b>${DB.dump.length}<i>件</i></b></div>
+      <div class="stat"><small>平均単価</small><b>${money(Math.round(tot/ton))}<i>円/t</i></b></div>
+    </div>`+barPanel('日別 運搬量',map,'t');
+  }
+  return head()+`<div class="note">この画面はプロトタイプ未実装です。</div>`;
+}
+function barPanel(title,map,unit){
+  const keys=Object.keys(map).sort(),max=Math.max(...Object.values(map),1);
+  return `<div class="panel"><div class="panel-h">${title}</div><div class="panel-b">
+    <div class="bars">${keys.map(k=>`<div class="b">
+      <div class="n">${money(map[k])}${unit}</div>
+      <div class="v" data-h="${Math.round(map[k]/max*100)}" style="height:0"></div>
+      <div class="l">${k.length>7?k.slice(5):k}</div></div>`).join('')}</div>
+  </div></div>`;
+}
+function animBars(){requestAnimationFrame(()=>document.querySelectorAll('.bars .v').forEach(e=>e.style.height=e.dataset.h+'%'))}
+
+/* ---------- toast ---------- */
+let tt;
+function toast(msg){
+  document.querySelectorAll('.toast').forEach(e=>e.remove());
+  const el=document.createElement('div');el.className='toast';el.textContent=msg;document.body.appendChild(el);
+  clearTimeout(tt);tt=setTimeout(()=>el.remove(),2600);
+}
+render();
+</script>
+</body>
+</html>

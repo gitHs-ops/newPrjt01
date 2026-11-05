@@ -236,6 +236,7 @@ const SUBMENUS = {
   cash: [{ k: 'list', l: '小口現金出納登録' }, { k: 'book', l: '出納簿・定額資金・現金補充' }],
   payments: [{ k: 'list', l: '支払一覧・登録' }, { k: 'reports', l: '支払帳票・全銀データ' }, { k: 'transfer', l: '振込先一覧' }, { k: 'bank', l: '銀行別随時支払一覧表' }],
   journals: [{ k: 'list', l: '仕訳一覧' }, { k: 'tb', l: '月次残高試算', q: { tab: 'tb' } }, { k: 'lists', l: '自動仕訳リスト（帳票）', q: { tab: 'lists' } }, { k: 'export', l: '会計連携データ' }],
+  external: [{ k: 'gslink', l: 'gsLink' }], // 2026-11-05 ユーザー指示
   reports: [{ k: 'csv', l: 'CSV出力', tools: true }, { k: 'ar', l: '売掛金残高一覧' }, { k: 'ap', l: '未払残高一覧' }, { k: 'jv', l: '出資金（JV）帳票' }, { k: 'jvalloc', l: '入金分配端数調整登録' }], // 入金分配端数調整登録は 2026-11-03 に小メニューへ
 };
 const subsOf = name => (name === 'masters' && meta?.masters ? Object.entries(meta.masters).map(([k, x]) => ({ k, l: x.label, q: { kind: k } })) : SUBMENUS[name] || null);
@@ -256,7 +257,7 @@ function nav() {
   }
   $('#navigation').innerHTML = groups.map(g => FOLD_GROUPS[g.name]
     ? `<button type="button" class="nav-link nav-fold" data-fold="${esc(g.name)}"><i>${esc(FOLD_GROUPS[g.name])}</i>${esc(g.name)}<b class="nav-caret">▸</b></button><div class="nav-fold-body" data-fold-body="${esc(g.name)}" hidden>${g.items.map(link).join('')}</div>`
-    : `<div class="nav-group">${esc(g.name)}</div>${g.items.map(link).join('')}`).join('');
+    : `${g.items.length === 1 && g.items[0].title === g.name ? '<div class="nav-group"></div>' : `<div class="nav-group">${esc(g.name)}</div>`}${g.items.map(link).join('')}`).join(''); // 見出しとメニュー名が同じ（外部システム）なら見出しの文字は出さない
   const pin = $('#nav-pin'); if (pin) pin.innerHTML = list.filter(m => PINNED_MENUS[m.url.slice(1)]).map(m => `<a class="nav-link nav-pin" href="${esc(m.url)}" data-nav="${esc(m.url.slice(1))}"><i>${esc(m.icon)}</i>${esc(PINNED_MENUS[m.url.slice(1)])}</a>`).join('');
   const brand = $('.brand'); if (brand) brand.href = '#' + home();
 }
@@ -2104,6 +2105,8 @@ function masterForm(kind, r) {
 }
 
 // ----- 移行・確認事項 -----
+// 外部システム（2026-11-05 ユーザー指示）：gsLink を画面内の枠で開く
+VIEWS.external = async () => page('gsLink', '', '<a class="button" href="/gs-link.html" target="_blank" rel="noopener">別タブで開く</a>', '<iframe class="ext-frame" src="/gs-link.html" title="gsLink"></iframe>');
 VIEWS.migration = async () => {
   const A = actions;
   const [cov, req] = await Promise.all([api('/api/coverage'), fetch('/requirements.json').then(r => r.json())]);
