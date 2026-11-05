@@ -1579,7 +1579,7 @@ function expenseView(kind) {
           const ext = f.querySelector('[name=extTax]'); if (!ext.dataset.manual) ext.value = calc;
           const total = t.out + t.in + t.ex + num(ext.value), head = f.querySelector('[name=total]').value.trim();
           $('#hw-out').textContent = yen(t.out); $('#hw-in').textContent = yen(t.in); $('#hw-ex').textContent = yen(t.ex); $('#hw-total').textContent = yen(total);
-          $('#hw-check').innerHTML = !head ? '<span class="muted">合計金額を入力してください</span>' : num(head) === total ? '<span class="check-ok">合計金額と一致</span>' : `<span class="check-ng">合計金額と ${yen(num(head) - total)} 円の差</span>`;
+          $('#hw-check').innerHTML = !head ? '<span class="muted">合計金額を入力してください</span>' : num(head) === total ? '<span class="check-ok">合計金額と一致</span>' : `<span class="check-ng">明細の合計が合計金額より ${yen(Math.abs(num(head) - total))} 円${num(head) > total ? '少ない' : '多い'}${t.in && num(head) > total ? '（内税の明細は金額に消費税を含む）' : ''}</span>`; // 2026-11-06 ユーザー指摘：差の向きが分からない
           // 繰延最低限度額は合計金額で判定（未入力なら明細の合計）。登録時に合計金額＝明細の合計を確認するのでサーバと同じ結果になる
           f.dataset.total = head ? num(head) : total; f._terms?.();
           return total;
