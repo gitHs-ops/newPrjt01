@@ -36,7 +36,8 @@ export async function createApp({ pool, publicDir, secureCookies = process.env.N
   const failures = new Map();
 
   // ----- read -----
-  route('GET', '/api/meta', 'read', () => ({ journalLists: { ...Object.fromEntries(Object.entries(J.LISTS).map(([k, v]) => [k, { title: v.title, ref: v.ref }])), BANK: { title: J.BANK_LIST.title, ref: J.BANK_LIST.ref } }, receiptParts: S.RECEIPT_PARTS, masters: M.meta(), rates: RATES, methods: METHODS, taxCodes: P.TAX_CODES, purchaseKinds: P.PURCHASE_KINDS, purchaseUnits: P.PURCHASE_UNITS, shipKinds: S.SHIP_KB, patterns: L.PATTERNS, roles: U.ROLES, today: today(), version }));
+  // 自動仕訳リストの選択肢から G03（小口現金補充）を外す（2026-11-06 ユーザー指示）。会計連携データ（LISTS 全件）には残す
+  route('GET', '/api/meta', 'read', () => ({ journalLists: { ...Object.fromEntries(Object.entries(J.LISTS).filter(([k]) => k !== 'G03').map(([k, v]) => [k, { title: v.title, ref: v.ref }])), BANK: { title: J.BANK_LIST.title, ref: J.BANK_LIST.ref } }, receiptParts: S.RECEIPT_PARTS, masters: M.meta(), rates: RATES, methods: METHODS, taxCodes: P.TAX_CODES, purchaseKinds: P.PURCHASE_KINDS, purchaseUnits: P.PURCHASE_UNITS, shipKinds: S.SHIP_KB, patterns: L.PATTERNS, roles: U.ROLES, today: today(), version }));
   route('GET', '/api/masters', 'read', () => db(c => M.allMasters(c)));
   route('GET', '/api/gs', 'read', () => db(c => GSL.listAll(c))); // 外部システム gsLink（2026-11-05）
   route('GET', '/api/masters/:kind', 'read', x => db(c => M.list(c, x.params.kind)));
