@@ -143,6 +143,14 @@ test('workflow against PostgreSQL business tables', { skip, timeout: 900000 }, a
       const pd = await a.call('/api/expenses', { kind: 'PETTY_CASH', date: d, lines: [{ payee: '削除テスト', account: '8231', taxCode: '141', amount: 100, memo: 'x' }] }); assert.equal(pd.status, 200, JSON.stringify(pd.data));
       const pr = await a.call('/api/expenses/reverse', { id: pd.data.id }); assert.equal(pr.status, 200); assert.equal(pr.data.deleted, true);
       assert.ok(!(await a.call('/api/expenses?' + new URLSearchParams({ kind: 'PETTY_CASH', month: d.slice(0, 7) }))).data.some(r => r.id === pd.data.id));
+      // 11/04 打合せ No.14：小口現金は行ごとに修正・削除（他の行はそのまま、最後の行で伝票ごと削除）
+      { const okk = r => { assert.equal(r.status, 200, JSON.stringify(r.data)); return r.data; }, lst = async id => (await a.call('/api/expenses?' + new URLSearchParams({ kind: 'PETTY_CASH', month: d.slice(0, 7) }))).data.find(r => r.id === id);
+        const pl = okk(await a.call('/api/expenses', { kind: 'PETTY_CASH', date: d, lines: [{ payee: '行A', account: '8231', taxCode: '141', amount: 100, memo: 'a' }, { payee: '行B', account: '8231', taxCode: '141', amount: 200, memo: 'b' }] }));
+        okk(await a.call('/api/expenses/line', { id: pl.id, line: 2, data: { payee: '行B2', account: '8231', taxCode: '141', amount: 250, memo: 'b2' } }));
+        let r = await lst(pl.id); assert.deepEqual(r.lines.map(l => [l.payee, l.amount, l.memo]), [['行A', 100, 'a'], ['行B2', 250, 'b2']]); assert.equal(r.amount, 350); assert.equal(r.no, pl.no);
+        okk(await a.call('/api/expenses/line', { id: pl.id, line: 1, remove: true }));
+        r = await lst(pl.id); assert.deepEqual(r.lines.map(l => [l.payee, l.amount]), [['行B2', 250]]); assert.equal(r.amount, 250);
+        okk(await a.call('/api/expenses/line', { id: pl.id, line: 1, remove: true })); assert.equal(await lst(pl.id), undefined); }
       assert.equal((await pool.query("SELECT COUNT(*)::int n FROM journal_entry WHERE source_type='expense_document' AND source_id=?", [String(pd.data.id)]))[0][0].n, 0);
       const ven2 = (await a.call('/api/masters/vendors')).data.find(x => x.code === 'V' + tag);
       assert.equal(ven2.deferMin, '30000');
