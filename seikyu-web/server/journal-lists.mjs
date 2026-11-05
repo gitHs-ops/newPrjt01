@@ -11,7 +11,7 @@ export const LISTS = {
   D01: { title: '定時請求自動仕訳リスト', ref: 'NO31 / 資料ア（HAR152）', prefix: 'S', source: 'expense_document' },
   E01: { title: '小口現金出納分自動仕訳リスト', ref: 'NO34 / 資料イ（HAR733）', prefix: 'K', source: 'expense_document' },
   F01: { title: '支払内訳自動仕訳リスト', ref: 'NO38 / 資料ウ（CS5785）', prefix: 'U', source: 'payment' },
-  G03: { title: '小口現金補充仕訳リスト', ref: 'G-03（現行は手入力）', prefix: '', source: 'petty_refill' },
+  G03: { title: '小口現金出納分自動仕訳リスト', ref: 'G-03（現行は手入力。補充分）', prefix: '', source: 'petty_refill' },
 };
 export const BANK_LIST = { title: '銀行別随時支払一覧表', ref: 'NO39 / 資料エ（HAR321）' };
 const ph = a => a.map(() => '?').join(',');
