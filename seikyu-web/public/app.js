@@ -135,6 +135,8 @@ function modal({ title, body, submit, onSubmit, wide = false, onOpen, danger = f
     catch (err) { $('#form-error').textContent = err.message; toast(err.message, true); }
     finally { btn.disabled = false; }
   };
+  // 登録時のエラーは入力を直したら消す（2026-11-06 ユーザー指摘：一度出たメッセージが残る）
+  form.oninput = form.onchange = () => { const fe = $('#form-error'); if (fe?.textContent) fe.textContent = ''; };
   d.showModal(); onOpen?.(form);
   if (sample) form.querySelector('[data-sample]')?.addEventListener('click', () => { fillSampleForm(form); if (typeof sample === 'function') sample(form); });
 }
