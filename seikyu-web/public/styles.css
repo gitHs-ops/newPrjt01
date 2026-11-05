@@ -237,6 +237,8 @@ dialog.modal[open] { animation: rise .35s var(--ease) both; display: flex; flex-
 .report-doc input { display: none; }
 
 table.jl td { font-size: 12px; vertical-align: top; }
+/* 摘要1 のコード（例 イ1019）は折り返さない（2026-11-06。カナと数字の間で 2 行になっていた） */
+table.jl td:nth-child(9), table.jl th:nth-child(9) { white-space: nowrap; }
 tr.subtotal td { background: rgba(238,242,255,.6); font-size: 12px; }
 .journal-doc table.jl td, .journal-doc table.jl th { font-size: 7.5pt; padding: 2px 4px; }
 .journal-doc { page: wide; }
