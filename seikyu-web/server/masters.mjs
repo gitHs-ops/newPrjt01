@@ -337,7 +337,7 @@ export const MASTERS = {
   deliveryKinds: {
     label: '納入区分', table: 'code_m',
     fields: [F('code', '納入区分コード', { max: 2, key: true, hint: '数字2桁以内' }), F('name', '名称', { max: 40 }),
-      F('abbr', '略称（帳票）', { max: 10, optional: true, hint: '請求書発行確認表の運送に「コード 略称」で出す（例 1 大現）。空欄は名称' }),
+      F('abbr', '略称（帳票）', { max: 10, optional: true, hint: '請求書発行確認表の運送に「コード 略称」で出す（例 1 大現）。空欄は名称', wide: true }),
       F('pickup', '引取（運賃なし）', { type: 'bool', hint: '運賃は0のみ' }), F('active', '有効', { type: 'bool' })],
     select: "SELECT * FROM code_m WHERE code_key='A0000'", where: 'code_dtl=?', keyOf: r => [r.code],
     decode: r => ({ code: r.code_dtl, name: r.code_dtl_nam, abbr: (r.code_dtl_abr || '').trim() === (r.code_dtl_nam || '').trim().slice(0, 26) ? '' : (r.code_dtl_abr || '').trim(), pickup: r.category1 === '2', active: r.category3 !== '0' }),

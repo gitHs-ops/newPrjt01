@@ -2055,7 +2055,7 @@ function masterInput(f, r, isNew) {
   // 選択肢に無い登録済みの値（移行データの規定外の締日など）は「（規定外）」として残し、黙って先頭の選択肢に変わらないようにする
   else if (f.type === 'select') { const opts = f.options.map(([code, name]) => ({ code, name })); if (v !== undefined && v !== null && v !== '' && !opts.some(o => o.code === String(v))) opts.push({ code: String(v), name: `${v}（規定外）` }); input = `<select name="${f.name}" ${dis}>${options(opts, v || f.options[0][0], { label: x => x.name })}</select>`; }
   else input = `<input name="${f.name}" type="${f.type === 'date' || f.type === 'month' ? f.type : 'text'}" class="${f.type === 'int' || f.type === 'dec' ? 'num' : ''}" value="${esc(v)}" ${f.max ? `maxlength="${f.max}"` : ''} ${dis}>`;
-  return field(f.label, input, { req: !f.optional, hint: f.hint });
+  return field(f.label, input, { req: !f.optional, hint: f.hint, wide: f.wide });
 }
 // JV構成員・出資比率（2026-11-05 ユーザー指示、11/04 打合せ No.16）：編集中の値で「有効な構成員の出資比率の合計」を月度ごとに計算し、100% でなければ画面に赤字で出す。
 // 保存はエラー（比率の入れ替えは 1 行ずつしか直せないため「合計が100%でなくても保存する」にチェックすれば保存できる）。帳票の出力時も合計100%を確認する
