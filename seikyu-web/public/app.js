@@ -224,8 +224,9 @@ const SUBMENUS = {
   invoices: [{ k: 'precheck', l: '発行前確認一覧', q: { view: 'precheck' }, hidden: true }, { k: 'create', l: '請求データ作成', tools: false }, { k: 'list', l: '請求一覧照会', tools: true }, { k: 'issue', l: '請求書発行', q: { view: 'issue' } }, { k: 'reports', l: '請求帳票' }, { k: 'balance', l: '得意先別残高照会', q: { view: 'balance' } }, { k: 'ledger', l: '請求残高照会', q: { view: 'ledger' } }],
   // 入金予定一覧は 2026-10-27 削除 → 2026-11-01 復元（確認事項 P の回答③：入金予定一覧で予定日を過ぎた未入金を確認する）
   // 入金一覧・入金予定チェックリストは 2026-10-27 非表示（10/27 打合せ：消込の結果は入金消込の一覧で確認、入金予定チェックリストは不要。画面・API は残す）
+  // 入金予定チェックリストは 2026-11-05 再表示（ユーザー指示）
   // 入金消込は 2026-11-01 非表示（ユーザー指示。現行入金処理で入金する。画面・API は残す）
-  receipts: [{ k: 'targets', l: '入金消込', q: { tab: 'targets' }, hidden: true }, { k: 'legacy', l: '入金処理', q: { tab: 'legacy' }, tools: false }, { k: 'plan', l: '入金予定一覧', q: { tab: 'plan' } }, { k: 'list', l: '入金一覧', tools: true, hidden: true }, { k: 'schedule', l: '入金予定チェックリスト', hidden: true }],
+  receipts: [{ k: 'targets', l: '入金消込', q: { tab: 'targets' }, hidden: true }, { k: 'legacy', l: '入金処理', q: { tab: 'legacy' }, tools: false }, { k: 'plan', l: '入金予定一覧', q: { tab: 'plan' } }, { k: 'list', l: '入金一覧', tools: true, hidden: true }, { k: 'schedule', l: '入金予定チェックリスト' }],
   // 10/21 打合せの処理順（実在庫登録 → 配合計算 → 材料受払表 → 在庫計上）に並べる
   // 在庫登録リスト・配合計算・材料受払表は 2026-11-02 にそれぞれ小メニューに分けた（ユーザー指示）
   // 配合計算は自分の画面を出す（2026-11-04 ユーザー指示。以前は材料受払表の画面へ移っていた）。現行の配合計算処理は配合マスタ・配合単価と無関係で、結果が材料受払表（2026-11-02 ユーザー回答）
