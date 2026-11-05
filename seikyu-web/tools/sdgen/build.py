@@ -21,8 +21,22 @@ def cw(c1, c2='K'):
     return sum(S.WIDTH[chr(c)] for c in range(ord(c1), ord(c2) + 1))
 
 
+_PREV = {}
+
+
+def prev_items(sc):
+    """前の版（設計書フォルダの最新版）のこの画面の項目：{(区画ID, エリア, 項目名称): 行}"""
+    if 'wb' not in _PREV:
+        doc = cfg.latest_doc(); _PREV['wb'] = openpyxl.load_workbook(doc, read_only=True) if doc else None
+    wb = _PREV['wb']
+    if not wb or sc not in wb.sheetnames: return {}
+    from sdgen.sheet import parse
+    return {(r['区画ID'], r['エリア'], r['項目名称']): r for r in parse(wb[sc], sc)['項目']}
+
+
 def merge_items(sc, sup, report):
-    """補足入力の項目（並び・説明）と画面の項目（自動の値）を合わせる → {区画ID: [行]}"""
+    """補足入力の項目（並び・説明）と画面の項目（自動の値）を合わせる → {区画ID: [行]}
+    画面から取れなかった項目（データが無い・操作できない）は、自動の列を前の版の同じ項目の値で埋める（2026-11-05）"""
     f = cfg.WORK / 'capture' / f'{sc}.json'
     cap = json.loads(f.read_text(encoding='utf-8')) if f.exists() else {'views': []}
     if not f.exists(): report.append(f'{sc}: 画面の取り出し結果なし（補足入力の値だけで作成）')
@@ -39,7 +53,13 @@ def merge_items(sc, sup, report):
             for c in ['区分', '必須', '初期値', '桁数', '形式']:
                 if row[c] in ('', None): row[c] = a[c]
         elif cap['views']:
-            report.append(f'{sc}: 補足のみ（画面に無い）: {r["区画ID"]} {r["エリア"]} {r["項目名称"]}（キー {r["キー"]}）')
+            old = prev_items(sc).get((r['区画ID'], r['エリア'], r['項目名称']))
+            if old:
+                for c in ['区分', '必須', '初期値', '桁数', '形式']:
+                    if row[c] in ('', None): row[c] = old.get(c) or ''
+                report.append(f'{sc}: 画面から取れず前の版の値: {r["区画ID"]} {r["エリア"]} {r["項目名称"]}')
+            else:
+                report.append(f'{sc}: 補足のみ（画面に無い）: {r["区画ID"]} {r["エリア"]} {r["項目名称"]}（キー {r["キー"]}）')
         for c in ['区分', '必須', '初期値', '桁数', '形式']:   # 自動の列だけ「-」で埋める（説明の列の空欄はそのまま）
             if row.get(c) in ('', None): row[c] = '-'
         out.setdefault(r['区画ID'], []).append(row)

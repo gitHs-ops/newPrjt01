@@ -31,6 +31,17 @@
      }
     },
     {
+     "go": "#inventory/mix"
+    },
+    {
+     "extract": {
+      "area": "〔出力条件（配合計算）〕",
+      "root": "#content div[data-sub=mix]",
+      "mode": "controls",
+      "buttons": true
+     }
+    },
+    {
      "go": "#inventory/ledger"
     },
     {
@@ -39,13 +50,6 @@
       "root": "#content div[data-sub=ledger]",
       "mode": "controls",
       "buttons": true
-     }
-    },
-    {
-     "extract": {
-      "area": "〔出力条件（材料受払表）〕",
-      "root": "#content div[data-sub=ledger] p.note",
-      "mode": "message"
      }
     },
     {

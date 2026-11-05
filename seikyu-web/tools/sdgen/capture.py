@@ -109,46 +109,50 @@ def run(only=None):
             except Exception: pass
             p.wait_for_timeout(200)
 
+        def steps(v, view, result):   # 1区画の操作
+            for st in v['steps']:
+                if 'go' in st:
+                    p.evaluate("() => location.hash = '#'"); p.wait_for_timeout(150); p.evaluate('h => location.hash = h', st['go']); idle()
+                    if not result['menu']: result['menu'] = p.locator('#crumb').text_content().strip()   # 開いた画面のメニュー（画面名との照合用）
+                elif st.get('search'):
+                    s = p.locator('#content [data-search]:visible, #content [data-act=search]:visible').first
+                    if s.count(): s.click(); idle(1200)
+                elif 'click' in st:
+                    p.locator(st['click']).first.click(); idle()
+                elif 'fill' in st:
+                    p.locator(st['fill'][0]).first.fill(st['fill'][1]); p.locator(st['fill'][0]).first.dispatch_event('input'); idle(200)
+                elif 'set' in st:   # 日付（flatpickr）など
+                    p.evaluate("([s, v]) => { const e = document.querySelector(s); if (!e) return; e._flatpickr ? e._flatpickr.setDate(v, true) : (e.value = v); e.dispatchEvent(new Event('change', { bubbles: true })); }", st['set'])
+                elif 'extract' in st:
+                    x = st['extract']; items = p.evaluate(EXTRACT_JS, [x['root'], x['mode'], {'buttons': x.get('buttons', False)}])
+                    if not items: print(f'  ! {v["id"]} {x["area"]}: 項目が取れない（{x["root"]}）')
+                    view['areas'].append({'area': x['area'], 'mode': x['mode'], 'items': items})
+                elif 'shot' in st:
+                    x = st['shot']; w, h = x.get('viewport', [1440, 900]); p.set_viewport_size({'width': w, 'height': h}); idle(300)
+                    f = out_dir / 'png' / f'{x["name"]}.png'
+                    shoot(p, x, f)
+                    view['shots'].append(x['name']); p.set_viewport_size({'width': 1440, 'height': 900})
+                elif 'download' in st:
+                    x = st['download']
+                    with p.expect_download() as d: p.click(x['click'])
+                    d.value.save_as(str(out_dir / x['name'])); view['shots'].append(x['name'])
+                elif st.get('escape'):
+                    p.keyboard.press('Escape'); idle(300)
+
         if not only: menu(p, idle)
         for sc, spec in screens.items():
             if only and sc != only: continue
             result = {'screen': sc, 'menu': '', 'views': []}
             for v in spec['views']:
                 view = {'id': v['id'], 'name': v['name'], 'areas': [], 'shots': []}
-                for st in v['steps']:
-                    if 'go' in st:
-                        p.evaluate("() => location.hash = '#'"); p.wait_for_timeout(150); p.evaluate('h => location.hash = h', st['go']); idle()
-                        if not result['menu']: result['menu'] = p.locator('#crumb').text_content().strip()   # 開いた画面のメニュー（画面名との照合用）
-                    elif st.get('search'):
-                        s = p.locator('#content [data-search]:visible, #content [data-act=search]:visible').first
-                        if s.count(): s.click(); idle(1200)
-                    elif 'click' in st:
-                        p.locator(st['click']).first.click(); idle()
-                    elif 'fill' in st:
-                        p.locator(st['fill'][0]).first.fill(st['fill'][1]); p.locator(st['fill'][0]).first.dispatch_event('input'); idle(200)
-                    elif 'set' in st:   # 日付（flatpickr）など
-                        p.evaluate("([s, v]) => { const e = document.querySelector(s); if (!e) return; e._flatpickr ? e._flatpickr.setDate(v, true) : (e.value = v); e.dispatchEvent(new Event('change', { bubbles: true })); }", st['set'])
-                    elif 'extract' in st:
-                        x = st['extract']; items = p.evaluate(EXTRACT_JS, [x['root'], x['mode'], {'buttons': x.get('buttons', False)}])
-                        if not items: print(f'  ! {v["id"]} {x["area"]}: 項目が取れない（{x["root"]}）')
-                        view['areas'].append({'area': x['area'], 'mode': x['mode'], 'items': items})
-                    elif 'shot' in st:
-                        x = st['shot']; w, h = x.get('viewport', [1440, 900]); p.set_viewport_size({'width': w, 'height': h}); idle(300)
-                        f = out_dir / 'png' / f'{x["name"]}.png'
-                        shoot(p, x, f)
-                        view['shots'].append(x['name']); p.set_viewport_size({'width': 1440, 'height': 900})
-                    elif 'download' in st:
-                        x = st['download']
-                        with p.expect_download() as d: p.click(x['click'])
-                        d.value.save_as(str(out_dir / x['name'])); view['shots'].append(x['name'])
-                    elif st.get('escape'):
-                        p.keyboard.press('Escape'); idle(300)
+                try: steps(v, view, result)
+                except Exception as e:   # 画面が変わって操作できない区画は飛ばして次へ（2026-11-05。report で分かるように出す）
+                    print(f'  ! {v["id"]}: 操作できない（{str(e).splitlines()[0][:160]}）'); p.keyboard.press('Escape'); idle(300)
                 result['views'].append(view)
                 print(f'{v["id"]}: ' + ' / '.join(f'{a["area"]} {len(a["items"])}' for a in view['areas']))
             (out_dir / f'{sc}.json').write_text(json.dumps(result, ensure_ascii=False, indent=1), encoding='utf-8')
         b.close()
     if errs: print('画面のエラー:', errs)
-
 
 if __name__ == '__main__':
     run(sys.argv[1] if len(sys.argv) > 1 else None)

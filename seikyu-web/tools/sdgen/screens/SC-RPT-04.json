@@ -28,12 +28,6 @@
     },
     {
      "download": {
-      "click": "#content [data-sub=jv] button[data-kind=jv-expenses][data-src=jvs]",
-      "name": "SC-RPT-04_出資金請求合計表.xlsx"
-     }
-    },
-    {
-     "download": {
       "click": "#content [data-sub=jv] button[data-kind=jv-receipts]",
       "name": "SC-RPT-04_入金明細及び配分表.xlsx"
      }
@@ -42,16 +36,10 @@
   },
   {
    "id": "SC-RPT-04-D",
-   "name": "詳細画面（入金額配賦登録）",
+   "name": "詳細画面（入金分配端数調整登録）",
    "steps": [
     {
-     "go": "#reports/jv"
-    },
-    {
-     "click": "#content [data-sub=jv] button[data-act=jvAlloc]"
-    },
-    {
-     "escape": true
+     "go": "#reports/jvalloc"
     }
    ]
   }
