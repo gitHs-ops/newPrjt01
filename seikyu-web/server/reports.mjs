@@ -37,26 +37,20 @@ export async function billingListBook(c, q) {
 // 2026-11-04 現行 HAR430 の並び：見出し（締日・請求日付・売上締切日）と列見出しは各ページの先頭に 1 回。得意先の行は請求現場ごと（2 つ目から 現場No・現場名）。
 // 明細の列 売上日 伝票No. （区分・商品CD）商品名 数量 （単位）単価 金額 （税率）運送 備考、現場ごとに（売上額）（消費税額）（値引額）（今回請求額）と税率別
 export async function billingConfirmBook(c, q) {
+  // 2026-11-05 ユーザー指示：一般の帳票（現金売上明細表など）と同じ出力スタイル（表題・薄青の見出し・合計の枠）。並び・項目は現行 HAR430 のまま
   const d = await billingConfirm(c, q), ymd = iso => iso.slice(2).replaceAll('-', '/');
-  const N = 13, out = [], heights = {}, merges = [], st = (v, s) => ({ v, s });
-  const ref = (r, c0, c1) => `${String.fromCharCode(65 + c0)}${r}:${String.fromCharCode(65 + c1)}${r}`; // r は 1 始まり
-  const push = (cells, h) => { out.push(cells); if (h) heights[out.length - 1] = h; return out.length; };
-  const fill = (s, at = {}) => Array.from({ length: N }, (_, i) => st(at[i] ?? '', s)); // 帯は空のセルにも書式を付ける
-  const title = push([st(d.unissued ? '請求書発行確認表（未発行を含む）' : '請求書発行確認表', 'rTitle'), '', '', '', '', '', '', '', '', st(d.company, 'rCompany')], 30);
-  merges.push(ref(title, 0, 8), ref(title, 9, 12));
-  push([st('締日', 'rSub'), st('請求日付', 'rSub'), '', st('売上締切日', 'rSub'), '', '', '', '', '', st(`作成日 ${ymd(today())}`, 'rSub')], 16);
-  push([st(String(d.closing), 'rSub'), st(ymd(d.end), 'rSub'), '', st(ymd(d.end), 'rSub')], 16);
-  push(['売上日', '伝票No.', '', '', '商品名', '数量', '', '単価', '金額', '', '運送', '備考', ''].map(h => st(h, 'rHead')), 20);
+  const out = [[T(d.unissued ? '請求書発行確認表（未発行を含む）' : '請求書発行確認表'), '', '', '', '', '', '', '', '', '', '', d.company],
+    [`締日 ${d.closing}　請求日付 ${ymd(d.end)}　売上締切日 ${ymd(d.end)}　作成日 ${ymd(today())}`], [],
+    ['売上日', '伝票No.', '', '', '商品名', '数量', '', '単価', '金額', '', '運送', '備考'].map(H)];
   for (const x of d.rows) for (const g of x.sites) {
-    const b = push(fill('rBand', { 0: `${x.customer}　${x.name}`, ...(g.no > 1 ? { 5: g.no, 7: g.name } : {}) }), 22);
-    merges.push(ref(b, 0, 4), ref(b, 7, 12));
-    for (const l of g.lines) push([st(ymd(l.date), 'rCenter'), st(l.orderNo, 'rCell'), st(kindOf(l), 'rCenter'), st(l.item, 'rCenter'), st(l.itemName, 'rCell'), st(l.quantity, 'rQty'), st(l.unit, 'rCenter'), st(l.price, 'rNum'), st(l.net, 'rNum'), st(`${l.taxRate}%`, 'rCenter'), st(l.carry, 'rCell'), st(l.siteName, 'rCell')], 18);
-    push([st('（売上額', 'rRateL'), st(g.net, 'rRateN'), st('）', 'rRateL'), st('（消費税額', 'rRateL'), '', st(g.tax, 'rRateN'), st('）', 'rRateL'), st('（値引額', 'rRateL'), st(0, 'rRateN'), st('）', 'rRateL'), st('（今回請求額', 'rRateL'), st(g.current, 'rRateN'), st('）', 'rRateL')], 18);
-    for (const r of g.byRate) push([st(`${r.rate} %`, 'rRateL'), st(r.net, 'rRateN'), '', '', '', st(r.tax, 'rRateN')], 16);
-    push([], 10);
+    out.push([H(`${x.customer}　${x.name}`), '', '', '', '', ...(g.no > 1 ? [g.no, '', g.name] : [])]);
+    for (const l of g.lines) out.push([ymd(l.date), l.orderNo, kindOf(l), l.item, l.itemName, { v: l.quantity, s: 'qty' }, l.unit, l.price, l.net, `${l.taxRate}%`, l.carry, l.siteName]);
+    out.push(['', S('（売上額）'), S(g.net), '', S('（消費税額）'), S(g.tax), '', S('（値引額）'), S(0), '', S('（今回請求額）'), S(g.current)]);
+    for (const r of g.byRate) out.push(['', `${r.rate} %`, r.net, '', '', r.tax]);
+    out.push([]);
   }
-  if (!d.rows.length) push([d.unissued ? '対象の請求はありません' : '発行済みの請求書はありません']);
-  return { name: `請求書発行確認表_${d.month}${d.unissued ? '_未発行含む' : ''}.xlsx`, body: xlsx([{ name: '発行確認表', rows: out, heights, merges, gridlines: false, printTitles: '1:4', footer: '&L&8請求書発行確認表&R&8&P / &N', widths: [9, 12, 5.5, 7.5, 26, 9, 5, 10, 12, 6, 8, 26, 3] }]) };
+  if (!d.rows.length) out.push([d.unissued ? '対象の請求はありません' : '発行済みの請求書はありません']);
+  return { name: `請求書発行確認表_${d.month}${d.unissued ? '_未発行含む' : ''}.xlsx`, body: xlsx([{ name: '発行確認表', rows: out, printTitles: '1:4', footer: '&L&8請求書発行確認表&R&8&P / &N', widths: [10, 14, 6, 8, 24, 9, 5, 10, 12, 6, 13, 24] }]) };
 }
 
 // 入金予定一覧（提案書 スライド18・10/14 打合せ）— 画面と同じ条件・項目
