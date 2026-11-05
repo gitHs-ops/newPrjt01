@@ -179,7 +179,7 @@ footer{text-align:center;color:var(--muted);font-size:11.5px;padding:18px}
 </header>
 <nav class="crumb" id="crumb"></nav>
 <main id="app"></main>
-<footer>GS-LINK Prototype · 感性ソフトウェア · デモデータはブラウザのメモリ上のみで保持されます</footer>
+<footer>GS-LINK Prototype · 感性ソフトウェア · データは APLink の DB に保存されます</footer>
 
 <script>
 /* ================= サンプルデータ ================= */
@@ -188,74 +188,17 @@ const d = (o)=>{const t=new Date(today);t.setDate(t.getDate()+o);return t.toISOS
 const money = n => (n||0).toLocaleString('ja-JP');
 const uid = p => p + '-' + String(Math.floor(Math.random()*9000)+1000);
 
-const DB = {
-  shukka:[
-    {id:'SH-1001',date:d(-2),cust:'ポハン商事',item:'鋼材パイプ 50A',qty:120,unit:'本',veh:'5t-01',driver:'李 大韓',dest:'浦項市 南区',status:'出荷済'},
-    {id:'SH-1002',date:d(-1),cust:'東海物産',item:'セメント 25kg',qty:400,unit:'袋',veh:'11t-02',driver:'朴 民秀',dest:'盈徳郡',status:'出荷済'},
-    {id:'SH-1003',date:d(0),cust:'永徳建設',item:'砕石 40mm',qty:28,unit:'m3',veh:'ダンプ-03',driver:'崔 英浩',dest:'盈徳郡 江口面',status:'出荷待'},
-    {id:'SH-1004',date:d(0),cust:'ポハン商事',item:'H形鋼 200x100',qty:36,unit:'本',veh:'11t-02',driver:'朴 民秀',dest:'慶州市',status:'出荷待'},
-    {id:'SH-1005',date:d(1),cust:'大邱鋼業',item:'鉄筋 D13',qty:900,unit:'本',veh:'5t-01',driver:'李 大韓',dest:'大邱市 達城郡',status:'予定'},
-    {id:'SH-1006',date:d(-3),cust:'東海物産',item:'合板 12mm',qty:250,unit:'枚',veh:'4t-04',driver:'鄭 昌植',dest:'浦項市 北区',status:'納品完了'},
-    {id:'SH-1007',date:d(-4),cust:'永徳建設',item:'生コン 18-8-25',qty:16,unit:'m3',veh:'ミキサ-05',driver:'韓 志成',dest:'盈徳郡 丑山面',status:'納品完了'},
-    {id:'SH-1008',date:d(-5),cust:'大邱鋼業',item:'鋼材パイプ 50A',qty:60,unit:'本',veh:'5t-01',driver:'李 大韓',dest:'亀尾市',status:'キャンセル'}
-  ],
-  uriage:[
-    {id:'UA-2001',date:d(-5),cust:'大邱鋼業',item:'鋼材パイプ 50A',qty:60,price:8500,amount:510000,tax:51000,staff:'金 賢秀'},
-    {id:'UA-2002',date:d(-4),cust:'永徳建設',item:'生コン 18-8-25',qty:16,price:92000,amount:1472000,tax:147200,staff:'金 賢秀'},
-    {id:'UA-2003',date:d(-3),cust:'東海物産',item:'合板 12mm',qty:250,price:3200,amount:800000,tax:80000,staff:'尹 相赫'},
-    {id:'UA-2004',date:d(-2),cust:'ポハン商事',item:'鋼材パイプ 50A',qty:120,price:8500,amount:1020000,tax:102000,staff:'尹 相赫'},
-    {id:'UA-2005',date:d(-1),cust:'東海物産',item:'セメント 25kg',qty:400,price:7800,amount:3120000,tax:312000,staff:'金 賢秀'}
-  ],
-  seikyu:[
-    {id:'IV-3001',month:'2026-09',cust:'ポハン商事',amount:4820000,tax:482000,total:5302000,due:d(-6),status:'入金済'},
-    {id:'IV-3002',month:'2026-09',cust:'東海物産',amount:3920000,tax:392000,total:4312000,due:d(-6),status:'入金済'},
-    {id:'IV-3003',month:'2026-10',cust:'ポハン商事',amount:5160000,tax:516000,total:5676000,due:d(9),status:'請求済'},
-    {id:'IV-3004',month:'2026-10',cust:'永徳建設',amount:2980000,tax:298000,total:3278000,due:d(9),status:'請求済'},
-    {id:'IV-3005',month:'2026-10',cust:'大邱鋼業',amount:1510000,tax:151000,total:1661000,due:d(9),status:'未請求'}
-  ],
-  cust:[
-    {id:'C-001',name:'ポハン商事',tel:'054-123-4567',mgr:'呉 成民',addr:'慶北 浦項市 南区 大島路 12',close:'末日',site:'30日',use:'使用'},
-    {id:'C-002',name:'東海物産',tel:'054-222-8890',mgr:'申 美来',addr:'慶北 浦項市 北区 竹島路 88',close:'20日',site:'45日',use:'使用'},
-    {id:'C-003',name:'永徳建設',tel:'054-733-1120',mgr:'車 俊成',addr:'慶北 盈徳郡 盈徳邑 中央路 5',close:'末日',site:'30日',use:'使用'},
-    {id:'C-004',name:'大邱鋼業',tel:'053-555-7712',mgr:'林 宰赫',addr:'大邱市 達城郡 論工邑 工団路 44',close:'10日',site:'60日',use:'使用'},
-    {id:'C-005',name:'慶州資材',tel:'054-771-3300',mgr:'黄 多恵',addr:'慶北 慶州市 川北面',close:'末日',site:'30日',use:'停止'}
-  ],
-  item:[
-    {id:'P-101',name:'鋼材パイプ 50A',cat:'鋼材',unit:'本',price:8500,cost:6900,stock:380},
-    {id:'P-102',name:'H形鋼 200x100',cat:'鋼材',unit:'本',price:24500,cost:20100,stock:92},
-    {id:'P-103',name:'鉄筋 D13',cat:'鋼材',unit:'本',price:4100,cost:3350,stock:1540},
-    {id:'P-201',name:'セメント 25kg',cat:'資材',unit:'袋',price:7800,cost:6200,stock:860},
-    {id:'P-202',name:'合板 12mm',cat:'資材',unit:'枚',price:3200,cost:2450,stock:430},
-    {id:'P-301',name:'砕石 40mm',cat:'骨材',unit:'m3',price:31000,cost:24000,stock:210},
-    {id:'P-302',name:'生コン 18-8-25',cat:'骨材',unit:'m3',price:92000,cost:78000,stock:0}
-  ],
-  veh:[
-    {id:'5t-01',no:'慶北 80나 1234',type:'カーゴ 5t',driver:'李 大韓',insp:d(48),use:'稼働'},
-    {id:'11t-02',no:'慶北 81다 5678',type:'カーゴ 11t',driver:'朴 民秀',insp:d(120),use:'稼働'},
-    {id:'ダンプ-03',no:'慶北 82라 9012',type:'ダンプ 15t',driver:'崔 英浩',insp:d(15),use:'稼働'},
-    {id:'4t-04',no:'慶北 80마 3456',type:'カーゴ 4t',driver:'鄭 昌植',insp:d(-3),use:'整備中'},
-    {id:'ミキサ-05',no:'慶北 83바 7890',type:'ミキサ 6m3',driver:'韓 志成',insp:d(210),use:'稼働'}
-  ],
-  user:[
-    {id:'admin',name:'金 現洙',dept:'経営',role:'管理者',last:d(0),use:'有効'},
-    {id:'kim.hs',name:'金 賢秀',dept:'営業',role:'一般',last:d(0),use:'有効'},
-    {id:'yoon.sh',name:'尹 相赫',dept:'営業',role:'一般',last:d(-1),use:'有効'},
-    {id:'lee.dh',name:'李 大韓',dept:'運送',role:'ドライバー',last:d(-2),use:'有効'},
-    {id:'old.staff',name:'呉 旧員',dept:'総務',role:'一般',last:d(-180),use:'無効'}
-  ],
-  dump:[
-    {id:'DP-401',date:d(0),veh:'ダンプ-03',driver:'崔 英浩',from:'浦項採石場',to:'盈徳現場A',trips:6,ton:84,fee:420000},
-    {id:'DP-402',date:d(-1),veh:'ダンプ-03',driver:'崔 英浩',from:'浦項採石場',to:'盈徳現場B',trips:5,ton:70,fee:350000},
-    {id:'DP-403',date:d(-2),veh:'ダンプ-03',driver:'崔 英浩',from:'慶州土取場',to:'浦項現場C',trips:4,ton:56,fee:300000},
-    {id:'DP-404',date:d(-3),veh:'ダンプ-03',driver:'崔 英浩',from:'浦項採石場',to:'盈徳現場A',trips:7,ton:98,fee:490000}
-  ],
-  renkei:[
-    {id:'LG-501',time:d(0)+' 06:00',kind:'受注取込',file:'order_20261105.csv',cnt:42,result:'成功',msg:'-'},
-    {id:'LG-502',time:d(0)+' 06:05',kind:'在庫連携',file:'stock_sync.json',cnt:310,result:'成功',msg:'-'},
-    {id:'LG-503',time:d(-1)+' 06:00',kind:'受注取込',file:'order_20261104.csv',cnt:38,result:'警告',msg:'得意先コード未登録 2件'},
-    {id:'LG-504',time:d(-2)+' 06:00',kind:'会計連携',file:'ac_202610.txt',cnt:0,result:'失敗',msg:'接続タイムアウト'}
-  ]
-};
+// 2026-11-05：データは APLink の DB（テーブル shukka・uriage・seikyu・cust・item・veh・gs_user・dump・renkei）に保存する（以前は画面のメモリのみ）
+let DB = {shukka:[],uriage:[],seikyu:[],cust:[],item:[],veh:[],user:[],dump:[],renkei:[]};
+let csrf = '';
+async function api(path, body){
+  const r = await fetch(path, body ? {method:'POST',headers:{'content-type':'application/json','x-csrf-token':csrf},body:JSON.stringify(body),credentials:'same-origin'} : {credentials:'same-origin'});
+  if (r.status === 401) { (window.top || window).location.href = '/login'; throw new Error('ログインしてください'); }
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.error || ('エラーが発生しました（' + r.status + '）'));
+  return j;
+}
+async function loadDB(){ const [ss, all] = await Promise.all([api('/api/session'), api('/api/gs')]); csrf = ss.csrf || ''; DB = all; }
 
 /* ================= メニュー定義 ================= */
 const MODULES = [
@@ -519,9 +462,10 @@ function drawTable(id){
   document.getElementById('pgr-'+id).innerHTML=`<span>${st.page} / ${tot} ページ</span><div class="pages">${pg}</div>`;
 }
 function setPage(id,p){listState[id].page=p;drawTable(id)}
-function delRow(id,key){
+async function delRow(id,key){
   const S=SCREENS[id];
   if(!confirm('選択したデータを削除します。よろしいですか？'))return;
+  try{await api('/api/gs/delete',{key:S.key,id:key})}catch(e){return alert(e.message)}
   DB[S.key]=DB[S.key].filter(r=>r[S.idf]!==key);drawTable(id);toast('削除しました');
 }
 function exportCsv(id){
@@ -570,16 +514,16 @@ function recalc(){
   S.form.filter(x=>x.calc).forEach(x=>{const el=document.querySelector(`[data-f="${x.k}"]`);if(el)el.value=x.calc(f)});
 }
 function closeForm(){const m=document.getElementById('mask');if(m)m.remove();formCtx=null}
-function saveForm(){
+async function saveForm(){
   const {id,key}=formCtx,S=SCREENS[id],o=readForm();
   const miss=S.form.filter(f=>f.req&&!String(o[f.k]||'').trim());
   if(miss.length)return alert('必須項目が未入力です：'+miss.map(f=>f.l).join('、'));
   S.form.forEach(f=>{if(f.t==='number')o[f.k]=Number(o[f.k])||0});
-  if(key){const i=DB[S.key].findIndex(r=>r[S.idf]===key);DB[S.key][i]={...DB[S.key][i],...o}}
-  else{
-    if(DB[S.key].some(r=>r[S.idf]===o[S.idf]))return alert('同じコードが既に登録されています。');
-    DB[S.key].unshift(o);
-  }
+  if(!key&&DB[S.key].some(r=>r[S.idf]===o[S.idf]))return alert('同じコードが既に登録されています。');
+  let saved;
+  try{saved=await api('/api/gs/save',{key:S.key,mode:key?'update':'create',orig:key||'',record:{...(key?DB[S.key].find(r=>r[S.idf]===key):{}),...o}})}catch(e){return alert(e.message)}
+  if(key){const i=DB[S.key].findIndex(r=>r[S.idf]===key);DB[S.key][i]=saved}
+  else DB[S.key].unshift(saved);
   closeForm();drawTable(id);toast(key?'修正しました':'登録しました');
 }
 
@@ -692,7 +636,7 @@ function toast(msg){
   const el=document.createElement('div');el.className='toast';el.textContent=msg;document.body.appendChild(el);
   clearTimeout(tt);tt=setTimeout(()=>el.remove(),2600);
 }
-render();
+loadDB().then(render).catch(e=>{document.getElementById('app').innerHTML='<div class="empty">データを読み込めませんでした：'+String(e.message).replace(/[<&]/g,'')+'</div>'});
 </script>
 </body>
 </html>

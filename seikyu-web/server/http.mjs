@@ -20,6 +20,7 @@ import { accountingExport } from './accounting-export.mjs';
 import * as KB from './kb.mjs';
 import { NEW_REPORTS, genericBook } from './new-reports.mjs';
 import { bugyoSettings, saveBugyoSettings, BUGYO_ITEMS } from './bugyo.mjs';
+import * as GSL from './gslink.mjs';
 
 const COOKIE = 'aplink_sid';
 const MIME = { html: 'text/html; charset=utf-8', js: 'text/javascript; charset=utf-8', css: 'text/css; charset=utf-8', json: 'application/json; charset=utf-8', svg: 'image/svg+xml' };
@@ -37,6 +38,7 @@ export async function createApp({ pool, publicDir, secureCookies = process.env.N
   // ----- read -----
   route('GET', '/api/meta', 'read', () => ({ journalLists: { ...Object.fromEntries(Object.entries(J.LISTS).map(([k, v]) => [k, { title: v.title, ref: v.ref }])), BANK: { title: J.BANK_LIST.title, ref: J.BANK_LIST.ref } }, receiptParts: S.RECEIPT_PARTS, masters: M.meta(), rates: RATES, methods: METHODS, taxCodes: P.TAX_CODES, purchaseKinds: P.PURCHASE_KINDS, purchaseUnits: P.PURCHASE_UNITS, shipKinds: S.SHIP_KB, patterns: L.PATTERNS, roles: U.ROLES, today: today(), version }));
   route('GET', '/api/masters', 'read', () => db(c => M.allMasters(c)));
+  route('GET', '/api/gs', 'read', () => db(c => GSL.listAll(c))); // 外部システム gsLink（2026-11-05）
   route('GET', '/api/masters/:kind', 'read', x => db(c => M.list(c, x.params.kind)));
   route('GET', '/api/price', 'read', x => db(c => S.priceFor(c, x.q)));
   route('GET', '/api/business-date', 'read', () => db(async c => ({ date: await S.businessDate(c) })));
@@ -152,6 +154,8 @@ export async function createApp({ pool, publicDir, secureCookies = process.env.N
   w('/api/kb/settings', (c, x, b) => KB.saveSettings(c, x, b), 'admin');
   w('/api/kb/bugyo', (c, x, b) => saveBugyoSettings(c, x, b), 'admin');
   w('/api/users', (c, x, b) => U.saveUser(c, x, b), 'admin');
+  w('/api/gs/save', (c, x, b) => GSL.save(c, x, b));
+  w('/api/gs/delete', (c, x, b) => GSL.remove(c, x, b));
   w('/api/password', (c, x, b) => U.changeOwnPassword(c, x, b), 'read');
 
   const cookie = (v, age) => `${COOKIE}=${v}; Path=/; HttpOnly; SameSite=Strict; Max-Age=${age}${secureCookies ? '; Secure' : ''}`;

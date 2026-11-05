@@ -8,6 +8,7 @@ import { prepareKb, getsudoMigration } from './kb.mjs';
 import { SLIP_SERIES, formatSlipNoFy, assignSlipNo, audit } from './db.mjs';
 import { companyPeriod } from './period.mjs';
 import { CUMULATIVE_SQL } from './sales.mjs';
+import { gsMigration } from './gslink.mjs';
 
 export const MENUS = [
   [1, 'ダッシュボード', '#dashboard', '▦', 'OVERVIEW'], [2, '出荷・売上', '#shipments', '▤', '販売・請求'], [3, '請求締め・発行', '#invoices', '▧', '販売・請求'], [4, '入金・消込', '#receipts', '↙', '販売・請求'],
@@ -203,6 +204,7 @@ export async function prepare(pool, env = process.env) {
     VALUES (1,'サンプル建材株式会社','（架空・デモ用）','サンプルケンザイ','','サンプル建材','サンプル工場','','','0000000','東京都','架空区デモ町1-2-3','','00-0000-0000','00-0000-0001','再発行',10,20,'1','APLink請求入金',1.00,NULL,'1','1','1')`);
   await compatMigration(pool);
   await getsudoMigration(pool);
+  await gsMigration(pool); // 外部システム gsLink のテーブル（2026-11-05）
   await javaCodes(pool, env);
   for (const [id, name] of Object.entries(ROLES)) await pool.query('INSERT INTO roles (role_id,role_name) VALUES (?,?) ON DUPLICATE KEY UPDATE role_name=VALUES(role_name)', [Number(id), name]);
   for (const [id, title, url, icon, grp] of MENUS) {
