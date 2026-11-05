@@ -528,3 +528,5 @@ input:disabled, select:disabled, textarea:disabled { background: rgba(120,130,15
 /* 請求先：ラベル・コード・名称・預り金残高を1行に（2026-10-31） */
 .lr-bill { margin-bottom: 10px; }
 .ext-frame { display: block; width: 100%; height: calc(100vh - 150px); min-height: 480px; border: 1px solid var(--border, #dfe7e7); border-radius: 12px; background: #fff; }
+/* 入金消込：得意先コードの右の得意先名は大きく強調（2026-11-06 ユーザー指示） */
+.lr-cname { font-size: 18px; font-weight: 700; color: var(--accent-secondary); margin-left: 10px; white-space: nowrap; }

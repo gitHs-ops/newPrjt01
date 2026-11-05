@@ -1225,7 +1225,7 @@ function lrStep1() {
   // 3画面目は 請求日（絞込）を入金日・得意先の行の後ろに置く（2026-11-01）
   if (lr.step > 1) return `<div class="inline-fields lr-step1 lr-fixed"><span>入金日：<b>${esc(lr.date)}</b></span><span>得意先：<b>${esc(lr.customer)} ${esc(lrName())}</b></span>${lr.step === 3 ? lrRange() : ''}${custHints()}</div>
     <div id="lr-detail">${lr.step === 2 ? lrStep2() : lrStep3()}</div>`;
-  return `<div class="inline-fields lr-step1">${field('入金日', `<input type="date" id="lr-date" value="${esc(lr.date)}">`, { req: 1 })}${field('得意先', `<input id="lr-cust" list="dl-pcust" autocomplete="off" value="${esc(lr.customer)}" placeholder="得意先コード" style="width:140px">${custHints()}<small id="lr-cname" class="muted">${esc(lrName())}</small>`, { req: 1 })}<button type="button" data-act="lrSearch">実行</button></div>
+  return `<div class="inline-fields lr-step1">${field('入金日', `<input type="date" id="lr-date" value="${esc(lr.date)}">`, { req: 1 })}${field('得意先', `<input id="lr-cust" list="dl-pcust" autocomplete="off" value="${esc(lr.customer)}" placeholder="得意先コード" style="width:140px">${custHints()}<b id="lr-cname" class="lr-cname">${esc(lrName())}</b>`, { req: 1 })}<button type="button" data-act="lrSearch">実行</button></div>
     <div id="lr-detail"></div>`;
 }
 // 得意先はコードのほか「コード＋名称」・名称の一部（1件に決まるとき）でも受け付ける
