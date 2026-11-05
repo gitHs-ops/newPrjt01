@@ -58,7 +58,9 @@ export function nextBusinessDay(iso, holidays) {
   for (let i = 0; i < 60 && isHoliday(d.toISOString().slice(0, 10), holidays); i++) d.setUTCDate(d.getUTCDate() + 1);
   return d.toISOString().slice(0, 10);
 }
-export const today = () => new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Tokyo' }).format(new Date());
+// テスト期間中の作業日（2026-11-05 ユーザー指示「テストが終わるまで作業日は11月末日」）。テスト終了時は '' に戻す（public/app.js の TEST_TODAY も）
+const TEST_TODAY = '2026-11-30';
+export const today = () => TEST_TODAY || new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Tokyo' }).format(new Date());
 // DB timestamps are UTC ("YYYY-MM-DD HH:MM:SS[.ffffff]"); printed documents use Japan time.
 export const jst = (v, len = 19) => { if (!v) return ''; const d = new Date(String(v).replace(' ', 'T').replace(/\.\d+$/, '') + 'Z'); return isNaN(d) ? String(v) : new Date(d.getTime() + 9 * 3600e3).toISOString().replace('T', ' ').slice(0, len); };
 export function addMonths(month, n) { const [y, m] = month.split('-').map(Number); return new Date(Date.UTC(y, m - 1 + n, 1)).toISOString().slice(0, 7); }

@@ -3,7 +3,9 @@ import { installKb } from './kb.js';
 const $ =(s, r = document) => r.querySelector(s), $$ = (s, r = document) => [...r.querySelectorAll(s)];
 const esc = v => String(v ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const yen = v => new Intl.NumberFormat('ja-JP').format(Number(v) || 0);
-const today = () => new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Tokyo' }).format(new Date());
+// テスト期間中の作業日（2026-11-05 ユーザー指示）。テスト終了時は '' に戻す（server/domain.mjs の TEST_TODAY も）
+const TEST_TODAY = '2026-11-30';
+const today = () => TEST_TODAY || new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Tokyo' }).format(new Date());
 const thisMonth = () => today().slice(0, 7);
 // DB timestamps are stored in UTC ("YYYY-MM-DD HH:MM:SS[.ffffff]"); screens show Japan time.
 const jst = (v, len = 19) => { if (!v) return ''; const d = new Date(String(v).replace(' ', 'T').replace(/\.\d+$/, '') + 'Z'); return isNaN(d) ? String(v) : new Date(d.getTime() + 9 * 3600e3).toISOString().replace('T', ' ').slice(0, len); };
