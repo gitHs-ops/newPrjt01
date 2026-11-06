@@ -243,8 +243,8 @@ const SUBMENUS = {
   external: [{ k: 'gslink', l: 'gsLink' }], // 2026-11-05 ユーザー指示
   reports: [{ k: 'csv', l: 'CSV出力', tools: true }, { k: 'ar', l: '売掛金残高一覧' }, { k: 'ap', l: '未払残高一覧' }, { k: 'jv', l: '出資金（JV）帳票' }, { k: 'jvalloc', l: '入金分配端数調整登録' }], // 入金分配端数調整登録は 2026-11-03 に小メニューへ
 };
-// 現場2（2026-11-06 ユーザー指示）は現場マスタの次に置く（得意先→現場の 1:n で入力する画面。現場マスタの画面はそのまま）
-const subsOf = name => (name === 'masters' && meta?.masters ? Object.entries(meta.masters).flatMap(([k, x]) => [{ k, l: x.label, q: { kind: k } }, ...(k === 'sites' ? [{ k: 'sites2', l: '現場2', q: { kind: 'sites2' } }] : [])]) : SUBMENUS[name] || null);
+// 1:n 入力画面（現場2・内訳科目2、2026-11-06 ユーザー指示）は元のマスタの次に置く（元のマスタの画面はそのまま）。定義は ONE_TO_MANY
+const subsOf = name => (name === 'masters' && meta?.masters ? Object.entries(meta.masters).flatMap(([k, x]) => [{ k, l: x.label, q: { kind: k } }, ...Object.entries(ONE_TO_MANY).filter(([, x]) => x.after === k).map(([k2, x]) => ({ k: k2, l: x.label, q: { kind: k2 } }))]) : SUBMENUS[name] || null);
 const TITLES = {};
 // 非表示にするメニュー（2026-10-22 ダッシュボードは使わない）。初期画面は表示メニューの先頭
 const HIDDEN_MENUS = new Set(['dashboard']);
@@ -2056,34 +2056,42 @@ function pageNav(list, page, per = 15) {
   const b = (p, label, title, dis) => `<button type="button" class="mini ${p === pg && !title ? 'primary' : ''}" data-act="mpage" data-page="${p}" ${dis ? 'disabled' : ''} ${title ? `title="${title}"` : ''}>${label}</button>`;
   return { shown, html: `<div class="pager">${b(1, '«', '最初', pg === 1)}${b(pg - 1, '‹', '前へ', pg === 1)}${nums.map(p => b(p, p)).join('')}${b(pg + 1, '›', '次へ', pg === pages)}${b(pages, '»', '最後', pg === pages)}<span class="muted small">${list.length} 件中 ${(pg - 1) * per + 1}〜${Math.min(pg * per, list.length)} 件（${pg} / ${pages} ページ）</span></div>` };
 }
-// 現場2（2026-11-06 ユーザー指示）：得意先と現場の 1:n を ①得意先一覧（現場数）→ ②選んだ得意先の現場一覧 → ［編集］で現場マスタの編集、［＋ 新規登録］で空欄の登録画面（得意先だけ入れておく）
-async function sitesView(q) {
-  const A = actions, [custs, sites] = await Promise.all([api('/api/masters/customers'), api('/api/masters/sites')]);
-  masters.sites = sites;
-  A.mpage = d => go('masters', { ...q, kind: 'sites2', page: d.page });
-  const desc = '得意先ごとの現場数を一覧し、得意先を選ぶとその得意先の現場を一覧・編集・新規登録します（現場マスタと同じデータ）。';
-  if (!q.customer) {
+// 1:n 入力画面（2026-11-06 ユーザー指示）：①親マスタの一覧（子の件数）→ ②選んだ親の子一覧 → ［編集］で子マスタの編集、［＋ 新規登録］で空欄の登録画面（親だけ入れておく）
+// 現場2 = 得意先 → 現場、内訳科目2 = 勘定科目 → 内訳科目。データは元のマスタと同じ
+const ONE_TO_MANY = {
+  sites2: { label: '現場2', after: 'sites', parent: 'customers', child: 'sites', ref: 'customer', pLabel: '得意先', cLabel: '現場',
+    cols: [['現場コード', r => r.code], ['枝番', r => r.suffix], ['現場名1', r => r.name], ['現場名2', r => r.name2 || '']] },
+  subaccounts2: { label: '内訳科目2', after: 'subaccounts', parent: 'accounts', child: 'subaccounts', ref: 'account', pLabel: '勘定科目', cLabel: '内訳科目',
+    cols: [['内訳コード', r => r.code], ['内訳名', r => r.name]] },
+};
+async function oneToManyView(q) {
+  const A = actions, kind = q.kind, d = ONE_TO_MANY[kind], [parents, children] = await Promise.all([api('/api/masters/' + d.parent), api('/api/masters/' + d.child)]);
+  masters[d.parent] = parents; masters[d.child] = children;
+  A.mpage = x => go('masters', { ...q, page: x.page });
+  const desc = `${d.pLabel}ごとの${d.cLabel}数を一覧し、${d.pLabel}を選ぶとその${d.pLabel}の${d.cLabel}を一覧・編集・新規登録します（${d.cLabel}マスタと同じデータ）。`;
+  const state = r => r.active ? badge('有効', 'green') : badge('無効', 'gray');
+  if (!q.parent) {
     const term = (q.search || '').trim().toLowerCase(), count = {};
-    for (const x of sites) count[x.customer] = (count[x.customer] || 0) + 1;
-    const list = term ? custs.filter(c => `${c.code} ${c.name}`.toLowerCase().includes(term)) : custs, { shown, html } = pageNav(list, q.page);
-    A.search = () => go('masters', { kind: 'sites2', search: $('#s2-search').value.trim() });
-    A.pick = d => go('masters', { kind: 'sites2', customer: d.code, back: q.search || '' });
-    return page('マスタ管理', desc, `<input id="s2-search" placeholder="得意先コード・名称で検索" value="${esc(q.search || '')}" style="width:220px"><button class="primary" data-act="search">検索</button>`,
-      `<section class="card glass master-list">${term ? `<p class="muted small">「${esc(q.search)}」の検索結果 ${list.length} / ${custs.length} 件</p>` : ''}${html}${table([{ label: '', html: r => `<button class="mini" data-act="pick" data-code="${esc(r.code)}">選択</button>` },
-        { label: '得意先コード', value: r => r.code }, { label: '得意先名', value: r => r.name }, { label: '現場数', num: 1, value: r => (count[r.code] || 0).toLocaleString('ja-JP') }, { label: '状態', html: r => r.active ? badge('有効', 'green') : badge('無効', 'gray') }],
+    for (const x of children) count[x[d.ref]] = (count[x[d.ref]] || 0) + 1;
+    const list = term ? parents.filter(c => `${c.code} ${c.name}`.toLowerCase().includes(term)) : parents, { shown, html } = pageNav(list, q.page);
+    A.search = () => go('masters', { kind, search: $('#s2-search').value.trim() });
+    A.pick = x => go('masters', { kind, parent: x.code, back: q.search || '' });
+    return page('マスタ管理', desc, `<input id="s2-search" placeholder="${d.pLabel}コード・名称で検索" value="${esc(q.search || '')}" style="width:220px"><button class="primary" data-act="search">検索</button>`,
+      `<section class="card glass master-list">${term ? `<p class="muted small">「${esc(q.search)}」の検索結果 ${list.length} / ${parents.length} 件</p>` : ''}${html}${table([{ label: '', html: r => `<button class="mini" data-act="pick" data-code="${esc(r.code)}">選択</button>` },
+        { label: d.pLabel + 'コード', value: r => r.code }, { label: d.pLabel + '名', value: r => r.name }, { label: d.cLabel + '数', num: 1, value: r => (count[r.code] || 0).toLocaleString('ja-JP') }, { label: '状態', html: state }],
         shown, { rowClass: r => r.active ? '' : 'muted' })}</section>`);
   }
-  const code = q.customer, cust = custs.find(c => c.code === code), list = sites.filter(x => x.customer === code), { shown, html } = pageNav(list, q.page);
-  A.back = () => go('masters', { kind: 'sites2', search: q.back || '' });
-  A.new = () => masterForm('sites', null, { customer: code }); A.edit = d => masterForm('sites', list.find(r => r.key === d.key));
+  const code = q.parent, par = parents.find(c => c.code === code), list = children.filter(x => x[d.ref] === code), { shown, html } = pageNav(list, q.page);
+  A.back = () => go('masters', { kind, search: q.back || '' });
+  A.new = () => masterForm(d.child, null, { [d.ref]: code }); A.edit = x => masterForm(d.child, list.find(r => r.key === x.key));
   return page('マスタ管理', desc, `<button data-act="back">← 前画面</button>${canWrite() ? '<button class="primary" data-act="new">＋ 新規登録</button>' : ''}`,
-    `<section class="card glass master-list"><p style="margin:0 0 10px">得意先 <b class="lr-cname" style="margin-left:6px">${esc(code)}　${esc(cust?.name || '')}</b>　<span class="muted small">現場 ${list.length} 件</span></p>${html}${table([...(canWrite() ? [{ label: '', html: r => `<button class="mini" data-act="edit" data-key="${esc(r.key)}">編集</button>` }] : []),
-      { label: '現場コード', value: r => r.code }, { label: '枝番', value: r => r.suffix }, { label: '現場名1', value: r => r.name }, { label: '現場名2', value: r => r.name2 || '' }, { label: '状態', html: r => r.active ? badge('有効', 'green') : badge('無効', 'gray') }],
-      shown, { empty: 'この得意先の現場はありません。［＋ 新規登録］で登録できます', rowClass: r => r.active ? '' : 'muted' })}</section>`);
+    `<section class="card glass master-list"><p style="margin:0 0 10px">${d.pLabel} <b class="lr-cname" style="margin-left:6px">${esc(code)}　${esc(par?.name || '')}</b>　<span class="muted small">${d.cLabel} ${list.length} 件</span></p>${html}${table([...(canWrite() ? [{ label: '', html: r => `<button class="mini" data-act="edit" data-key="${esc(r.key)}">編集</button>` }] : []),
+      ...d.cols.map(([label, value]) => ({ label, value })), { label: '状態', html: state }],
+      shown, { empty: `この${d.pLabel}の${d.cLabel}はありません。［＋ 新規登録］で登録できます`, rowClass: r => r.active ? '' : 'muted' })}</section>`);
 }
 VIEWS.masters = async q => {
   const A = actions;
-  if (q.kind === 'sites2') return sitesView(q);
+  if (ONE_TO_MANY[q.kind]) return oneToManyView(q);
   const kind = meta.masters[q.kind] ? q.kind : 'customers', m = meta.masters[kind], all = masters[kind] = await api('/api/masters/' + kind);
   // 「有効のみ」（2026-11-06 ユーザー指示）：チェックすると無効のマスタを出さない
   const hasActive = m.fields.some(f => f.name === 'active');
