@@ -2230,7 +2230,7 @@ VIEWS.audit = async q => {
   const list = await api('/api/audit?' + qs({ entity: q.entity }));
   const entities = [...new Set(list.map(r => r.entity))].map(code => ({ code, name: code }));
   return page('操作履歴', '登録・変更・取消・ログインの記録（audit_event）。口座番号やパスワードは記録しません。', filterSelect('entity', entities, q.entity, 'すべての対象'),
-    `<section class="card glass">${table([{ label: '日時', value: r => jst(r.at) }, { label: '利用者', value: r => r.actor }, { label: '操作', value: r => ACTIONS[r.action] || r.action }, { label: '対象', value: r => `${r.entity} ${r.entityId}` },
+    `<section class="card glass">${table([{ label: '日時', value: r => jst(r.at) }, { label: '利用者', value: r => r.actor }, { label: '操作', value: r => ACTIONS[r.action] || r.action }, { label: '対象', value: r => `${r.entity} ${r.ref ?? ''}` },
       { label: '内容', cls: 'small muted', value: r => JSON.stringify(r.summary).slice(0, 160) }], list)}</section>`);
 };
 

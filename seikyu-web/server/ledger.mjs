@@ -113,11 +113,12 @@ export async function dashboard(c) {
 const addDays = (iso, n) => { const d = new Date(iso + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); };
 
 // ---------- 操作履歴・移行状況 ----------
+// 対象の ID は小文字の別名 ref（PostgreSQL では entityId が entityid になり画面で undefined と出ていた、2026-11-07）
 export async function auditLog(c, q = {}) {
   const w = [], args = [];
   if (q.entity) { w.push('entity_type=?'); args.push(q.entity); }
   if (q.actor) { w.push('actor_id=?'); args.push(q.actor); }
-  return (await rows(c, `SELECT audit_id id, occurred_at at, actor_id actor, entity_type entity, entity_id entityId, action, change_summary summary FROM audit_event ${w.length ? 'WHERE ' + w.join(' AND ') : ''} ORDER BY audit_id DESC LIMIT 300`, args));
+  return (await rows(c, `SELECT audit_id id, occurred_at at, actor_id actor, entity_type entity, entity_id ref, action, change_summary summary FROM audit_event ${w.length ? 'WHERE ' + w.join(' AND ') : ''} ORDER BY audit_id DESC LIMIT 300`, args));
 }
 export const TABLES = {
   billing_closing_inf: ['請求締状況', '使用'], billing_detail: ['請求明細', '使用'], billing_head: ['請求ヘッダ', '使用'], card_sales: ['カード売上', '未使用（Q16）'], card_sales_dtl: ['カード売上明細', '未使用（Q16）'],
