@@ -392,7 +392,7 @@ export function installKb(h) {
       <label class="field"><span>補助区分</span><select name="sub">${Object.entries(K.subKinds).map(([k, v]) => `<option value="${k}" ${k === a.sub ? 'selected' : ''}>${esc(v)}</option>`).join('')}</select><small>内訳科目はマスタ管理「内訳科目」で登録</small></label>
       <label class="field"><span>既定処税率</span><select name="tax">${taxOptions(a.tax)}</select></label>
       <label class="field"><span>表示順</span><input name="sort" class="num" value="${esc(a.sort ?? '')}"></label>
-      <label class="field"><span>状態</span><span><input type="checkbox" name="active" ${a.active ? 'checked' : ''}> 有効</span></label></div>`,
+      <label class="field"><span><input type="checkbox" name="active" ${a.active ? 'checked' : ''}> 有効</span></label></div>`,
       onSubmit: async (v, f) => { await post('/api/kb/accounts', { ...v, active: f.active.checked, mode: isNew ? 'create' : 'update' }); await kb(true); await h.loadMasters(); toast('保存しました'); render(); } });
   }
   const openingRow = (r = {}) => `<tr class="kb-op-row"><td><select data-op="account">${accOptions(r.account || '', { filter: a => !a.grp.startsWith('P') })}</select></td><td><select data-op="sub">${subOptions(r.account || '', r.sub || '')}</select></td>

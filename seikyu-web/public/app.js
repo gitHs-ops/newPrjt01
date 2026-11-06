@@ -2196,7 +2196,7 @@ VIEWS.users = async () => {
       ${field('ログインID', `<input name="loginId" value="${esc(u?.loginId || '')}" ${u ? 'disabled' : ''} maxlength="64">`, { req: 1 })}${field('氏名', `<input name="name" value="${esc(u?.name || '')}" maxlength="60">`, { req: 1 })}
       ${field('ロール', `<select name="role">${options(Object.entries(meta.roles).map(([code, name]) => ({ code, name })), u?.role || 2, { label: x => x.name })}</select>`, { hint: '参照者は閲覧のみ' })}
       ${field(u ? '新しいパスワード（変更時のみ）' : 'パスワード', '<input name="password" type="password" autocomplete="new-password">', { req: !u, hint: '12文字以上' })}
-      <label class="field"><span>状態</span><span><input type="checkbox" name="enabled" ${u?.enabled === false ? '' : 'checked'}> 有効</span></label></div>`,
+      <label class="field"><span><input type="checkbox" name="enabled" ${u?.enabled === false ? '' : 'checked'}> 有効</span></label></div>`,
     onSubmit: async (v, f) => { await post('/api/users', { ...v, id: u?.id, enabled: f.enabled.checked }); toast('保存しました'); render(); } });
   A.new = () => form(); A.edit = d => form(list.find(u => u.id === Number(d.id)));
   return page('利用者管理', '利用者ごとにログインIDとロールを設定します（users / user_role_ts / roles）。初期管理者のパスワードは環境変数で管理しています。', '<button class="primary" data-act="new">＋ 利用者追加</button>',
