@@ -2,7 +2,7 @@
 // 削減案5により全リストを同一フォーマットで出力する。エ（銀行別随時支払一覧表）のみ別形式。
 import { check, isoDate, fromNum, today } from './domain.mjs';
 import { rows, invoiceNos } from './db.mjs';
-import { xlsx } from './xlsx.mjs';
+import { xlsx, band } from './xlsx.mjs';
 
 export const LISTS = {
   A01: { title: '売掛金計上自動仕訳リスト', ref: 'NO8 / 帳票⑦（HAR363）', prefix: 'R', source: 'billing_head' },
@@ -191,6 +191,7 @@ export async function journalListBook(c, q) {
   return { name: `${d.title}_${d.from}_${d.to}.xlsx`, body: xlsx([{ name: d.title.slice(0, 28), rows: out, widths: JOURNAL_WIDTHS, printTitles: '4:5', header: `&L${d.title}&R&P 頁` }]) };
 }
 // 現行 HAR321 の並び（2026-11-04）：ｺｰﾄﾞ 業者名 伝票No. 日付 請求金額 相殺金額 安全協力費 手数料 業者計 支払方法計 支払方法 銀行名 支店名（銀行・支店は支払元）。
+const BANKPAY_W = [9, 26, 9, 10, 13, 11, 11, 10, 13, 13, 11, 16, 14];
 // 支払日ごとに「YY 年 M 月 D 日支払」、銀行ごとに銀行計、支払日ごとに日付計（金額 4 列と支払方法計）
 export async function bankPaymentBook(c, q) {
   const d = await bankPaymentList(c, q), yy = x => `${x.slice(2, 4)}/${x.slice(5, 7)}/${x.slice(8, 10)}`;
@@ -199,10 +200,10 @@ export async function bankPaymentBook(c, q) {
   const sum = (x, label, bank, branch) => ['', '', '', '', S(x.billed), S(x.offset), S(x.safety), S(x.fee), '', S(x.total), S(label), bank === undefined ? '' : S(bank), branch === undefined ? '' : S(branch)];
   for (const day of d.days) {
     const [y, m, dd] = day.date.split('-');
-    out.push(['', '', '', '', '', '', '', '', '', '', H(`${y.slice(2)} 年 ${Number(m)} 月 ${Number(dd)} 日支払`)], head);
+    out.push(band(BANKPAY_W, ['', '', '', '', '', '', '', '', '', '', `${y.slice(2)} 年 ${Number(m)} 月 ${Number(dd)} 日支払`]), head);
     for (const g of day.banks) { for (const r of g.rows) out.push([r.vendor, r.vendorName, r.no, yy(r.date), r.billed, r.offset, r.safety, r.fee, r.vendorTotal, r.methodTotal ?? '', r.method, r.fromBankName, r.fromBranchName]); out.push([], sum(g, '銀　行　計', g.bankName, g.branchName)); }
     out.push([], sum(day.sums, '日　付　計'), []);
   }
   if (!d.days.length) out.push(['対象期間の支払はありません']);
-  return { name: `${d.title}_${d.from}_${d.to}.xlsx`, body: xlsx([{ name: d.title, rows: out, widths: [9, 26, 9, 10, 13, 11, 11, 10, 13, 13, 11, 16, 14] }]) };
+  return { name: `${d.title}_${d.from}_${d.to}.xlsx`, body: xlsx([{ name: d.title, rows: out, widths: BANKPAY_W }]) };
 }

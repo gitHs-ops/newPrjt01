@@ -3,7 +3,7 @@ import { check, isoDate, isoMonth, toNum, fromNum, today, addMonths, METHODS, ye
 import { taxOf, decode as taxDecode, TAX_RATE } from './taxcode.mjs';
 import { slipNoOf } from './sales.mjs';
 import { rows, one, audit } from './db.mjs';
-import { xlsx } from './xlsx.mjs';
+import { xlsx, band } from './xlsx.mjs';
 import { companyPeriod } from './period.mjs';
 import { jvAsOf } from './masters.mjs';
 
@@ -337,6 +337,7 @@ export async function miscBook(c, kind, q) {
     const heights = Object.fromEntries(out.map((_, i) => [i, i < 5 ? 18 : 24]));
     return { name: `材料受払表_${d.month}.xlsx`, body: xlsx([{ name: '材料受払表', rows: out, merges, heights, gridlines: false, printTitles: '4:5', header: '&RPAGE: &P', widths: [8, 24, 14, 13, 14, 13, 14, 13, 14, 13, 14, 13, 13] }]) };
   }
+  const MIX_W = [9, 22, 9, 22, 10, 11, 26, 12, 8, 10, 8, 10];
   if (kind === 'mix') {
     const d = await mixCalc(c, q), out = head(d, `対象月 ${d.month}`);
     out.push(['製品CD', '製品名', '材料CD', '材料名', '配合率(%)', '材料単価', '単価根拠', '配合金額'].map(H));
@@ -345,9 +346,10 @@ export async function miscBook(c, kind, q) {
       out.push(['', S(`${p.name} 配合単価`), '', '', S(p.ratio), '', '', S(p.haigo)]);
       if (p.saved) out.push(['', '保存済原価', '電気', p.saved.denki, '灯油', p.saved.touyu, '製造', p.saved.seizou, '一般', p.saved.ippann, '合計', p.saved.total]);
     }
-    out.push([], [H('経費単価（推定）'), '製品出荷数量', d.suggest.tons, '電気', d.suggest.denki, '灯油', d.suggest.touyu, '製造', d.suggest.seizou, '一般', d.suggest.ippann], [d.suggest.basis], [],
-      [H('材料使用量の比較'), '', '理論使用量', '実使用量', '差異'], ...d.usage.map(u => [u.material, u.name, u.theoretical, u.actual ?? '', u.diff ?? '']), []);
-    return { name: `配合計算_${d.month}.xlsx`, body: xlsx([{ name: '配合計算', rows: out, widths: [9, 22, 9, 22, 10, 11, 26, 12, 8, 10, 8, 10] }]) };
+    // 区切りの見出し（経費単価・材料使用量の比較）は名前の分だけ結合して色付け（2026-11-07 ユーザー指示：同じ様式の帳票を全部直す）
+    out.push([], band(MIX_W, ['経費単価（推定）']), ['', '製品出荷数量', d.suggest.tons, '電気', d.suggest.denki, '灯油', d.suggest.touyu, '製造', d.suggest.seizou, '一般', d.suggest.ippann], [d.suggest.basis], [],
+      band(MIX_W, ['材料使用量の比較']), ['材料CD', '材料名', '理論使用量', '実使用量', '差異'].map(H), ...d.usage.map(u => [u.material, u.name, u.theoretical, u.actual ?? '', u.diff ?? '']), []);
+    return { name: `配合計算_${d.month}.xlsx`, body: xlsx([{ name: '配合計算', rows: out, widths: MIX_W }]) };
   }
   // 合計表：現行 HJR011 の見出し（支払日・科目名・支払金額・支払本体・支払消費税、構成員ごとに「** 構成員名 **」の下に出資金額・出資本体・出資消費税。2026-11-02）
   const summarySheet = (d, out) => {
