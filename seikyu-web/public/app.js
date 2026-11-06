@@ -243,7 +243,7 @@ const SUBMENUS = {
   external: [{ k: 'gslink', l: 'gsLink' }], // 2026-11-05 ユーザー指示
   reports: [{ k: 'csv', l: 'CSV出力', tools: true }, { k: 'ar', l: '売掛金残高一覧' }, { k: 'ap', l: '未払残高一覧' }, { k: 'jv', l: '出資金（JV）帳票' }, { k: 'jvalloc', l: '入金分配端数調整登録' }], // 入金分配端数調整登録は 2026-11-03 に小メニューへ
 };
-// 1:n 入力画面（現場2・内訳科目2、2026-11-06 ユーザー指示）は元のマスタの次に置く（元のマスタの画面はそのまま）。定義は ONE_TO_MANY
+// 1:n 入力画面（現場2・内訳科目2、2026-11-06 ／得意先別単価2、2026-11-07 ユーザー指示）は元のマスタの次に置く（元のマスタの画面はそのまま）。定義は ONE_TO_MANY
 const subsOf = name => (name === 'masters' && meta?.masters ? Object.entries(meta.masters).flatMap(([k, x]) => [{ k, l: x.label, q: { kind: k } }, ...Object.entries(ONE_TO_MANY).filter(([, x]) => x.after === k).map(([k2, x]) => ({ k: k2, l: x.label, q: { kind: k2 } }))]) : SUBMENUS[name] || null);
 const TITLES = {};
 // 非表示にするメニュー（2026-10-22 ダッシュボードは使わない）。初期画面は表示メニューの先頭
@@ -2057,12 +2057,16 @@ function pageNav(list, page, per = 15) {
   return { shown, html: `<div class="pager">${b(1, '«', '最初', pg === 1)}${b(pg - 1, '‹', '前へ', pg === 1)}${nums.map(p => b(p, p)).join('')}${b(pg + 1, '›', '次へ', pg === pages)}${b(pages, '»', '最後', pg === pages)}<span class="muted small">${list.length} 件中 ${(pg - 1) * per + 1}〜${Math.min(pg * per, list.length)} 件（${pg} / ${pages} ページ）</span></div>` };
 }
 // 1:n 入力画面（2026-11-06 ユーザー指示）：①親マスタの一覧（子の件数）→ ②選んだ親の子一覧 → ［編集］で子マスタの編集、［＋ 新規登録］で空欄の登録画面（親だけ入れておく）
-// 現場2 = 得意先 → 現場、内訳科目2 = 勘定科目 → 内訳科目。データは元のマスタと同じ
+// 現場2 = 得意先 → 現場、内訳科目2 = 勘定科目 → 内訳科目、得意先別単価2 = 得意先 → 得意先別単価。データは元のマスタと同じ
+const priceSite = r => { if (!r.site) return '（得意先共通）'; const s = (masters.sites || []).find(x => x.customer === r.customer && `${x.code}|${x.suffix}` === r.site); return `${r.site.replace('|', '-')} ${s?.name || ''}`; };
 const ONE_TO_MANY = {
   sites2: { label: '現場2', after: 'sites', parent: 'customers', child: 'sites', ref: 'customer', pLabel: '得意先', cLabel: '現場',
     cols: [['現場コード', r => r.code], ['枝番', r => r.suffix], ['現場名1', r => r.name], ['現場名2', r => r.name2 || '']] },
   subaccounts2: { label: '内訳科目2', after: 'subaccounts', parent: 'accounts', child: 'subaccounts', ref: 'account', pLabel: '勘定科目', cLabel: '内訳科目',
     cols: [['内訳コード', r => r.code], ['内訳名', r => r.name]] },
+  prices2: { label: '得意先別単価2', after: 'prices', parent: 'customers', child: 'prices', ref: 'customer', pLabel: '得意先', cLabel: '得意先別単価',
+    cols: [['商品', r => `${r.item} ${nameOf('items', r.item)}`], ['現場', priceSite], ['単価', r => yen(r.price), 1], ['運賃', r => yen(r.freight), 1],
+      ['適用単価', r => r.applyPrice ? yen(r.applyPrice) : '', 1], ['適用運賃', r => r.applyFreight ? yen(r.applyFreight) : '', 1], ['適用期間', r => r.start ? `${r.start}〜${r.end}` : '']] },
 };
 async function oneToManyView(q) {
   const A = actions, kind = q.kind, d = ONE_TO_MANY[kind], [parents, children] = await Promise.all([api('/api/masters/' + d.parent), api('/api/masters/' + d.child)]);
@@ -2086,7 +2090,7 @@ async function oneToManyView(q) {
   A.new = () => masterForm(d.child, null, { [d.ref]: code }); A.edit = x => masterForm(d.child, list.find(r => r.key === x.key));
   return page('マスタ管理', desc, `<button data-act="back">← 前画面</button>${canWrite() ? '<button class="primary" data-act="new">＋ 新規登録</button>' : ''}`,
     `<section class="card glass master-list"><p style="margin:0 0 10px">${d.pLabel} <b class="lr-cname" style="margin-left:6px">${esc(code)}　${esc(par?.name || '')}</b>　<span class="muted small">${d.cLabel} ${list.length} 件</span></p>${html}${table([...(canWrite() ? [{ label: '', html: r => `<button class="mini" data-act="edit" data-key="${esc(r.key)}">編集</button>` }] : []),
-      ...d.cols.map(([label, value]) => ({ label, value })), { label: '状態', html: state }],
+      ...d.cols.map(([label, value, num]) => ({ label, value, num })), { label: '状態', html: state }],
       shown, { empty: `この${d.pLabel}の${d.cLabel}はありません。［＋ 新規登録］で登録できます`, rowClass: r => r.active ? '' : 'muted' })}</section>`);
 }
 VIEWS.masters = async q => {
