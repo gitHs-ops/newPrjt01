@@ -2054,6 +2054,13 @@ VIEWS.masters = async q => {
   A.tab = d => go('masters', { kind: d.kind });
   A.search = () => go('masters', { kind, search: $('#m-search').value.trim(), ...(months.length ? { month: $('#m-month').value } : {}) });
   A.new = () => masterForm(kind); A.edit = d => masterForm(kind, list.find(r => r.key === d.key));
+  // 一覧はページ分け（2026-11-06 ユーザー指示：得意先など件数が多いと表の下の横スクロールバーが見えない）。ナビゲーションは表の上
+  const PER = 15, pages = Math.max(1, Math.ceil(list.length / PER)), pg = Math.min(pages, Math.max(1, Number(q.page) || 1)), shown = list.slice((pg - 1) * PER, pg * PER);
+  A.mpage = d => go('masters', { ...q, kind, page: d.page });
+  const pager = () => { if (pages <= 1) return '';
+    const from = Math.max(1, Math.min(pg - 4, pages - 9)), nums = Array.from({ length: Math.min(10, pages) }, (_, i) => from + i);
+    const b = (p, label, title, dis) => `<button type="button" class="mini ${p === pg && !title ? 'primary' : ''}" data-act="mpage" data-page="${p}" ${dis ? 'disabled' : ''} ${title ? `title="${title}"` : ''}>${label}</button>`;
+    return `<div class="pager">${b(1, '«', '最初', pg === 1)}${b(pg - 1, '‹', '前へ', pg === 1)}${nums.map(p => b(p, p)).join('')}${b(pg + 1, '›', '次へ', pg === pages)}${b(pages, '»', '最後', pg === pages)}<span class="muted small">${list.length} 件中 ${(pg - 1) * PER + 1}〜${Math.min(pg * PER, list.length)} 件（${pg} / ${pages} ページ）</span></div>`; };
   A.import = () => modal({ title: `${m.label} CSV取込`, submit: '取込む', body: `<p class="small">1行目は列名（${m.fields.map(f => f.label).join('、')}）です。<b>1件でもエラーがあれば全件取消</b>します。既存コードは更新、新規コードは登録します。</p>
       <input type="file" name="file" accept=".csv,text/csv" required><p class="muted small"><a href="/api/export/master-${kind}" download>現在のデータをCSVで出力</a></p>`,
     onSubmit: async (v, f) => { const file = f.file.files[0]; if (!file) throw Error('ファイルを選択してください'); const buf = await file.arrayBuffer();
@@ -2063,7 +2070,7 @@ VIEWS.masters = async q => {
   // 「編集」は行の先頭（2026-11-06 ユーザー指示：項目が多く右端だと横スクロールしないと見えない）
   const show = f => r => r[f.name] === null || r[f.name] === undefined || (r[f.name] === '' && f.type !== 'bool') ? '' : f.type === 'bool' ? (r[f.name] ? '○' : '') : f.type === 'ref' ? `${r[f.name]} ${nameOf(f.ref, r[f.name])}` : f.type === 'select' ? (f.options.find(o => o[0] === String(r[f.name]))?.[1] || r[f.name]) : f.type === 'int' ? yen(r[f.name]) : f.type === 'dec' ? Number(r[f.name]).toLocaleString('ja-JP', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : r[f.name];
   return page('マスタ管理', `${Object.keys(meta.masters).length}種類のマスタを業務テーブルで直接管理します。登録後のコード・所属は変更できません（新規登録して旧マスタを無効化）。使われていないコードは編集画面から削除できます。`, `${months.length ? `<select id="m-month" name="month" data-filter><option value="">全年月</option>${months.map(x => `<option ${x === q.month ? 'selected' : ''}>${x}</option>`).join('')}</select>` : ''}<input id="m-search" placeholder="コード・名称などで検索" value="${esc(q.search || '')}" style="width:220px"><button class="primary" data-act="search">検索</button>${csvLink('master-' + kind)}${canWrite() && !m.readOnly ? '<button data-act="import">⇧ CSV取込</button><button class="primary" data-act="new">＋ 新規登録</button>' : ''}`,
-    `<section class="card glass master-list">${term ? `<p class="muted small">「${esc(q.search)}」の検索結果 ${list.length} / ${all.length} 件</p>` : ''}${table([...(canWrite() && !m.readOnly ? [{ label: '', html: r => `<button class="mini" data-act="edit" data-key="${esc(r.key)}">編集</button>` }] : []), ...m.fields.filter(f => f.name !== 'active').map(f => ({ label: f.label, num: f.type === 'int' || f.type === 'dec', value: show(f) })), { label: '状態', html: r => r.active ? badge('有効', 'green') : badge('無効', 'gray') }], list, { rowClass: r => r.active ? '' : 'muted' })}</section>`);
+    `<section class="card glass master-list">${term ? `<p class="muted small">「${esc(q.search)}」の検索結果 ${list.length} / ${all.length} 件</p>` : ''}${pager()}${table([...(canWrite() && !m.readOnly ? [{ label: '', html: r => `<button class="mini" data-act="edit" data-key="${esc(r.key)}">編集</button>` }] : []), ...m.fields.filter(f => f.name !== 'active').map(f => ({ label: f.label, num: f.type === 'int' || f.type === 'dec', value: show(f) })), { label: '状態', html: r => r.active ? badge('有効', 'green') : badge('無効', 'gray') }], shown, { rowClass: r => r.active ? '' : 'muted' })}</section>`);
 };
 function masterInput(f, r, isNew) {
   const v = r?.[f.name] ?? (f.type === 'bool' ? f.def ?? true : ''), dis = f.key && !isNew ? 'disabled' : '';
@@ -2099,8 +2106,8 @@ function masterForm(kind, r) {
     onOpen: f => {
       if (kind === 'jv') jvSumCheck(f, r);
       if (f.site && f.customer) f.customer.onchange = () => (f.site.innerHTML = siteOptions(f.customer.value, '', '（得意先共通）'));
-      // 削除：使用中のコードはサーバーが拒否し、無効化を案内する
-      if (r && kind !== 'company' && !r.system) { $('#modal-body').insertAdjacentHTML('beforeend', '<div class="filters" style="margin-top:10px"><button type="button" class="danger" id="m-del">削除</button><span class="muted small">取引などで使われているコードは削除できません（「有効」を外して無効化）</span></div>');
+      // 削除：使用中のコードはサーバーが拒否し、無効化を案内する。管理者だけに表示し、項目が多くても見えるよう下のボタン列の左端に置く（2026-11-06 ユーザー指示）
+      if (r && kind !== 'company' && !r.system && isAdmin()) { $('#modal-foot').insertAdjacentHTML('afterbegin', '<button type="button" class="danger" id="m-del" style="margin-right:auto" title="取引などで使われているコードは削除できません（「有効」を外して無効化）">削除</button>');
         $('#m-del').onclick = () => confirmBox(`${m.label}の削除`, `「${r.key.split('|').filter(Boolean).join('-')}」を削除します。元に戻せません。`, async () => { await post(`/api/masters/${kind}/delete`, { record: r }); toast('削除しました'); await loadMasters(); render(); }, '削除する'); }
     },
     onSubmit: async (v, f) => {
