@@ -2076,7 +2076,7 @@ async function sitesView(q) {
   const code = q.customer, cust = custs.find(c => c.code === code), list = sites.filter(x => x.customer === code), { shown, html } = pageNav(list, q.page);
   A.back = () => go('masters', { kind: 'sites2', search: q.back || '' });
   A.new = () => masterForm('sites', null, { customer: code }); A.edit = d => masterForm('sites', list.find(r => r.key === d.key));
-  return page('マスタ管理', desc, `<button data-act="back">← 得意先一覧</button>${canWrite() ? '<button class="primary" data-act="new">＋ 新規登録</button>' : ''}`,
+  return page('マスタ管理', desc, `<button data-act="back">← 前画面</button>${canWrite() ? '<button class="primary" data-act="new">＋ 新規登録</button>' : ''}`,
     `<section class="card glass master-list"><p style="margin:0 0 10px">得意先 <b class="lr-cname" style="margin-left:6px">${esc(code)}　${esc(cust?.name || '')}</b>　<span class="muted small">現場 ${list.length} 件</span></p>${html}${table([...(canWrite() ? [{ label: '', html: r => `<button class="mini" data-act="edit" data-key="${esc(r.key)}">編集</button>` }] : []),
       { label: '現場コード', value: r => r.code }, { label: '枝番', value: r => r.suffix }, { label: '現場名1', value: r => r.name }, { label: '現場名2', value: r => r.name2 || '' }, { label: '状態', html: r => r.active ? badge('有効', 'green') : badge('無効', 'gray') }],
       shown, { empty: 'この得意先の現場はありません。［＋ 新規登録］で登録できます', rowClass: r => r.active ? '' : 'muted' })}</section>`);
