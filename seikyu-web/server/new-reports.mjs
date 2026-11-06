@@ -78,9 +78,11 @@ export const NEW_REPORTS = { 'purchase-register': purchaseRegister, 'inventory-r
 export async function genericBook(c, kind, q) {
   const d = await NEW_REPORTS[kind](c, q), H = v => ({ v, s: 'bold' }), S = v => ({ v, s: 'sum' });
   const out = [[{ v: d.title, s: 'title' }], [`${d.sub}　出力日 ${today()}`], [], d.columns.map(col => H(col.label))];
+  const merges = [], lastCol = String.fromCharCode(64 + d.columns.length);   // 列は 26 以下
   const totalRow = (label, t) => d.columns.map((col, i) => (i === 0 ? S(label) : t[col.key] !== undefined ? S(t[col.key]) : ''));
+  // g.title の行は表の全列を結合して見出しの色を付ける（1セルだけだと不自然。2026-11-06 ユーザー指摘）
   // g.head：上位ブレイクの見出し、g.label：グループ計の名称、g.foot：上位ブレイクの計（任意）。g.title・g.totals が無いグループは見出し・計の行を出さない
-  for (const g of d.groups) { if (g.head) out.push([{ v: g.head, s: 'title' }]); if (g.title) out.push([H(g.title)]); for (const r of g.rows) out.push(d.columns.map(col => r[col.key] ?? '')); if (g.totals) out.push(totalRow(g.label || '計', g.totals)); if (g.foot) out.push(totalRow(g.foot.label, g.foot.totals)); }
+  for (const g of d.groups) { if (g.head) out.push([{ v: g.head, s: 'title' }]); if (g.title) { out.push(d.columns.map((_, i) => H(i ? '' : g.title))); merges.push(`A${out.length}:${lastCol}${out.length}`); } for (const r of g.rows) out.push(d.columns.map(col => r[col.key] ?? '')); if (g.totals) out.push(totalRow(g.label || '計', g.totals)); if (g.foot) out.push(totalRow(g.foot.label, g.foot.totals)); }
   if (d.totals) out.push(totalRow('総合計', d.totals));
-  return { name: `${d.title}_${(d.from || d.month || d.to || today())}.xlsx`, body: xlsx([{ name: d.title, rows: out, widths: d.columns.map(col => col.w ?? (col.num ? 13 : 18)) }]) };
+  return { name: `${d.title}_${(d.from || d.month || d.to || today())}.xlsx`, body: xlsx([{ name: d.title, rows: out, merges, widths: d.columns.map(col => col.w ?? (col.num ? 13 : 18)) }]) };
 }
