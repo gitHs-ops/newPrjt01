@@ -7,19 +7,20 @@ import { arReport, apReport } from './ledger.mjs';
 const H = v => ({ v, s: 'bold' }), S = v => ({ v, s: 'sum' }), T = v => ({ v, s: 'title' });
 const kindOf = l => (Number(l.shipKb) === 5 ? (l.quantity < 0 ? '赤' : '黒') : '売上'); // 区分は請求書と同じ 赤／黒／売上
 
+const PRECHECK_W = [10, 13, 6, 8, 24, 9, 5, 10, 12, 6, 8, 24], CONFIRM_W = [10, 14, 6, 8, 24, 9, 5, 10, 12, 6, 13, 24];
 // 発行前確認一覧（請求データ作成前の未請求掛売上。現行 HAR430 と同じ明細項目）
 export async function billingPrecheckBook(c, q) {
   const d = await billingPrecheck(c, q), clOf = n => (Number(n) === 31 ? '月末' : n + '日'), all = d.closing === 'all', cl = all ? 'すべて' : clOf(d.closing), ymd = iso => iso.slice(2).replaceAll('-', '/');
   const out = [[T('発行前確認一覧'), '', '', '', '', '', '', '', '', '', '', d.company], [all ? `締日 すべて（${d.month}）　作成日 ${ymd(today())}` : `締日 ${cl}　請求期間 ${ymd(d.start)}〜${ymd(d.end)}　売上締切日 ${ymd(d.end)}　作成日 ${ymd(today())}`], []];
   for (const x of d.rows) {
-    out.push(band(12, [`${x.customer} ${x.name}`, '', '', PRECHECK_PLAN[x.plan], '', ...(all ? [`${clOf(x.closing)}締　請求期間 ${ymd(x.start)}〜${ymd(x.end)}`] : [])]), ['売上日', '伝票No', '区分', '商品CD', '商品名', '数量', '単位', '単価', '金額', '処税率', '運送', '現場名']);
+    out.push(band(PRECHECK_W, [`${x.customer} ${x.name}`, '', '', H(PRECHECK_PLAN[x.plan]), '', ...(all ? [H(`${clOf(x.closing)}締　請求期間 ${ymd(x.start)}〜${ymd(x.end)}`)] : [])]), ['売上日', '伝票No', '区分', '商品CD', '商品名', '数量', '単位', '単価', '金額', '処税率', '運送', '現場名']);
     for (const l of x.lines) out.push([ymd(l.date), l.orderNo, kindOf(l), l.item, l.itemName, { v: l.quantity, s: 'qty' }, l.unit, l.price, l.net, `${l.taxRate}%`, l.carry, l.siteName]);
     out.push(['', S('（売上額）'), S(x.net), '', S('（消費税額）'), S(x.tax), '', S('（値引額）'), S(0), '', S('（今回請求額）'), S(x.current)]);
     for (const r of x.byRate || []) out.push(['', `${r.rate} %`, r.net, '', '', r.tax]);
     out.push([]);
   }
   if (!d.rows.length) out.push(['請求データ作成の対象となる未請求の掛売上はありません']);
-  return { name: `発行前確認一覧_${d.month}_${cl}締.xlsx`, body: xlsx([{ name: '発行前確認一覧', rows: out, widths: [10, 13, 6, 8, 24, 9, 5, 10, 12, 6, 8, 24] }]) };
+  return { name: `発行前確認一覧_${d.month}_${cl}締.xlsx`, body: xlsx([{ name: '発行前確認一覧', rows: out, widths: PRECHECK_W }]) };
 }
 
 // NO12 請求一覧表（確認用）— 現行 HAR431 の項目
@@ -43,14 +44,14 @@ export async function billingConfirmBook(c, q) {
     [`締日 ${d.closing}　請求日付 ${ymd(d.end)}　売上締切日 ${ymd(d.end)}　作成日 ${ymd(today())}`], [],
     ['売上日', '伝票No.', '', '', '商品名', '数量', '', '単価', '金額', '', '運送', '備考'].map(H)];
   for (const x of d.rows) for (const g of x.sites) {
-    out.push(band(12, [`${x.customer}　${x.name}`, '', '', '', '', ...(g.no > 1 ? [g.no, '', g.name] : [])]));
+    out.push(band(CONFIRM_W, [`${x.customer}　${x.name}`, '', '', '', '', ...(g.no > 1 ? [g.no, '', g.name] : [])]));
     for (const l of g.lines) out.push([ymd(l.date), l.orderNo, kindOf(l), l.item, l.itemName, { v: l.quantity, s: 'qty' }, l.unit, l.price, l.net, `${l.taxRate}%`, l.carry, l.siteName]);
     out.push(['', S('（売上額）'), S(g.net), '', S('（消費税額）'), S(g.tax), '', S('（値引額）'), S(0), '', S('（今回請求額）'), S(g.current)]);
     for (const r of g.byRate) out.push(['', `${r.rate} %`, r.net, '', '', r.tax]);
     out.push([]);
   }
   if (!d.rows.length) out.push([d.unissued ? '対象の請求はありません' : '発行済みの請求書はありません']);
-  return { name: `請求書発行確認表_${d.month}${d.unissued ? '_未発行含む' : ''}.xlsx`, body: xlsx([{ name: '発行確認表', rows: out, printTitles: '1:4', footer: '&L&8請求書発行確認表&R&8&P / &N', widths: [10, 14, 6, 8, 24, 9, 5, 10, 12, 6, 13, 24] }]) };
+  return { name: `請求書発行確認表_${d.month}${d.unissued ? '_未発行含む' : ''}.xlsx`, body: xlsx([{ name: '発行確認表', rows: out, printTitles: '1:4', footer: '&L&8請求書発行確認表&R&8&P / &N', widths: CONFIRM_W }]) };
 }
 
 // 入金予定一覧（提案書 スライド18・10/14 打合せ）— 画面と同じ条件・項目

@@ -653,7 +653,7 @@ export async function book(c, kind, q) {
     const F = await fiscal(c), d = await trialBalance(c, kind === 'fs' ? { ...q, from: F.range(F.fyOf(isoDate(q.to || today(), '基準日'))).from } : q);
     const sheet = (title, list) => ({ name: title, widths: [10, 30, 15, 15, 15, 15], rows: [[T(title)], [`${d.fyLabel}　${d.from} 〜 ${d.to}${d.dept ? '　部門 ' + d.dept : ''}　出力日 ${today()}`], [],
       [H('コード'), H('勘定科目'), H('前期繰越'), H('借方'), H('貸方'), H('残高')],
-      ...list.map(r => r.type === 'acct' ? [r.code, r.label, r.opening, r.dr, r.cr, r.closing] : r.type === 'group' || r.type === 'section' ? band(6, [r.label])
+      ...list.map(r => r.type === 'acct' ? [r.code, r.label, r.opening, r.dr, r.cr, r.closing] : r.type === 'group' || r.type === 'section' ? band([10, 30, 15, 15, 15, 15], [r.label])
         : r.type === 'calc' ? ['', H(r.label), S(r.opening), '', '', S(r.closing)] : ['', H(r.label), S(r.opening), S(r.dr ?? 0), S(r.cr ?? 0), S(r.closing)])] });
     return { name: `${kind === 'fs' ? '決算書' : '合計残高試算表'}_${d.from}_${d.to}.xlsx`, body: xlsx([sheet('貸借対照表', d.BS), sheet('損益計算書', d.PL)]) };
   }
@@ -661,7 +661,7 @@ export async function book(c, kind, q) {
     const d = await monthly(c, q);
     return { name: `月次推移表_${d.kind.toUpperCase()}_${d.fy}.xlsx`, body: xlsx([{ name: d.kind === 'bs' ? '月次推移(貸借)' : '月次推移(損益)', widths: [10, 26, ...Array(13).fill(13)],
       rows: [[T(`月次推移表（${d.kind === 'bs' ? '貸借対照表・月末残高' : '損益計算書・月別発生額'}）`)], [`${d.fyLabel}　出力日 ${today()}`], [], [H('コード'), H('勘定科目'), ...d.months.map(m => H(m)), H(d.kind === 'bs' ? '期末' : '合計')],
-        ...d.rows.map(r => r.type === 'group' ? band(3 + d.months.length, [r.label]) : r.type === 'acct' ? [r.code, r.label, ...r.values, r.total] : ['', H(r.label), ...r.values.map(S), S(r.total)])] }]) };
+        ...d.rows.map(r => r.type === 'group' ? band([10, 26, ...Array(13).fill(13)], [r.label]) : r.type === 'acct' ? [r.code, r.label, ...r.values, r.total] : ['', H(r.label), ...r.values.map(S), S(r.total)])] }]) };
   }
   if (kind === 'ledger') {
     const d = await ledger(c, q);

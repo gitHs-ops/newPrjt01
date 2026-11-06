@@ -25,7 +25,8 @@ Object.assign(STYLE, { rTitle: 9, rSub: 10, rCompany: 11, rBand: 12, rBandR: 13,
 Object.assign(STYLE, { qty3: 36, price1: 37, center: 38, right: 39, titleC: 40 });
 // 印刷は横1ページに収める（pageSetUpPr fitToPage が無いと fitToWidth が効かず、右の列が次のページに分かれる）
 // header：印刷時のページヘッダー（例 '&R&P 頁'）。printTitles：各ページに繰り返す見出し行（例 '4:5'。xlsx() で定義名にする）
-function sheetXml({ rows, widths = [], header, footer, heights = {}, merges = [], gridlines = true, portrait = false }) {
+function sheetXml({ rows, widths = [], header, footer, heights = {}, merges: given = [], gridlines = true, portrait = false }) {
+  const merges = [...given, ...rows.flatMap((r, ri) => (r?.span > 1 ? [`A${ri + 1}:${col(r.span - 1)}${ri + 1}`] : []))];
   const cols = widths.length ? `<cols>${widths.map((w, i) => `<col min="${i + 1}" max="${i + 1}" width="${w}" customWidth="1"/>`).join('')}</cols>` : '';
   const body = rows.map((r, ri) => `<row r="${ri + 1}"${heights[ri] ? ` ht="${heights[ri]}" customHeight="1"` : ''}>${(r || []).map((cell, ci) => {
     if (cell === null || cell === undefined || cell === '') return '';
@@ -39,8 +40,16 @@ function sheetXml({ rows, widths = [], header, footer, heights = {}, merges = []
   const sv = gridlines ? '' : '<sheetViews><sheetView workbookViewId="0" showGridLines="0"/></sheetViews>';
   return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetPr><pageSetUpPr fitToPage="1"/></sheetPr>${sv}${cols}<sheetData>${body}</sheetData>${mc}<pageMargins left="0.5" right="0.5" top="0.6" bottom="0.6" header="0.3" footer="0.3"/><pageSetup paperSize="9" orientation="${portrait ? 'portrait' : 'landscape'}" fitToWidth="1" fitToHeight="0"/>${hf}</worksheet>`;
 }
-// 小見出しの行（得意先・仕入先・組織などのグループ名）：表の全列に見出しの色を付ける（1 セルだけ色が付くと不自然。2026-11-06・11-07 ユーザー指摘）
-export const band = (n, cells) => Array.from({ length: n }, (_, i) => { const c = cells[i]; return c !== null && typeof c === 'object' ? { ...c, s: 'bold' } : { v: c ?? '', s: 'bold' }; });
+// 小見出しの行（得意先・仕入先・組織などのグループ名）：名前が入る分の列だけ結合して見出しの色を付ける（2026-11-07 ユーザー指示。
+// 1 セルだけ・全列だと不自然）。cells[0] が名前、以降は列の位置どおり（値のある列の手前まで結合）。結合は sheetXml が row.span から作る
+const textWidth = s => [...String(s ?? '')].reduce((n, ch) => n + (ch.charCodeAt(0) < 0x2000 || (ch >= '｡' && ch <= 'ﾟ') ? 1 : 2), 0);
+export function band(widths, cells) {
+  const stop = cells.findIndex((c, i) => i > 0 && c !== '' && c !== null && c !== undefined), max = stop > 0 ? stop : widths.length;
+  const need = textWidth(cells[0]) * 1.1 + 2; let span = 1, w = widths[0] ?? 9;
+  while (span < max && w < need) w += widths[span++] ?? 9;
+  const row = cells.slice(); for (let i = 0; i < span; i++) row[i] = { v: i ? '' : cells[0], s: 'bold' };
+  row.span = span; return row;
+}
 export function xlsx(sheets) {
   const NS = 'http://schemas.openxmlformats.org/spreadsheetml/2006/main', R = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships';
   const files = [

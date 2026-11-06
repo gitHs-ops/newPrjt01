@@ -167,13 +167,14 @@ export async function receiptSchedule(c, q) {
 
 // ---------- Excel ----------
 const head = (d, sub) => [[T(d.title)], [`${sub}　出力日 ${today()}`], []];
+const PAYIN_W = [9, 30, 7, 6, 16, 16, 11, 13, 11, 26, 9, 14], SALES_REG_W = [11, 6, 13, 7, 22, 9, 4, 10, 12, 7, 9, 7, 30, 24, 11];
 export async function extraBook(c, kind, q) {
   if (kind === 'payable-input') {
     // 現行 HAR136 の並び（2026-11-04）：見出し 2 段（業者CD 業者名／請求No 科目 内訳 科目名 内訳名 発注残金額 請求金額 相殺金額 摘要 処税率 相殺（支払）業者）
     // 業者の行 → 明細 → 請求金額の計と支払条件 → 業者合計・（内消費税）。部門（工事）の末尾に 工事合計・（内消費税）と 当月／累計の支払額・出来高・支払率
     const d = await payableInputList(c, q), out = head(d, `${d.month} 月度　区分 ${d.kb ? '1 組織' : 'ブランク 工事'}　業者 ${d.vendor}`), pct = (a, b) => `${b ? (Math.floor(a / b * 10000) / 100).toFixed(2) : '0.00'} %`;
     for (const dp of d.depts) {
-      out.push(band(12, [`${d.groupLabel} : ${dp.dept} ${dp.name}`]), ['業者CD', '業者名'].map(H), ['', '請求No.', '科目', '内訳', '科目名', '内訳名', '発注残金額', '請求金額', '相殺金額', '摘要', '処税率', '相殺（支払）業者'].map(H));
+      out.push(band(PAYIN_W, [`${d.groupLabel} : ${dp.dept} ${dp.name}`]), ['業者CD', '業者名'].map(H), ['', '請求No.', '科目', '内訳', '科目名', '内訳名', '発注残金額', '請求金額', '相殺金額', '摘要', '処税率', '相殺（支払）業者'].map(H));
       for (const v of dp.vendors) {
         out.push([v.vendor, v.name]);
         for (const r of v.rows) out.push(['', r.no, r.account, r.sub, r.accountName, r.subName, r.orderRemain, r.amount, r.offset, r.memo, r.tax, '']);
@@ -183,7 +184,7 @@ export async function extraBook(c, kind, q) {
       out.push(['', '', '', '', '', '', '', '', '', H('当月支払額'), H('当月出来高'), H('支払率')], ['', '', '', '', '', '', '', '', '', dp.paid, dp.done, pct(dp.paid, dp.done)]);
       out.push(['', '', '', '', '', '', '', '', '', H('累計支払額'), H('累計出来高'), H('支払率')], ['', '', '', '', '', '', '', '', '', dp.cumPaid, dp.cumDone, pct(dp.cumPaid, dp.cumDone)], []);
     }
-    return { name: `定時請求入力明細表_${d.month}.xlsx`, body: xlsx([{ name: '定時請求入力明細表', rows: out, widths: [9, 30, 7, 6, 16, 16, 11, 13, 11, 26, 9, 14] }]) };
+    return { name: `定時請求入力明細表_${d.month}.xlsx`, body: xlsx([{ name: '定時請求入力明細表', rows: out, widths: PAYIN_W }]) };
   }
   if (kind === 'petty-book') {
     // 構成員の列は現行 HJR051 と同じく名称だけ。列幅は名称が切れないよう全角2・半角1で計算（2026-10-29）
@@ -203,8 +204,8 @@ export async function extraBook(c, kind, q) {
   if (kind === 'sales-register') {
     const d = await salesRegister(c, q), out = head(d, `期間 ${d.from} 〜 ${d.to}`);
     out.push(['売上日', '区分', '伝票No', '商品名', '', '数量', '', '売上単価', '売上金額', '処税率', '運送区分', '運賃', '現場', '', '在庫品コード'].map(H));
-    for (const cu of d.customers) { out.push(band(15, [`${cu.customer} ${cu.name || ''}`])); for (const r of cu.rows) out.push([r.showDate ? r.date : '', r.showKind ? r.kind : '', r.no, r.item, r.itemName, r.qty, r.unit, r.price, r.net, r.tax, r.carry, r.freight, r.site, r.site2, r.stock]); }
-    return { name: `商品売上登録リスト_${d.from}_${d.to}.xlsx`, body: xlsx([{ name: '商品売上登録リスト', rows: out, widths: [11, 6, 13, 7, 22, 9, 4, 10, 12, 7, 9, 7, 30, 24, 11] }]) };
+    for (const cu of d.customers) { out.push(band(SALES_REG_W, [`${cu.customer} ${cu.name || ''}`])); for (const r of cu.rows) out.push([r.showDate ? r.date : '', r.showKind ? r.kind : '', r.no, r.item, r.itemName, r.qty, r.unit, r.price, r.net, r.tax, r.carry, r.freight, r.site, r.site2, r.stock]); }
+    return { name: `商品売上登録リスト_${d.from}_${d.to}.xlsx`, body: xlsx([{ name: '商品売上登録リスト', rows: out, widths: SALES_REG_W }]) };
   }
   if (kind === 'receipt-schedule') {
     const d = await receiptSchedule(c, q), out = head(d, d.sub);
