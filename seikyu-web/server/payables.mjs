@@ -48,7 +48,8 @@ export async function createPurchase(c, ctx, p) {
     check(!/値引/.test(it.item_nam || ''), `${label}: 「${it.item_nam}」は商品仕入では選択できません`); // 値引き（88888 等）は仕入で使わない（2026-10-29）
     // 運賃行は商品コードで決める（運賃の商品なら金額だけ。2026-10-29 指摘「種別→商品コード」）。
     // 材料の運賃（現行⑭ 10900 アスファルト 0.00 … 運賃）は、画面で数量を空欄にして金額を入れた行が lineKind=2 で来る（2026-11-01）
-    const freight = /運賃/.test(it.item_nam || '') || String(l.lineKind || '1') === '2';
+    // 運賃（30001）も一般の商品と同じ：商品名では決めない（2026-11-06 ユーザー指示）
+    const freight = String(l.lineKind || '1') === '2';
     const tax = mustDecode(l.taxCode || '241', `${label}の処税率`).code;
     if (freight) {
       const amount = yen(l.amount, `${label}の運賃`, { negative: true }); check(amount !== 0, `${label}: 運賃を入力してください`);

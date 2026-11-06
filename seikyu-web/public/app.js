@@ -1417,6 +1417,7 @@ VIEWS.purchases = async q => {
   const month = q.month || thisMonth(), list = await api('/api/purchases?' + qs({ month, vendor: q.vendor }));
   // 明細は現行の商品仕入登録リスト（帳票⑭）と同じ並び：行・商品コード・商品名・数量・単位・単価・金額・処税率（2026-10-29。消費税率→処税率に戻す）。商品コードは入力（候補は商品マスタ）
   // 2026-10-29 画面・帳票処理イメージ一覧の指摘：種別は置かず商品コードで決める（運賃の商品コードなら金額だけ入力）・摘要は現行の入力画面にないので置かない・単位にガイダンス
+  // 運賃（30001）も一般の商品コードと同じ扱い（数量×単価。数量を空欄にすれば金額のみ）。特別入力はやめた（2026-11-06 ユーザー指示）。isFreight はサンプル入力の除外だけに使う
   const isFreight = it => /運賃/.test(it?.name || '');
   // 値引き（88888 等）は商品仕入では使わない：候補に出さず、入力しても選べない（2026-10-29）
   const noPurchase = it => /値引/.test(it?.name || ''), puItems = () => active('items').filter(i => !noPurchase(i));
@@ -1427,7 +1428,7 @@ VIEWS.purchases = async q => {
     { name: 'price', label: '単価', cell: () => '<input name="price" class="num" style="width:100px" inputmode="decimal" placeholder="マスタ単価" title="小数2桁まで（例 2267.40）">' }, { name: 'amount', label: '金額', sum: 1, cell: () => '<input name="amount" class="num" style="width:120px" placeholder="自動">' },
     { name: 'taxCode', label: '処税率', cell: () => taxSelect('taxCode', '241') }];
   // 単位は現行画面（HAW010）の下のガイダンスどおり 1〜3 で入力し、右に単位名（単位マスタからの取得は保留。2026-11-03）
-  const calc = tr => { const f = n => tr.querySelector(`[name=${n}]`), code = f('item').value.trim(), hit = masters.items.find(i => i.code === code && !noPurchase(i)), fr = isFreight(hit), nm = tr.querySelector('[data-iname]'), un = tr.querySelector('[data-unit]');
+  const calc = tr => { const f = n => tr.querySelector(`[name=${n}]`), code = f('item').value.trim(), hit = masters.items.find(i => i.code === code && !noPurchase(i)), fr = false, nm = tr.querySelector('[data-iname]'), un = tr.querySelector('[data-unit]');
     nm.innerHTML = code && !hit ? `<span class="check-ng">${masters.items.some(i => i.code === code) ? '仕入では使えない商品' : '該当なし'}</span>` : hit ? esc(hit.name) : '商品コードを入力'; nm.classList.toggle('muted', !hit);
     // 材料の運賃（現行⑭「10900 アスファルト 0.00 t 0.00 1,108,214- 運賃」）：数量を空欄（0）にすると金額を直接入力でき、その行は運賃（2026-11-01）
     const byAmt = !fr && hit && !Number(f('quantity').value || 0);
@@ -1449,7 +1450,7 @@ VIEWS.purchases = async q => {
       <datalist id="dl-pu-items">${puItems().map(i => `<option value="${esc(i.code)}">${esc(i.name)}</option>`).join('')}</datalist>
       ${lineGrid('pu-lines', cols, undefined, { lineNo: true })}`,
     onOpen: f => { const g = $('#pu-lines'); g.addEventListener('input', e => { if (e.target.name === 'unit') e.target.value = e.target.value.replace(/[^123]/g, '').slice(0, 1); }, true); g.addEventListener('input', () => lineTotal('pu-lines', 'amount', calc)); g.addEventListener('change', () => lineTotal('pu-lines', 'amount', calc)); },
-    onSubmit: async v => { const lines = readLines('pu-lines').map(l => { const item = String(l.item || '').trim(), byAmt = !Number(l.quantity || 0) && String(l.amount || '').trim() !== ''; return { ...l, item, lineKind: isFreight(masters.items.find(i => i.code === item)) || byAmt ? '2' : '1' }; }); const r = await post('/api/purchases', { date: v.date, vendor: v.vendor, kind: v.kind, memo: v.memo, lines }); toast(`仕入 ${pNo(r.no)}（${r.lines}行・${yen(r.net)}円）を登録しました`); render(); } });
+    onSubmit: async v => { const lines = readLines('pu-lines').map(l => { const item = String(l.item || '').trim(), byAmt = !Number(l.quantity || 0) && String(l.amount || '').trim() !== ''; return { ...l, item, lineKind: byAmt ? '2' : '1' }; }); const r = await post('/api/purchases', { date: v.date, vendor: v.vendor, kind: v.kind, memo: v.memo, lines }); toast(`仕入 ${pNo(r.no)}（${r.lines}行・${yen(r.net)}円）を登録しました`); render(); } });
   A.del = d => confirmBox('仕入の取消', `仕入伝票 ${pNo(d.no)} の全明細を削除します。`, () => post('/api/purchases/delete', { id: Number(d.id) }).then(() => { toast('取消しました'); render(); }), '取消する');
   return page('商品仕入', '業者からの商品仕入を伝票（複数明細）で記録します（purchase）。区分 1=仕入／2=他社納入、運賃行あり。', `${monthInput('month', month)}${filterSelect('vendor', masters.vendors, q.vendor, 'すべての業者')}${csvLink('purchases', { month })}${canWrite() ? '<button class="primary" data-act="new">＋ 仕入登録</button>' : ''}`,
     `<section class="card glass" data-sub="list">${table([{ label: '伝票No.', value: r => pNo(r.no, r.line) }, { label: '仕入日', value: r => r.date }, { label: '区分', value: r => r.kindName }, { label: '業者', value: r => r.vendorName },
