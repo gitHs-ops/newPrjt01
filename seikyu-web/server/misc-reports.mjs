@@ -203,7 +203,7 @@ export async function jvExpenses(c, q) {
   const { from, to, closing, month } = await jvRange(c, q), ms = await members(c, month), summary = q.layout === 'summary';
   const ls = await rows(c, `SELECT d.document_no, d.due_on, d.booked_on, d.memo, l.line_no, l.account_code, a.account_name, l.source_tax_code, l.gross_amount, l.tax_amount, l.memo line_memo, v.vendor_name
     FROM expense_document d JOIN expense_line l ON l.expense_id=d.expense_id LEFT JOIN account_subject a ON a.account_code=l.account_code LEFT JOIN vendor v ON v.vendor_id=d.vendor_id
-    WHERE d.expense_kind='PAYABLE' AND d.status='POSTED' AND d.booked_on BETWEEN ? AND ? ORDER BY COALESCE(d.due_on, d.booked_on), l.account_code, d.document_no, l.line_no`, [from, to]);
+    WHERE d.expense_kind='PAYABLE' AND d.status='POSTED' AND d.booked_on BETWEEN ? AND ? ORDER BY COALESCE(d.due_on, d.booked_on), l.account_code, v.vendor_code, d.document_no, l.line_no`, [from, to]);
   const accounts = [], rates = [], zero = () => ms.map(() => 0);
   for (const l of ls) {
     const due = String(l.due_on || l.booked_on).slice(0, 10);
