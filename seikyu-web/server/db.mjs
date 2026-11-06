@@ -23,6 +23,7 @@ export async function nextNo(c, kind) {
   await c.query('UPDATE numbering_m SET present_value=? WHERE numbering_key=?', [String(next), key]);
   return prefix + String(next).padStart(8, '0');
 }
+export const isClosed = async (c, iso) => !!(await one(c, 'SELECT period FROM app_period_close WHERE period=?', [String(iso).slice(0, 7)]));
 export async function assertOpen(c, iso) {
   const r = await one(c, 'SELECT period FROM app_period_close WHERE period=? FOR SHARE', [String(iso).slice(0, 7)]);
   check(!r, `${String(iso).slice(0, 7)} は月次確定済みのため登録・変更できません`);

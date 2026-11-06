@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { check, Conflict, yen, qty, taxOf, isoDate, isoMonth, toNum, fromNum, period, dueDate, closingDay, text, RATES, METHODS, CREDIT, today } from './domain.mjs';
-import { rows, one, nextSlipNoFy, docNo, invoiceNos, DOC_SERIES, assertOpen, audit, stamp, postJournal, reverseJournal, line, AR_SLIP_MAX } from './db.mjs';
+import { rows, one, nextSlipNoFy, docNo, invoiceNos, DOC_SERIES, assertOpen, isClosed, audit, stamp, postJournal, reverseJournal, line, AR_SLIP_MAX } from './db.mjs';
 import { mustDecode, decode } from './taxcode.mjs';
 
 const site = s => { const [code = '', suffix = ''] = String(s || '').split('|'); return { code, suffix }; };
@@ -198,8 +198,10 @@ export async function correctShipment(c, ctx, p) {
   check(!(orig.ship_kb === CORRECTION && Number(orig.quantity) < 0), '赤伝票は訂正できません');
   const slip = await one(c, 'SELECT * FROM shipment_slip WHERE order_no=?', [orig.order_no]);
   // 赤・黒の売上日は元伝票の売上日（現行と同じ、2026-10-27 大西さん回答 H）。訂正日は correction_date に持つ
-  const corrDate = isoDate(p.date, '訂正日'), date = fromNum(orig.sales_date); await assertOpen(c, corrDate);
-  check(corrDate >= date, '訂正日が元伝票の出荷日より前です');
+  const corrDate = isoDate(p.date, '訂正日'), origDate = fromNum(orig.sales_date); await assertOpen(c, corrDate);
+  check(corrDate >= origDate, '訂正日が元伝票の出荷日より前です');
+  // 元伝票の月が月次確定済みなら、赤・黒の売上日は訂正日（翌月以降の請求・仕訳で訂正する。2026-11-07 ユーザー指示「NG 修正」：2次テスト 7.会計連携 STEP⑥）
+  const date = await isClosed(c, origDate) ? corrDate : origDate;
   const cust = await one(c, 'SELECT * FROM client_m WHERE customers_cd=?', [orig.customers_cd]);
   const it = await one(c, 'SELECT * FROM item_m WHERE item_cd=?', [orig.item_cd]);
   const f = { field_cd: orig.field_cd || '', field_suffix: orig.field_suffix || '', field_name1: orig.field_name1 || '', field_name2: orig.field_name2 || '' };

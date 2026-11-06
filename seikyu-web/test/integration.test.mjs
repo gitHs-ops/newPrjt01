@@ -544,6 +544,19 @@ test('workflow against PostgreSQL business tables', { skip, timeout: 900000 }, a
       const rb = ok(await a.call('/api/shipments/correct', { orderNo: o2.orderNo, date: pm + '-03', quantity: '2' })); assert.ok(rb.red && rb.black);
       assert.deepEqual(ok(await a.call('/api/shipments/delete', { orderNo: rb.black })).slips.sort(), [rb.red, rb.black].sort(), 'red and black deleted as a pair');
       ok(await a.call('/api/shipments/delete', { orderNo: o2.orderNo }));
+      // 元伝票の月が月次確定済みなら、赤・黒の売上日は訂正日（2026-11-07 2次テスト 7.会計連携 STEP⑥）
+      const o3 = ok(await a.call('/api/shipments', { ...base, quantity: '3' }));
+      await pool.query('INSERT INTO app_period_close (period, closed_at, closed_by) VALUES (?, UTC_TIMESTAMP(6), ?)', [pm, 'test']);
+      try {
+        const rc = ok(await a.call('/api/shipments/correct', { orderNo: o3.orderNo, date: d, quantity: '2' }));
+        const sd2 = (await pool.query('SELECT order_no, sales_date FROM sales_trn WHERE order_no IN (?,?)', [rc.red, rc.black]))[0].map(r => String(r.sales_date));
+        assert.deepEqual(sd2, [d.replaceAll('-', ''), d.replaceAll('-', '')], 'red/black dated on the correction date');
+      } finally { await pool.query('DELETE FROM app_period_close WHERE period=?', [pm]); }
+      // 小口現金は内税（141）でも消費税を仮払消費税 1465 に分ける。対象外（090）は分けない（2026-11-07 2次テスト 4.小口現金 STEP③）
+      const pc = ok(await a.call('/api/expenses', { kind: 'PETTY_CASH', date: d, lines: [{ payee: '文具店', account: '8231', taxCode: '141', amount: 3300, memo: 'コピー用紙' }, { payee: '駐車場', account: '8231', taxCode: '141', amount: 500, memo: '駐車料金' }, { payee: '郵便局', account: '8231', taxCode: '090', amount: 84, memo: '切手' }] }));
+      const pjl = (await pool.query("SELECT jl.account_code, SUM(CASE WHEN jl.side='D' THEN jl.amount ELSE -jl.amount END)::int v FROM journal_entry je JOIN journal_line jl ON jl.journal_id=je.journal_id WHERE je.source_type='expense_document' AND je.source_id=? AND je.status='POSTED' GROUP BY 1 ORDER BY 1", [String(pc.id)]))[0];
+      assert.deepEqual(pjl.map(r => [r.account_code, r.v]), [['1111', -3884], ['1465', 345], ['8231', 3539]]);
+      ok(await a.call('/api/expenses/reverse', { id: pc.id }));
     });
     await t.test('Q08: one closing run puts its customers on one A01 slip number', async () => {
       const ok = r => { assert.equal(r.status, 200, JSON.stringify(r.data)); return r.data; };

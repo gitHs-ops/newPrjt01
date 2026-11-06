@@ -297,9 +297,10 @@ export async function createExpense(c, ctx, p, old = null) {
     // 内税（1桁目 1）：金額は税込、消費税は内数。外税（1桁目 2・空白）：金額は税抜、消費税を上乗せ（現行 HAW050 の「外税消費税」）
     const d = mustDecode(l.taxCode || '141', `${label}の処税率`), tax = d.code, excl = !!d.excl;
     // 小口現金の支払額は常に税込（画面「支払額（税込）」。2026-11-04）：外税の処税率でも消費税は支払額から抜き出し、科目は税抜・仮払消費税 1465 に分ける（上乗せしない）
-    const pettyEx = kind === 'PETTY_CASH' && excl && d.taxable, r10 = Math.round(d.rate * 10);
+    // 小口現金は内税の処税率でも消費税を抜き出して仮払消費税 1465 に分ける（2026-11-07 ユーザー指示「NG 修正」：2次テスト 4.小口現金 STEP③ のサンプル＝事務用品費 3,000円・旅費交通費 455円・仮払消費税 345円）
+    const pettyEx = kind === 'PETTY_CASH' && d.taxable, r10 = Math.round(d.rate * 10);
     const taxAmt = pettyEx ? Math.sign(amount) * Math.floor(Math.abs(amount) * r10 / (1000 + r10)) : Math.sign(amount) * taxOf(Math.abs(amount), tax);
-    ls.push({ account: acc.account_code, sub, tax, amount: pettyEx ? amount - taxAmt : amount, excl, taxAmt, gross: pettyEx ? amount : excl ? amount + taxAmt : amount, memoCode: text(l.memoCode, `${label}の摘要コード`, 7, { required: false, pattern: /^\d{1,7}$/ }), memo: text(l.memo, `${label}の摘要名`, 500, { required: false }), lineVendor: lv, linePayee: lpayee });
+    ls.push({ account: acc.account_code, sub, tax, amount: pettyEx ? amount - taxAmt : amount, excl, split: excl || pettyEx, taxAmt, gross: pettyEx ? amount : excl ? amount + taxAmt : amount, memoCode: text(l.memoCode, `${label}の摘要コード`, 7, { required: false, pattern: /^\d{1,7}$/ }), memo: text(l.memo, `${label}の摘要名`, 500, { required: false }), lineVendor: lv, linePayee: lpayee });
   }
   check(ls.length, '明細を入力してください'); check(ls.length <= 99, '明細は99行以内です');
   const advUse = -ls.filter(l => l.account === ADVANCE_ACCOUNT).reduce((n, l) => n + l.amount, 0);
@@ -313,7 +314,7 @@ export async function createExpense(c, ctx, p, old = null) {
   const amount = ls.reduce((n, l) => n + l.gross, 0); check(amount > 0, '合計金額がマイナスまたは0です');
   // 支払予定日は常に業者マスタの支払繰延区分・繰延最低限度額から計算（画面からの値は使わない。10-29 画面レビュー No.6）
   const due = kind === 'PAYABLE' ? await vendorDue(c, v.vendor_code, date, amount) : null;
-  const extTax = ls.filter(l => l.excl).reduce((n, l) => n + l.taxAmt, 0);
+  const extTax = ls.filter(l => l.split).reduce((n, l) => n + l.taxAmt, 0);
   // 10/21 打合せ：定時請求の合計金額は現行どおり手入力し、明細の合計と一致するかチェックする
   if (kind === 'PAYABLE' && p.total !== undefined) { const t = yen(p.total, '合計金額', { max: 9999999999, positive: false }); check(t === amount, `合計金額（${t.toLocaleString('ja-JP')}円）と明細の合計（${amount.toLocaleString('ja-JP')}円）が一致しません`); }
   const memo = text(p.memo || ls[0].memo || (kind === 'PAYABLE' ? '定時請求' : '小口現金'), '摘要', 500), no = old ? old.document_no : await nextSlipNoFy(c, kind === 'PAYABLE' ? DOC_SERIES.payable : DOC_SERIES.petty, date);
