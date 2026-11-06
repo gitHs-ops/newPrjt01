@@ -2045,14 +2045,18 @@ VIEWS.periods = async () => {
 };
 
 // ----- マスタ管理 -----
+// マスタの「有効のみ」は切り替えたらすぐ表示し直す
+document.addEventListener('change', e => { if (e.target.id === 'm-active' && route.name === 'masters') actions.search?.(); });
 VIEWS.masters = async q => {
   const A = actions;
   const kind = meta.masters[q.kind] ? q.kind : 'customers', m = meta.masters[kind], all = masters[kind] = await api('/api/masters/' + kind);
-  const term = (q.search || '').trim().toLowerCase(), byMonth = q.month ? all.filter(r => r.month === q.month) : all, list = term ? byMonth.filter(r => Object.values(r).some(v => String(v ?? '').toLowerCase().includes(term))) : byMonth;
+  // 「有効のみ」（2026-11-06 ユーザー指示）：チェックすると無効のマスタを出さない
+  const hasActive = m.fields.some(f => f.name === 'active');
+  const term = (q.search || '').trim().toLowerCase(), byMonth = (q.month ? all.filter(r => r.month === q.month) : all).filter(r => q.active !== '1' || !hasActive || r.active), list = term ? byMonth.filter(r => Object.values(r).some(v => String(v ?? '').toLowerCase().includes(term))) : byMonth;
   // 照会のみのマスタ（原価）は年月で絞り込む
   const months = m.fields.some(f => f.name === 'month') ? [...new Set(all.map(r => r.month))] : [];
   A.tab = d => go('masters', { kind: d.kind });
-  A.search = () => go('masters', { kind, search: $('#m-search').value.trim(), ...(months.length ? { month: $('#m-month').value } : {}) });
+  A.search = () => go('masters', { kind, search: $('#m-search').value.trim(), active: $('#m-active')?.checked ? '1' : '', ...(months.length ? { month: $('#m-month').value } : {}) });
   A.new = () => masterForm(kind); A.edit = d => masterForm(kind, list.find(r => r.key === d.key));
   // 一覧はページ分け（2026-11-06 ユーザー指示：得意先など件数が多いと表の下の横スクロールバーが見えない）。ナビゲーションは表の上
   const PER = 15, pages = Math.max(1, Math.ceil(list.length / PER)), pg = Math.min(pages, Math.max(1, Number(q.page) || 1)), shown = list.slice((pg - 1) * PER, pg * PER);
@@ -2069,7 +2073,7 @@ VIEWS.masters = async q => {
   // 一覧はマスタの全項目を表示する（2026-10-29：list:false の非表示項目も表示。未設定は空欄）
   // 「編集」は行の先頭（2026-11-06 ユーザー指示：項目が多く右端だと横スクロールしないと見えない）
   const show = f => r => r[f.name] === null || r[f.name] === undefined || (r[f.name] === '' && f.type !== 'bool') ? '' : f.type === 'bool' ? (r[f.name] ? '○' : '') : f.type === 'ref' ? `${r[f.name]} ${nameOf(f.ref, r[f.name])}` : f.type === 'select' ? (f.options.find(o => o[0] === String(r[f.name]))?.[1] || r[f.name]) : f.type === 'int' ? yen(r[f.name]) : f.type === 'dec' ? Number(r[f.name]).toLocaleString('ja-JP', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : r[f.name];
-  return page('マスタ管理', `${Object.keys(meta.masters).length}種類のマスタを業務テーブルで直接管理します。登録後のコード・所属は変更できません（新規登録して旧マスタを無効化）。使われていないコードは編集画面から削除できます。`, `${months.length ? `<select id="m-month" name="month" data-filter><option value="">全年月</option>${months.map(x => `<option ${x === q.month ? 'selected' : ''}>${x}</option>`).join('')}</select>` : ''}<input id="m-search" placeholder="コード・名称などで検索" value="${esc(q.search || '')}" style="width:220px"><button class="primary" data-act="search">検索</button>${csvLink('master-' + kind)}${canWrite() && !m.readOnly ? '<button data-act="import">⇧ CSV取込</button><button class="primary" data-act="new">＋ 新規登録</button>' : ''}`,
+  return page('マスタ管理', `${Object.keys(meta.masters).length}種類のマスタを業務テーブルで直接管理します。登録後のコード・所属は変更できません（新規登録して旧マスタを無効化）。使われていないコードは編集画面から削除できます。`, `${months.length ? `<select id="m-month" name="month" data-filter><option value="">全年月</option>${months.map(x => `<option ${x === q.month ? 'selected' : ''}>${x}</option>`).join('')}</select>` : ''}<input id="m-search" placeholder="コード・名称などで検索" value="${esc(q.search || '')}" style="width:220px">${hasActive ? `<label class="small"><input type="checkbox" id="m-active" ${q.active === '1' ? 'checked' : ''}> 有効のみ</label>` : ''}<button class="primary" data-act="search">検索</button>${csvLink('master-' + kind)}${canWrite() && !m.readOnly ? '<button data-act="import">⇧ CSV取込</button><button class="primary" data-act="new">＋ 新規登録</button>' : ''}`,
     `<section class="card glass master-list">${term ? `<p class="muted small">「${esc(q.search)}」の検索結果 ${list.length} / ${all.length} 件</p>` : ''}${pager()}${table([...(canWrite() && !m.readOnly ? [{ label: '', html: r => `<button class="mini" data-act="edit" data-key="${esc(r.key)}">編集</button>` }] : []), ...m.fields.filter(f => f.name !== 'active').map(f => ({ label: f.label, num: f.type === 'int' || f.type === 'dec', value: show(f) })), { label: '状態', html: r => r.active ? badge('有効', 'green') : badge('無効', 'gray') }], shown, { rowClass: r => r.active ? '' : 'muted' })}</section>`);
 };
 function masterInput(f, r, isNew) {

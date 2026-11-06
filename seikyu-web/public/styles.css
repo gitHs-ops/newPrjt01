@@ -136,7 +136,7 @@ label.field.req > span::after { content: ' *'; color: var(--danger); }
 /* マスタ一覧は全項目を表示するので折り返さず横スクロール（2026-10-29） */
 .master-list { min-width: 0; }
 .master-list .table-wrap td, .master-list .table-wrap th { white-space: nowrap; }
-.master-list .pager { display: flex; gap: 4px; align-items: center; flex-wrap: wrap; margin-bottom: 10px; } /* マスタ一覧のページ移動（2026-11-06） */
+.master-list .pager { display: flex; gap: 4px; align-items: center; flex-wrap: wrap; justify-content: flex-end; margin-bottom: 10px; } /* マスタ一覧のページ移動（2026-11-06） */
 .master-list .pager .small { margin-left: 8px; }
 table { width: 100%; border-collapse: collapse; font-size: 13px; }
 th { text-align: left; font-weight: 600; font-size: 11.5px; color: var(--text-secondary); padding: 8px 10px; border-bottom: 1px solid var(--field-border); white-space: nowrap; background: rgba(255,255,255,.35); position: sticky; top: 0; }
