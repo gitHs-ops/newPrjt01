@@ -2074,7 +2074,8 @@ VIEWS.masters = async q => {
 };
 function masterInput(f, r, isNew) {
   const v = r?.[f.name] ?? (f.type === 'bool' ? f.def ?? true : ''), dis = f.key && !isNew ? 'disabled' : '';
-  if (f.type === 'bool') return `<label class="field"><span>${esc(f.label)}</span><span><input type="checkbox" name="${f.name}" ${v ? 'checked' : ''}> ${esc(f.check || '有効')}</span></label>`;
+  // チェックの文言と項目名が同じ（「有効」）なら上の項目名は出さない（2026-11-06 ユーザー指示）。実在庫登録に表示・引取 は項目名を残す
+  if (f.type === 'bool') { const txt = f.check || '有効'; return `<label class="field">${txt === f.label ? '' : `<span>${esc(f.label)}</span>`}<span><input type="checkbox" name="${f.name}" ${v ? 'checked' : ''}> ${esc(txt)}</span></label>`; }
   let input;
   if (f.readonly) return field(f.label, `<input value="${esc(v)}" disabled>`, { hint: f.hint });
   // 参照先にないコード（商品マスタ差し替え前の登録など）もそのまま表示する
