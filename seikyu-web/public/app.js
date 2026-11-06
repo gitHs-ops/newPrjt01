@@ -18,7 +18,8 @@ const canWrite = () => [1, 2, 3, 4].includes(session?.user.role), isAdmin = () =
 // DB の読込は検索系のボタン（検索・タブ切替など）と登録・更新の後だけ（2026-10-23）。画面の描画中の GET は apiMode で切り替える：
 //  lazy … メニュー・小メニューで開いたとき。読込済みの結果（apiCache）を使い、無ければサーバーに「空の画面」（X-Empty-View：DB を読まず0件）を頼む
 //  fresh … DB から読み、結果を apiCache に入れる。登録・更新（GET 以外）の後はキャッシュを捨て、次の描画で読み直す
-const apiCache = new Map(), LAZY_FETCH = /^\/api\/(business-date|petty\/settings|kb\/meta|kb\/bugyo|coverage|periods)(\?|$)/;
+// 利用者管理（/api/users）はメニューで開いたときから一覧を表示する（2026-11-07 ユーザー指示）
+const apiCache = new Map(), LAZY_FETCH = /^\/api\/(business-date|petty\/settings|kb\/meta|kb\/bugyo|coverage|periods|users)(\?|$)/;
 let apiMode = null, apiDirty = false, emptyShown = false;
 const fetchJson = async (url, opt) => {
   const res = await fetch(url, { cache: 'no-store', ...opt });
