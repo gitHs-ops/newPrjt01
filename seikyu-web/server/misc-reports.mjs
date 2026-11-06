@@ -391,9 +391,12 @@ export async function miscBook(c, kind, q) {
       for (const [label, t] of [['＊配分する入金額＊', d.alloc], ['＊配分しない入金額＊', d.noAlloc], ['＊入金額　合計＊', d.totals]]) out.push([], ['', '', S(label), S(t.amount), ...t.parts.map(S)]);
       return { name: `${d.title}_${d.from}_${d.to}.xlsx`, body: xlsx([{ name: d.title.slice(0, 28), rows: out, widths: [11, 26, 34, 13, ...d.members.map(() => 14), ...blank.map(() => 10)] }]) };
     }
-    // 明細表の後ろに合計表を自動で付ける（同じブックの2枚目のシート。合計表のボタンは 2026-11-03 に画面から削除）
+    // 明細表の下に合計表を続けて出す（1 シート。2026-11-07 ユーザー指示で 2 シート → 1 シート。合計表のボタンは 2026-11-03 に画面から削除）
     const ds = await jvExpenses(c, { ...q, layout: 'summary' });
-    return { name: `${d.title}_${d.from}_${d.to}.xlsx`, body: xlsx([{ name: d.title.slice(0, 28), rows: out, widths: [11, 20, 30, 24, 7, 13, 13, 12, ...d.members.map(() => 14)] }, summarySheet(ds, head(ds, `期間 ${ds.from} 〜 ${ds.to}`))]) };
+    out.push([], [], [T(ds.title)], []);
+    const sm = summarySheet(ds, out), dw = [11, 20, 30, 24, 7, 13, 13, 12, ...d.members.map(() => 14)];
+    const widths = Array.from({ length: Math.max(dw.length, sm.widths.length) }, (_, i) => Math.max(dw[i] || 0, sm.widths[i] || 0));
+    return { name: `${d.title}_${d.from}_${d.to}.xlsx`, body: xlsx([{ ...sm, name: d.title.slice(0, 28), widths }]) };
   }
   check(false, '帳票の種類が不正です');
 }
