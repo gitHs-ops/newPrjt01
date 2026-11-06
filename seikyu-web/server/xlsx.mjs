@@ -39,6 +39,8 @@ function sheetXml({ rows, widths = [], header, footer, heights = {}, merges = []
   const sv = gridlines ? '' : '<sheetViews><sheetView workbookViewId="0" showGridLines="0"/></sheetViews>';
   return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetPr><pageSetUpPr fitToPage="1"/></sheetPr>${sv}${cols}<sheetData>${body}</sheetData>${mc}<pageMargins left="0.5" right="0.5" top="0.6" bottom="0.6" header="0.3" footer="0.3"/><pageSetup paperSize="9" orientation="${portrait ? 'portrait' : 'landscape'}" fitToWidth="1" fitToHeight="0"/>${hf}</worksheet>`;
 }
+// 小見出しの行（得意先・仕入先・組織などのグループ名）：表の全列に見出しの色を付ける（1 セルだけ色が付くと不自然。2026-11-06・11-07 ユーザー指摘）
+export const band = (n, cells) => Array.from({ length: n }, (_, i) => { const c = cells[i]; return c !== null && typeof c === 'object' ? { ...c, s: 'bold' } : { v: c ?? '', s: 'bold' }; });
 export function xlsx(sheets) {
   const NS = 'http://schemas.openxmlformats.org/spreadsheetml/2006/main', R = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships';
   const files = [

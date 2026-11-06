@@ -1,5 +1,5 @@
 // 帳票の Excel(.xlsx) 出力。画面の印刷表示と同じデータ（sales.mjs の statement）を使う。
-import { xlsx } from './xlsx.mjs';
+import { xlsx, band } from './xlsx.mjs';
 import { billingList, billingConfirm, billingPrecheck, PRECHECK_PLAN, receiptPlan, arLedger } from './sales.mjs';
 import { today, jst } from './domain.mjs';
 import { arReport, apReport } from './ledger.mjs';
@@ -12,7 +12,7 @@ export async function billingPrecheckBook(c, q) {
   const d = await billingPrecheck(c, q), clOf = n => (Number(n) === 31 ? '月末' : n + '日'), all = d.closing === 'all', cl = all ? 'すべて' : clOf(d.closing), ymd = iso => iso.slice(2).replaceAll('-', '/');
   const out = [[T('発行前確認一覧'), '', '', '', '', '', '', '', '', '', '', d.company], [all ? `締日 すべて（${d.month}）　作成日 ${ymd(today())}` : `締日 ${cl}　請求期間 ${ymd(d.start)}〜${ymd(d.end)}　売上締切日 ${ymd(d.end)}　作成日 ${ymd(today())}`], []];
   for (const x of d.rows) {
-    out.push([H(`${x.customer} ${x.name}`), '', '', H(PRECHECK_PLAN[x.plan]), '', ...(all ? [H(`${clOf(x.closing)}締　請求期間 ${ymd(x.start)}〜${ymd(x.end)}`)] : [])], ['売上日', '伝票No', '区分', '商品CD', '商品名', '数量', '単位', '単価', '金額', '処税率', '運送', '現場名']);
+    out.push(band(12, [`${x.customer} ${x.name}`, '', '', PRECHECK_PLAN[x.plan], '', ...(all ? [`${clOf(x.closing)}締　請求期間 ${ymd(x.start)}〜${ymd(x.end)}`] : [])]), ['売上日', '伝票No', '区分', '商品CD', '商品名', '数量', '単位', '単価', '金額', '処税率', '運送', '現場名']);
     for (const l of x.lines) out.push([ymd(l.date), l.orderNo, kindOf(l), l.item, l.itemName, { v: l.quantity, s: 'qty' }, l.unit, l.price, l.net, `${l.taxRate}%`, l.carry, l.siteName]);
     out.push(['', S('（売上額）'), S(x.net), '', S('（消費税額）'), S(x.tax), '', S('（値引額）'), S(0), '', S('（今回請求額）'), S(x.current)]);
     for (const r of x.byRate || []) out.push(['', `${r.rate} %`, r.net, '', '', r.tax]);
@@ -43,7 +43,7 @@ export async function billingConfirmBook(c, q) {
     [`締日 ${d.closing}　請求日付 ${ymd(d.end)}　売上締切日 ${ymd(d.end)}　作成日 ${ymd(today())}`], [],
     ['売上日', '伝票No.', '', '', '商品名', '数量', '', '単価', '金額', '', '運送', '備考'].map(H)];
   for (const x of d.rows) for (const g of x.sites) {
-    out.push([H(`${x.customer}　${x.name}`), '', '', '', '', ...(g.no > 1 ? [g.no, '', g.name] : [])]);
+    out.push(band(12, [`${x.customer}　${x.name}`, '', '', '', '', ...(g.no > 1 ? [g.no, '', g.name] : [])]));
     for (const l of g.lines) out.push([ymd(l.date), l.orderNo, kindOf(l), l.item, l.itemName, { v: l.quantity, s: 'qty' }, l.unit, l.price, l.net, `${l.taxRate}%`, l.carry, l.siteName]);
     out.push(['', S('（売上額）'), S(g.net), '', S('（消費税額）'), S(g.tax), '', S('（値引額）'), S(0), '', S('（今回請求額）'), S(g.current)]);
     for (const r of g.byRate) out.push(['', `${r.rate} %`, r.net, '', '', r.tax]);
