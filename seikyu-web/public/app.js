@@ -243,7 +243,8 @@ const SUBMENUS = {
   external: [{ k: 'gslink', l: 'gsLink' }], // 2026-11-05 ユーザー指示
   reports: [{ k: 'csv', l: 'CSV出力', tools: true }, { k: 'ar', l: '売掛金残高一覧' }, { k: 'ap', l: '未払残高一覧' }, { k: 'jv', l: '出資金（JV）帳票' }, { k: 'jvalloc', l: '入金分配端数調整登録' }], // 入金分配端数調整登録は 2026-11-03 に小メニューへ
 };
-const subsOf = name => (name === 'masters' && meta?.masters ? Object.entries(meta.masters).map(([k, x]) => ({ k, l: x.label, q: { kind: k } })) : SUBMENUS[name] || null);
+// 現場2（2026-11-06 ユーザー指示）は現場マスタの次に置く（得意先→現場の 1:n で入力する画面。現場マスタの画面はそのまま）
+const subsOf = name => (name === 'masters' && meta?.masters ? Object.entries(meta.masters).flatMap(([k, x]) => [{ k, l: x.label, q: { kind: k } }, ...(k === 'sites' ? [{ k: 'sites2', l: '現場2', q: { kind: 'sites2' } }] : [])]) : SUBMENUS[name] || null);
 const TITLES = {};
 // 非表示にするメニュー（2026-10-22 ダッシュボードは使わない）。初期画面は表示メニューの先頭
 const HIDDEN_MENUS = new Set(['dashboard']);
@@ -2047,8 +2048,42 @@ VIEWS.periods = async () => {
 // ----- マスタ管理 -----
 // マスタの「有効のみ」は切り替えたらすぐ表示し直す
 document.addEventListener('change', e => { if (e.target.id === 'm-active' && route.name === 'masters') actions.search?.(); });
+// 一覧のページ分け（マスタ・現場2 共通。2026-11-06 ユーザー指示：件数が多いと表の下の横スクロールバーが見えない）。15件ごと、ナビゲーションは表の上・右寄せ。ボタンは data-act="mpage"
+function pageNav(list, page, per = 15) {
+  const pages = Math.max(1, Math.ceil(list.length / per)), pg = Math.min(pages, Math.max(1, Number(page) || 1)), shown = list.slice((pg - 1) * per, pg * per);
+  if (pages <= 1) return { shown, html: '' };
+  const from = Math.max(1, Math.min(pg - 4, pages - 9)), nums = Array.from({ length: Math.min(10, pages) }, (_, i) => from + i);
+  const b = (p, label, title, dis) => `<button type="button" class="mini ${p === pg && !title ? 'primary' : ''}" data-act="mpage" data-page="${p}" ${dis ? 'disabled' : ''} ${title ? `title="${title}"` : ''}>${label}</button>`;
+  return { shown, html: `<div class="pager">${b(1, '«', '最初', pg === 1)}${b(pg - 1, '‹', '前へ', pg === 1)}${nums.map(p => b(p, p)).join('')}${b(pg + 1, '›', '次へ', pg === pages)}${b(pages, '»', '最後', pg === pages)}<span class="muted small">${list.length} 件中 ${(pg - 1) * per + 1}〜${Math.min(pg * per, list.length)} 件（${pg} / ${pages} ページ）</span></div>` };
+}
+// 現場2（2026-11-06 ユーザー指示）：得意先と現場の 1:n を ①得意先一覧（現場数）→ ②選んだ得意先の現場一覧 → ［編集］で現場マスタの編集、［＋ 新規登録］で空欄の登録画面（得意先だけ入れておく）
+async function sitesView(q) {
+  const A = actions, [custs, sites] = await Promise.all([api('/api/masters/customers'), api('/api/masters/sites')]);
+  masters.sites = sites;
+  A.mpage = d => go('masters', { ...q, kind: 'sites2', page: d.page });
+  const desc = '得意先ごとの現場数を一覧し、得意先を選ぶとその得意先の現場を一覧・編集・新規登録します（現場マスタと同じデータ）。';
+  if (!q.customer) {
+    const term = (q.search || '').trim().toLowerCase(), count = {};
+    for (const x of sites) count[x.customer] = (count[x.customer] || 0) + 1;
+    const list = term ? custs.filter(c => `${c.code} ${c.name}`.toLowerCase().includes(term)) : custs, { shown, html } = pageNav(list, q.page);
+    A.search = () => go('masters', { kind: 'sites2', search: $('#s2-search').value.trim() });
+    A.pick = d => go('masters', { kind: 'sites2', customer: d.code, back: q.search || '' });
+    return page('マスタ管理', desc, `<input id="s2-search" placeholder="得意先コード・名称で検索" value="${esc(q.search || '')}" style="width:220px"><button class="primary" data-act="search">検索</button>`,
+      `<section class="card glass master-list">${term ? `<p class="muted small">「${esc(q.search)}」の検索結果 ${list.length} / ${custs.length} 件</p>` : ''}${html}${table([{ label: '', html: r => `<button class="mini" data-act="pick" data-code="${esc(r.code)}">選択</button>` },
+        { label: '得意先コード', value: r => r.code }, { label: '得意先名', value: r => r.name }, { label: '現場数', num: 1, value: r => (count[r.code] || 0).toLocaleString('ja-JP') }, { label: '状態', html: r => r.active ? badge('有効', 'green') : badge('無効', 'gray') }],
+        shown, { rowClass: r => r.active ? '' : 'muted' })}</section>`);
+  }
+  const code = q.customer, cust = custs.find(c => c.code === code), list = sites.filter(x => x.customer === code), { shown, html } = pageNav(list, q.page);
+  A.back = () => go('masters', { kind: 'sites2', search: q.back || '' });
+  A.new = () => masterForm('sites', null, { customer: code }); A.edit = d => masterForm('sites', list.find(r => r.key === d.key));
+  return page('マスタ管理', desc, `<button data-act="back">← 得意先一覧</button>${canWrite() ? '<button class="primary" data-act="new">＋ 新規登録</button>' : ''}`,
+    `<section class="card glass master-list"><p style="margin:0 0 10px">得意先 <b class="lr-cname" style="margin-left:6px">${esc(code)}　${esc(cust?.name || '')}</b>　<span class="muted small">現場 ${list.length} 件</span></p>${html}${table([...(canWrite() ? [{ label: '', html: r => `<button class="mini" data-act="edit" data-key="${esc(r.key)}">編集</button>` }] : []),
+      { label: '現場コード', value: r => r.code }, { label: '枝番', value: r => r.suffix }, { label: '現場名1', value: r => r.name }, { label: '現場名2', value: r => r.name2 || '' }, { label: '状態', html: r => r.active ? badge('有効', 'green') : badge('無効', 'gray') }],
+      shown, { empty: 'この得意先の現場はありません。［＋ 新規登録］で登録できます', rowClass: r => r.active ? '' : 'muted' })}</section>`);
+}
 VIEWS.masters = async q => {
   const A = actions;
+  if (q.kind === 'sites2') return sitesView(q);
   const kind = meta.masters[q.kind] ? q.kind : 'customers', m = meta.masters[kind], all = masters[kind] = await api('/api/masters/' + kind);
   // 「有効のみ」（2026-11-06 ユーザー指示）：チェックすると無効のマスタを出さない
   const hasActive = m.fields.some(f => f.name === 'active');
@@ -2059,12 +2094,8 @@ VIEWS.masters = async q => {
   A.search = () => go('masters', { kind, search: $('#m-search').value.trim(), active: $('#m-active')?.checked ? '1' : '', ...(months.length ? { month: $('#m-month').value } : {}) });
   A.new = () => masterForm(kind); A.edit = d => masterForm(kind, list.find(r => r.key === d.key));
   // 一覧はページ分け（2026-11-06 ユーザー指示：得意先など件数が多いと表の下の横スクロールバーが見えない）。ナビゲーションは表の上
-  const PER = 15, pages = Math.max(1, Math.ceil(list.length / PER)), pg = Math.min(pages, Math.max(1, Number(q.page) || 1)), shown = list.slice((pg - 1) * PER, pg * PER);
+  const { shown, html: pagerHtml } = pageNav(list, q.page);
   A.mpage = d => go('masters', { ...q, kind, page: d.page });
-  const pager = () => { if (pages <= 1) return '';
-    const from = Math.max(1, Math.min(pg - 4, pages - 9)), nums = Array.from({ length: Math.min(10, pages) }, (_, i) => from + i);
-    const b = (p, label, title, dis) => `<button type="button" class="mini ${p === pg && !title ? 'primary' : ''}" data-act="mpage" data-page="${p}" ${dis ? 'disabled' : ''} ${title ? `title="${title}"` : ''}>${label}</button>`;
-    return `<div class="pager">${b(1, '«', '最初', pg === 1)}${b(pg - 1, '‹', '前へ', pg === 1)}${nums.map(p => b(p, p)).join('')}${b(pg + 1, '›', '次へ', pg === pages)}${b(pages, '»', '最後', pg === pages)}<span class="muted small">${list.length} 件中 ${(pg - 1) * PER + 1}〜${Math.min(pg * PER, list.length)} 件（${pg} / ${pages} ページ）</span></div>`; };
   A.import = () => modal({ title: `${m.label} CSV取込`, submit: '取込む', body: `<p class="small">1行目は列名（${m.fields.map(f => f.label).join('、')}）です。<b>1件でもエラーがあれば全件取消</b>します。既存コードは更新、新規コードは登録します。</p>
       <input type="file" name="file" accept=".csv,text/csv" required><p class="muted small"><a href="/api/export/master-${kind}" download>現在のデータをCSVで出力</a></p>`,
     onSubmit: async (v, f) => { const file = f.file.files[0]; if (!file) throw Error('ファイルを選択してください'); const buf = await file.arrayBuffer();
@@ -2074,8 +2105,9 @@ VIEWS.masters = async q => {
   // 「編集」は行の先頭（2026-11-06 ユーザー指示：項目が多く右端だと横スクロールしないと見えない）
   const show = f => r => r[f.name] === null || r[f.name] === undefined || (r[f.name] === '' && f.type !== 'bool') ? '' : f.type === 'bool' ? (r[f.name] ? '○' : '') : f.type === 'ref' ? `${r[f.name]} ${nameOf(f.ref, r[f.name])}` : f.type === 'select' ? (f.options.find(o => o[0] === String(r[f.name]))?.[1] || r[f.name]) : f.type === 'int' ? yen(r[f.name]) : f.type === 'dec' ? Number(r[f.name]).toLocaleString('ja-JP', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : r[f.name];
   return page('マスタ管理', `${Object.keys(meta.masters).length}種類のマスタを業務テーブルで直接管理します。登録後のコード・所属は変更できません（新規登録して旧マスタを無効化）。使われていないコードは編集画面から削除できます。`, `${months.length ? `<select id="m-month" name="month" data-filter><option value="">全年月</option>${months.map(x => `<option ${x === q.month ? 'selected' : ''}>${x}</option>`).join('')}</select>` : ''}<input id="m-search" placeholder="コード・名称などで検索" value="${esc(q.search || '')}" style="width:220px">${hasActive ? `<label class="small"><input type="checkbox" id="m-active" ${q.active === '1' ? 'checked' : ''}> 有効のみ</label>` : ''}<button class="primary" data-act="search">検索</button>${csvLink('master-' + kind)}${canWrite() && !m.readOnly ? '<button data-act="import">⇧ CSV取込</button><button class="primary" data-act="new">＋ 新規登録</button>' : ''}`,
-    `<section class="card glass master-list">${term ? `<p class="muted small">「${esc(q.search)}」の検索結果 ${list.length} / ${all.length} 件</p>` : ''}${pager()}${table([...(canWrite() && !m.readOnly ? [{ label: '', html: r => `<button class="mini" data-act="edit" data-key="${esc(r.key)}">編集</button>` }] : []), ...m.fields.filter(f => f.name !== 'active').map(f => ({ label: f.label, num: f.type === 'int' || f.type === 'dec', value: show(f) })), { label: '状態', html: r => r.active ? badge('有効', 'green') : badge('無効', 'gray') }], shown, { rowClass: r => r.active ? '' : 'muted' })}</section>`);
+    `<section class="card glass master-list">${term ? `<p class="muted small">「${esc(q.search)}」の検索結果 ${list.length} / ${all.length} 件</p>` : ''}${pagerHtml}${table([...(canWrite() && !m.readOnly ? [{ label: '', html: r => `<button class="mini" data-act="edit" data-key="${esc(r.key)}">編集</button>` }] : []), ...m.fields.filter(f => f.name !== 'active').map(f => ({ label: f.label, num: f.type === 'int' || f.type === 'dec', value: show(f) })), { label: '状態', html: r => r.active ? badge('有効', 'green') : badge('無効', 'gray') }], shown, { rowClass: r => r.active ? '' : 'muted' })}</section>`);
 };
+// 新規でも最初から入っている値（現場2 で選んだ得意先）は無効のマスタでも選択肢に残す（2026-11-06）
 function masterInput(f, r, isNew) {
   const v = r?.[f.name] ?? (f.type === 'bool' ? f.def ?? true : ''), dis = f.key && !isNew ? 'disabled' : '';
   // チェックの文言と項目名が同じ（「有効」）なら上の項目名は出さない（2026-11-06 ユーザー指示）。実在庫登録に表示・引取 は項目名を残す
@@ -2083,7 +2115,7 @@ function masterInput(f, r, isNew) {
   let input;
   if (f.readonly) return field(f.label, `<input value="${esc(v)}" disabled>`, { hint: f.hint });
   // 参照先にないコード（商品マスタ差し替え前の登録など）もそのまま表示する
-  if (f.type === 'ref') input = `<select name="${f.name}" data-pick ${dis}>${v && !(masters[f.ref] || []).some(x => x.code === v) ? `<option value="${esc(v)}" selected>${esc(v)}（マスタ未登録）</option>` : ''}${options(isNew ? active(f.ref) : masters[f.ref], v, { blank: '選択してください' })}</select>`;
+  if (f.type === 'ref') input = `<select name="${f.name}" data-pick ${dis}>${v && !(masters[f.ref] || []).some(x => x.code === v) ? `<option value="${esc(v)}" selected>${esc(v)}（マスタ未登録）</option>` : ''}${options(isNew ? active(f.ref).concat(v && !active(f.ref).some(x => x.code === v) ? (masters[f.ref] || []).filter(x => x.code === v) : []) : masters[f.ref], v, { blank: '選択してください' })}</select>`;
   else if (f.type === 'site') input = `<select name="${f.name}" data-pick ${dis}>${siteOptions(r?.customer || '', v, '（得意先共通）')}</select>`;
   // 選択肢に無い登録済みの値（移行データの規定外の締日など）は「（規定外）」として残し、黙って先頭の選択肢に変わらないようにする
   else if (f.type === 'select') { const opts = f.options.map(([code, name]) => ({ code, name })); if (v !== undefined && v !== null && v !== '' && !opts.some(o => o.code === String(v))) opts.push({ code: String(v), name: `${v}（規定外）` }); input = `<select name="${f.name}" ${dis}>${options(opts, v || f.options[0][0], { label: x => x.name })}</select>`; }
@@ -2104,10 +2136,11 @@ function jvSumCheck(f, r) {
   box.innerHTML = bad ? `<p class="check-ng small">${esc(bad)}</p><label class="small"><input type="checkbox" name="jvForce"> 合計が100%でなくても保存する（他の構成員を続けて修正する）</label>` : '<p class="check-ok small">有効な構成員の出資比率の合計は 100% です</p>';
   return bad;
 }
-function masterForm(kind, r) {
+// init：新規登録で最初から入れておく値（現場2 の得意先。2026-11-06）
+function masterForm(kind, r, init) {
   const m = meta.masters[kind];
   // サンプル入力は新規・編集・自社情報のすべてに付ける（2026-10-29。空欄だけを埋めるので入力済みの値は変わらない）
-  modal({ title: `${m.label}の${r ? '編集' : '新規登録'}`, submit: r ? '更新する' : '登録する', sample: true, body: `<div class="form-grid">${m.fields.map(f => masterInput(f, r, !r)).join('')}</div>${r?.system ? '<p class="note small">自動仕訳で使用する科目のため無効化できません。</p>' : ''}`,
+  modal({ title: `${m.label}の${r ? '編集' : '新規登録'}`, submit: r ? '更新する' : '登録する', sample: true, body: `<div class="form-grid">${m.fields.map(f => masterInput(f, r || init, !r)).join('')}</div>${r?.system ? '<p class="note small">自動仕訳で使用する科目のため無効化できません。</p>' : ''}`,
     onOpen: f => {
       if (kind === 'jv') jvSumCheck(f, r);
       if (f.site && f.customer) f.customer.onchange = () => (f.site.innerHTML = siteOptions(f.customer.value, '', '（得意先共通）'));
