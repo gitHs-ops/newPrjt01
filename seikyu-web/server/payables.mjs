@@ -1,4 +1,4 @@
-import { check, Conflict, yen, qty, lineAmount, isoDate, isoMonth, text, dueDate, nextBusinessDay } from './domain.mjs';
+import { check, Conflict, yen, qty, lineAmount, isoDate, isoMonth, text, dueDate, nextBusinessDay, addMonths } from './domain.mjs';
 import { rows, one, nextSlipNoFy, docNo, DOC_SERIES, assertOpen, audit, postJournal, reverseJournal, line } from './db.mjs';
 import { mustDecode, taxOf, CATALOG, decode } from './taxcode.mjs';
 import { companyPeriod } from './period.mjs';
@@ -150,8 +150,10 @@ export async function saveCounts(c, ctx, p) {
 // 在庫計上（C01）の直近の伝票番号（結果のポップアップ表示用）
 const lastInvSlip = async (c, end) => (await one(c, "SELECT n.slip_no FROM journal_entry e JOIN app_slip_no n ON n.journal_id=e.journal_id WHERE e.pattern_code='C01' AND e.journal_date=? ORDER BY e.journal_id DESC LIMIT 1", [end]))?.slip_no || '';
 // 在庫計上の評価単価：（前月末在庫金額＋当月仕入金額）÷（前月末在庫数量＋当月仕入数量）。在庫登録リストの未計上分の見込み評価にも使う
+// 前月末在庫は材料受払表（misc-reports materialLedger）と同じく「前月度の実在庫」（計上前の実在庫登録だけでも使う）。以前は計上済みの月度だけを見ていたため、
+// 前月度が未計上だと前月末在庫が 0 扱いになり、受払表の当月末在庫と在庫計上の仕訳（C01）の金額が合わなかった（2026-11-06 ユーザー指摘：⑧と⑨の不一致）
 export async function inventoryPrice(c, item, month, from, to) {
-  const prior = await one(c, "SELECT quantity, valuation_price, valuation_amount FROM inventory_count WHERE item_cd=? AND location_code='MAIN' AND period_start<? AND status='POSTED' ORDER BY period_start DESC LIMIT 1", [item, month + '-01']);
+  const prior = await one(c, "SELECT quantity, valuation_price, valuation_amount FROM inventory_count WHERE item_cd=? AND location_code='MAIN' AND period_start=? AND status IN ('POSTED','DRAFT')", [item, addMonths(month, -1) + '-01']);
   const pur = await one(c, 'SELECT COALESCE(SUM(quantity),0) q, COALESCE(SUM(net_amount),0) v FROM purchase WHERE item_cd=? AND purchase_date BETWEEN ? AND ?', [item, from, to]);
   // 金額のない在庫（前月の評価額 0）は商品マスタの単価で評価する（2026-11-02 ユーザー指摘：マスタ単価を入れても金額が出ない）
   const tanka = Number((await one(c, 'SELECT tanka FROM item_m WHERE item_cd=?', [item]))?.tanka || 0);
