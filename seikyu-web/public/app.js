@@ -534,7 +534,7 @@ function shipmentForm(r, bizDate) {
   const co = r?.correctOf, kbOpts = (co ? [5] : [1, 2, 3, 4, ...(r?.orderNo ? [] : [5])]).map(k => `<option value="${k}" ${Number(r?.shipKb || 1) === k ? 'selected' : ''}>${esc(meta.shipKinds[k])}</option>`).join('');
   const kbnOpts = options(active('deliveryKinds'), r?.deliveryKbn || active('deliveryKinds')[0]?.code, { blank: '選択', label: x => x.name + (x.pickup ? '（運賃なし）' : '') });
   modal({ title: co ? `出荷伝票の赤黒訂正（元 ${co.orderNo}）` : r?.orderNo ? `出荷伝票の詳細（${r.slipNo || r.orderNo}）` : r?.fromPlan ? `出荷伝票登録（出荷予定 ${r.fromPlan} から）` : r?.copyOf ? `出荷伝票登録（類似登録：元 ${r.copyOf}）` : '出荷伝票登録', submit: co ? '赤黒伝票を登録' : r?.orderNo ? '更新する' : '登録する', wide: true, body: `${co ? `<div class="note" style="margin-bottom:10px">元伝票：${esc(co.date)} ${esc(co.customerName)} ／ ${esc(co.siteName)} ／ ${esc(co.itemName)} ${co.quantity} ${esc(co.unit)} × ${yen(co.price)}${co.freight ? '＋運賃' + yen(co.freight) : ''} ＝ ${yen(co.net)} 円（${esc(co.methodName)}）<br>
-      <b>赤</b>＝元伝票の全量マイナス（${-co.quantity} ${esc(co.unit)}）を自動作成。<b>黒</b>＝下の訂正後の内容（数量 0 なら赤のみ＝取消）。赤・黒の出荷日（売上日）は元伝票の出荷日、下の出荷日欄は訂正日として記録（2026-10-27 大西さん回答 H）。<br><b>訂正できるのは 単価・数量 だけ</b>です。<span id="corr-preview"></span></div>
+      <b>赤</b>＝元伝票の全量マイナス（${-co.quantity} ${esc(co.unit)}）を自動作成。<b>黒</b>＝下の訂正後の内容（数量 0 なら赤のみ＝取消）。赤・黒の出荷日（売上日）は元伝票の出荷日、下の出荷日欄は訂正日として記録（2026-10-27 大西さん回答 H）。<br><b>訂正できるのは 単価・数量 だけ</b>です。</div>
       <div class="corr-fixed"><div class="corr-fixed-h">変更できない項目（元伝票のまま）</div><table><tr><th>得意先</th><td>${esc(co.customer)}</td><td colspan="2">${esc(co.customerName || '')}</td></tr><tr><th>現場</th><td>${esc((co.site || '').replace('|', '-'))}</td><td>${esc(co.siteName1 || '')}</td><td>${esc(co.siteName2 || '')}</td></tr></table></div>` : sampleButton}<div class="slip-sheet">
     ${SL('伝票番号', RO(r?.orderNo ? esc(r.slipNo || r.orderNo) : '<span class="muted">登録時に採番</span>'))}${SL('伝票区分', `<select name="shipKb">${kbOpts}</select>`)}${co ? `${SL('元伝票No', RO(esc(co.orderNo)))}<div class="span2c fill"></div>` : r?.orderNo ? '<div class="span4c fill"></div>' : `${SL('元伝票No', '<input name="originalNo" maxlength="12" class="num" placeholder="区分 訂正のとき" autocomplete="off" disabled>')}<div class="span2c sv muted small" id="sf-orig"></div>`}
     ${SL(co ? '訂正日' : '出荷日', `<input type="date" name="date" value="${esc(r?.date || bizDate || today())}" required>`, { req: 1 })}${SL('天候', `<select name="weather">${opt(active('weathers'), r?.weather || '', '　')}</select>`)}${SEP}
@@ -548,7 +548,7 @@ function shipmentForm(r, bizDate) {
     ${SL('車両番号', `<input name="vehicle" maxlength="15" class="num" value="${esc(r?.vehicle || '')}">`)}${SL('累計台数', '<div class="ro num" id="sf-cn">0</div>')}<div class="span4c fill"></div>
     ${SL('出発時間', `<input type="time" name="startTime" value="${esc(r?.startTime || '')}">`)}${SL('予定時間', '<div class="ro" id="sf-pt">&nbsp;</div>')}${SL('出発温度', `<input name="startTemp" class="num" inputmode="numeric" maxlength="3" value="${esc(r?.startTemp ?? '')}">`)}${SL('担当者', `<select name="operator">${opt(active('operators'), r?.operator || myOperator(), '選択')}</select>`, { req: 1 })}
     ${SL('伝票備考', `<input name="remarks" maxlength="20" value="${esc(r?.remarks || '')}">`, { span: 4 })}</div>
-    ${r?.orderNo && !co && r.shipKb !== 5 ? '<div class="filters right" style="margin-top:12px"><button type="button" id="dn-one">伝票発行</button></div>' : ''}
+    ${co ? '<div class="corr-sum" id="corr-preview"></div>' : ''}${r?.orderNo && !co && r.shipKb !== 5 ? '<div class="filters right" style="margin-top:12px"><button type="button" id="dn-one">伝票発行</button></div>' : ''}
     ${dl('dl-cust', active('customers'))}${dl('dl-item', active('items'))}
     `,
     onOpen: f => {
@@ -571,7 +571,7 @@ function shipmentForm(r, bizDate) {
       // keep：伝票（修正・赤黒訂正・元伝票の写し）の現場名をそのまま残す（移行データは現場マスタに名称2が無いことがある）
       const siteNames = (keep = false) => { const code = f.siteCode.value.trim(); if (code && !f.siteSuffix.value.trim()) f.siteSuffix.value = '000';
         const s = (masters.sites || []).find(x => x.customer === f.customer.value && x.code === code && x.suffix === (f.siteSuffix.value.trim() || '000'));
-        if (s && !(keep && (f.siteName1.value || f.siteName2.value))) { f.siteName1.value = s.name || ''; f.siteName2.value = s.name2 || ''; } f.siteName1.readOnly = f.siteName2.readOnly = !!s; };
+        if (s && !(keep && (f.siteName1.value || f.siteName2.value))) { f.siteName1.value = s.name || ''; f.siteName2.value = s.name2 || ''; } f.siteName1.readOnly = f.siteName2.readOnly = !!s || !!co; }; // 赤黒訂正は現場名も元伝票のまま（入力させない）
       f.customer.onchange = () => { show('#sf-cname', 'customers', f.customer.value); siteList(); siteNames(); price(); cumulative(); };
       f.otherCustomer.onchange = () => show('#sf-oname', 'customers', f.otherCustomer.value);
       f.item.onchange = () => { show('#sf-iname', 'items', f.item.value); unitOf(); price(); cumulative(); };
@@ -598,7 +598,7 @@ function shipmentForm(r, bizDate) {
       for (const n of ['quantity', 'price', 'freight']) f[n].oninput = preview; f.quantity.onchange = cumulative;
       // 赤黒訂正は 単価・数量・訂正日 だけ入力可（2026-10-27 制限）。ほかの項目は元伝票のまま表示
       if (co) [...f.elements].forEach(el => { if (!el.name || ['quantity', 'price', 'date'].includes(el.name) || el.type === 'hidden') return; if (el.tagName === 'SELECT' || el.type === 'checkbox' || el.type === 'button') el.disabled = true; else el.readOnly = true; });
-      if (co) { const pv = () => { const qn = Number(f.quantity.value) || 0, black = Math.round(Math.round(qn * 100) * (Number(f.price.value) + Number(f.freight.value || 0)) / 100); $('#corr-preview').innerHTML = `<br>赤 ${yen(-co.net)} 円 ＋ 黒 ${yen(black)} 円 ＝ 差額 <b>${yen(black - co.net)}</b> 円（税抜）`; };
+      if (co) { const pv = () => { const qn = Number(f.quantity.value) || 0, black = Math.round(Math.round(qn * 100) * (Number(f.price.value) + Number(f.freight.value || 0)) / 100); $('#corr-preview').innerHTML = `赤 ${yen(-co.net)} 円 ＋ 黒 ${yen(black)} 円 ＝ 差額 <b>${yen(black - co.net)}</b> 円（税抜）`; };
         for (const n of ['quantity', 'price', 'freight']) f[n].addEventListener('input', pv); pv(); }
       show('#sf-cname', 'customers', f.customer.value); show('#sf-oname', 'customers', f.otherCustomer.value); show('#sf-iname', 'items', f.item.value);
       siteList(); unitOf(); siteNames(true); preview(); cumulative(); if (!r || r.fromPlan) price();
