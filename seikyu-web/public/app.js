@@ -1711,7 +1711,7 @@ VIEWS.payments = async q => {
   A.misc = d => miscReport(d.kind, d.src).catch(e => toast(e.message, true));
   const month = q.month || thisMonth(), list = await api('/api/payments?' + qs({ month }));
   // 登録と修正は同じ画面（2026-11-08 ユーザー指示「一覧で、あれば修正、なければ新規」）。修正は元の支払を取り消して（逆仕訳）同じ業者で登録し直す（支払No は新しくなる。入金の修正と同じ）
-  const pyForm = old => { const key = uuid(); modal({ title: old ? `支払の修正（${old.no}）` : '支払の登録', wide: true, submit: old ? '支払を修正' : '支払を登録', sample: !old, body: `<div class="py-form">${old?.exported ? `<p class="check-ng small">⚠ 支払 ${esc(old.no)} は全銀データ作成済みです（${esc(old.exported.slice(0, 16))}）。銀行へ送信済みなら振込の組戻しが必要です。修正すると元の支払を取り消して登録し直します。</p>` : old ? `<p class="small muted">修正すると支払 ${esc(old.no)} を取り消し（逆仕訳）、新しい支払No で登録し直します。</p>` : ''}<div class="form-grid">${field('業者', `<select name="vendor">${old ? options(masters.vendors.filter(x => x.code === old.vendor), old.vendor) : options(active('vendors'), '', { blank: '選択してください' })}</select>`, { req: 1 }).replace('class="field', 'class="field py-w2')}
+  const pyForm = old => { const key = uuid(); let sum = null, open = []; const H = {}; modal({ title: old ? `支払の修正（${old.no}）` : '支払の登録', wide: true, submit: old ? '支払を修正' : '支払を登録', sample: !old, body: `<div class="py-form">${old?.exported ? `<p class="check-ng small">⚠ 支払 ${esc(old.no)} は全銀データ作成済みです（${esc(old.exported.slice(0, 16))}）。銀行へ送信済みなら振込の組戻しが必要です。修正すると元の支払を取り消して登録し直します。</p>` : old ? `<p class="small muted">修正すると支払 ${esc(old.no)} を取り消し（逆仕訳）、新しい支払No で登録し直します。</p>` : ''}<div class="form-grid">${field('業者', `<select name="vendor">${old ? options(masters.vendors.filter(x => x.code === old.vendor), old.vendor) : options(active('vendors'), '', { blank: '選択してください' })}</select>`, { req: 1 }).replace('class="field', 'class="field py-w2')}
       ${field('支払日', `<input type="date" name="date" value="${esc(old ? String(old.date).slice(0, 10) : today())}">`, { req: 1 })}</div>
       ${/* 現行 HJW200 支払内訳入力の並び（2026-11-08）：支払内訳 → 支払合計 → 振込銀行 → 振込方法・手数料 → 支払銀行 → 前々々月〜前月の繰越。
            現金・小切手・手形は 10/19 打合せ「振込のみ」で置かない。立替金（相殺）は定時請求データ入力の明細（科目 1431、マイナス）で入力する（10/28 回答②）ので支払の画面では入力しない。
@@ -1721,13 +1721,14 @@ VIEWS.payments = async q => {
       <div class="note" id="py-payee">振込銀行: -</div>${/* 振込銀行の表示は入力項目（振込方法・手数料・支払銀行）の下（2026-11-08 ユーザー指示） */ ''}
       <h3>繰越と今回支（月別）</h3><div id="py-carry"></div>
       </div>`,
-    onOpen: f => { let sum = null, open = [];
+    onOpen: f => {   // sum・open・H は onSubmit からも使う（2026-11-09 修正：onOpen の中だけで宣言していたため登録時に「sum is not defined」）
       // 現行 HJW200 の今回支（2026-11-08）：伝票は選ばず、月（前々々月以前／前々月／前月以降）ごとに今回支を入力する。
       // 登録時に、その月の未払の定時請求へ計上日の古い順に割り当てる（payment_allocation。帳票の繰越・未払残高はこれまでどおり）
       const num = x => Number(String(x ?? '').replace(/,/g, '')) || 0;
       const bucket = d => { const m = String(d.date || '').slice(0, 7); return !sum ? 2 : m <= sum.months[0] ? 0 : m === sum.months[1] ? 1 : 2; };
       const openOf = i => open.filter(d => bucket(d) === i).sort((a, b) => String(a.date).localeCompare(String(b.date)) || a.id - b.id);
       const nowVals = () => [0, 1, 2].map(i => num($(`#py-now${i}`)?.value));
+      H.nowVals = nowVals; H.openOf = openOf;
       const recalc = () => {
         f.fee.disabled = f.feeKbn.value !== '1'; if (f.fee.disabled) f.fee.value = 0;
         const now = nowVals(), total = now[0] + now[1] + now[2];
@@ -1755,9 +1756,9 @@ VIEWS.payments = async q => {
       drawCarry(); if (old) f.vendor.onchange(); },
     onSubmit: async v => {
       if (!sum) throw Error('業者・支払日を選択してください');
-      const now = nowVals(), allocations = [];
+      const now = H.nowVals(), allocations = [];
       for (const i of [0, 1, 2]) {
-        let rest = now[i]; const docs = openOf(i), bal = docs.reduce((n, d) => n + Number(d.balance), 0), label = ['前々々月以前', '前々月', '前月以降'][i];
+        let rest = now[i]; const docs = H.openOf(i), bal = docs.reduce((n, d) => n + Number(d.balance), 0), label = ['前々々月以前', '前々月', '前月以降'][i];
         if (rest < 0) throw Error(`今回支（${label}）にマイナスは入力できません`);
         if (rest > bal) throw Error(`今回支（${label}）が未払残高 ${yen(bal)} を超えています`);
         for (const d of docs) { if (rest <= 0) break; const a = Math.min(rest, Number(d.balance)); allocations.push({ expenseId: d.id, amount: a }); rest -= a; }
