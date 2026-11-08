@@ -140,6 +140,9 @@ dialog.modal.wide:has(.py-form) { width: min(960px, calc(100vw - 24px)); }
 .py-form td, .py-form th { padding: 4px 10px; }
 .py-form #py-carry input { padding-top: 3px; padding-bottom: 3px; }
 .py-form p.small { margin: 4px 0 0; }
+/* 支払内訳・振込方法の行はラベルを上、入力欄を下の 2 行に（2026-11-08 ユーザー指示：縦に余裕ができたため） */
+.py-form .py-stack label.field { grid-template-columns: minmax(0,1fr); gap: 2px; align-items: stretch; }
+.py-form .py-stack label.field > small { grid-column: 1; }
 .form-grid .wide { grid-column: 1 / -1; }
 /* 商品仕入の登録：伝票No・仕入日・仕入先・区分を1行に（2026-10-31） */
 .form-grid.pu-head { grid-template-columns: 170px 170px minmax(0, 1fr) 170px; }
