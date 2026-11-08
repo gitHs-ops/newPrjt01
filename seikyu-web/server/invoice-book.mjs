@@ -76,8 +76,9 @@ function proposalSheet(s) {
   row([[4, 4, '請　求　書', 'iTitle'], ...(siteNo(s) > 1 ? [[8, 8, `${c.saisyutsu || '再発行'}（${siteNo(s)}回目）`, 'iTextR']] : [])], 36);
   row([[7, 7, '請求書番号：', 'iTextR'], [8, 8, no, 'iText']]);
   row([[8, 8, jp(s.issuedOn || today()), 'iText']]);
-  row([[0, 4, zipOf(u.postcode), 'iText'], [5, 8, c.name, 'iBold']]);
-  row([[0, 4, custAddr, 'iText']]);
+  // 会社名1（太字）の下に会社名2（共同企業体名。長いので別の行）
+  row([[0, 4, zipOf(u.postcode), 'iText'], [5, 8, c.name1 || c.name, 'iBold']]);
+  row([[0, 4, custAddr, 'iText'], [5, 8, c.name1 ? c.name2 || '' : '', 'iTextFit']]);
   row([]);
   row([[5, 8, coAddr, 'iText']]);
   row([[0, 3, u.name, 'iCust'], [4, 4, '御中', 'iBold'], [5, 8, `TEL ${c.tel}${c.fax ? '　FAX ' + c.fax : ''}`, 'iText']], 24);
