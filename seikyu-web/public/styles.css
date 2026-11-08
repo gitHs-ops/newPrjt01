@@ -130,9 +130,9 @@ label.field.req > span::after { content: ' *'; color: var(--danger); }
 dialog.modal:has(.py-form) { max-height: calc(100vh - 8px); margin-top: 4px; margin-bottom: 4px; } /* 支払の登録：縦に収まるよう高さを広げる（2026-11-08） */
 .py-form input, .py-form select { padding-top: 5px; padding-bottom: 5px; }
 /* 支払の登録：スクロールが出ないよう横に広げて詰める（2026-11-08） */
-dialog.modal.wide:has(.py-form) { width: min(1320px, calc(100vw - 24px)); }
+dialog.modal.wide:has(.py-form) { width: min(960px, calc(100vw - 24px)); }
 .py-form .form-grid { grid-template-columns: repeat(4, minmax(0,1fr)); }
-.py-form label.field { grid-template-columns: auto minmax(0,1fr); }
+.py-form label.field { grid-template-columns: auto minmax(0,1fr); gap: 6px; font-size: 11.5px; }
 .py-form label.field.py-w2 { grid-column: span 2; }
 .py-form td, .py-form th { padding: 4px 10px; }
 .py-form #py-carry input { padding-top: 3px; padding-bottom: 3px; }
