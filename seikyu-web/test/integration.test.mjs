@@ -273,6 +273,15 @@ test('workflow against PostgreSQL business tables', { skip, timeout: 900000 }, a
       const al = (await a.call('/api/purchases?' + new URLSearchParams({ month: d.slice(0, 7), vendor: 'V' + tag }))).data.find(x => x.no === adj.data.no);
       assert.deepEqual([al.item, al.lineKind, al.quantity, al.net], ['I' + tag, '2', 0, -2000]); assert.ok(!/運賃/.test(al.memo || ''), al.memo);
       ok(await a.call('/api/purchases/delete', { id: al.id }));
+      // 仕入の修正（2026-11-08）：伝票No そのままで明細をすべて入れ替える。年度が変わる仕入日には直せない
+      const okd = r => { ok(r); return r.data; }, pu0 = okd(await a.call('/api/purchases', { date: d, vendor: 'V' + tag, lines: [{ item: 'I' + tag, quantity: '10', unit: '1', price: 1000, taxCode: '241' }] }));
+      const puList = async () => (await a.call('/api/purchases?' + new URLSearchParams({ month: d.slice(0, 7), vendor: 'V' + tag }))).data.filter(x => x.no === pu0.no).sort((x, y) => x.line - y.line);
+      const puId = (await puList())[0].id, puLines = [{ item: 'I' + tag, quantity: '5', unit: '1', price: 1200, taxCode: '241' }, { item: '', quantity: '0', amount: '-300', lineKind: '2', taxCode: '241' }];
+      const puU = okd(await a.call('/api/purchases/update', { id: puId, date: d, vendor: 'V' + tag, kind: '2', lines: puLines }));
+      assert.equal(puU.no, pu0.no); assert.deepEqual((await puList()).map(x => [x.line, x.net, x.kind]), [[1, 6000, '2'], [2, -300, '2']]);
+      const nextFy = `${Number(d.slice(0, 4)) + 1}${d.slice(4)}`, puFy = await a.call('/api/purchases/update', { id: (await puList())[0].id, date: nextFy, vendor: 'V' + tag, kind: '1', lines: puLines });
+      assert.equal(puFy.status, 400); assert.match(puFy.data.error, /年度/);
+      ok(await a.call('/api/purchases/delete', { id: (await puList())[0].id }));
       // 年度の最初の仕入が同時に来ても番号は重複せず、P＋年度＋連番で振られる
       const pus = await Promise.all([1, 2, 3, 4].map(() => a.call('/api/purchases', { date: '2031-01-10', vendor: 'V' + tag, item: 'I' + tag, quantity: '1', unit: '1', price: 1000, taxCode: '10%' })));
       pus.forEach(ok); assert.deepEqual(pus.map(x => x.data.no).sort(), ['P203000001', 'P203000002', 'P203000003', 'P203000004']);
@@ -473,6 +482,14 @@ test('workflow against PostgreSQL business tables', { skip, timeout: 900000 }, a
       if (co) assert.equal(co.offset, 1000, 'remaining 業者立替金 = 3000 - 2000');
       const vp = ok(await a.call('/api/reports/payments/vendor-payments?' + new URLSearchParams({ from: d, to: d }))).vendors.find(v => v.vendor === 'V' + tag);
       assert.ok(vp.rows.some(r => r.fee === 770 && r.offset === 2000 && r.safety === 500 && r.bank === 6730 && r.paid === 10000));
+      // 支払の修正（2026-11-08）：元の支払を取り消して（逆仕訳）登録し直す。一覧に手数料・安全協力費、修正中の支払を除いた未払残高
+      const pl0 = ok(await a.call('/api/payments?month=' + curMonth)).find(x => x.id === pay.id);
+      assert.deepEqual([pl0.fee, pl0.offset, pl0.safety], [770, 2000, 500]);
+      assert.equal(ok(await a.call('/api/expenses?' + new URLSearchParams({ kind: 'PAYABLE', vendor: 'V' + tag, open: '1', payment: String(pay.id) }))).find(x => x.id === doc.id)?.balance, 10000);
+      assert.equal((await a.call('/api/payments/update', { id: pay.id, idempotencyKey: 'pu' + tag, date: d, vendor: 'OTHER', bankCode: 'B' + tag, allocations: [{ expenseId: doc.id, amount: 10000 }] })).status, 400, 'other vendor');
+      const pay2 = ok(await a.call('/api/payments/update', { id: pay.id, idempotencyKey: 'pu' + tag, date: d, vendor: 'V' + tag, bankCode: 'B' + tag, fee: 0, offset: 2000, safety: 0, allocations: [{ expenseId: doc.id, amount: 10000 }] }));
+      assert.equal(pay2.replaced, pay.id); assert.notEqual(pay2.id, pay.id);
+      const pl1 = ok(await a.call('/api/payments?month=' + curMonth)); assert.equal(pl1.find(x => x.id === pay.id).status, 'REVERSED'); assert.deepEqual((({ amount, fee, safety, status }) => [amount, fee, safety, status])(pl1.find(x => x.id === pay2.id)), [8000, 0, 0, 'POSTED']);
       // overpayment is taken as 預り金
       const before = ok(await a.call('/api/receipt-context?customer=' + C)).deposit;
       assert.equal((await a.call('/api/receipts', { idempotencyKey: 'ov1' + tag, date: d, customer: C, bank: 1500, bankCode: 'B' + tag, allocations: [{ invoiceId, amount: 1000 }] })).status, 400);

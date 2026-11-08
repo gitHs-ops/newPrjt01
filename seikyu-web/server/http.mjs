@@ -115,6 +115,7 @@ export async function createApp({ pool, publicDir, secureCookies = process.env.N
   w('/api/receipts/update', (c, x, b) => S.updateReceipt(c, x, b));
   w('/api/purchases', (c, x, b) => P.createPurchase(c, x, b));
   w('/api/purchases/delete', (c, x, b) => P.deletePurchase(c, x, b));
+  w('/api/purchases/update', (c, x, b) => P.updatePurchase(c, x, b));
   w('/api/inventory', (c, x, b) => P.saveInventory(c, x, b));
   w('/api/inventory/delete', (c, x, b) => P.deleteInventory(c, x, b));
   w('/api/inventory/counts', (c, x, b) => P.saveCounts(c, x, b));
@@ -126,6 +127,7 @@ export async function createApp({ pool, publicDir, secureCookies = process.env.N
   w('/api/expenses/line', (c, x, b) => P.updatePettyLine(c, x, b));
   w('/api/payments', (c, x, b) => P.createPayment(c, x, b));
   w('/api/payments/reverse', (c, x, b) => P.reversePayment(c, x, b));
+  w('/api/payments/update', (c, x, b) => P.updatePayment(c, x, b));
   w('/api/periods/close', (c, x, b) => L.closeMonth(c, x, b), 'admin');
   w('/api/periods/reopen', (c, x, b) => L.reopenMonth(c, x, b), 'admin');
   // ----- 財務会計（勘定奉行相当） -----

@@ -29,7 +29,8 @@ async function assertNotInventoried(c, date) {
   const r = await one(c, "SELECT period_start FROM inventory_count WHERE location_code='MAIN' AND status='POSTED' AND period_start>=? ORDER BY period_start LIMIT 1", [month + '-01']);
   check(!r, `${month} 月度${r && String(r.period_start).slice(0, 7) !== month ? `より後の ${String(r.period_start).slice(0, 7)} 月度` : ''}は在庫計上済みのため、仕入の登録・取消はできません`); // 在庫計上の取消ボタンは画面から削除したので案内しない（2026-11-03）
 }
-export async function createPurchase(c, ctx, p) {
+// 入力内容の検査と明細の組み立て（登録・修正で共通）
+async function purchaseInput(c, p) {
   const date = isoDate(p.date, '仕入日'); await assertOpen(c, date); await assertNotInventoried(c, date);
   const v = await vendorOf(c, p.vendor), kind = String(p.kind || '1'); check(PURCHASE_KINDS[kind], '区分が不正です');
   const input = Array.isArray(p.lines) ? p.lines : [p];
@@ -64,13 +65,31 @@ export async function createPurchase(c, ctx, p) {
     }
   }
   check(out.length, '明細を入力してください'); check(out.length <= 99, '明細は99行以内です');
-  const no = await nextSlipNoFy(c, DOC_SERIES.purchase, date), memo = text(p.memo, '摘要', 500, { required: false });
+  return { date, v, kind, out, memo: text(p.memo, '摘要', 500, { required: false }) };
+}
+async function insertPurchase(c, no, { date, v, kind, out, memo }) {
   for (const [i, l] of out.entries())
     await c.query('INSERT INTO purchase (source_document_no,line_no,vendor_id,purchase_date,item_cd,quantity,unit_price,net_amount,source_tax_code,memo,purchase_kb,line_kind,unit) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)',
       [no, i + 1, v.vendor_id, date, l.item, l.qty, l.price, l.net, l.tax, l.memo || memo, kind, l.lineKind, l.unit]);
-  const total = out.reduce((n, l) => n + l.net, 0);
-  await audit(c, ctx, 'purchase', no, 'purchase.create', { no, vendor: v.vendor_code, kind, lines: out.length, net: total });
-  return { no, lines: out.length, net: total };
+  return out.reduce((n, l) => n + l.net, 0);
+}
+export async function createPurchase(c, ctx, p) {
+  const x = await purchaseInput(c, p), no = await nextSlipNoFy(c, DOC_SERIES.purchase, x.date), total = await insertPurchase(c, no, x);
+  await audit(c, ctx, 'purchase', no, 'purchase.create', { no, vendor: x.v.vendor_code, kind: x.kind, lines: x.out.length, net: total });
+  return { no, lines: x.out.length, net: total };
+}
+// 仕入の修正（2026-11-08 ユーザー指示「一覧で、あれば修正、なければ新規」）：伝票No はそのまま、伝票の明細をすべて入れ替える。
+// 元の仕入日・新しい仕入日とも月次確定前・在庫計上前であること。伝票No の年度が変わる仕入日には直せない（取消して登録し直す）
+export async function updatePurchase(c, ctx, p) {
+  const r = await one(c, 'SELECT * FROM purchase WHERE purchase_id=? FOR UPDATE', [Number(p.id)]); if (!r) throw new Conflict('仕入が見つかりません');
+  const oldDate = String(r.purchase_date).slice(0, 10); await assertOpen(c, oldDate); await assertNotInventoried(c, oldDate);
+  const x = await purchaseInput(c, p), cp = await companyPeriod(c);
+  check(cp.fyOf(x.date) === cp.fyOf(oldDate), '伝票No の年度が変わる仕入日には修正できません（取消して登録し直してください）');
+  const before = await rows(c, 'SELECT line_no, item_cd, quantity, unit_price, net_amount FROM purchase WHERE source_document_no=? ORDER BY line_no', [r.source_document_no]);
+  await c.query('DELETE FROM purchase WHERE source_document_no=?', [r.source_document_no]);
+  const total = await insertPurchase(c, r.source_document_no, x);
+  await audit(c, ctx, 'purchase', r.source_document_no, 'purchase.update', { no: r.source_document_no, vendor: x.v.vendor_code, kind: x.kind, lines: x.out.length, net: total, before: { date: oldDate, lines: before.length, net: before.reduce((n, l) => n + Number(l.net_amount), 0) } });
+  return { no: r.source_document_no, lines: x.out.length, net: total };
 }
 // 伝票単位で取消（明細のどれを指定しても伝票全体）
 export async function deletePurchase(c, ctx, { id }) {
@@ -203,8 +222,10 @@ export async function listExpenses(c, q = {}) {
   if (q.kind) { check(['PAYABLE', 'PETTY_CASH'].includes(q.kind), '区分が不正です'); w.push('d.expense_kind=?'); args.push(q.kind); }
   monthWhere('d.booked_on', q, w, args);
   if (q.vendor) { w.push('v.vendor_code=?'); args.push(q.vendor); }
-  if (q.open) w.push(`d.status='POSTED' AND d.gross_amount>${PAID}`);
-  const rs = await rows(c, `SELECT d.*, v.vendor_code, v.vendor_name, l.account_code, l.sub_code, l.department_code, l.source_tax_code, l.memo line_memo, a.account_name, ${PAID} paid
+  // payment＝修正する支払（2026-11-08）：その支払を取り消した後の未払残高で返す
+  const paid = q.payment ? PAID.replace("p.status='POSTED'", `p.status='POSTED' AND p.payment_id<>${Number(q.payment) || 0}`) : PAID;
+  if (q.open) w.push(`d.status='POSTED' AND d.gross_amount>${paid}`);
+  const rs = await rows(c, `SELECT d.*, v.vendor_code, v.vendor_name, l.account_code, l.sub_code, l.department_code, l.source_tax_code, l.memo line_memo, a.account_name, ${paid} paid
     FROM expense_document d LEFT JOIN vendor v ON v.vendor_id=d.vendor_id LEFT JOIN expense_line l ON l.expense_id=d.expense_id AND l.line_no=1 LEFT JOIN account_subject a ON a.account_code=l.account_code
     ${w.length ? 'WHERE ' + w.join(' AND ') : ''} ORDER BY d.booked_on DESC, d.expense_id DESC LIMIT 1000`, args);
   const ls = rs.length ? await rows(c, `SELECT l.*, a.account_name, s.sub_name, lv.vendor_code line_vendor_code, lv.vendor_name line_vendor_name FROM expense_line l LEFT JOIN vendor lv ON lv.vendor_id=l.vendor_id LEFT JOIN account_subject a ON a.account_code=l.account_code LEFT JOIN account_subsubject s ON s.account_code=l.account_code AND s.sub_code=l.sub_code
@@ -342,6 +363,7 @@ export async function reverseExpense(c, ctx, { id }) {
 }
 
 // ---------- 支払 (payment + payment_allocation, journal F01) ----------
+const PAY_SAFETY = "(SELECT COALESCE(SUM(jl.amount),0) FROM journal_entry je JOIN journal_line jl ON jl.journal_id=je.journal_id WHERE je.source_type='payment' AND je.source_id=CAST(p.payment_id AS CHAR) AND je.reversal_of IS NULL AND jl.account_code='4171' AND jl.side='C')";
 const PAY_BANK = "(SELECT jl.sub_code FROM journal_entry je JOIN journal_line jl ON jl.journal_id=je.journal_id WHERE je.source_type='payment' AND je.source_id=CAST(p.payment_id AS CHAR) AND je.reversal_of IS NULL AND jl.account_code='1112' LIMIT 1)";
 // 全銀データ（振込ファイル）作成済みの支払No → 最終作成日時。取消時の警告に使う。
 const jst = t => { const d = new Date(String(t).replace(' ', 'T').slice(0, 23) + 'Z'); return isNaN(d) ? String(t) : new Date(d.getTime() + 9 * 3600e3).toISOString().slice(0, 16).replace('T', ' '); };
@@ -355,11 +377,11 @@ async function zenginExported(c, nos) {
 }
 export async function listPayments(c, q = {}) {
   const w = [], args = []; monthWhere('p.paid_on', q, w, args);
-  const rs = await rows(c, `SELECT p.*, v.vendor_code, v.vendor_name, b.bank_code, b.branch_code, b.account_type_code, b.account_number, b.holder_name, ${PAY_BANK} from_bank
+  const rs = await rows(c, `SELECT p.*, v.vendor_code, v.vendor_name, b.bank_code, b.branch_code, b.account_type_code, b.account_number, b.holder_name, ${PAY_BANK} from_bank, ${PAY_SAFETY} safety
     FROM payment p JOIN vendor v ON v.vendor_id=p.vendor_id LEFT JOIN bank_account b ON b.bank_account_id=p.bank_account_id ${w.length ? 'WHERE ' + w.join(' AND ') : ''} ORDER BY p.paid_on DESC, p.payment_id DESC LIMIT 1000`, args);
   const al = rs.length ? await rows(c, `SELECT a.*, d.document_no FROM payment_allocation a JOIN expense_document d ON d.expense_id=a.expense_id WHERE a.payment_id IN (${rs.map(() => '?').join(',')})`, rs.map(r => r.payment_id)) : [];
   const zg = await zenginExported(c, rs.map(r => r.payment_no));
-  return rs.map(r => ({ id: r.payment_id, no: r.payment_no, exported: zg[r.payment_no] || '', date: r.paid_on, vendor: r.vendor_code, vendorName: r.vendor_name, amount: Number(r.bank_amount), fromBank: r.from_bank || '', status: r.status,
+  return rs.map(r => ({ id: r.payment_id, no: r.payment_no, exported: zg[r.payment_no] || '', date: r.paid_on, vendor: r.vendor_code, vendorName: r.vendor_name, amount: Number(r.bank_amount), fee: Number(r.fee_amount || 0), offset: Number(r.offset_amount || 0), safety: Number(r.safety || 0), fromBank: r.from_bank || '', status: r.status,
     payee: r.bank_code ? { bank: r.bank_code, branch: r.branch_code, type: r.account_type_code, account: r.account_number, holder: r.holder_name } : null,
     allocations: al.filter(a => a.payment_id === r.payment_id).map(a => ({ expenseId: a.expense_id, no: a.document_no, amount: Number(a.amount) })) }));
 }
@@ -407,6 +429,14 @@ export async function reversePayment(c, ctx, { id, force }) {
   await reverseJournal(c, { sourceType: 'payment', sourceId: p.payment_id, date: p.paid_on });
   await audit(c, ctx, 'payment', p.payment_id, 'payment.reverse', { no: p.payment_no, zenginExported: zg || undefined });
   return { id: p.payment_id };
+}
+// 支払の修正（2026-11-08 ユーザー指示「一覧で、あれば修正、なければ新規」）：入金の修正と同じく、元の支払を取り消して（逆仕訳）同じ業者で登録し直す（1トランザクション。支払No は新しくなる）
+export async function updatePayment(c, ctx, p) {
+  const old = await one(c, 'SELECT v.vendor_code FROM payment p JOIN vendor v ON v.vendor_id=p.vendor_id WHERE p.payment_id=?', [Number(p.id)]); check(old, '支払が見つかりません');
+  check(old.vendor_code === String(p.vendor || ''), '異なる業者の支払には修正できません（取消して登録し直してください）');
+  await reversePayment(c, ctx, { id: p.id, force: p.force });
+  const res = await createPayment(c, ctx, p);
+  return { ...res, replaced: Number(p.id) };
 }
 
 // ---------- 小口現金の定額資金設定と現金補充（仕訳パターン G-03 相当：現金／当座預金） ----------
