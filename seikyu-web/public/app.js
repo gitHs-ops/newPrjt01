@@ -1741,7 +1741,7 @@ VIEWS.payments = async q => {
         const init = i => (old ? openOf(i).reduce((n, d) => n + (old.allocations.find(a => a.expenseId === d.id)?.amount || 0), 0) : openOf(i).reduce((n, d) => n + Number(d.balance), 0));
         $('#py-carry').innerHTML = `<div class="table-wrap"><table><thead><tr><th></th><th class="num">前々々月以前（${sum.months[0]}）</th><th class="num">前々月（${sum.months[1]}）</th><th class="num">前月以降（${sum.months[2]}〜）</th><th class="num">合計</th></tr></thead><tbody>${row('請求額', i => b[i].billed + (b[i].before || 0))}${row('支払済', i => b[i].paid)}${row('繰越額', i => b[i].carry)}
           <tr><th>今回支</th>${[0, 1, 2].map(i => `<td class="num"><input id="py-now${i}" class="num" value="${init(i)}" style="width:130px"${openOf(i).length ? '' : ' disabled'}></td>`).join('')}<td class="num" id="py-nowsum"></td></tr></tbody>
-          <tfoot><tr><th colspan="4" style="text-align:right">差引支払（繰越額－今回支）</th><td class="num" id="py-diff"></td></tr></tfoot></table></div><p class="muted small">請求額は定時請求の計上日の月で集計（前々々月以前には、それより前の月の未払残高を含む）。支払済はこの支払を除く。今回支は登録時にその月の定時請求へ計上日の古い順に割り当てます。</p>`;
+          <tfoot><tr><th colspan="4" style="text-align:right">差引支払（繰越額－今回支）</th><td class="num" id="py-diff"></td></tr></tfoot></table></div><p class="muted small" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">請求額は計上月で集計（前々々月以前は過去の未払を含む）・支払済はこの支払を除く・今回支は古い伝票から割当</p>`;
         [0, 1, 2].forEach(i => { const x = $(`#py-now${i}`); if (x) x.oninput = recalc; }); recalc(); };
       f.feeKbn.onchange = recalc; f.fee.oninput = recalc; f.safety.oninput = recalc;
       f.date.onchange = () => { if (f.vendor.value) f.vendor.onchange(true); };
