@@ -537,3 +537,6 @@ input:disabled, select:disabled, textarea:disabled { background: rgba(120,130,15
 /* 入金処理：預り金（マイナス表示。2026-11-08） */
 .lr-pay .neg { color: #c62828; }
 .lr-pay .lr-deprow td { background: #fff7ed; }
+/* 入金分配端数調整登録：構成員名・得意先などが 2 行にならないよう広げる（2026-11-08） */
+dialog.modal.wide:has(#jva) { width: min(1480px, calc(100vw - 24px)); }
+#jva th, #jva td { white-space: nowrap; }

@@ -80,14 +80,15 @@ async function compatMigration(pool) {
 // 現行 Java のコードマスタ初期値（code_m A0000 納入区分・A0003 単位・A0007 消費税率、テーブルデータ code_m より）と単位名の関数。
 // 既存データは一度だけ変換（code_m SET/CMP1021B）：商品・出荷の単位を名称→コード、納入区分・担当者の未設定を既定値に、累計数量・台数を再計算。
 const JAVA_CODES = [
-  ['A0000', '納入区分', [['1', '大型現着', '1'], ['3', '小型現着', '1'], ['7', '引取', '2'], ['9', 'その他', '1']]],
+  // 納入区分は 2026-11-08 ユーザー指示で 1 大現・2 ８現・3 ４現・4 引取・5 その他（本番は 7→4・9→5 に移行済み。小型現着 3 は ４現のまま）。4 番目は略称
+  ['A0000', '納入区分', [['1', '大型現着', '1', '大現'], ['2', '8t現着', '1', '８現'], ['3', '4t現着', '1', '４現'], ['4', '引取', '2', '引取'], ['5', 'その他', '1', 'その他']]],
   ['A0003', '単位', [['01', 't'], ['02', 'm3'], ['03', 'Kg'], ['04', 'KL'], ['05', 'L'], ['06', '本'], ['07', '缶'], ['08', '袋'], ['09', '日'], ['10', '時間'], ['11', '人'], ['12', '台'], ['13', '回'], ['14', '式'], ['15', '㎡'], ['16', '年'], ['17', '月'], ['18', '箱'], ['19', '名'], ['20', '円'], ['21', '枚'], ['22', 'm'], ['23', '点'], ['99', 'その他']]],
   ['A0007', '消費税率', [['20140401', '8%', '8'], ['20191001', '10%', '10']]],
   ['A0010', '天候', [['1', '晴れ'], ['2', '曇り'], ['3', '雨'], ['4', '雪']]], // 現行の値は資料になく推定（提案書の画面例「晴れ」）
 ];
 async function javaCodes(pool, env) {
   for (const [key, keyName, list] of JAVA_CODES)
-    for (const [code, name, cat1 = ' '] of list) await pool.query("INSERT IGNORE INTO code_m (code_key,code_key_nam,code_dtl,code_dtl_nam,code_dtl_abr,category1,category2,category3) VALUES (?,?,?,?,?,?,' ',' ')", [key, keyName, code, name, name, cat1]);
+    for (const [code, name, cat1 = ' ', abr = name] of list) await pool.query("INSERT IGNORE INTO code_m (code_key,code_key_nam,code_dtl,code_dtl_nam,code_dtl_abr,category1,category2,category3) VALUES (?,?,?,?,?,?,' ',' ')", [key, keyName, code, name, abr, cat1]);
   await pool.query("CREATE OR REPLACE FUNCTION unit_name(c text) RETURNS text LANGUAGE sql STABLE AS $f$ SELECT COALESCE((SELECT code_dtl_nam FROM code_m WHERE code_key='A0003' AND code_dtl=c LIMIT 1), c) $f$");
   const [[op]] = await pool.query('SELECT COUNT(*) n FROM operator_m');
   if (!Number(op.n)) {

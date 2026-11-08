@@ -627,13 +627,13 @@ test('workflow against PostgreSQL business tables', { skip, timeout: 900000 }, a
       const U = 'U' + tag;
       ok(await a.call('/api/masters/customers', { mode: 'create', record: { code: U, name: '運送区分試験', closing: 15, active: true } }));
       ok(await a.call('/api/masters/sites', { mode: 'create', record: { customer: U, code: U, suffix: '000', name: '現場U', active: true } }));
-      // 納入区分マスタに 8t現着 を足す（区分の追加はマスタで行う）
-      ok(await a.call('/api/masters/deliveryKinds', { mode: 'create', record: { code: '4', name: '8t現着', abbr: '８現', pickup: false, active: true } }));
-      for (const k of ['1', '4', '7']) ok(await a.call('/api/shipments', { date: pm + '-03', customer: U, site: U + '|000', item: 'I' + tag, quantity: '2', price: 1000, taxRate: 10, operator: '1', deliveryKbn: k, method: 2 }));
+      // 納入区分マスタに区分を足す（区分の追加はマスタで行う）。初期値は 1 大現・2 ８現・3 ４現・4 引取・5 その他（2026-11-08）
+      ok(await a.call('/api/masters/deliveryKinds', { mode: 'create', record: { code: '6', name: '10t現着', abbr: '10現', pickup: false, active: true } }));
+      for (const k of ['1', '2', '4', '6']) ok(await a.call('/api/shipments', { date: pm + '-03', customer: U, site: U + '|000', item: 'I' + tag, quantity: '2', price: 1000, taxRate: 10, operator: '1', deliveryKbn: k, method: 2 }));
       ok(await a.call('/api/billing/run', { month: pm, closing: 15, customers: [U] }));
       const conf = ok(await a.call(`/api/reports/billing-confirm?month=${pm}&closing=15&unissued=1&customer=${encodeURIComponent(U)}`));
       // 運送は「コード 略称」（2026-11-05 お客様回答：1 大現　2 ８現 …）。略称が無ければ名称
-      assert.deepEqual(conf.rows[0].lines.map(l => l.carry).sort(), ['1 大型現着', '4 ８現', '7 引取']);
+      assert.deepEqual(conf.rows[0].lines.map(l => l.carry).sort(), ['1 大現', '2 ８現', '4 引取', '6 10現']);
     });
     // 奉行の受入記号は 200 字を超えても欠けずに保存される（2026-10-28）
     const meta = (await a.call('/api/kb/bugyo')).data, symbols = Object.fromEntries(meta.items.map(([k]) => [k, 'OBC_' + k.padEnd(30, 'X')]));
