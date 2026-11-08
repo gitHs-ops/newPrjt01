@@ -506,6 +506,23 @@ test('workflow against PostgreSQL business tables', { skip, timeout: 900000 }, a
       const pay2 = ok(await a.call('/api/payments/update', { id: pay.id, idempotencyKey: 'pu' + tag, date: d, vendor: 'V' + tag, bankCode: 'B' + tag, fee: 0, offset: 2000, safety: 0, allocations: [{ expenseId: doc.id, amount: 10000 }] }));
       assert.equal(pay2.replaced, pay.id); assert.notEqual(pay2.id, pay.id);
       const pl1 = ok(await a.call('/api/payments?month=' + curMonth)); assert.equal(pl1.find(x => x.id === pay.id).status, 'REVERSED'); assert.deepEqual((({ amount, fee, safety, status }) => [amount, fee, safety, status])(pl1.find(x => x.id === pay2.id)), [8000, 0, 0, 'POSTED']);
+      // 業者立替金の相殺は定時請求データ入力の明細で入力（No.29、10/28 回答②）：科目 1431 のマイナス行。処税率は対象外 090 に固定、貸方 1431（業者別）で立替金残高が減る
+      // ここまでで立替金残高＝開始 3,000 − 支払の相殺 2,000 ＝ 1,000
+      const advLines = adv => [{ account: '8231', taxCode: '090', amount: 5000, memo: '材料' }, { account: '1431', taxCode: '141', amount: adv, memo: '立替金相殺' }];
+      const advPlus = await a.call('/api/expenses', { kind: 'PAYABLE', date: d, vendor: 'V' + tag, lines: advLines(500) });
+      assert.equal(advPlus.status, 400); assert.match(advPlus.data.error, /マイナスで入力/);
+      const advOver = await a.call('/api/expenses', { kind: 'PAYABLE', date: d, vendor: 'V' + tag, lines: advLines(-1500) });
+      assert.equal(advOver.status, 400); assert.match(advOver.data.error, /立替金の残高（1,000円）を超えています/);
+      const advPetty = await a.call('/api/expenses', { kind: 'PETTY_CASH', date: d, lines: [{ payee: '相殺試験', account: '1431', taxCode: '090', amount: -100, memo: 'x' }] });
+      assert.equal(advPetty.status, 400); assert.match(advPetty.data.error, /業者立替金は定時請求で入力/);
+      const advDoc = ok(await a.call('/api/expenses', { kind: 'PAYABLE', date: d, vendor: 'V' + tag, total: 4400, lines: advLines(-600) }));
+      const advRow = ok(await a.call('/api/expenses?' + new URLSearchParams({ kind: 'PAYABLE', vendor: 'V' + tag, month: d.slice(0, 7) }))).find(x => x.id === advDoc.id);
+      assert.equal(advRow.amount, 4400); assert.deepEqual(advRow.lines.map(l => [l.account, l.taxCode, l.amount]), [['8231', '090', 5000], ['1431', '090', -600]]);
+      const advJ = ok(await a.call('/api/journals?month=' + curMonth)).find(j => j.source === 'expense_document' && j.sourceId === String(advDoc.id));
+      const advAmt = (side, acc) => advJ.lines.filter(l => l.side === side && l.account === acc).reduce((n, l) => n + l.amount, 0);
+      assert.deepEqual([advAmt('D', '8231'), advAmt('C', '1431'), advAmt('C', '4121')], [5000, 600, 4400]);
+      const advLeft = await a.call('/api/expenses', { kind: 'PAYABLE', date: d, vendor: 'V' + tag, lines: advLines(-401) });
+      assert.equal(advLeft.status, 400, '残高は 1,000 − 600 ＝ 400'); assert.match(advLeft.data.error, /立替金の残高（400円）/);
       // overpayment is taken as 預り金
       const before = ok(await a.call('/api/receipt-context?customer=' + C)).deposit;
       assert.equal((await a.call('/api/receipts', { idempotencyKey: 'ov1' + tag, date: d, customer: C, bank: 1500, bankCode: 'B' + tag, allocations: [{ invoiceId, amount: 1000 }] })).status, 400);
