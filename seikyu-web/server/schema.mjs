@@ -123,6 +123,8 @@ export async function prepare(pool, env = process.env) {
   await pool.query('CREATE INDEX IF NOT EXISTS ix_session_user ON app_session (user_id)');
   await pool.query('CREATE INDEX IF NOT EXISTS ix_session_expiry ON app_session (expires_at)');
   await pool.query(`CREATE TABLE IF NOT EXISTS app_period_close (period varchar(7) COLLATE "C" PRIMARY KEY, closed_at timestamp(6) NOT NULL, closed_by varchar(256) COLLATE "C" NOT NULL)`);
+  // 更新区分（現行の月次更新。10/26 打合せ）：'2' 仮更新（各月の伝票終了。解除して追加修正できる）／'1' 年次更新（決算後。解除できない）
+  await pool.query(`ALTER TABLE app_period_close ADD COLUMN IF NOT EXISTS kind char(1) NOT NULL DEFAULT '2'`);
   // 伝票番号（現行の系列連番を引継ぎ）。既存仕訳には日付・ID順で一度だけ採番する。
   await pool.query(`CREATE TABLE IF NOT EXISTS app_slip_series (series varchar(4) COLLATE "C" PRIMARY KEY, last_no integer NOT NULL)`);
   await pool.query('ALTER TABLE app_slip_series ALTER COLUMN series TYPE varchar(10)'); // 伝票の種類＋年度（例 R2026）をキーにする（2026-10-28）

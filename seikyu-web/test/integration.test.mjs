@@ -579,6 +579,19 @@ test('workflow against PostgreSQL business tables', { skip, timeout: 900000 }, a
         const sd2 = (await pool.query('SELECT order_no, sales_date FROM sales_trn WHERE order_no IN (?,?)', [rc.red, rc.black]))[0].map(r => String(r.sales_date));
         assert.deepEqual(sd2, [d.replaceAll('-', ''), d.replaceAll('-', '')], 'red/black dated on the correction date');
       } finally { await pool.query('DELETE FROM app_period_close WHERE period=?', [pm]); }
+      // 更新区分（10/26 打合せ）：2 仮更新は解除できる、1 年次更新は決算月で年度の 12 か月を確定し解除できない（2026-11-08）
+      { const cm = (await a.call('/api/periods')).data.closingMonth, end = `2001-${String(cm).padStart(2, '0')}`;
+        const am = (m, k) => { const d = new Date(Date.UTC(+m.slice(0, 4), +m.slice(5, 7) - 1 + k, 1)); return d.toISOString().slice(0, 7); }, ms = Array.from({ length: 12 }, (_, i) => am(end, i - 11));
+        try {
+          let r = await a.call('/api/periods/close', { month: end, kind: '1', force: true }); assert.equal(r.status, 400); assert.match(r.data.error, /各月を仮更新/);
+          r = await a.call('/api/periods/close', { month: am(end, -1), kind: '1', force: true }); assert.equal(r.status, 400); assert.match(r.data.error, /決算月/);
+          for (const m of ms.slice(0, 11)) { const x = await a.call('/api/periods/close', { month: m, force: true }); assert.equal(x.status, 200, JSON.stringify(x.data)); }
+          const rr = await a.call('/api/periods/reopen', { month: ms[10] }); assert.equal(rr.status, 200);   // 仮更新は解除できる
+          assert.equal((await a.call('/api/periods/close', { month: ms[10], force: true })).status, 200);
+          const an = await a.call('/api/periods/close', { month: end, kind: '1', force: true }); assert.equal(an.status, 200, JSON.stringify(an.data));
+          const [ks] = await pool.query(`SELECT kind FROM app_period_close WHERE period IN (${ms.map(() => '?').join(',')})`, ms); assert.deepEqual(ks.map(x => x.kind), Array(12).fill('1'));
+          const ro = await a.call('/api/periods/reopen', { month: end }); assert.equal(ro.status, 400); assert.match(ro.data.error, /年次更新済み/);
+        } finally { await pool.query(`DELETE FROM app_period_close WHERE period IN (${ms.map(() => '?').join(',')})`, ms); } }
       // 小口現金は内税（141）でも消費税を仮払消費税 1465 に分ける。対象外（090）は分けない（2026-11-07 2次テスト 4.小口現金 STEP③）
       const pc = ok(await a.call('/api/expenses', { kind: 'PETTY_CASH', date: d, lines: [{ payee: '文具店', account: '8231', taxCode: '141', amount: 3300, memo: 'コピー用紙' }, { payee: '駐車場', account: '8231', taxCode: '141', amount: 500, memo: '駐車料金' }, { payee: '郵便局', account: '8231', taxCode: '090', amount: 84, memo: '切手' }] }));
       const pjl = (await pool.query("SELECT jl.account_code, SUM(CASE WHEN jl.side='D' THEN jl.amount ELSE -jl.amount END)::int v FROM journal_entry je JOIN journal_line jl ON jl.journal_id=je.journal_id WHERE je.source_type='expense_document' AND je.source_id=? AND je.status='POSTED' GROUP BY 1 ORDER BY 1", [String(pc.id)]))[0];

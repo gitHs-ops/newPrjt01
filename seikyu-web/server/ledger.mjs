@@ -3,6 +3,7 @@ import { rows, one, audit } from './db.mjs';
 import { listShipments, listInvoices, listReceipts } from './sales.mjs';
 import { listPayments, listExpenses, listPurchases, listInventory } from './payables.mjs';
 import { MASTERS, list as listMaster, exportRows } from './masters.mjs';
+import { companyPeriod } from './period.mjs';
 
 export const PATTERNS = { A01: '売掛金計上（請求）', B01: '入金消込', C01: '在庫計上', D01: '定時請求（買掛金）', E01: '小口現金', F01: '支払', G03: '小口現金補充' };
 const monthEnd = m => new Date(Date.UTC(+m.slice(0, 4), +m.slice(5, 7), 0)).toISOString().slice(0, 10);
@@ -29,11 +30,15 @@ export async function trialBalance(c, month) {
 }
 
 // ---------- 月次確定 ----------
+// 更新区分（10/26 打合せ・現行の月次更新）：'2' 仮更新＝各月の伝票終了（後の月から順に解除して追加修正できる）、'1' 年次更新＝決算後の更新（決算月で実行し、その年度の 12 か月を年次更新済みにする。解除できない）
+export const CLOSE_KINDS = { 1: '年次更新', 2: '仮更新' };
+const fyMonths = (month, cm) => { const out = []; for (let i = 11; i >= 0; i--) out.push(addMonths(month, -i)); return out; };   // 決算月を最後とする 12 か月
 export async function periods(c) {
   const closed = await rows(c, 'SELECT * FROM app_period_close ORDER BY period DESC');
+  const cm = (await companyPeriod(c)).closingMonth;
   const now = today().slice(0, 7), list = [];
-  for (let i = -6; i <= 0; i++) { const m = addMonths(now, i); const r = closed.find(x => x.period === m); list.push({ month: m, closed: !!r, closedAt: r?.closed_at || '', closedBy: r?.closed_by || '' }); }
-  return { months: list.reverse(), closed: closed.map(r => r.period) };
+  for (let i = -6; i <= 0; i++) { const m = addMonths(now, i); const r = closed.find(x => x.period === m); list.push({ month: m, closed: !!r, kind: r ? r.kind || '2' : '', kindName: r ? CLOSE_KINDS[r.kind || '2'] : '', closedAt: r?.closed_at || '', closedBy: r?.closed_by || '', fiscalEnd: Number(m.slice(5, 7)) === cm }); }
+  return { months: list.reverse(), closed: closed.map(r => r.period), closingMonth: cm };
 }
 // 確定前チェック：得意先ごとの締日までの未請求出荷（掛売）と、未発行の請求書
 export async function closeCheckDetail(c, month) {
@@ -51,21 +56,37 @@ export async function closeCheck(c, month) {
   const d = await closeCheckDetail(c, month);
   return [...d.unbilled.map(r => `${r.name}: ${r.closing}締の未請求出荷 ${r.count}件`), ...(d.drafts ? [`未発行の請求書 ${d.drafts}件`] : [])];
 }
-export async function closeMonth(c, ctx, { month, force }) {
+export async function closeMonth(c, ctx, { month, force, kind = '2' }) {
   isoMonth(month, '確定月'); check(month <= today().slice(0, 7), '未来の月は確定できません');
-  check(!(await one(c, 'SELECT 1 x FROM app_period_close WHERE period=? FOR UPDATE', [month])), 'すでに確定済みです');
+  kind = String(kind || '2'); check(CLOSE_KINDS[kind], '更新区分は 1（年次更新）か 2（仮更新）です');
+  const cur = await one(c, 'SELECT * FROM app_period_close WHERE period=? FOR UPDATE', [month]);
+  if (kind === '1') {
+    const cm = (await companyPeriod(c)).closingMonth;
+    check(Number(month.slice(5, 7)) === cm, `年次更新は決算月（${cm}月）で実行してください`);
+    check(cur?.kind !== '1', 'すでに年次更新済みです');
+    const ms = fyMonths(month, cm), done = new Set((await rows(c, `SELECT period FROM app_period_close WHERE period IN (${ms.map(() => '?').join(',')})`, ms)).map(r => r.period));
+    const missing = ms.filter(m => m !== month && !done.has(m));
+    check(!missing.length, `年次更新の前に、年度の各月を仮更新してください（未確定：${missing.join('・')}）`);
+    if (!cur) await closeMonth(c, ctx, { month, force, kind: '2' });
+    await c.query(`UPDATE app_period_close SET kind='1' WHERE period IN (${ms.map(() => '?').join(',')})`, ms);
+    await audit(c, ctx, 'app_period_close', month, 'period.annual', { months: ms });
+    return { month, kind: '1', months: ms };
+  }
+  check(!cur, 'すでに確定済みです');
   const prev = addMonths(month, -1), anyClosed = await one(c, 'SELECT COUNT(*) n FROM app_period_close');
   if (Number(anyClosed.n)) check(await one(c, 'SELECT 1 x FROM app_period_close WHERE period=?', [prev]), `前月 ${prev} を先に確定してください`);
   // 未請求・未発行が残っていても、管理者が明示した場合（force）は確定できる（テスト・移行データ用）。操作履歴に件数を残す
   const d = await closeCheckDetail(c, month), open = d.unbilled.length || d.drafts;
   check(!open || force === true, `確定できません：未請求の出荷がある得意先 ${d.unbilled.length}社（${d.unbilledCount}件）${d.drafts ? `・未発行の請求書 ${d.drafts}件` : ''}。請求を作成・発行するか、「未請求があっても確定する」を選んでください`);
-  await c.query('INSERT INTO app_period_close (period, closed_at, closed_by) VALUES (?, UTC_TIMESTAMP(6), ?)', [month, ctx.user.login_id]);
+  await c.query("INSERT INTO app_period_close (period, closed_at, closed_by, kind) VALUES (?, UTC_TIMESTAMP(6), ?, '2')", [month, ctx.user.login_id]);
   await audit(c, ctx, 'app_period_close', month, 'period.close', open ? { forced: true, unbilledCustomers: d.unbilled.length, unbilledSlips: d.unbilledCount, drafts: d.drafts } : {});
-  return { month };
+  return { month, kind: '2' };
 }
 export async function reopenMonth(c, ctx, { month }) {
   isoMonth(month);
-  check(await one(c, 'SELECT 1 x FROM app_period_close WHERE period=? FOR UPDATE', [month]), '確定されていない月です');
+  const cur = await one(c, 'SELECT kind FROM app_period_close WHERE period=? FOR UPDATE', [month]);
+  check(cur, '確定されていない月です');
+  check((cur.kind || '2') !== '1', '年次更新済みの月は解除できません（仮更新の月だけ解除して追加修正できます）');
   check(!(await one(c, 'SELECT 1 x FROM app_period_close WHERE period>? LIMIT 1', [month])), '後の確定月から順に解除してください');
   await c.query('DELETE FROM app_period_close WHERE period=?', [month]);
   await audit(c, ctx, 'app_period_close', month, 'period.reopen', {});

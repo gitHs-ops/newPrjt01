@@ -405,7 +405,7 @@ VIEWS.dashboard = async () => {
 };
 const ACTIONS = { 'shipment.create': '出荷登録', 'shipment.update': '出荷修正', 'shipment.delete': '出荷取消', 'shipment.correct': '出荷伝票訂正', 'billing.create': '請求作成', 'billing.cancel': '請求取消', 'invoice.issue': '請求書発行', 'invoice.reissue': '請求書再発行',
   'receipt.create': '入金消込', 'receipt.reverse': '入金取消', 'purchase.create': '仕入登録', 'purchase.delete': '仕入取消', 'inventory.create': '在庫計上', 'inventory.delete': '在庫取消', 'payable.create': '定時請求登録', 'payable.update': '定時請求修正', 'payable.delete': '定時請求削除', 'pettycash.create': '小口現金登録',
-  'expense.reverse': '経費取消', 'payment.create': '支払登録', 'payment.reverse': '支払取消', 'period.close': '月次確定', 'period.reopen': '確定解除', 'master.create': 'マスタ登録', 'master.update': 'マスタ更新', 'user.create': '利用者登録', 'user.update': '利用者更新', 'user.login': 'ログイン', 'user.password': 'パスワード変更' };
+  'expense.reverse': '経費取消', 'payment.create': '支払登録', 'payment.reverse': '支払取消', 'period.close': '月次確定', 'period.annual': '年次更新', 'period.reopen': '確定解除', 'master.create': 'マスタ登録', 'master.update': 'マスタ更新', 'user.create': '利用者登録', 'user.update': '利用者更新', 'user.login': 'ログイン', 'user.password': 'パスワード変更' };
 
 // ----- 出荷・売上 -----
 // 決済方法（現行 Java A0001）：1 現金 / 2 掛売 / 3 カード。伝票区分 5＝訂正（赤黒）。
@@ -2078,10 +2078,12 @@ VIEWS.periods = async () => {
       <label class="field wide" style="margin-top:12px"><span><input type="checkbox" name="force"> 未請求・未発行があっても確定する（テスト・移行データ用。操作履歴に記録します）</span></label>`,
       onSubmit: async v => { if (v.force !== 'on') throw Error('未請求・未発行があるため確定できません。確定する場合は「未請求・未発行があっても確定する」にチェックしてください'); await post('/api/periods/close', { month: d.month, force: true }); toast('確定しました'); render(); } });
   };
+  // 年次更新（更新区分 1。10/26 打合せ）：決算月で実行し、年度の 12 か月を年次更新済みにする（解除できない）。各月は先に仮更新（更新区分 2）
+  A.annual = d => confirmBox('年次更新（更新区分 1）', `${d.month}（決算月）で年次更新します。年度の 12 か月（${d.month} まで）が年次更新済みになり、解除できなくなります。年度の各月は先に仮更新（確定）しておいてください。`, () => post('/api/periods/close', { month: d.month, kind: '1' }).then(() => { toast('年次更新しました'); render(); }), '年次更新する');
   A.reopen = d => confirmBox('確定解除', `${d.month} の確定を解除します。`, () => post('/api/periods/reopen', { month: d.month }).then(() => { toast('解除しました'); render(); }), '解除する');
-  return page('月次確定', '確定した月の伝票は登録・変更・取消ができなくなります。確定・解除は管理者のみ実行できます。', '', `<section class="card glass">${table([{ label: '月', value: r => r.month }, { label: '状態', html: r => r.closed ? badge('確定済', 'green') : badge('未確定', 'gray') },
+  return page('月次確定', `確定した月の伝票は登録・変更・取消ができなくなります。確定・解除は管理者のみ実行できます。更新区分：2 仮更新＝各月の確定（後の月から順に解除して追加修正できる）、1 年次更新＝決算月（${p.closingMonth}月）で年度の 12 か月を確定（解除できない）。`, '', `<section class="card glass">${table([{ label: '月', value: r => r.month + (r.fiscalEnd ? '（決算月）' : '') }, { label: '状態', html: r => r.closed ? badge('確定済', 'green') : badge('未確定', 'gray') }, { label: '更新区分', html: r => (r.closed ? (r.kind === '1' ? badge('1 年次更新', 'green') : badge('2 仮更新', 'amber')) : '') },
     { label: '確定日時 / 実行者', value: r => r.closed ? `${jst(r.closedAt, 16)} / ${r.closedBy}` : '' }, { label: 'チェック', html: r => `<div id="chk-${r.month}">${r.closed ? '' : `<button class="mini" data-act="check" data-month="${r.month}">確定前チェック</button>`}</div>` },
-    { label: '', html: r => isAdmin() ? (r.closed ? `<button class="mini danger" data-act="reopen" data-month="${r.month}">解除</button>` : `<button class="mini primary" data-act="close" data-month="${r.month}">確定</button>`) : '' }], p.months)}</section>
+    { label: '', html: r => isAdmin() ? (r.closed ? (r.kind === '1' ? '' : `<button class="mini danger" data-act="reopen" data-month="${r.month}">解除</button>`) : `<button class="mini primary" data-act="close" data-month="${r.month}">確定（仮更新）</button>`) + (r.fiscalEnd && r.kind !== '1' ? ` <button class="mini" data-act="annual" data-month="${r.month}">年次更新</button>` : '') : '' }], p.months)}</section>
     `);
 };
 
