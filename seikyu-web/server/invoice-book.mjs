@@ -83,7 +83,8 @@ function proposalSheet(s) {
   row([[5, 8, coAddr, 'iText']]);
   row([[0, 3, u.name, 'iCust'], [4, 4, '御中', 'iBold'], [5, 8, `TEL ${c.tel}${c.fax ? '　FAX ' + c.fax : ''}`, 'iText']], 24);
   row([[5, 8, c.invoiceNo ? `登録番号：${c.invoiceNo}` : '', 'iText']]);
-  row([[0, 4, `現場：${s.siteName || '（現場なし）'}${s.pages > 1 ? `（${s.page}/${s.pages}）` : ''}`, 'iBold']]);
+  // 現場：請求現場（現場マスタ）の名称。現場コードの無い明細は納入先（明細の現場名）を出す
+  row([[0, 4, `現場：${s.siteName || [...new Set(s.lines.map(l => l.siteName).filter(Boolean))].join('・') || '（現場なし）'}${s.pages > 1 ? `（${s.page}/${s.pages}）` : ''}`, 'iBold']]);
   // 取引銀行：銀行名・支店名の行と、種別・口座番号の行（2 行で 1 口座）。左は 3 行目から挨拶・対象期間
   const left = [[], [], [[0, 4, '毎度ありがとうございます。', 'iText']], [[0, 4, '下記のとおり御請求申し上げます。', 'iText']], [[1, 4, `${jp(s.periodStart)}　～　${jp(s.closing)}`, 'iText']]];
   const right = banks.flatMap((b, i) => [[...(i ? [] : [[5, 5, '取引銀行', 'iText']]), [6, 7, b.bank, 'iText'], [8, 8, b.branch, 'iText']], [[6, 7, b.type, 'iText'], [8, 8, b.acc, 'iText']]]);

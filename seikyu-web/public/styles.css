@@ -565,6 +565,8 @@ input:disabled, select:disabled, textarea:disabled { background: rgba(120,130,15
 /* 入金分配端数調整登録：構成員名・得意先などが 2 行にならないよう広げる（2026-11-08） */
 dialog.modal.wide:has(#jva) { width: min(1480px, calc(100vw - 24px)); }
 #jva th, #jva td { white-space: nowrap; }
+/* 請求締日の範囲（〜）は 2 行にして、幅 1024 でも横スクロールしない（2026-11-09） */
+#jva td, #jva th { padding-left: 8px; padding-right: 8px; }
 /* 消費税の設定（マスタ管理 › 消費税率、2026-11-09） */
 .tax-set th{text-align:left;padding:4px 16px 4px 0;white-space:nowrap;font-weight:600}
 .tax-set td{padding:4px 12px 4px 0}

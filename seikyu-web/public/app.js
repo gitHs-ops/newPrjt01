@@ -1885,8 +1885,8 @@ const jvAllocCard = () => miscCard('入金分配端数調整登録', '現行 HJW
 async function jvAllocDialog() {
   const closing = $('#jva-closing').value, d = await api('/api/reports/misc/jv-receipts?' + qs({ closing })), ms = d.members;
   if (!d.lines.length) return alertBox(`データがありません（締切日 ${closing} の月度 ${d.from}〜${d.to} の入金・現金売上はありません）`);
-  const row = (l, i) => `<tr data-i="${i}"><td style="white-space:nowrap">${esc(l.date)}</td><td>${esc(l.account)}</td><td class="small">${esc(l.billed || '')}</td><td>${esc(l.customer || '')}</td><td class="num">${yen(l.amount)}</td>
-    ${ms.map((m, k) => `<td><input class="num jv-part" style="width:110px;color:#0369a1" data-k="${k}" value="${l.parts[k]}"></td>`).join('')}<td class="small jv-st">${l.adjusted ? badge('調整済', 'amber') : ''}</td><td><button type="button" class="mini quiet" data-auto="${i}" title="出資比率で自動配分に戻す">自動</button></td></tr>`;
+  const row = (l, i) => `<tr data-i="${i}"><td style="white-space:nowrap">${esc(l.date)}</td><td>${esc(l.account)}</td><td class="small">${esc(l.billed || '').replace('〜', '〜<br>')}</td><td>${esc(l.customer || '')}</td><td class="num">${yen(l.amount)}</td>
+    ${ms.map((m, k) => `<td><input class="num jv-part" style="width:100px;color:#0369a1" data-k="${k}" value="${l.parts[k]}"></td>`).join('')}<td class="small jv-st">${l.adjusted ? badge('調整済', 'amber') : ''}</td><td><button type="button" class="mini quiet" data-auto="${i}" title="出資比率で自動配分に戻す">自動</button></td></tr>`;
   const foot = `<tr><td colspan="4"><b>入金計</b></td><td class="num" id="jva-total"></td>${ms.map((_, k) => `<td class="num" id="jva-t${k}"></td>`).join('')}<td colspan="2"></td></tr>`;
   modal({ title: `入金分配端数調整登録　締切日 ${closing}（${d.from}〜${d.to}）`, wide: true, submit: '登録',
     body: `
