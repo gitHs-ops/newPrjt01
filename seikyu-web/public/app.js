@@ -1719,7 +1719,7 @@ VIEWS.payments = async q => {
       <h3>支払内訳</h3><div class="form-grid py-stack">${field('振込', '<input id="py-bank" class="num" readonly value="0" tabindex="-1">')}${field('手数料', `<input name="fee" class="num" value="${old ? old.fee : 0}">`)}${field('安全協力費（差引）', `<input name="safety" class="num" value="${old ? old.safety : 0}">`)}<input type="hidden" name="offset" value="${old ? old.offset : 0}">${field('支払合計', '<input id="py-total" class="num" readonly value="0" tabindex="-1">')}</div>
       <div class="form-grid py-stack">${field('振込方法', `<select name="transferMethod">${options([{ code: '0', name: '電信' }, { code: '1', name: '文書' }], old?.transferMethod || '0', { label: x => `${x.code}: ${x.name}` })}</select>`)}${field('手数料', `<select name="feeKbn">${options([{ code: '0', name: 'とらない' }, { code: '1', name: 'とる' }], old ? old.feeKbn || (old.fee ? '1' : '0') : '0', { label: x => `${x.code}: ${x.name}` })}</select>`)}${field('支払銀行（支払元口座）', `<select name="bankCode">${options(active('banks'), old?.fromBank || active('banks')[0]?.code)}</select>`, { req: 1 }).replace('class="field', 'class="field py-w2')}</div>
       <div class="note" id="py-payee">振込銀行: -</div>${/* 振込銀行の表示は入力項目（振込方法・手数料・支払銀行）の下（2026-11-08 ユーザー指示） */ ''}
-      <div id="py-carry"></div>
+      <h3>繰越と今回支（月別）</h3><div id="py-carry"></div>
       </div>`,
     onOpen: f => { let sum = null, open = [];
       // 現行 HJW200 の今回支（2026-11-08）：伝票は選ばず、月（前々々月以前／前々月／前月以降）ごとに今回支を入力する。
