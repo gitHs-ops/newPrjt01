@@ -1717,8 +1717,8 @@ VIEWS.payments = async q => {
            現金・小切手・手形は 10/19 打合せ「振込のみ」で置かない。立替金（相殺）は定時請求データ入力の明細（科目 1431、マイナス）で入力する（10/28 回答②）ので支払の画面では入力しない。
            前払金・その他は仕訳の実績（仕訳パターン分析 F-01〜F-03）にないため置かない（要確認） */ ''}
       <h3>支払内訳</h3><div class="form-grid">${field('振込', '<input id="py-bank" class="num" readonly value="0" tabindex="-1">')}${field('手数料', `<input name="fee" class="num" value="${old ? old.fee : 0}">`)}${field('安全協力費（差引）', `<input name="safety" class="num" value="${old ? old.safety : 0}">`)}<input type="hidden" name="offset" value="${old ? old.offset : 0}">${field('支払合計', '<input id="py-total" class="num" readonly value="0" tabindex="-1">')}</div>
-      <div class="note" id="py-payee">振込銀行: -</div>
       <div class="form-grid">${field('振込方法', `<select name="transferMethod">${options([{ code: '0', name: '電信' }, { code: '1', name: '文書' }], old?.transferMethod || '0', { label: x => `${x.code}: ${x.name}` })}</select>`)}${field('手数料', `<select name="feeKbn">${options([{ code: '0', name: 'とらない' }, { code: '1', name: 'とる' }], old ? old.feeKbn || (old.fee ? '1' : '0') : '0', { label: x => `${x.code}: ${x.name}` })}</select>`)}${field('支払銀行（支払元口座）', `<select name="bankCode">${options(active('banks'), old?.fromBank || active('banks')[0]?.code)}</select>`, { req: 1 }).replace('class="field', 'class="field py-w2')}</div>
+      <div class="note" id="py-payee">振込銀行: -</div>${/* 振込銀行の表示は入力項目（振込方法・手数料・支払銀行）の下（2026-11-08 ユーザー指示） */ ''}
       <div id="py-carry"></div>
       </div>`,
     onOpen: f => { let sum = null, open = [];
@@ -1740,7 +1740,7 @@ VIEWS.payments = async q => {
         // 今回支の初期値：新規＝その月の未払残高、修正＝元の支払の割当をその月で合計
         const init = i => (old ? openOf(i).reduce((n, d) => n + (old.allocations.find(a => a.expenseId === d.id)?.amount || 0), 0) : openOf(i).reduce((n, d) => n + Number(d.balance), 0));
         $('#py-carry').innerHTML = `<div class="table-wrap"><table><thead><tr><th></th><th class="num">前々々月以前（${sum.months[0]}）</th><th class="num">前々月（${sum.months[1]}）</th><th class="num">前月以降（${sum.months[2]}〜）</th><th class="num">合計</th></tr></thead><tbody>${row('請求額', i => b[i].billed + (b[i].before || 0))}${row('支払済', i => b[i].paid)}${row('繰越額', i => b[i].carry)}
-          <tr><th>今回支</th>${[0, 1, 2].map(i => `<td class="num"><input id="py-now${i}" class="num" value="${init(i)}" style="width:130px"${openOf(i).length ? '' : ' disabled'}></td>`).join('')}<td class="num" id="py-nowsum"></td></tr></tbody>
+          <tr><th>今回支</th>${[0, 1, 2].map(i => `<td class="num py-nowcell"><input id="py-now${i}" class="num" value="${init(i)}"${openOf(i).length ? '' : ' disabled'}></td>`).join('')}<td class="num" id="py-nowsum"></td></tr></tbody>
           <tfoot><tr><th colspan="4" style="text-align:right">差引支払（繰越額－今回支）</th><td class="num" id="py-diff"></td></tr></tfoot></table></div><p class="muted small" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">請求額は計上月で集計（前々々月以前は過去の未払を含む）・支払済はこの支払を除く・今回支は古い伝票から割当</p>`;
         [0, 1, 2].forEach(i => { const x = $(`#py-now${i}`); if (x) x.oninput = recalc; }); recalc(); };
       f.feeKbn.onchange = recalc; f.fee.oninput = recalc; f.safety.oninput = recalc;
