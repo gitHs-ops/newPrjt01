@@ -58,6 +58,48 @@ function legacySheet(s) {
   for (const b of s.buckets) { push(['', '', '', '', '', '', st(b.net, 'rNum'), st(`${b.rate}%`, 'rCell')]); push(['', '', '', '', '', '', st(b.tax, 'rNum'), st('税', 'rCell')]); }
   return { name: `${s.invoiceId}_${s.customer.code}${s.pages > 1 ? '_' + s.page : ''}`.slice(0, 31), rows, heights, merges, gridlines: false, widths: [10, 11, 30, 10, 6, 11, 13, 34] };
 }
+// 提案書様式の請求書（2026-11-08 ユーザー提示の Excel 見本どおり）：A4 縦・目盛線なし・黒の罫線。列は A 月日・B 伝票NO・C 区分・D:E 品名・F 数量・G 単位・H 単価・I 金額。
+// 表題は E の太枠。左に得意先（〒・住所・名称 御中（下線）・現場・挨拶・対象期間）、右に請求書番号・日付と発行元（会社名・〒住所・TEL・登録番号・取引銀行（銀行・支店／種別・口座番号））。
+// 請求額の枠は 当月御買上額（A:C）・今回消費税（D）・当月御請求額（E）。明細は空行を足して 11 行以上。税率ごとの内訳は末尾の税率区分（適格請求書の記載事項）
+const MIN_LINES = 11;
+function proposalSheet(s) {
+  const c = s.company, u = s.customer;
+  const no = s.invoiceNo || 'K' + String(s.closing).slice(0, 7).replace('-', '') + String(s.invoiceId).padStart(5, '0');
+  const kind = l => (l.shipKb === 5 ? (l.quantity < 0 ? '赤' : '黒') : '売上');
+  const banks = c.bankParts?.length ? c.bankParts : (c.banks || (c.bankText ? [c.bankText] : [])).map(t => ({ bank: t, branch: '', type: '', acc: '' }));
+  const rows = [], heights = {}, merges = [], st = (v, k) => ({ v, s: k }), W = 9;
+  const ref = (r, c0, c1) => `${String.fromCharCode(65 + c0)}${r}:${String.fromCharCode(65 + c1)}${r}`;
+  // cells：[[列, 終わりの列, 値, スタイル], ...]（終わりの列まで結合。結合した範囲は同じスタイルで罫線を引く）
+  const row = (cells, h = 19.5) => { const r = Array(W).fill(''); for (const [a, b, v, sk] of cells) { for (let k = a; k <= b; k++) r[k] = st(k === a ? v : '', sk); if (b > a) merges.push(ref(rows.length + 1, a, b)); } rows.push(r); heights[rows.length - 1] = h; };
+  const custAddr = u.postcode === undefined ? u.address || '' : [u.pref, u.addr1, u.addr2].filter(Boolean).join('') || u.address || '';
+  const coAddr = [zipOf(c.postcode), [c.pref, c.addr1].filter(Boolean).join('') + (c.addr2 ? ' ' + c.addr2 : '')].filter(Boolean).join('　') || c.address || '';
+  row([[4, 4, '請　求　書', 'iTitle'], ...(siteNo(s) > 1 ? [[8, 8, `${c.saisyutsu || '再発行'}（${siteNo(s)}回目）`, 'iTextR']] : [])], 36);
+  row([[7, 7, '請求書番号：', 'iTextR'], [8, 8, no, 'iText']]);
+  row([[8, 8, jp(s.issuedOn || today()), 'iText']]);
+  row([[0, 4, zipOf(u.postcode), 'iText'], [5, 8, c.name, 'iBold']]);
+  row([[0, 4, custAddr, 'iText']]);
+  row([]);
+  row([[5, 8, coAddr, 'iText']]);
+  row([[0, 3, u.name, 'iCust'], [4, 4, '御中', 'iBold'], [5, 8, `TEL ${c.tel}${c.fax ? '　FAX ' + c.fax : ''}`, 'iText']], 24);
+  row([[5, 8, c.invoiceNo ? `登録番号：${c.invoiceNo}` : '', 'iText']]);
+  row([[0, 4, `現場：${s.siteName || '（現場なし）'}${s.pages > 1 ? `（${s.page}/${s.pages}）` : ''}`, 'iBold']]);
+  // 取引銀行：銀行名・支店名の行と、種別・口座番号の行（2 行で 1 口座）。左は 3 行目から挨拶・対象期間
+  const left = [[], [], [[0, 4, '毎度ありがとうございます。', 'iText']], [[0, 4, '下記のとおり御請求申し上げます。', 'iText']], [[1, 4, `${jp(s.periodStart)}　～　${jp(s.closing)}`, 'iText']]];
+  const right = banks.flatMap((b, i) => [[...(i ? [] : [[5, 5, '取引銀行', 'iText']]), [6, 7, b.bank, 'iText'], [8, 8, b.branch, 'iText']], [[6, 7, b.type, 'iText'], [8, 8, b.acc, 'iText']]]);
+  for (let k = 0; k < Math.max(left.length, right.length); k++) row([...(left[k] || []), ...(right[k] || [])]);
+  row([], 12);
+  row([[0, 2, '当月御買上額', 'iBoxHi'], [3, 3, '今回消費税', 'iBoxH'], [4, 4, '当月御請求額', 'iBoxHi']], 21);
+  row([[0, 2, s.net, 'iBoxBig'], [3, 3, s.tax, 'iBoxNum'], [4, 4, s.total, 'iBoxBig']], 28);
+  row([], 18);
+  row([[0, 0, '月 日', 'iHead'], [1, 1, '伝票NO', 'iHead'], [2, 2, '区分', 'iHead'], [3, 4, '品　　　名', 'iHead'], [5, 5, '数 量', 'iHead'], [6, 6, '単位', 'iHead'], [7, 7, '単 価', 'iHead'], [8, 8, '金　　額', 'iHead']], 20);
+  for (const l of s.lines) row([[0, 0, String(l.date).slice(5).replace('-', '/'), 'iCellC'], [1, 1, l.orderNo, 'iCellC'], [2, 2, kind(l), 'iCellC'], [3, 4, l.itemName, 'iCell'], [5, 5, l.quantity, 'iQty'], [6, 6, l.unit || '', 'iCellC'], [7, 7, l.price, 'iNum'], [8, 8, l.net, 'iNum']], 20);
+  for (let k = s.lines.length; k < MIN_LINES; k++) row([[0, 0, '', 'iCell'], [1, 1, '', 'iCell'], [2, 2, '', 'iCell'], [3, 4, '', 'iCell'], [5, 5, '', 'iCell'], [6, 6, '', 'iCell'], [7, 7, '', 'iCell'], [8, 8, '', 'iCell']], 20);
+  row([], 14);
+  row([[5, 6, '税率区分', 'iHead'], [7, 7, '対象額（税抜）', 'iHead'], [8, 8, '消費税', 'iHead']], 20);
+  for (const b of s.buckets) row([[5, 6, `${b.rate}% 対象`, 'iCellC'], [7, 7, b.net, 'iNum'], [8, 8, b.tax, 'iNum']], 20);
+  return { name: `${s.invoiceId}_${s.customer.code}${s.pages > 1 ? '_' + s.page : ''}`.slice(0, 31), rows, heights, merges, gridlines: false, portrait: true,
+    footer: `&L&8請求書番号 ${no}&R&8&P / &N`, widths: [9.5, 17, 8, 17, 39, 12, 8, 15, 19] };
+}
 // sites：{請求ID: [現場名]}（JSON、2026-10-27 現場別発行）。指定した現場はその現場の最新の発行分、指定が無い請求は最新の発行分で発行した現場
 export async function invoiceBook(c, q) {
   const ids = [...new Set(String(q.ids || '').split(',').map(Number).filter(Boolean))];
@@ -80,41 +122,7 @@ export async function invoiceBook(c, q) {
     }
     for (const s of pages) {
       if ((s.company.layout || 'legacy') !== 'proposal') { sheets.push(legacySheet(s)); continue; }
-      // 印刷の請求書（提案書 スライド14 の様式）と同じ項目・見出し（指摘 No.17）。税率区分は印刷と同じく末尾に
-      // 2026-10-29 整形版：A4 縦・目盛線なし。表題は中央、宛名は下線、右に発行元。請求額は3つの枠（2026-11-08）、明細は薄い罫線
-      const no = s.invoiceNo || 'K' + String(s.closing).slice(0, 7).replace('-', '') + String(s.invoiceId).padStart(5, '0');
-      const kind = l => (l.shipKb === 5 ? (l.quantity < 0 ? '赤' : '黒') : '売上'), banks = s.company.banks || (s.company.bankText ? [s.company.bankText] : []);
-      const rows = [], heights = {}, merges = [], st = (v, k) => ({ v, s: k });
-      const ref = (r, c0, c1) => `${String.fromCharCode(65 + c0)}${r}:${String.fromCharCode(65 + c1)}${r}`;
-      const push = (cells, h) => { rows.push(cells); if (h) heights[rows.length - 1] = h; return rows.length; };
-      // 左（A〜D）と右（E〜H）を1行に並べる
-      const lr = (left, ls, right, rs, h) => { const r = push([st(left ?? '', ls), st('', ls), st('', ls), st('', ls), st(right ?? '', rs), st('', rs), st('', rs), st('', rs)], h); merges.push(ref(r, 0, 3), ref(r, 4, 7)); };
-      merges.push(ref(push([st('請　求　書', 'rTitleC')], 40), 0, 7));
-      lr('', 'rText', `請求書番号　${no}`, 'rSubR', 16);
-      lr('', 'rText', `${jp(s.issuedOn || today())}${siteNo(s) > 1 ? `　${s.company.saisyutsu || '再発行'}（${siteNo(s)}回目）` : ''}`, 'rSubR', 16);
-      push([], 8);
-      lr(s.customer.address, 'rText', s.company.name, 'rCompanyW', 30);
-      lr(`${s.customer.name}　御中`, 'rCust', s.company.address, 'rSubR', 26);
-      lr('毎度ありがとうございます。下記のとおり御請求申し上げます。', 'rSub', `TEL ${s.company.tel}${s.company.fax ? '　FAX ' + s.company.fax : ''}`, 'rSubR', 18);
-      lr(`対象期間　${jp(s.periodStart)} 〜 ${jp(s.closing)}`, 'rSub', s.company.invoiceNo ? `登録番号　${s.company.invoiceNo}` : '', 'rSubR', 16);
-      lr(`現場：${s.siteName || '（現場なし）'}${s.pages > 1 ? `（${s.page}/${s.pages}）` : ''}`, 'rSite', banks.length ? `取引銀行　${banks.join(' ／ ')}` : '', 'rSubR', 30);
-      lr('', 'rText', `お支払期日　${s.due}`, 'rCompany', 18);
-      push([], 10);
-      // 請求額の3つの枠（2026-11-08 ユーザー指示：当月御買上額（税抜）・今回消費税（税率の合計）・当月御請求額（税込）。前回残高・今回入金額・今回消費税(軽減)・今回残高は載せない）。
-      // 枠は A:C・D・E:H（右端を明細の表に揃える）。当月御買上額・当月御請求額は見出しを水色、金額を大きく。税率ごとの内訳は末尾の税率区分
-      const box = [[0, 2, '当月御買上額', s.net, 'rHeadHi', 'rBigHi'], [3, 3, '今回消費税', s.tax, 'rHead', 'rBig'], [4, 7, '当月御請求額', s.total, 'rHeadHi', 'rBigHi']];
-      const line = (label, h) => { const cells = []; for (const b of box) for (let k = b[0]; k <= b[1]; k++) cells[k] = st(k === b[0] ? (label ? b[2] : b[3]) : '', label ? b[4] : b[5]); return push(cells, h); };
-      const bh = line(true, 20), bv = line(false, 30);
-      for (const r of [bh, bv]) for (const b of box) if (b[1] > b[0]) merges.push(ref(r, b[0], b[1]));
-      push([], 12);
-      push(['月日', '伝票NO', '区分', '品名', '数量', '単位', '単価', '金額'].map(h => st(h, 'rHead')), 20);
-      for (const l of s.lines) push([st(String(l.date).slice(5).replace('-', '/'), 'rCenter'), st(l.orderNo, 'rCell'), st(kind(l), 'rCenter'), st(l.itemName, 'rCell'), st(l.quantity, 'rQty'), st(l.unit || '', 'rCenter'), st(l.price, 'rNum'), st(l.net, 'rNum')], 18);
-      push(['', '', '', '', '', '', st('現場計', 'rSubTotL'), st(s.net, 'rSubTotN')], 20);
-      push([], 12);
-      merges.push(ref(push(['', '', '', '', st('税率区分', 'rHead'), st('', 'rHead'), st('対象額（税抜）', 'rHead'), st('消費税', 'rHead')], 18), 4, 5));
-      for (const b of s.buckets) merges.push(ref(push(['', '', '', '', st(`${b.rate}% 対象`, 'rCenter'), st('', 'rCenter'), st(b.net, 'rNum'), st(b.tax, 'rNum')], 18), 4, 5));
-      sheets.push({ name: `${s.invoiceId}_${s.customer.code}${s.pages > 1 ? '_' + s.page : ''}`.slice(0, 31), rows, heights, merges, gridlines: false, portrait: true,
-        footer: `&L&8請求書番号 ${no}&R&8&P / &N`, widths: [7, 12, 5.5, 30, 9, 5.5, 11, 14] });
+      sheets.push(proposalSheet(s));
     }
   }
   // シート名は重複させない（同じ請求の別の発行回が並ぶとき）

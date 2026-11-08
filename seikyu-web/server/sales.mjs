@@ -527,6 +527,8 @@ export async function billingConfirm(c, { month, closing, unissued, customer }) 
 export async function companyProfile(c) {
   const co = await one(c, 'SELECT * FROM company_info_m ORDER BY company_info_id LIMIT 1');
   const set = Object.fromEntries((await rows(c, "SELECT code_dtl, code_dtl_abr FROM code_m WHERE code_key='SET'")).map(r => [r.code_dtl, r.code_dtl_abr]));
+  // 取引銀行：表示用の 1 行（bankText）と、提案書様式の請求書の 銀行名・支店名・種別・口座番号（bankParts。2026-11-08）
+  const parts = [];
   const bankOf = async code => {
   let bankText = '';
   if (code) {
@@ -535,12 +537,13 @@ export async function companyProfile(c) {
       const dir = Object.fromEntries((await rows(c, "SELECT code_dtl, code_dtl_nam FROM code_m WHERE code_key='BKDIR' AND code_dtl IN (?, ?)", [z.bk || '', (z.bk || '') + '-' + String(z.bt || '').slice(0, 3)])).map(r => [r.code_dtl, r.code_dtl_nam]));
       const type = { 1: '普', 2: '当', 4: '貯' }[String(z.bt || '').slice(3, 4)] || '';
       bankText = [dir[z.bk] || z.name, dir[(z.bk || '') + '-' + String(z.bt || '').slice(0, 3)] || '', type ? '(' + type + ')' : '', z.acc || ''].filter(Boolean).join(' ');
+      parts.push({ bank: dir[z.bk] || z.name || '', branch: dir[(z.bk || '') + '-' + String(z.bt || '').slice(0, 3)] || '', type: { 1: '普通', 2: '当座', 4: '貯蓄' }[String(z.bt || '').slice(3, 4)] || '', acc: z.acc || '' });
     }
   }
   return bankText; };
   const bankText = await bankOf(set.INVBANK), bankText2 = await bankOf(set.INVBANK2);
   // 2026-11-04 現行の請求書（帳票③④⑤）の発行元：〒・住所・会社名1・登録番号・会社名2（共同企業体）・TEL・振込先・口座名義（会社名1）。様式の既定は現行（legacy）
-  return { name1: co?.company_name1 || '', name2: co?.company_name2 || '', postcode: co?.postcode || '', pref: co?.pref || '', addr1: co?.addr1 || '', addr2: co?.addr2 || '', name: [co?.company_name1, co?.company_name2].filter(Boolean).join(' '), address: [co?.postcode && '〒' + co.postcode, co?.pref, co?.addr1, co?.addr2].filter(Boolean).join(' '), tel: co?.tel_no || '', fax: co?.fax_no || '', plant: co?.plant_name || '', invoiceNo: set.INVNO || '', bankText, banks: [bankText, bankText2].filter(Boolean), layout: set.INVLAYOUT || 'legacy' };
+  return { name1: co?.company_name1 || '', name2: co?.company_name2 || '', postcode: co?.postcode || '', pref: co?.pref || '', addr1: co?.addr1 || '', addr2: co?.addr2 || '', name: [co?.company_name1, co?.company_name2].filter(Boolean).join(' '), address: [co?.postcode && '〒' + co.postcode, co?.pref, co?.addr1, co?.addr2].filter(Boolean).join(' '), tel: co?.tel_no || '', fax: co?.fax_no || '', plant: co?.plant_name || '', invoiceNo: set.INVNO || '', bankText, banks: [bankText, bankText2].filter(Boolean), bankParts: parts, layout: set.INVLAYOUT || 'legacy' };
 }
 // 請求現場（現場CD|枝番）の名称（現場マスタ）。請求書の工事名（2026-11-04 現行 帳票③④⑤）
 async function siteNamesOf(c, customer, lines) {
