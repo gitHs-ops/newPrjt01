@@ -1255,22 +1255,34 @@ function lrStep2() {
 }
 // 今回入金額は表示のみ（2026-10-31 ユーザー指示：現場別の入力を決めるまで）。入金額を表示中の請求へ請求No の古い順に配分する（入金消込の自動配分と同じ）
 const lrShown = () => lr.invoices.filter(r => (!lr.from || r.closing >= lr.from) && (!lr.to || r.closing <= lr.to)).sort((a, b) => a.id - b.id);
-const lrAlloc = () => { let rest = lrSum(); return lrShown().map(r => { const n = Math.min(rest, r.balance); rest -= n; return { r, n }; }); };
+// 預り金（過入金）の相殺・受入（2026-11-08 ユーザー指示）。預り金残高は入金予定額の欄にマイナスで表示し、次回の請求入金で相殺する（預り金充当 4170）。
+// 第一画面で科目 4170 預り金を入力したときは、その金額で充当する（自動の相殺はしない）
+const lrDepLine = () => lrUsed().some(l => lrKind(l) === 'deposit');
+const lrDepAuto = () => (lrDepLine() ? 0 : Math.min(lr.deposit || 0, Math.max(0, lrShown().reduce((n, r) => n + r.balance, 0) - lrSum())));
+const lrAlloc = () => { let rest = lrSum() + lrDepAuto(); return lrShown().map(r => { const n = Math.min(rest, r.balance); rest -= n; return { r, n }; }); };
 // 今回入金額の行（2026-11-05 ユーザー指示：行追加。11/04 打合せ No.10「複数の請求日の分が 1 回で入金される。多くても 3〜4 行」）
 // lr.pays が null のあいだは古い請求から自動で割り当て（従来どおり）。［＋ 行追加］か金額・請求を変えると手入力の行（lr.pays）に切り替わる
 const lrPays = () => (lr.pays ? lr.pays.map(p => ({ r: lr.invoices.find(x => String(x.id) === String(p.id)), n: lrNum(p.amount) || 0, p })) : lrAlloc());
 const lrManual = () => { if (!lr.pays) lr.pays = lrAlloc().filter(x => x.n > 0).map(x => ({ id: String(x.r.id), amount: String(x.n) })); };
 const lrPayTotal = () => lrPays().reduce((a, x) => a + (Number.isFinite(x.n) ? x.n : 0), 0);
-const lrPayFoot = () => `<th colspan="5">合計</th><td class="num"><b>${yen(lrPayTotal())}</b></td>`;
+// 相殺する預り金＝今回入金額の合計のうち入金額で足りない分（預り金残高まで）
+const lrDepUse = () => (lrDepLine() ? 0 : Math.min(lr.deposit || 0, Math.max(0, lrPayTotal() - lrSum())));
+// 過入金＝入金予定額をすべて入金しても余る入金額。預り金（貸方 4170）で受け入れる。請求日の範囲外に残高のある請求があるときは受け入れない
+const lrFull = () => lr.invoices.length > 0 && lr.invoices.every(r => lrPays().some(x => x.r && x.r.id === r.id && x.n === r.balance));
+const lrOver = () => { const d = lrSum() + lrDepUse() - lrPayTotal(); return d > 0 && lrFull() ? d : 0; };
+const lrPayFoot = () => `<tr><th colspan="5">合計</th><td class="num"><b>${yen(lrPayTotal() - lrDepUse())}</b></td></tr>`
+  + (lrOver() ? `<tr><th colspan="5">過入金（預り金 4170 で受入）</th><td class="num"><b>${yen(lrOver())}</b></td></tr>` : '');
+const lrDepRow = who => (lr.deposit > 0 ? `<tr class="lr-deprow"><td>${who}</td><td></td><td>預り金</td><td></td><td class="num neg">${yen(-lr.deposit)}</td><td class="num neg" id="lr-depuse">${lrDepUse() ? yen(-lrDepUse()) : ''}</td></tr>` : '');
+const lrFootPaint = () => { const f = $('#lr-foot'); if (f) f.innerHTML = lrPayFoot(); const d = $('#lr-depuse'); if (d) d.textContent = lrDepUse() ? yen(-lrDepUse()) : ''; };
 const lrRows = () => {
   const shown = lrAlloc();
   if (!lr.billTo) return '<tr><td colspan="6" class="muted">請求先を選択してください</td></tr>';
   if (!shown.length) return `<tr><td colspan="6" class="muted">${lr.invoices.length ? 'この請求日の請求はありません' : 'この入金日までに締めた、残高のある請求がありません'}</td></tr>`;
   const who = `${esc(lr.billTo)} ${esc(lrNameOf(lr.billTo))}`;
-  if (lr.pays) return lr.pays.map((p, i) => { const r = lr.invoices.find(x => String(x.id) === String(p.id)), used = new Set(lr.pays.filter((_, k) => k !== i).map(x => String(x.id)));
+  if (lr.pays) return lrDepRow(who) + lr.pays.map((p, i) => { const r = lr.invoices.find(x => String(x.id) === String(p.id)), used = new Set(lr.pays.filter((_, k) => k !== i).map(x => String(x.id)));
     return `<tr><td>${who}</td><td>${esc(r?.closing || '')}</td><td><select data-lp="id" data-i="${i}" aria-label="請求No"><option value="">請求を選択</option>${lrShown().filter(x => !used.has(String(x.id))).map(x => `<option value="${x.id}" ${String(x.id) === String(p.id) ? 'selected' : ''}>${esc(x.closing)}（No.${x.id}）</option>`).join('')}</select></td><td>${esc(r?.due || '')}</td><td class="num">${r ? yen(r.balance) : ''}</td>`
       + `<td class="num"><input class="num" data-lp="amount" data-i="${i}" value="${esc(p.amount)}" inputmode="numeric" aria-label="今回入金額" style="width:120px"> <button type="button" class="mini" data-act="lrDelPay" data-i="${i}" title="この行を削除">✕</button></td></tr>`; }).join('');
-  return shown.map(({ r, n }) => `<tr><td>${who}</td><td>${esc(r.closing)}</td><td>${r.id}</td><td>${esc(r.due || '')}</td><td class="num">${yen(r.balance)}</td><td class="num">${n ? yen(n) : ''}</td></tr>`).join('');
+  return lrDepRow(who) + shown.map(({ r, n }) => `<tr><td>${who}</td><td>${esc(r.closing)}</td><td>${r.id}</td><td>${esc(r.due || '')}</td><td class="num">${yen(r.balance)}</td><td class="num">${n ? yen(n) : ''}</td></tr>`).join('');
 };
 const lrDepNote = () => (lrUsed().some(l => lrKind(l) === 'deposit') && lr.billTo ? `請求先の預り金残高 ${yen(lr.deposit)} 円` : '');
 // 請求日の範囲（任意の絞込）。初期値は 自＝空欄・至＝入金日（2026-11-07 変更：至が今日だと未来日付の入金で当月の請求が隠れる。至を手で変えるまで入金日に追随）
@@ -1281,7 +1293,7 @@ function lrStep3() {
     <div class="inline-fields lr-bill">${field('請求先', `<input id="lr-bill" list="dl-pcust" autocomplete="off" value="${esc(lr.billInput)}" placeholder="請求先コード" style="width:140px"><small id="lr-bname" class="muted">${esc(lrNameOf(lr.billInput))}</small><small id="lr-dep" class="muted">${esc(lrDepNote())}</small>`, { req: 1 })}</div>
     <div class="table-wrap"><table class="lr-pay"><thead><tr><th>請求先</th><th>請求日</th><th>請求No</th><th>予定日</th><th class="num">入金予定額</th><th class="num">今回入金額</th></tr></thead>
       <tbody id="lr-rows">${lrRows()}</tbody>
-      <tfoot><tr id="lr-foot">${lrPayFoot()}</tr></tfoot></table></div>
+      <tfoot id="lr-foot">${lrPayFoot()}</tfoot></table></div>
     <p id="lr-addpay">${lrAddPayBtn()}</p>
     ${canWrite() ? '' : '<p class="check-ng small">この利用者は登録できません</p>'}${lrKeys([...(canWrite() ? [['lrNext', '登録', 1]] : []), ['lrBack', '前画面'], ['lrEnd', '終了']])}</div>`;
 }
@@ -1305,14 +1317,19 @@ async function lrRegister() {
   if (lr.pays) lr.pays.forEach((p, i) => { const x = lrPays()[i]; if (!p.id && !String(p.amount).trim()) return; if (!x.r) throw Error(`${i + 1}行目の請求を選択してください`); if (!Number.isInteger(x.n) || x.n <= 0) throw Error(`${i + 1}行目の今回入金額を正しく入力してください`); if (x.n > x.r.balance) throw Error(`請求No ${x.r.id} の今回入金額が入金予定額（${yen(x.r.balance)}円）を超えています`); });
   const pays = lrPays().filter(x => x.r && x.n > 0);
   if (!pays.length) throw Error('入金できる請求がありません');
-  const total = pays.reduce((a, x) => a + x.n, 0), sum = lrSum();
-  if (total !== sum) throw Error(lr.pays ? `今回入金額の合計（${yen(total)}円）が入金額（${yen(sum)}円）と一致しません` : `入金額（${yen(sum)}円）が入金予定額の合計（${yen(total)}円）を超えているため登録できません`);
-  const body = { idempotencyKey: lr.key, date: lr.date, customer: lr.billTo, allocations: pays.map(x => ({ invoiceId: x.r.id, amount: x.n })) };
+  const total = pays.reduce((a, x) => a + x.n, 0), sum = lrSum(), dep = lrDepUse(), over = lrOver();
+  if (over && lrDepLine()) throw Error('預り金充当と過入金の預り金受入は同時に処理できません');
+  if (total - dep !== sum && !over) {
+    const hidden = sum > total && lr.invoices.some(r => !lrShown().includes(r));
+    throw Error(hidden ? `入金額（${yen(sum)}円）が入金予定額の合計（${yen(total)}円）を超えています。請求日の範囲外に残高のある請求があるため、過入金として受け入れできません（請求日の範囲を広げてください）`
+      : lr.pays ? `今回入金額の合計（${yen(total - dep)}円）が入金額（${yen(sum)}円）と一致しません${sum > total ? '（過入金を預り金で受け入れるのは、すべての請求を入金予定額どおり入金したときです）' : ''}` : `入金額（${yen(sum)}円）と入金予定額の合計（${yen(total)}円）が一致しません`);
+  }
+  const body = { idempotencyKey: lr.key, date: lr.date, customer: lr.billTo, allocations: pays.map(x => ({ invoiceId: x.r.id, amount: x.n })), ...(dep ? { deposit: dep } : {}), ...(over ? { overpayToDeposit: true } : {}) };
   const PART = { bank: 'BANK', cash: 'CASH', notes: 'NOTE', fee: 'FEE', coop: 'COOP', deposit: 'DEPOSIT', discount: 'DISCOUNT', loss: 'LOSS' };
   for (const l of lrUsed()) { const k = lrKind(l); body[k] = lrNum(l.amount); if (k === 'bank') body.bankCode = l.sub; if (k === 'notes') body.noteDue = l.due; if (l.tax && l.tax !== lrTaxDef(l)) (body.tax ||= {})[PART[k]] = l.tax;
     (body.detail ||= {})[PART[k]] = { sub2: k === 'notes' ? '' : l.sub2, work: l.work, memo2: l.memo2 && l.memo2 !== lrSub(l)?.[3] ? l.memo2 : '', ...(lrTaxable(l) ? { taxAmt: lrTax(l) } : {}) }; }
   const r = await post('/api/receipts', body);
-  toast(`入金 ${r.no} を登録しました（請求先 ${lr.billTo}・仕訳 B01）`); lr = lrNew(); lrDraw();
+  toast(`入金 ${r.no} を登録しました（請求先 ${lr.billTo}・仕訳 B01${dep ? `・預り金相殺 ${yen(dep)}円` : ''}${over ? `・預り金受入 ${yen(over)}円` : ''}）`); lr = lrNew(); lrDraw();
 }
 // 請求先の残高のある請求を読む（入金日以前の締めだけ。入金日より後の締めの請求は登録できない）
 let lrLoadSeq = 0;
@@ -1363,7 +1380,7 @@ document.addEventListener('input', e => {
   }
   else if (t.dataset.lr === 'amount') { const l = lr.lines[t.dataset.i], c = $(`[data-lr="taxamt"][data-i="${t.dataset.i}"]`); l.amount = t.value; if (c && l.taxAmt === '') c.value = lrTaxable(l) ? String(lrTax(l)) : ''; $('#lr-totals').innerHTML = lrTotals(); }
   // 消費税額を空にすると自動計算に戻す
-  else if (t.dataset.lp === 'amount') { lrManual(); lr.pays[t.dataset.i].amount = t.value; $('#lr-foot').innerHTML = lrPayFoot(); }
+  else if (t.dataset.lp === 'amount') { lrManual(); lr.pays[t.dataset.i].amount = t.value; lrFootPaint(); }
   else if (t.dataset.lr === 'taxamt') { lr.lines[t.dataset.i].taxAmt = t.value.trim(); $('#lr-totals').innerHTML = lrTotals(); }
   else if (['due', 'sub2', 'work', 'memo2'].includes(t.dataset.lr)) lr.lines[t.dataset.i][t.dataset.lr] = t.value;
   // 適用コード → 摘要2 に名称（11/04 打合せ No.7）。コードは保存しない（摘要2 の文字だけ）。2026-11-05 ユーザー指示で入力欄をマスタから選ぶ select に変更
