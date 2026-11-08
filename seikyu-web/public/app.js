@@ -1720,18 +1720,29 @@ VIEWS.payments = async q => {
       <div class="note" id="py-payee">振込銀行: -</div>
       <div class="form-grid">${field('振込方法', `<select name="transferMethod">${options([{ code: '0', name: '電信' }, { code: '1', name: '文書' }], old?.transferMethod || '0', { label: x => `${x.code}: ${x.name}` })}</select>`)}${field('手数料', `<select name="feeKbn">${options([{ code: '0', name: 'とらない' }, { code: '1', name: 'とる' }], old ? old.feeKbn || (old.fee ? '1' : '0') : '0', { label: x => `${x.code}: ${x.name}` })}</select>`)}${field('支払銀行（支払元口座）', `<select name="bankCode">${options(active('banks'), old?.fromBank || active('banks')[0]?.code)}</select>`, { req: 1 })}</div>
       <div id="py-carry"></div>
-      <h3>支払対象の定時請求（今回支）</h3><div id="py-open" class="muted small">業者を選択してください</div></div>`,
+      </div>`,
     onOpen: f => { let sum = null, open = [];
-      // 繰越と支払内訳の再計算（今回支＝支払対象の支払額を計上月で 前々々月以前／前々月／前月以降 に振り分け）
+      // 現行 HJW200 の今回支（2026-11-08）：伝票は選ばず、月（前々々月以前／前々月／前月以降）ごとに今回支を入力する。
+      // 登録時に、その月の未払の定時請求へ計上日の古い順に割り当てる（payment_allocation。帳票の繰越・未払残高はこれまでどおり）
       const num = x => Number(String(x ?? '').replace(/,/g, '')) || 0;
+      const bucket = d => { const m = String(d.date || '').slice(0, 7); return !sum ? 2 : m <= sum.months[0] ? 0 : m === sum.months[1] ? 1 : 2; };
+      const openOf = i => open.filter(d => bucket(d) === i).sort((a, b) => String(a.date).localeCompare(String(b.date)) || a.id - b.id);
+      const nowVals = () => [0, 1, 2].map(i => num($(`#py-now${i}`)?.value));
       const recalc = () => {
         f.fee.disabled = f.feeKbn.value !== '1'; if (f.fee.disabled) f.fee.value = 0;
-        const now = [0, 0, 0]; $$('.py-amt').forEach(x => { const d = open.find(r => String(r.id) === x.dataset.id), m = String(d?.date || '').slice(0, 7), i = !sum ? 2 : m <= sum.months[0] ? 0 : m === sum.months[1] ? 1 : 2; now[i] += num(x.value); });
-        const total = now[0] + now[1] + now[2]; $('#py-total').value = yen(total); $('#py-bank').value = yen(total - num(f.fee.value) - num(f.safety.value) - num(f.offset.value));
-        if (!sum) { $('#py-carry').innerHTML = ''; return; }
-        const b = sum.buckets, row = (l, g) => `<tr><th>${l}</th>${[0, 1, 2].map(i => `<td class="num">${yen(g(i))}</td>`).join('')}<td class="num">${yen(g(0) + g(1) + g(2))}</td></tr>`, carry = b.reduce((n, x) => n + x.carry, 0);
-        $('#py-carry').innerHTML = `<div class="table-wrap"><table><thead><tr><th></th><th>前々々月以前（${sum.months[0]}）</th><th>前々月（${sum.months[1]}）</th><th>前月以降（${sum.months[2]}〜）</th><th>合計</th></tr></thead><tbody>${row('請求額', i => b[i].billed + (b[i].before || 0))}${row('支払済', i => b[i].paid)}${row('繰越額', i => b[i].carry)}${row('今回支', i => now[i])}</tbody>
-          <tfoot><tr><th colspan="4" style="text-align:right">差引支払（繰越額－今回支）</th><td class="num">${yen(carry - total)}</td></tr></tfoot></table></div><p class="muted small">請求額は定時請求の計上日の月で集計（前々々月以前には、それより前の月の未払残高を含む）。支払済はこの支払を除く。</p>`; };
+        const now = nowVals(), total = now[0] + now[1] + now[2];
+        $('#py-total').value = yen(total); $('#py-bank').value = yen(total - num(f.fee.value) - num(f.safety.value) - num(f.offset.value));
+        if ($('#py-nowsum')) { $('#py-nowsum').textContent = yen(total); $('#py-diff').textContent = yen(sum.buckets.reduce((n, x) => n + x.carry, 0) - total); }
+        [0, 1, 2].forEach(i => { const x = $(`#py-now${i}`); if (x) x.classList.toggle('check-ng', now[i] > openOf(i).reduce((n, d) => n + Number(d.balance), 0)); }); };
+      const drawCarry = () => {
+        if (!sum) { $('#py-carry').innerHTML = f.vendor.value ? '<p class="check-ng small">繰越を取得できません</p>' : '<p class="muted small">業者を選択してください</p>'; return recalc(); }
+        const b = sum.buckets, row = (l, g) => `<tr><th>${l}</th>${[0, 1, 2].map(i => `<td class="num">${yen(g(i))}</td>`).join('')}<td class="num">${yen(g(0) + g(1) + g(2))}</td></tr>`;
+        // 今回支の初期値：新規＝その月の未払残高、修正＝元の支払の割当をその月で合計
+        const init = i => (old ? openOf(i).reduce((n, d) => n + (old.allocations.find(a => a.expenseId === d.id)?.amount || 0), 0) : openOf(i).reduce((n, d) => n + Number(d.balance), 0));
+        $('#py-carry').innerHTML = `<div class="table-wrap"><table><thead><tr><th></th><th class="num">前々々月以前（${sum.months[0]}）</th><th class="num">前々月（${sum.months[1]}）</th><th class="num">前月以降（${sum.months[2]}〜）</th><th class="num">合計</th></tr></thead><tbody>${row('請求額', i => b[i].billed + (b[i].before || 0))}${row('支払済', i => b[i].paid)}${row('繰越額', i => b[i].carry)}
+          <tr><th>今回支</th>${[0, 1, 2].map(i => `<td class="num"><input id="py-now${i}" class="num" value="${init(i)}" style="width:130px"${openOf(i).length ? '' : ' disabled'}></td>`).join('')}<td class="num" id="py-nowsum"></td></tr></tbody>
+          <tfoot><tr><th colspan="4" style="text-align:right">差引支払（繰越額－今回支）</th><td class="num" id="py-diff"></td></tr></tfoot></table></div><p class="muted small">請求額は定時請求の計上日の月で集計（前々々月以前には、それより前の月の未払残高を含む）。支払済はこの支払を除く。今回支は登録時にその月の定時請求へ計上日の古い順に割り当てます。</p>`;
+        [0, 1, 2].forEach(i => { const x = $(`#py-now${i}`); if (x) x.oninput = recalc; }); recalc(); };
       f.feeKbn.onchange = recalc; f.fee.oninput = recalc; f.safety.oninput = recalc;
       f.date.onchange = () => { if (f.vendor.value) f.vendor.onchange(true); };
       f.vendor.onchange = async keepBank => {
@@ -1740,13 +1751,18 @@ VIEWS.payments = async q => {
       if (!old && keepBank !== true && v?.payBank && [...f.bankCode.options].some(o => o.value === v.payBank)) f.bankCode.value = v.payBank;
       sum = f.vendor.value && f.date.value ? await api('/api/payments/summary?' + qs({ vendor: f.vendor.value, date: f.date.value, payment: old?.id || '' })).catch(() => null) : null;
       open = f.vendor.value ? await api('/api/expenses?' + qs({ kind: 'PAYABLE', vendor: f.vendor.value, open: 1, payment: old?.id })) : [];
-      // 修正：元の支払の支払額を初期値にする（元の支払に無い伝票は 0）
-      const init = r => (old ? old.allocations.find(a => a.expenseId === r.id)?.amount ?? 0 : r.balance);
-      $('#py-open').innerHTML = table([{ label: '伝票No', value: r => r.no }, { label: '計上日', value: r => r.date }, { label: '支払予定日', value: r => r.due }, { label: '摘要', value: r => r.memo }, { label: '未払残高', num: 1, value: r => yen(r.balance) },
-        { label: '支払額', html: r => `<input class="num py-amt" data-id="${r.id}" value="${init(r)}" style="width:130px">` }], open, { empty: '未払の定時請求はありません' });
-      $$('.py-amt').forEach(x => { x.oninput = recalc; }); recalc(); };
-      recalc(); if (old) f.vendor.onchange(); },
-    onSubmit: async v => { const allocations = $$('.py-amt').map(x => ({ expenseId: Number(x.dataset.id), amount: Number(x.value) || 0 })).filter(a => a.amount > 0);
+      drawCarry(); };
+      drawCarry(); if (old) f.vendor.onchange(); },
+    onSubmit: async v => {
+      if (!sum) throw Error('業者・支払日を選択してください');
+      const now = nowVals(), allocations = [];
+      for (const i of [0, 1, 2]) {
+        let rest = now[i]; const docs = openOf(i), bal = docs.reduce((n, d) => n + Number(d.balance), 0), label = ['前々々月以前', '前々月', '前月以降'][i];
+        if (rest < 0) throw Error(`今回支（${label}）にマイナスは入力できません`);
+        if (rest > bal) throw Error(`今回支（${label}）が未払残高 ${yen(bal)} を超えています`);
+        for (const d of docs) { if (rest <= 0) break; const a = Math.min(rest, Number(d.balance)); allocations.push({ expenseId: d.id, amount: a }); rest -= a; }
+      }
+      if (!allocations.length) throw Error('今回支を入力してください');
       if (old) { const r = await post('/api/payments/update', { ...v, id: old.id, force: !!old.exported, allocations, idempotencyKey: key }); toast(`支払 ${old.no} を取り消し、${r.no} で登録し直しました（仕訳 F01）`); return render(); }
       const r = await post('/api/payments', { ...v, allocations, idempotencyKey: key }); toast(`支払 ${r.no} を登録しました（仕訳 F01）`); render(); } }); };
   A.new = () => pyForm(null);
