@@ -381,7 +381,7 @@ export async function listPayments(c, q = {}) {
     FROM payment p JOIN vendor v ON v.vendor_id=p.vendor_id LEFT JOIN bank_account b ON b.bank_account_id=p.bank_account_id ${w.length ? 'WHERE ' + w.join(' AND ') : ''} ORDER BY p.paid_on DESC, p.payment_id DESC LIMIT 1000`, args);
   const al = rs.length ? await rows(c, `SELECT a.*, d.document_no FROM payment_allocation a JOIN expense_document d ON d.expense_id=a.expense_id WHERE a.payment_id IN (${rs.map(() => '?').join(',')})`, rs.map(r => r.payment_id)) : [];
   const zg = await zenginExported(c, rs.map(r => r.payment_no));
-  return rs.map(r => ({ id: r.payment_id, no: r.payment_no, exported: zg[r.payment_no] || '', date: r.paid_on, vendor: r.vendor_code, vendorName: r.vendor_name, amount: Number(r.bank_amount), fee: Number(r.fee_amount || 0), offset: Number(r.offset_amount || 0), safety: Number(r.safety || 0), fromBank: r.from_bank || '', status: r.status,
+  return rs.map(r => ({ id: r.payment_id, no: r.payment_no, exported: zg[r.payment_no] || '', date: r.paid_on, vendor: r.vendor_code, vendorName: r.vendor_name, amount: Number(r.bank_amount), fee: Number(r.fee_amount || 0), offset: Number(r.offset_amount || 0), transferMethod: r.transfer_method || '0', feeKbn: r.fee_kbn || '0', safety: Number(r.safety || 0), fromBank: r.from_bank || '', status: r.status,
     payee: r.bank_code ? { bank: r.bank_code, branch: r.branch_code, type: r.account_type_code, account: r.account_number, holder: r.holder_name } : null,
     allocations: al.filter(a => a.payment_id === r.payment_id).map(a => ({ expenseId: a.expense_id, no: a.document_no, amount: Number(a.amount) })) }));
 }
@@ -393,6 +393,10 @@ export async function createPayment(c, ctx, p) {
   const v = await vendorOf(c, p.vendor);
   // 仕訳パターン分析 F-02（先方負担手数料差引：雑収入8790-001＋仮受消費税）・F-03（相殺：業者立替金1431）に準拠（推定、Q03）
   const fee = yen(p.fee || 0, '振込手数料（先方負担）'), offset = yen(p.offset || 0, '相殺額'), safety = yen(p.safety || 0, '安全協力費');
+  // 振込方法・手数料区分（現行 HJW200）。手数料区分 0（とらない）なら手数料は 0
+  const transferMethod = String(p.transferMethod ?? '0'), feeKbn = String(p.feeKbn ?? (fee ? '1' : '0'));
+  check(['0', '1'].includes(transferMethod), '振込方法は 0（電信）か 1（文書）です'); check(['0', '1'].includes(feeKbn), '手数料区分は 0（とらない）か 1（とる）です');
+  check(feeKbn === '1' || !fee, '手数料区分が 0（とらない）のときは手数料を入力できません');
   if (offset) {
     const bal = await advanceBalance(c, v.vendor_id);
     check(offset <= bal, `相殺額が業者立替金の残高（${bal.toLocaleString('ja-JP')}円）を超えています`);
@@ -413,7 +417,7 @@ export async function createPayment(c, ctx, p) {
   const feeTax = Math.floor(fee * 10 / 110);
   check(bank >= 0, '手数料・相殺額が支払額を超えています');
   const no = await nextSlipNoFy(c, DOC_SERIES.payment, date);
-  const [r] = await c.query("INSERT INTO payment (payment_no,vendor_id,paid_on,bank_account_id,bank_amount,fee_amount,offset_amount,status,idempotency_key) VALUES (?,?,?,?,?,?,?,'POSTED',?)", [no, v.vendor_id, date, v.bank_account_id, bank, fee, offset, idem]);
+  const [r] = await c.query("INSERT INTO payment (payment_no,vendor_id,paid_on,bank_account_id,bank_amount,fee_amount,offset_amount,status,idempotency_key,transfer_method,fee_kbn) VALUES (?,?,?,?,?,?,?,'POSTED',?,?,?)", [no, v.vendor_id, date, v.bank_account_id, bank, fee, offset, idem, transferMethod, feeKbn]);
   for (const a of allocs) await c.query('INSERT INTO payment_allocation (payment_id,expense_id,amount) VALUES (?,?,?)', [r.insertId, a.id, a.amount]);
   await postJournal(c, { date, pattern: 'F01', sourceType: 'payment', sourceId: r.insertId, lines: [line('D', '4121', total, { vendor: v.vendor_id, tax: '9' }), line('C', '1112', bank, { sub: bankCode, tax: '9' }),
     line('C', '8790', fee - feeTax, { sub: '001', tax: '9' }), line('C', '4415', feeTax, { tax: '9' }), line('C', '1431', offset, { vendor: v.vendor_id, tax: '9' }), line('C', '4171', safety, { vendor: v.vendor_id, tax: '9' })] });
@@ -429,6 +433,24 @@ export async function reversePayment(c, ctx, { id, force }) {
   await reverseJournal(c, { sourceType: 'payment', sourceId: p.payment_id, date: p.paid_on });
   await audit(c, ctx, 'payment', p.payment_id, 'payment.reverse', { no: p.payment_no, zenginExported: zg || undefined });
   return { id: p.payment_id };
+}
+// 支払内訳入力の繰越（現行 HJW200 下段）：支払日の月から見た 前々々月以前・前々月・前月以降 の 請求額（定時請求の計上日の月）・支払済（この支払を除く）
+export async function paymentSummary(c, q = {}) {
+  const v = await vendorOf(c, q.vendor), date = isoDate(q.date, '支払日'), m0 = date.slice(0, 7), months = [addMonths(m0, -3), addMonths(m0, -2), addMonths(m0, -1)];
+  const ex = Number(q.payment) || 0;
+  const ds = await rows(c, `SELECT d.expense_id, d.booked_on, d.gross_amount, COALESCE((SELECT SUM(a.amount) FROM payment_allocation a JOIN payment p ON p.payment_id=a.payment_id AND p.status='POSTED' AND p.payment_id<>? WHERE a.expense_id=d.expense_id),0) paid
+    FROM expense_document d WHERE d.expense_kind='PAYABLE' AND d.status='POSTED' AND d.vendor_id=? AND d.booked_on>=?`, [ex, v.vendor_id, months[0] + '-01']);
+  const out = [0, 1, 2].map(() => ({ billed: 0, paid: 0, carry: 0 }));
+  for (const d of ds) {
+    const m = String(d.booked_on instanceof Date ? d.booked_on.toISOString() : d.booked_on).slice(0, 7), i = m <= months[0] ? 0 : m === months[1] ? 1 : 2;
+    out[i].billed += Number(d.gross_amount); out[i].paid += Number(d.paid);
+  }
+  // 前々々月以前の繰越には、それより前の月の未払残高も含める
+  const old = await one(c, `SELECT COALESCE(SUM(d.gross_amount - COALESCE((SELECT SUM(a.amount) FROM payment_allocation a JOIN payment p ON p.payment_id=a.payment_id AND p.status='POSTED' AND p.payment_id<>? WHERE a.expense_id=d.expense_id),0)),0) bal
+    FROM expense_document d WHERE d.expense_kind='PAYABLE' AND d.status='POSTED' AND d.vendor_id=? AND d.booked_on<?`, [ex, v.vendor_id, months[0] + '-01']);
+  out[0].before = Number(old.bal || 0);
+  for (const o of out) o.carry = o.billed - o.paid + (o.before || 0);
+  return { months, buckets: out };
 }
 // 支払の修正（2026-11-08 ユーザー指示「一覧で、あれば修正、なければ新規」）：入金の修正と同じく、元の支払を取り消して（逆仕訳）同じ業者で登録し直す（1トランザクション。支払No は新しくなる）
 export async function updatePayment(c, ctx, p) {

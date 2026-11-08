@@ -157,9 +157,16 @@ test('workflow against PostgreSQL business tables', { skip, timeout: 900000 }, a
       assert.equal((await a.call('/api/masters/vendors', { mode: 'update', record: { ...ven2, payMonths: ven.payMonths, payDay: ven.payDay, deferMin: '' } })).status, 200);
       const doc = await a.call('/api/expenses', { kind: 'PAYABLE', date: d, vendor: 'V' + tag, account: '8231', taxCode: '10%', amount: 50000, memo: '試験' });
       assert.equal(doc.status, 200, JSON.stringify(doc.data)); assert.match(doc.data.no, /^T\d{9}$/, '定時請求No＝T＋年度4桁＋5桁');
+      // 支払内訳入力（現行 HJW200。2026-11-08）：手数料区分 0 なら手数料は入力できない、振込方法 0/1、繰越（前々々月以前・前々月・前月以降）
+      { const r0 = await a.call('/api/payments', { idempotencyKey: 'pk' + tag, date: d, vendor: 'V' + tag, bankCode: 'B' + tag, feeKbn: '0', fee: 100, allocations: [{ expenseId: doc.data.id, amount: 50000 }] }); assert.equal(r0.status, 400); assert.match(r0.data.error, /手数料区分/);
+        const s0 = await a.call('/api/payments/summary?' + new URLSearchParams({ vendor: 'V' + tag, date: d })); assert.equal(s0.status, 200, JSON.stringify(s0.data));
+        assert.equal(s0.data.months.length, 3); assert.equal(s0.data.buckets[2].billed, 50000); assert.equal(s0.data.buckets[2].carry, 50000); }
       assert.equal((await a.call('/api/payments', { idempotencyKey: 'p' + tag, date: d, vendor: 'V' + tag, bankCode: 'B' + tag, allocations: [{ expenseId: doc.data.id, amount: 60000 }] })).status, 400);
       const pay = await a.call('/api/payments', { idempotencyKey: 'p' + tag, date: d, vendor: 'V' + tag, bankCode: 'B' + tag, allocations: [{ expenseId: doc.data.id, amount: 50000 }] });
       assert.equal(pay.status, 200); assert.match(pay.data.no, /^Z\d{9}$/, '支払No＝Z＋年度4桁＋5桁');
+      { const s1 = (await a.call('/api/payments/summary?' + new URLSearchParams({ vendor: 'V' + tag, date: d }))).data; assert.equal(s1.buckets[2].paid, 50000); assert.equal(s1.buckets[2].carry, 0);
+        const s2 = (await a.call('/api/payments/summary?' + new URLSearchParams({ vendor: 'V' + tag, date: d, payment: pay.data.id }))).data; assert.equal(s2.buckets[2].carry, 50000, '修正中の支払は支払済から除く');
+        const pl = (await a.call('/api/payments?month=' + d.slice(0, 7))).data.find(x => x.id === pay.data.id); assert.equal(pl.transferMethod, '0'); assert.equal(pl.feeKbn, '0'); }
       assert.equal((await a.call('/api/expenses/reverse', { id: doc.data.id })).status, 400, 'paid document locked');
       const u = await a.call('/api/users', { loginId: 'viewer' + tag, name: '参照者', role: 5, password: 'viewer-password-01', enabled: true }); assert.equal(u.status, 200);
       const v = client(); assert.equal((await v.login('viewer' + tag, 'viewer-password-01')).status, 200);

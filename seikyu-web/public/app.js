@@ -1712,16 +1712,40 @@ VIEWS.payments = async q => {
   const month = q.month || thisMonth(), list = await api('/api/payments?' + qs({ month }));
   // 登録と修正は同じ画面（2026-11-08 ユーザー指示「一覧で、あれば修正、なければ新規」）。修正は元の支払を取り消して（逆仕訳）同じ業者で登録し直す（支払No は新しくなる。入金の修正と同じ）
   const pyForm = old => { const key = uuid(); modal({ title: old ? `支払の修正（${old.no}）` : '支払の登録', wide: true, submit: old ? '支払を修正' : '支払を登録', sample: !old, body: `${old?.exported ? `<p class="check-ng small">⚠ 支払 ${esc(old.no)} は全銀データ作成済みです（${esc(old.exported.slice(0, 16))}）。銀行へ送信済みなら振込の組戻しが必要です。修正すると元の支払を取り消して登録し直します。</p>` : old ? `<p class="small muted">修正すると支払 ${esc(old.no)} を取り消し（逆仕訳）、新しい支払No で登録し直します。</p>` : ''}<div class="form-grid">${field('業者', `<select name="vendor">${old ? options(masters.vendors.filter(x => x.code === old.vendor), old.vendor) : options(active('vendors'), '', { blank: '選択してください' })}</select>`, { req: 1 })}
-      ${field('支払日', `<input type="date" name="date" value="${esc(old ? String(old.date).slice(0, 10) : today())}">`, { req: 1 })}${field('支払元口座', `<select name="bankCode">${options(active('banks'), old?.fromBank || active('banks')[0]?.code)}</select>`, { req: 1 })}${field('振込手数料（先方負担・差引）', `<input name="fee" class="num" value="${old ? old.fee : 0}">`)}${/* 業者立替金の相殺は定時請求データ入力の明細（科目 1431、マイナス）で入力する（10/28 回答②）。支払の画面では入力しない */ ''}<input type="hidden" name="offset" value="${old ? old.offset : 0}">${field('安全協力費（差引）', `<input name="safety" class="num" value="${old ? old.safety : 0}">`)}<div class="note" id="py-payee">振込先: -</div></div>
-      <h3 style="margin-top:12px">支払対象の定時請求</h3><div id="py-open" class="muted small">業者を選択してください</div>`,
-    onOpen: f => { f.vendor.onchange = async () => {
-      const v = masters.vendors.find(x => x.code === f.vendor.value); $('#py-payee').textContent = v?.bank ? `振込先: ${v.bank}-${v.branch} ${({ 1: '普通', 2: '当座', 4: '貯蓄' })[v.accountType] || ''} ${v.account} ${v.holder}` : '振込先: 未登録（マスタ管理で登録できます）';
-      const open = f.vendor.value ? await api('/api/expenses?' + qs({ kind: 'PAYABLE', vendor: f.vendor.value, open: 1, payment: old?.id })) : [];
+      ${field('支払日', `<input type="date" name="date" value="${esc(old ? String(old.date).slice(0, 10) : today())}">`, { req: 1 })}</div>
+      ${/* 現行 HJW200 支払内訳入力の並び（2026-11-08）：支払内訳 → 支払合計 → 振込銀行 → 振込方法・手数料 → 支払銀行 → 前々々月〜前月の繰越。
+           現金・小切手・手形は 10/19 打合せ「振込のみ」で置かない。立替金（相殺）は定時請求データ入力の明細（科目 1431、マイナス）で入力する（10/28 回答②）ので支払の画面では入力しない。
+           前払金・その他は仕訳の実績（仕訳パターン分析 F-01〜F-03）にないため置かない（要確認） */ ''}
+      <h3 style="margin-top:12px">支払内訳</h3><div class="form-grid">${field('振込', '<input id="py-bank" class="num" readonly value="0" tabindex="-1">')}${field('手数料', `<input name="fee" class="num" value="${old ? old.fee : 0}">`)}${field('安全協力費（差引）', `<input name="safety" class="num" value="${old ? old.safety : 0}">`)}<input type="hidden" name="offset" value="${old ? old.offset : 0}">${field('支払合計', '<input id="py-total" class="num" readonly value="0" tabindex="-1">')}</div>
+      <div class="note" id="py-payee">振込銀行: -</div>
+      <div class="form-grid">${field('振込方法', `<select name="transferMethod">${options([{ code: '0', name: '電信' }, { code: '1', name: '文書' }], old?.transferMethod || '0', { label: x => `${x.code}: ${x.name}` })}</select>`)}${field('手数料', `<select name="feeKbn">${options([{ code: '0', name: 'とらない' }, { code: '1', name: 'とる' }], old ? old.feeKbn || (old.fee ? '1' : '0') : '0', { label: x => `${x.code}: ${x.name}` })}</select>`)}${field('支払銀行（支払元口座）', `<select name="bankCode">${options(active('banks'), old?.fromBank || active('banks')[0]?.code)}</select>`, { req: 1 })}</div>
+      <div id="py-carry" style="margin-top:8px"></div>
+      <h3 style="margin-top:12px">支払対象の定時請求（今回支）</h3><div id="py-open" class="muted small">業者を選択してください</div>`,
+    onOpen: f => { let sum = null, open = [];
+      // 繰越と支払内訳の再計算（今回支＝支払対象の支払額を計上月で 前々々月以前／前々月／前月以降 に振り分け）
+      const num = x => Number(String(x ?? '').replace(/,/g, '')) || 0;
+      const recalc = () => {
+        f.fee.disabled = f.feeKbn.value !== '1'; if (f.fee.disabled) f.fee.value = 0;
+        const now = [0, 0, 0]; $$('.py-amt').forEach(x => { const d = open.find(r => String(r.id) === x.dataset.id), m = String(d?.date || '').slice(0, 7), i = !sum ? 2 : m <= sum.months[0] ? 0 : m === sum.months[1] ? 1 : 2; now[i] += num(x.value); });
+        const total = now[0] + now[1] + now[2]; $('#py-total').value = yen(total); $('#py-bank').value = yen(total - num(f.fee.value) - num(f.safety.value) - num(f.offset.value));
+        if (!sum) { $('#py-carry').innerHTML = ''; return; }
+        const b = sum.buckets, row = (l, g) => `<tr><th>${l}</th>${[0, 1, 2].map(i => `<td class="num">${yen(g(i))}</td>`).join('')}<td class="num">${yen(g(0) + g(1) + g(2))}</td></tr>`, carry = b.reduce((n, x) => n + x.carry, 0);
+        $('#py-carry').innerHTML = `<div class="table-wrap"><table><thead><tr><th></th><th>前々々月以前（${sum.months[0]}）</th><th>前々月（${sum.months[1]}）</th><th>前月以降（${sum.months[2]}〜）</th><th>合計</th></tr></thead><tbody>${row('請求額', i => b[i].billed + (b[i].before || 0))}${row('支払済', i => b[i].paid)}${row('繰越額', i => b[i].carry)}${row('今回支', i => now[i])}</tbody>
+          <tfoot><tr><th colspan="4" style="text-align:right">差引支払（繰越額－今回支）</th><td class="num">${yen(carry - total)}</td></tr></tfoot></table></div><p class="muted small">請求額は定時請求の計上日の月で集計（前々々月以前には、それより前の月の未払残高を含む）。支払済はこの支払を除く。</p>`; };
+      f.feeKbn.onchange = recalc; f.fee.oninput = recalc; f.safety.oninput = recalc;
+      f.date.onchange = () => { if (f.vendor.value) f.vendor.onchange(true); };
+      f.vendor.onchange = async keepBank => {
+      const v = masters.vendors.find(x => x.code === f.vendor.value); $('#py-payee').textContent = v?.bank ? `振込銀行: ${v.bank}-${v.branch} ${({ 1: '普通', 2: '当座', 4: '貯蓄' })[v.accountType] || ''} ${v.account} ${v.holder}` : '振込銀行: 未登録（マスタ管理で登録できます）';
+      // 支払銀行の初期値は業者マスタの振込元口座（新規のとき）
+      if (!old && keepBank !== true && v?.payBank && [...f.bankCode.options].some(o => o.value === v.payBank)) f.bankCode.value = v.payBank;
+      sum = f.vendor.value && f.date.value ? await api('/api/payments/summary?' + qs({ vendor: f.vendor.value, date: f.date.value, payment: old?.id || '' })).catch(() => null) : null;
+      open = f.vendor.value ? await api('/api/expenses?' + qs({ kind: 'PAYABLE', vendor: f.vendor.value, open: 1, payment: old?.id })) : [];
       // 修正：元の支払の支払額を初期値にする（元の支払に無い伝票は 0）
       const init = r => (old ? old.allocations.find(a => a.expenseId === r.id)?.amount ?? 0 : r.balance);
       $('#py-open').innerHTML = table([{ label: '伝票No', value: r => r.no }, { label: '計上日', value: r => r.date }, { label: '支払予定日', value: r => r.due }, { label: '摘要', value: r => r.memo }, { label: '未払残高', num: 1, value: r => yen(r.balance) },
-        { label: '支払額', html: r => `<input class="num py-amt" data-id="${r.id}" value="${init(r)}" style="width:130px">` }], open, { empty: '未払の定時請求はありません' }); };
-      if (old) f.vendor.onchange(); },
+        { label: '支払額', html: r => `<input class="num py-amt" data-id="${r.id}" value="${init(r)}" style="width:130px">` }], open, { empty: '未払の定時請求はありません' });
+      $$('.py-amt').forEach(x => { x.oninput = recalc; }); recalc(); };
+      recalc(); if (old) f.vendor.onchange(); },
     onSubmit: async v => { const allocations = $$('.py-amt').map(x => ({ expenseId: Number(x.dataset.id), amount: Number(x.value) || 0 })).filter(a => a.amount > 0);
       if (old) { const r = await post('/api/payments/update', { ...v, id: old.id, force: !!old.exported, allocations, idempotencyKey: key }); toast(`支払 ${old.no} を取り消し、${r.no} で登録し直しました（仕訳 F01）`); return render(); }
       const r = await post('/api/payments', { ...v, allocations, idempotencyKey: key }); toast(`支払 ${r.no} を登録しました（仕訳 F01）`); render(); } }); };
@@ -1730,7 +1754,7 @@ VIEWS.payments = async q => {
   A.rev = d => confirmBox('支払の取消', d.exported ? `⚠ 支払 ${d.no} は全銀データ作成済みです（${d.exported.slice(0, 16)}）。銀行へ送信済みなら振込の組戻しが必要です。それでも取消し、逆仕訳を計上しますか？` : `支払 ${d.no} を取消し、逆仕訳を計上します。`, () => post('/api/payments/reverse', { id: Number(d.id), force: !!d.exported }).then(() => { toast('取消しました'); render(); }), '取消する');
   A.prep = d => paymentReport(d.kind).catch(e => toast(e.message, true)); A.zengin = () => zenginDialog().catch(e => toast(e.message, true));
   return page('支払', '定時請求（買掛金）に対する振込支払を登録します（payment / payment_allocation）。', `${monthInput('month', month)}${csvLink('payments', { month })}${canWrite() ? '<button class="primary" data-act="new">＋ 支払登録</button>' : ''}`,
-    `<section class="card glass" data-sub="list">${table([{ label: '支払No', value: r => r.no }, { label: '支払日', value: r => r.date }, { label: '業者', value: r => r.vendorName }, { label: '支払額', num: 1, value: r => yen(r.amount) }, { label: '支払元', value: r => nameOf('banks', r.fromBank) },
+    `<section class="card glass" data-sub="list">${table([{ label: '支払No', value: r => r.no }, { label: '支払日', value: r => r.date }, { label: '業者', value: r => r.vendorName }, { label: '支払額', num: 1, value: r => yen(r.amount) }, { label: '支払元', value: r => nameOf('banks', r.fromBank) }, { label: '振込方法', value: r => (r.transferMethod === '1' ? '1 文書' : '0 電信') },
       { label: '振込先', value: r => r.payee ? `${r.payee.bank}-${r.payee.branch} ${r.payee.account}` : '未登録' }, { label: '対象伝票', value: r => r.allocations.map(a => a.no).join(', ') }, { label: '状態', html: r => status(r.status) },
       { label: '', html: r => canWrite() && r.status === 'POSTED' ? `<button class="mini" data-act="edit" data-id="${r.id}">修正</button> <button class="mini danger" data-act="rev" data-id="${r.id}" data-no="${esc(r.no)}" data-exported="${esc(r.exported || '')}">取消</button>` : '' }], list, { rowClass: r => r.status === 'REVERSED' ? 'reversed' : '' })}</section><div data-sub="reports">${paymentReportsCard()}</div><div data-sub="bank">${miscCard('銀行別随時支払一覧表', '支払日→支払元口座（銀行）別に、業者・振込先銀行・支店を一覧', rangeInputs('bp', '支払日'),
       '<button data-act="bankList">表示・Excel</button>', '「仕訳・会計連携 › 自動仕訳リスト」の「銀行別随時支払一覧表」と同じ帳票です。')}</div><div data-sub="transfer">${miscCard('振込先一覧', '業者マスタの振込サイクル（15日／月末）・振込元口座・振込先口座（10/19 打合せ）', `<label class="field">支払予定日（まで）<input type="date" id="tl-to" value="${today()}"></label>`, '<button data-act="misc" data-kind="transfer-list" data-src="tl">表示・Excel</button>')}</div>`);
