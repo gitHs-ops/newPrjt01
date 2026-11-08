@@ -120,6 +120,13 @@ label.field { display: grid; gap: 4px; font-size: 12px; font-weight: 600; color:
 label.field small { font-weight: 400; color: var(--text-secondary); }
 label.field.req > span::after { content: ' *'; color: var(--danger); }
 .form-grid { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 12px 14px; }
+/* 支払の登録（HJW200）：縦に長くならないよう ラベルと入力欄を同じ行に（2026-11-08） */
+.py-form .form-grid { gap: 6px 14px; }
+.py-form label.field { grid-template-columns: 10.5em minmax(0,1fr); align-items: center; gap: 8px; }
+.py-form label.field > small { grid-column: 2; }
+.py-form h3 { margin: 10px 0 6px; font-size: 14px; }
+.py-form .note { margin: 6px 0; padding: 6px 12px; }
+.py-form #py-carry { margin-top: 6px; }
 .form-grid .wide { grid-column: 1 / -1; }
 /* 商品仕入の登録：伝票No・仕入日・仕入先・区分を1行に（2026-10-31） */
 .form-grid.pu-head { grid-template-columns: 170px 170px minmax(0, 1fr) 170px; }
