@@ -81,9 +81,8 @@ export async function invoiceBook(c, q) {
     for (const s of pages) {
       if ((s.company.layout || 'legacy') !== 'proposal') { sheets.push(legacySheet(s)); continue; }
       // 印刷の請求書（提案書 スライド14 の様式）と同じ項目・見出し（指摘 No.17）。税率区分は印刷と同じく末尾に
-      // 2026-10-29 整形版：A4 縦・目盛線なし。表題は中央、宛名は下線、右に発行元。請求額は4つの枠（税込は濃紺）、明細は薄い罫線
+      // 2026-10-29 整形版：A4 縦・目盛線なし。表題は中央、宛名は下線、右に発行元。請求額は3つの枠（2026-11-08）、明細は薄い罫線
       const no = s.invoiceNo || 'K' + String(s.closing).slice(0, 7).replace('-', '') + String(s.invoiceId).padStart(5, '0');
-      const tax10 = s.buckets.filter(b => b.rate !== 8).reduce((n, b) => n + b.tax, 0), tax8 = s.buckets.filter(b => b.rate === 8).reduce((n, b) => n + b.tax, 0);
       const kind = l => (l.shipKb === 5 ? (l.quantity < 0 ? '赤' : '黒') : '売上'), banks = s.company.banks || (s.company.bankText ? [s.company.bankText] : []);
       const rows = [], heights = {}, merges = [], st = (v, k) => ({ v, s: k });
       const ref = (r, c0, c1) => `${String.fromCharCode(65 + c0)}${r}:${String.fromCharCode(65 + c1)}${r}`;
@@ -101,10 +100,12 @@ export async function invoiceBook(c, q) {
       lr(`現場：${s.siteName || '（現場なし）'}${s.pages > 1 ? `（${s.page}/${s.pages}）` : ''}`, 'rSite', banks.length ? `取引銀行　${banks.join(' ／ ')}` : '', 'rSubR', 30);
       lr('', 'rText', `お支払期日　${s.due}`, 'rCompany', 18);
       push([], 10);
-      // 請求額の4つの枠（見出し・金額。2列ずつ結合）
-      const box = [['今回請求額（税抜）', s.net, 'rHead', 'rBig'], ['今回消費税', tax10, 'rHead', 'rBig'], ['今回消費税（軽減）', tax8, 'rHead', 'rBig'], ['今回請求額（税込）', s.total, 'rBandC', 'rTotBig']];
-      const bh = push(box.flatMap(([l, , hs]) => [st(l, hs), st('', hs)]), 20), bv = push(box.flatMap(([, v, , vs]) => [st(v, vs), st('', vs)]), 30);
-      for (const r of [bh, bv]) for (let k = 0; k < 4; k++) merges.push(ref(r, k * 2, k * 2 + 1));
+      // 請求額の3つの枠（2026-11-08 ユーザー指示：当月御買上額（税抜）・今回消費税（税率の合計）・当月御請求額（税込）。前回残高・今回入金額・今回消費税(軽減)・今回残高は載せない）。
+      // 枠は A:C・D・E:H（右端を明細の表に揃える）。当月御買上額・当月御請求額は見出しを水色、金額を大きく。税率ごとの内訳は末尾の税率区分
+      const box = [[0, 2, '当月御買上額', s.net, 'rHeadHi', 'rBigHi'], [3, 3, '今回消費税', s.tax, 'rHead', 'rBig'], [4, 7, '当月御請求額', s.total, 'rHeadHi', 'rBigHi']];
+      const line = (label, h) => { const cells = []; for (const b of box) for (let k = b[0]; k <= b[1]; k++) cells[k] = st(k === b[0] ? (label ? b[2] : b[3]) : '', label ? b[4] : b[5]); return push(cells, h); };
+      const bh = line(true, 20), bv = line(false, 30);
+      for (const r of [bh, bv]) for (const b of box) if (b[1] > b[0]) merges.push(ref(r, b[0], b[1]));
       push([], 12);
       push(['月日', '伝票NO', '区分', '品名', '数量', '単位', '単価', '金額'].map(h => st(h, 'rHead')), 20);
       for (const l of s.lines) push([st(String(l.date).slice(5).replace('-', '/'), 'rCenter'), st(l.orderNo, 'rCell'), st(kind(l), 'rCenter'), st(l.itemName, 'rCell'), st(l.quantity, 'rQty'), st(l.unit || '', 'rCenter'), st(l.price, 'rNum'), st(l.net, 'rNum')], 18);

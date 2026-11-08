@@ -946,8 +946,8 @@ const splitBySite = s => {
   return gs.map((g, k) => { const tax = bk[k].reduce((n, b) => n + b.tax, 0), total = g.net + tax;
     return { ...s, lines: g.lines, buckets: bk[k], net: g.net, tax, total, discount: 0, prevBalance: 0, received: 0, carried: 0, grandTotal: total, siteName: g.name, page: k + 1, pages: gs.length }; });
 };
+// 2026-11-08 ユーザー指示：請求額の枠は 当月御買上額（税抜）・今回消費税（税率の合計）・当月御請求額（税込）の3つ。前回残高・今回入金額・今回消費税(軽減)・今回残高は載せない。税率ごとの内訳は末尾の税率区分
 function proposalInvoice(s) {
-  const tax10 = s.buckets.filter(b => b.rate !== 8).reduce((n, b) => n + b.tax, 0), tax8 = s.buckets.filter(b => b.rate === 8).reduce((n, b) => n + b.tax, 0);
   const kind = l => (l.shipKb === 5 ? (l.quantity < 0 ? '赤' : '黒') : '売上');
   const no = s.invoiceNo || 'K' + String(s.closing).slice(0, 7).replace('-', '') + String(s.invoiceId).padStart(5, '0');
   const banks = s.company.banks || (s.company.bankText ? [s.company.bankText] : []);
@@ -957,8 +957,8 @@ function proposalInvoice(s) {
         <p>毎度ありがとうございます。<br>下記のとおり御請求申し上げます。</p><p>${esc(jpDate(s.periodStart))} 〜 ${esc(jpDate(s.closing))}</p>${s.siteName ? `<p class="site-name">現場：<b>${esc(s.siteName)}</b>${s.pages > 1 ? `（${s.page}/${s.pages}）` : ''}</p>` : ''}</div>
       <div><p><b>${esc(s.company.name)}</b><br>${esc(s.company.address)}<br>TEL ${esc(s.company.tel)}${s.company.fax ? ' FAX ' + esc(s.company.fax) : ''}${s.company.invoiceNo ? `<br>登録番号: ${esc(s.company.invoiceNo)}` : ''}</p>
         ${banks.length ? `<p>取引銀行 ${banks.map(esc).join('<br>')}</p>` : ''}<p>お支払期日 ${esc(s.due)}</p></div></div>
-    <table class="totals"><tr><th>今回請求額(税抜)</th><th>今回消費税</th><th>今回消費税(軽減)</th><th>今回請求額(税込)</th></tr>
-      <tr><td class="num">${yen(s.net)}</td><td class="num">${yen(tax10)}</td><td class="num">${yen(tax8)}</td><td class="num"><b>${yen(s.total)}</b></td></tr></table>
+    <table class="totals"><tr><th class="hi">当月御買上額</th><th>今回消費税</th><th class="hi">当月御請求額</th></tr>
+      <tr><td class="num big">${yen(s.net)}</td><td class="num">${yen(s.tax)}</td><td class="num big">${yen(s.total)}</td></tr></table>
     <table><tr><th>月日</th><th>伝票NO</th><th>区分</th><th>品名</th><th>数量</th><th>単位</th><th>単価</th><th>金額</th></tr>
       ${s.lines.map(l => `<tr><td>${esc(String(l.date).slice(5).replace('-', '/'))}</td><td>${esc(l.orderNo)}</td><td>${kind(l)}</td><td>${esc(l.itemName)}</td><td class="num">${l.quantity}</td><td>${esc(l.unit || '')}</td><td class="num">${yen(l.price)}</td><td class="num">${yen(l.net)}</td></tr>`).join('')}
       <tr class="subtotal"><td colspan="7" class="right">現場計</td><td class="num"><b>${yen(s.net)}</b></td></tr></table>

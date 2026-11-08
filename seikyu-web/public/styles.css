@@ -213,6 +213,8 @@ dialog.modal[open] { animation: rise .35s var(--ease) both; display: flex; flex-
 .invoice-doc table { font-size: 9.5pt; margin-top: 10px; }
 .invoice-doc th, .invoice-doc td { border: 1px solid #444; padding: 3px 6px; color: #000; background: none; position: static; }
 .invoice-doc .totals td { font-weight: 700; }
+.invoice-doc .totals th.hi { background: #c6dbf1; }
+.invoice-doc .totals td.big { font-size: 1.25em; }
 .invoice-doc .stamp { font-size: 9pt; color: #444; }
 /* 現行の請求書（帳票③④⑤）：罫線なし、見出しの下だけ線（2026-11-04） */
 .invoice-doc.legacy-inv { font-size: 10.5pt; }
