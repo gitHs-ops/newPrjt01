@@ -44,7 +44,7 @@ export async function billingConfirmBook(c, q) {
     [`締日 ${d.closing}　請求日付 ${ymd(d.end)}　売上締切日 ${ymd(d.end)}　作成日 ${ymd(today())}`], [],
     ['売上日', '伝票No.', '', '', '商品名', '数量', '', '単価', '金額', '', '運送', '備考'].map(H)];
   for (const x of d.rows) for (const g of x.sites) {
-    out.push(band(CONFIRM_W, [`${x.customer}　${x.name}`, '', '', '', '', ...(g.no > 1 ? [g.no, '', g.name] : [])]));
+    out.push(band(CONFIRM_W, [`${x.customer}　${x.name}`, '', '', '', '', ...(g.no > 1 ? [g.no, '', g.name] : ['', '', '']), '', '', '', x.invoiceNo ? `請求書番号 ${x.invoiceNo}` : '']));
     for (const l of g.lines) out.push([ymd(l.date), l.orderNo, kindOf(l), l.item, l.itemName, { v: l.quantity, s: 'qty' }, l.unit, l.price, l.net, `${l.taxRate}%`, l.carry, l.siteName]);
     out.push(['', S('（売上額）'), S(g.net), '', S('（消費税額）'), S(g.tax), '', S('（値引額）'), S(0), '', S('（今回請求額）'), S(g.current)]);
     for (const r of g.byRate) out.push(['', `${r.rate} %`, r.net, '', '', r.tax]);

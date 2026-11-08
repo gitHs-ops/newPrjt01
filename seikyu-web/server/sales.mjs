@@ -436,7 +436,7 @@ export async function statement(c, customer, month, closing) {
   const prevBalance = opening + billedBefore - recBefore, carried = prevBalance - received;
   const inv = heads.map(decodeInvoice);
   return { customer, start, end, due: heads.length ? fromNum(heads[0].claim_processing_period) : siteDue(end, await customerSite(c, customer)), prevBalance, received, carried, net, tax, current: net + tax, total: carried + net + tax, lines,
-    invoiceIds: inv.map(i => i.id), issues: inv.reduce((n, i) => Math.max(n, i.issues), 0), state: !heads.length ? 'none' : inv.every(i => i.issues) ? 'issued' : 'draft' };
+    invoiceIds: inv.map(i => i.id), invoices: inv.map(i => ({ id: i.id, closing: i.closing, issues: i.issues })), issues: inv.reduce((n, i) => Math.max(n, i.issues), 0), state: !heads.length ? 'none' : inv.every(i => i.issues) ? 'issued' : 'draft' };
 }
 const STATE = { none: '未作成', draft: '未発行', issued: '発行済' };
 // NO12 請求一覧表（確認用）: one row per customer for the closing.
@@ -505,7 +505,9 @@ export async function billingConfirm(c, { month, closing, unissued, customer }) 
   for (const h of heads) {
     const s = await statement(c, h.customers_cd, month, closing);
     const last = s.invoiceIds.length ? await one(c, `SELECT i.issue_no, i.issued_at, i.issued_by FROM invoice_issue i WHERE i.invoice_id IN (${s.invoiceIds.map(() => '?').join(',')}) ORDER BY i.issued_at DESC LIMIT 1`, s.invoiceIds) : null;
-    out.push({ ...s, lines: await summaryLines(c, s.invoiceIds, s.lines), name: h.customers_name, lastIssue: last ? { no: last.issue_no, at: last.issued_at, by: last.issued_by } : null });
+    // 請求書番号（10/27 内部会議 No.6：発行確認表のヘッダーに請求書番号を持たせる。2026-11-09）。未発行は（未発行）を付ける
+    const nos = await invoiceNos(c, s.invoices), invoiceNo = s.invoices.map(i => nos.get(Number(i.id)) + (i.issues ? '' : '（未発行）')).join('・');
+    out.push({ ...s, invoiceNo, lines: await summaryLines(c, s.invoiceIds, s.lines), name: h.customers_name, lastIssue: last ? { no: last.issue_no, at: last.issued_at, by: last.issued_by } : null });
   }
   // 税率別（現行 HAR430 の合計下段「10 %  売上額  消費税額」）
   const byRate = ls => RATES.map(rate => { const n = ls.filter(l => Math.round(l.taxRate) === rate).reduce((a, l) => a + l.net, 0); return { rate, net: n, tax: bucketTax(n, rate) }; }).filter(x => x.net);
