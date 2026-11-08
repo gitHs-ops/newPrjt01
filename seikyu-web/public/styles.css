@@ -127,6 +127,8 @@ label.field.req > span::after { content: ' *'; color: var(--danger); }
 .py-form h3 { margin: 10px 0 6px; font-size: 14px; }
 .py-form .note { margin: 6px 0; padding: 6px 12px; }
 .py-form #py-carry { margin-top: 6px; }
+dialog.modal:has(.py-form) { max-height: calc(100vh - 8px); margin-top: 4px; margin-bottom: 4px; } /* 支払の登録：縦に収まるよう高さを広げる（2026-11-08） */
+.py-form input, .py-form select { padding-top: 5px; padding-bottom: 5px; }
 .form-grid .wide { grid-column: 1 / -1; }
 /* 商品仕入の登録：伝票No・仕入日・仕入先・区分を1行に（2026-10-31） */
 .form-grid.pu-head { grid-template-columns: 170px 170px minmax(0, 1fr) 170px; }
