@@ -93,10 +93,13 @@ export async function itemShipDaily(c, q) {
   const { d, from } = dayRange(q);
   const rs = await rows(c, `SELECT s.item_cd, MAX(COALESCE(NULLIF(i.item_nam, ''), s.item_name)) item_name, MAX(unit_name(i.unit)) unit,
       CASE WHEN s.ship_kb='9' THEN 9 WHEN (CASE WHEN s.ship_kb='5' THEN o.ship_kb ELSE s.ship_kb END) IN ('2','4') THEN 1 ELSE 0 END sect,
+      CASE WHEN k.category1='2' THEN 2 ELSE 1 END kg,
       SUM(CASE WHEN s.sales_date=? THEN s.quantity ELSE 0 END) dq, SUM(CASE WHEN s.sales_date=? THEN s.money ELSE 0 END) dv, SUM(s.quantity) cq, SUM(s.money) cv
     FROM sales_trn s LEFT JOIN item_m i ON i.item_cd=s.item_cd LEFT JOIN sales_trn o ON s.ship_kb='5' AND o.order_no=s.sales_no AND o.order_suffix=1
-    WHERE s.sales_date BETWEEN ? AND ? GROUP BY s.item_cd, 4 ORDER BY 4, s.item_cd`, [ymd(d), ymd(d), ymd(from), ymd(d)]);
-  const row = r => ({ code: r.item_cd, name: String(r.item_name || '').trim(), unit: r.unit || '', ...dayRow(r, d) });
+      LEFT JOIN code_m k ON k.code_key='A0000' AND k.code_dtl=CAST(COALESCE(s.shipping_kb, o.shipping_kb) AS TEXT)
+    WHERE s.sales_date BETWEEN ? AND ? GROUP BY s.item_cd, 4, 5 ORDER BY 4, s.item_cd, 5`, [ymd(d), ymd(d), ymd(from), ymd(d)]);
+  // 現行 HAR511 の手書き（p2）「出荷伝票登録の納入区分の 現着→1、引取→2 とする」：商品コードの枝番 -1＝現着・-2＝引取（納入区分マスタの「引取（運賃なし）」）で行を分ける（2026-11-08）
+  const row = r => ({ code: `${r.item_cd}-${Number(r.kg) === 2 ? 2 : 1}`, name: String(r.item_name || '').trim(), unit: r.unit || '', ...dayRow(r, d) });
   const own = rs.filter(r => Number(r.sect) === 0).map(row), disc = rs.filter(r => Number(r.sect) === 9).map(row), other = rs.filter(r => Number(r.sect) === 1).map(row);
   const groups = [];
   if (own.length) groups.push({ rows: own, label: '合　計', totals: daySum(own) });

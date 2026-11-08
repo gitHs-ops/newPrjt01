@@ -263,6 +263,7 @@ test('workflow against PostgreSQL business tables', { skip, timeout: 900000 }, a
         assert.deepEqual(dr.columns.map(x => x.label).slice(-6), ['前日累計数量', '前日累計金額', '当日数量', '当日金額', '累計数量', '累計金額']);
         for (const r of dr.groups.flatMap(g => g.rows)) { assert.equal(r.pv + r.dv, r.cv); assert.equal(Math.round((r.pq + r.dq) * 100), Math.round(r.cq * 100)); }
         assert.equal((await a.call(`/api/reports/misc/${k}?` + new URLSearchParams({ date: d, format: 'xlsx' }))).status, 200);
+        if (k === 'item-ship-daily') assert.ok(dr.groups.flatMap(g => g.rows).every(r => /-[12]$/.test(r.code)), JSON.stringify(dr.groups.flatMap(g => g.rows).map(r => r.code)));   // 枝番 -1 現着／-2 引取
       }
       { const pdr = (await a.call('/api/reports/misc/item-purchase-daily?' + new URLSearchParams({ date: d }))).data; assert.ok(pdr.groups.some(g => g.title?.startsWith('V' + tag)), JSON.stringify(pdr.groups.map(g => g.title))); }
       // 11/04 No.19：月指定で前月21日〜当月20日、仕入先別（2026-11-05）
