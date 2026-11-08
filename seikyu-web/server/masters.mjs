@@ -563,3 +563,31 @@ export async function importCsv(c, ctx, kind, csvText) {
   return { created, updated };
 }
 export function exportRows(cfg, list) { return [cfg.fields.map(f => f.name), ...list.map(r => cfg.fields.map(f => f.type === 'bool' ? (r[f.name] ? '1' : '0') : r[f.name]))]; }
+
+// 消費税の設定（2026-11-09 ユーザー指示：現行の 申告方法・端数処理・消費税自動対応区分・期首開始月 を マスタ管理 › 消費税率 に置く）
+// 端数処理は自社情報の tax_round（A0005：1 切上・2 切捨・3 四捨五入）を現行のコード（ブランク 四捨五入・1 切り捨て・2 切り上げ）で表示・保存する。
+// 期首開始月は自社情報の 決算月・月度締日 から求める（締日 20 なら決算月の 21 日が期首＝決算月、暦月なら決算月の翌月）。保存すると決算月を直す。
+// 申告方法・消費税自動対応区分は値を保存するだけ（計算には使わない）
+const ROUND_TO_LEGACY = { 3: '', 2: '1', 1: '2' }, LEGACY_TO_ROUND = { '': '3', 1: '2', 2: '1' };
+export async function taxSettings(c) {
+  const ci = await one(c, 'SELECT closing_m, closing_d, tax_round FROM company_info_m WHERE company_info_id=1');
+  const set = Object.fromEntries((await rows(c, "SELECT code_dtl, code_dtl_abr FROM code_m WHERE code_key='SET' AND code_dtl IN ('TAXMETHOD','TAXAUTO')")).map(r => [r.code_dtl, String(r.code_dtl_abr || '').trim()]));
+  const cm = Number(ci?.closing_m) || 3, cd = Number(ci?.closing_d) || 31;
+  return { method: set.TAXMETHOD || '1', round: ROUND_TO_LEGACY[String(ci?.tax_round || '2').trim()] ?? '1', auto: set.TAXAUTO || '1', startMonth: String(cd >= 28 ? cm % 12 + 1 : cm), closingMonth: cm, closingDay: cd };
+}
+export async function saveTaxSettings(c, ctx, b) {
+  const method = String(b.method ?? ''), round = String(b.round ?? '').trim(), auto = String(b.auto ?? ''), sm = Number(b.startMonth);
+  check(['1', '2'].includes(method), '申告方法は 1（税抜き）か 2（税込み）です');
+  check(['', '1', '2'].includes(round), '端数処理はブランク（四捨五入）・1（切り捨て）・2（切り上げ）です');
+  check(['1', '2'].includes(auto), '消費税自動対応区分は 1（自動対応する）か 2（自動対応しない）です');
+  check(Number.isInteger(sm) && sm >= 1 && sm <= 12, '期首開始月は 1〜12 です');
+  const before = await taxSettings(c), cm = before.closingDay >= 28 ? (sm + 10) % 12 + 1 : sm;
+  await c.query('UPDATE company_info_m SET tax_round=?, closing_m=? WHERE company_info_id=1', [LEGACY_TO_ROUND[round], cm]);
+  for (const [k, v, n] of [['TAXMETHOD', method, '消費税 申告方法'], ['TAXAUTO', auto, '消費税自動対応区分']]) {
+    await c.query("DELETE FROM code_m WHERE code_key='SET' AND code_dtl=?", [k]);
+    await c.query("INSERT INTO code_m (code_key,code_key_nam,code_dtl,code_dtl_nam,code_dtl_abr,category1,category2,category3) VALUES ('SET','設定',?,?,?,'','','')", [k, n, v]);
+  }
+  const after = await taxSettings(c);
+  await audit(c, ctx, 'company_info_m', '1', 'master.update', { kind: 'taxSettings', before, after });
+  return after;
+}

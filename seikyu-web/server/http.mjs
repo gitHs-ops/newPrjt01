@@ -40,6 +40,7 @@ export async function createApp({ pool, publicDir, secureCookies = process.env.N
   route('GET', '/api/meta', 'read', () => ({ journalLists: { ...Object.fromEntries(Object.entries(J.LISTS).filter(([k]) => k !== 'G03').map(([k, v]) => [k, { title: v.title, ref: v.ref }])), BANK: { title: J.BANK_LIST.title, ref: J.BANK_LIST.ref } }, receiptParts: S.RECEIPT_PARTS, masters: M.meta(), rates: RATES, methods: METHODS, taxCodes: P.TAX_CODES, purchaseKinds: P.PURCHASE_KINDS, purchaseUnits: P.PURCHASE_UNITS, shipKinds: S.SHIP_KB, patterns: L.PATTERNS, roles: U.ROLES, today: today(), version }));
   route('GET', '/api/masters', 'read', () => db(c => M.allMasters(c)));
   route('GET', '/api/gs', 'read', () => db(c => GSL.listAll(c))); // 外部システム gsLink（2026-11-05）
+  route('GET', '/api/tax-settings', 'read', () => db(c => M.taxSettings(c)));   // 消費税の設定（2026-11-09）
   route('GET', '/api/masters/:kind', 'read', x => db(c => M.list(c, x.params.kind)));
   route('GET', '/api/price', 'read', x => db(c => S.priceFor(c, x.q)));
   route('GET', '/api/business-date', 'read', () => db(async c => ({ date: await S.businessDate(c) })));
@@ -95,6 +96,7 @@ export async function createApp({ pool, publicDir, secureCookies = process.env.N
   // ----- write -----
   const w = (path, fn, perm = 'write') => route('POST', path, perm, x => db(c => fn(c, x, x.body)));
   w('/api/jv/allocations', (c, x, b) => MR.saveJvAllocations(c, x, b));
+  w('/api/tax-settings', (c, x, b) => M.saveTaxSettings(c, x, b));
   w('/api/masters/:kind', (c, x, b) => M.save(c, x, x.params.kind, b.record, b.mode === 'create' ? 'create' : 'update'));
   w('/api/masters/:kind/import', (c, x, b) => M.importCsv(c, x, x.params.kind, b.csv));
   w('/api/masters/:kind/delete', (c, x, b) => M.remove(c, x, x.params.kind, b.record), 'admin'); // マスタの削除は管理者だけ（2026-11-06）

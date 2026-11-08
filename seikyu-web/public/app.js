@@ -19,7 +19,7 @@ const canWrite = () => [1, 2, 3, 4].includes(session?.user.role), isAdmin = () =
 //  lazy … メニュー・小メニューで開いたとき。読込済みの結果（apiCache）を使い、無ければサーバーに「空の画面」（X-Empty-View：DB を読まず0件）を頼む
 //  fresh … DB から読み、結果を apiCache に入れる。登録・更新（GET 以外）の後はキャッシュを捨て、次の描画で読み直す
 // 利用者管理（/api/users）・操作履歴（/api/audit）はメニューで開いたときから一覧を表示する（2026-11-07 ユーザー指示）
-const apiCache = new Map(), LAZY_FETCH = /^\/api\/(business-date|petty\/settings|kb\/meta|kb\/bugyo|coverage|periods|users|audit)(\?|$)/;
+const apiCache = new Map(), LAZY_FETCH = /^\/api\/(business-date|petty\/settings|tax-settings|kb\/meta|kb\/bugyo|coverage|periods|users|audit)(\?|$)/;
 let apiMode = null, apiDirty = false, emptyShown = false;
 const fetchJson = async (url, opt) => {
   const res = await fetch(url, { cache: 'no-store', ...opt });
@@ -2187,6 +2187,16 @@ VIEWS.masters = async q => {
   A.tab = d => go('masters', { kind: d.kind });
   A.search = () => go('masters', { kind, search: $('#m-search').value.trim(), active: $('#m-active')?.checked ? '1' : '', ...(months.length ? { month: $('#m-month').value } : {}) });
   A.new = () => masterForm(kind); A.edit = d => masterForm(kind, list.find(r => r.key === d.key));
+  // 消費税の設定（2026-11-09 ユーザー指示：現行の 申告方法・端数処理・消費税自動対応区分・期首開始月 を消費税率の画面に。コードと説明は現行の画面どおり）
+  const ts = kind === 'taxRates' ? await api('/api/tax-settings') : null;
+  const TS = [['method', '申告方法', [['1', '税抜き'], ['2', '税込み']]], ['round', '端数処理', [['', '四捨五入'], ['1', '切り捨て'], ['2', '切り上げ']]], ['auto', '消費税自動対応区分', [['1', '自動対応する'], ['2', '自動対応しない']]]];
+  const tsHint = opts => `（ ${opts.map(([k, v]) => `${k || 'ブランク'}：${v}`).join('　')} ）`;
+  const tsCard = ts ? `<section class="card glass"><h3>消費税の設定</h3><table class="tax-set"><tbody>${TS.map(([k, l, opts]) => `<tr><th>${l}</th><td><b>${esc(ts[k] || '')}</b></td><td class="muted small">${tsHint(opts)}</td></tr>`).join('')}
+      <tr><th>期首開始月</th><td><b>${esc(ts.startMonth)}</b></td><td class="muted small">（ 自社情報の決算月 ${ts.closingMonth}・月度締日 ${ts.closingDay} から求める。変更すると決算月も変わる ）</td></tr></tbody></table>
+      ${canWrite() ? '<p style="margin-top:8px"><button data-act="taxset">消費税の設定を変更</button></p>' : ''}</section>` : '';
+  A.taxset = () => modal({ title: '消費税の設定', submit: '更新する', body: `<div class="form-grid">${TS.map(([k, l, opts]) => field(l, `<select name="${k}">${opts.map(([c, v]) => `<option value="${c}" ${String(ts[k]) === c ? 'selected' : ''}>${c || 'ブランク'}：${v}</option>`).join('')}</select>`)).join('')}
+      ${field('期首開始月', `<select name="startMonth">${Array.from({ length: 12 }, (_, i) => String(i + 1)).map(m => `<option ${m === ts.startMonth ? 'selected' : ''}>${m}</option>`).join('')}</select>`, { hint: '変更すると自社情報の決算月も変わります' })}</div>`,
+    onSubmit: async v => { await post('/api/tax-settings', v); toast('消費税の設定を更新しました'); await loadMasters(); render(); } });
   // 一覧はページ分け（2026-11-06 ユーザー指示：得意先など件数が多いと表の下の横スクロールバーが見えない）。ナビゲーションは表の上
   const { shown, html: pagerHtml } = pageNav(list, q.page);
   A.mpage = d => go('masters', { ...q, kind, page: d.page });
@@ -2199,7 +2209,7 @@ VIEWS.masters = async q => {
   // 「編集」は行の先頭（2026-11-06 ユーザー指示：項目が多く右端だと横スクロールしないと見えない）
   const show = f => r => r[f.name] === null || r[f.name] === undefined || (r[f.name] === '' && f.type !== 'bool') ? '' : f.type === 'bool' ? (r[f.name] ? '○' : '') : f.type === 'ref' ? `${r[f.name]} ${nameOf(f.ref, r[f.name])}` : f.type === 'select' ? (f.options.find(o => o[0] === String(r[f.name]))?.[1] || r[f.name]) : f.type === 'int' ? yen(r[f.name]) : f.type === 'dec' ? Number(r[f.name]).toLocaleString('ja-JP', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : r[f.name];
   return page('マスタ管理', `${Object.keys(meta.masters).length}種類のマスタを業務テーブルで直接管理します。登録後のコード・所属は変更できません（新規登録して旧マスタを無効化）。使われていないコードは編集画面から削除できます。`, `${months.length ? `<select id="m-month" name="month" data-filter><option value="">全年月</option>${months.map(x => `<option ${x === q.month ? 'selected' : ''}>${x}</option>`).join('')}</select>` : ''}<input id="m-search" placeholder="コード・名称などで検索" value="${esc(q.search || '')}" style="width:220px">${hasActive ? `<label class="small"><input type="checkbox" id="m-active" ${q.active === '1' ? 'checked' : ''}> 有効のみ</label>` : ''}<button class="primary" data-act="search">検索</button>${csvLink('master-' + kind)}${canWrite() && !m.readOnly ? '<button data-act="import">⇧ CSV取込</button><button class="primary" data-act="new">＋ 新規登録</button>' : ''}`,
-    `<section class="card glass master-list">${term ? `<p class="muted small">「${esc(q.search)}」の検索結果 ${list.length} / ${all.length} 件</p>` : ''}${pagerHtml}${table([...(canWrite() && !m.readOnly ? [{ label: '', html: r => `<button class="mini" data-act="edit" data-key="${esc(r.key)}">編集</button>` }] : []), ...m.fields.filter(f => f.name !== 'active').map(f => ({ label: f.label, num: f.type === 'int' || f.type === 'dec', value: show(f) })), { label: '状態', html: r => r.active ? badge('有効', 'green') : badge('無効', 'gray') }], shown, { rowClass: r => r.active ? '' : 'muted' })}</section>`);
+    `${tsCard}<section class="card glass master-list">${term ? `<p class="muted small">「${esc(q.search)}」の検索結果 ${list.length} / ${all.length} 件</p>` : ''}${pagerHtml}${table([...(canWrite() && !m.readOnly ? [{ label: '', html: r => `<button class="mini" data-act="edit" data-key="${esc(r.key)}">編集</button>` }] : []), ...m.fields.filter(f => f.name !== 'active').map(f => ({ label: f.label, num: f.type === 'int' || f.type === 'dec', value: show(f) })), { label: '状態', html: r => r.active ? badge('有効', 'green') : badge('無効', 'gray') }], shown, { rowClass: r => r.active ? '' : 'muted' })}</section>`);
 };
 // 新規でも最初から入っている値（現場2 で選んだ得意先）は無効のマスタでも選択肢に残す（2026-11-06）
 function masterInput(f, r, isNew) {
