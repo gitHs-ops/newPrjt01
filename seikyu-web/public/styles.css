@@ -129,6 +129,14 @@ label.field.req > span::after { content: ' *'; color: var(--danger); }
 .py-form #py-carry { margin-top: 6px; }
 dialog.modal:has(.py-form) { max-height: calc(100vh - 8px); margin-top: 4px; margin-bottom: 4px; } /* 支払の登録：縦に収まるよう高さを広げる（2026-11-08） */
 .py-form input, .py-form select { padding-top: 5px; padding-bottom: 5px; }
+/* 支払の登録：スクロールが出ないよう横に広げて詰める（2026-11-08） */
+dialog.modal.wide:has(.py-form) { width: min(1320px, calc(100vw - 24px)); }
+.py-form .form-grid { grid-template-columns: repeat(4, minmax(0,1fr)); }
+.py-form label.field { grid-template-columns: auto minmax(0,1fr); }
+.py-form label.field.py-w2 { grid-column: span 2; }
+.py-form td, .py-form th { padding: 4px 10px; }
+.py-form #py-carry input { padding-top: 3px; padding-bottom: 3px; }
+.py-form p.small { margin: 4px 0 0; }
 .form-grid .wide { grid-column: 1 / -1; }
 /* 商品仕入の登録：伝票No・仕入日・仕入先・区分を1行に（2026-10-31） */
 .form-grid.pu-head { grid-template-columns: 170px 170px minmax(0, 1fr) 170px; }
