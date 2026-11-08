@@ -459,7 +459,7 @@ VIEWS.shipments = async q => {
       { label: '決済', html: r => r.method === CREDIT ? esc(r.methodName) : badge(r.methodName, 'amber') },
       { label: '状態', html: r => (r.shipKb === 5 ? (red(r) ? badge('赤', 'red') : badge('赤黒あり', 'amber')) + ' ' : r.shipKb !== 1 ? badge(r.shipKbName, 'gray') + ' ' : '') + (r.corrected ? badge('訂正済', 'gray') + ' ' : '') + (r.billed ? badge('請求済', 'green') : r.method === CREDIT ? badge('未請求', 'gray') : badge('請求対象外', 'amber')) },
       { label: '', html: acts }],
-      shown, { empty: 'この条件の出荷はありません', foot: ['合計', '', '', '', '', '', '', '', '', yen(net), '', `税 ${yen(tax)}`, ''] })}</section><div data-sub="reports">${shipmentReportsCard()}</div>
+      shown, { empty: 'この条件の出荷はありません', foot: ['合計', '', '', '', '', '', '', '', '', yen(net), '', `税 ${yen(tax)}`, ''] })}</section><div data-sub="reports">${shipmentReportsCard()}${shipDailyCard()}</div>
      <section class="card glass" data-sub="notes"><div class="card-head"><h2>納品書発行</h2></div>
        <div class="filters"><label class="field">出荷日<input type="date" id="dn-date" value="${esc(bd)}"></label>${canWrite() ? '<button class="primary" data-act="notesIssue">伝票発行</button>' : ''}</div>
        </section>`);
@@ -1487,7 +1487,7 @@ VIEWS.purchases = async q => {
       { label: '商品', value: r => `${r.itemName || r.item}${r.lineKind === '2' && !/運賃/.test(r.itemName || '') ? '（金額のみ）' : ''}` }, { label: '数量', num: 1, value: r => (r.lineKind === '2' ? '' : `${r.quantity} ${r.unit || ''}`) },
       { label: '単価', num: 1, value: r => (r.lineKind === '2' ? '' : Number(r.price).toLocaleString('ja-JP', { minimumFractionDigits: 2, maximumFractionDigits: 2 })) }, { label: '金額', num: 1, value: r => yen(r.net) }, { label: '処税率', value: r => r.taxCode },
       { label: '', html: r => canWrite() && r.line === 1 ? `<button class="mini" data-act="edit" data-no="${esc(r.no)}">修正</button> <button class="mini danger" data-act="del" data-id="${r.id}" data-no="${esc(r.no)}">取消</button>` : '' }], list, { foot: ['合計', '', '', '', '', '', '', yen(list.reduce((n, r) => n + r.net, 0)), '', ''] })}</section>
-    <div data-sub="reports">${miscCard('商品仕入登録リスト', '仕入先別・仕入日ごと', `<label class="field">対象月（前月21日〜当月20日）<input type="month" id="pl-month" value="${thisMonth()}"></label>`, '<button data-act="misc" data-kind="purchase-register" data-src="pl">⇩ Excel</button>')}</div>`);
+    <div data-sub="reports">${miscCard('商品仕入登録リスト', '仕入先別・仕入日ごと', `<label class="field">対象月（前月21日〜当月20日）<input type="month" id="pl-month" value="${thisMonth()}"></label>`, '<button data-act="misc" data-kind="purchase-register" data-src="pl">⇩ Excel</button>')}${dailyCard('商品別仕入日報', 'pd', '<button data-act="misc" data-kind="item-purchase-daily" data-src="pd">商品別仕入日報</button>')}</div>`);
 };
 
 // ----- 在庫計上 -----
@@ -1810,6 +1810,9 @@ function miscCard(title, sub, inputs, buttons, note = '') {
 const shipmentReportsCard = () => miscCard('出荷・売上帳票', 'Excel で出力', rangeInputs('ms', '出荷日'),
   '<button data-act="misc" data-kind="shipment-summary" data-src="ms">商品・製品別出荷集計表</button><button data-act="misc" data-kind="customer-items" data-src="ms">得意先別商品別出荷累計表</button><button data-act="misc" data-kind="cash-sales" data-src="ms">現金売上明細表</button><button data-act="misc" data-kind="sales-register" data-src="ms">商品売上登録リスト</button>',
   '期間は締日単位（例: 前月21日〜当月20日）で指定できます。<span id="ms-range"></span>');
+// ㉖㉗㉘ 日報（現行 MEN120 日次業務 16・17・18。2026-11-08 追加）：指定日の 前日累計・当日・累計（月度は前月21日〜）
+const dailyCard = (title, id, buttons) => miscCard(title, '指定日の前日累計・当日・累計', `<label class="field">日付<input type="date" id="${id}-date" value="${today()}"></label>`, buttons);
+const shipDailyCard = () => dailyCard('出荷日報', 'sd', '<button data-act="misc" data-kind="item-ship-daily" data-src="sd">商品別出荷日報</button><button data-act="misc" data-kind="customer-ship-daily" data-src="sd">得意先別出荷日報</button>');
 const invPeriod = p => `<label class="field">処理年月（計算年月）<input type="month" id="${p}-month" value="${lastClosing().slice(0, 7)}"></label><label class="field">締日<select id="${p}-closing"><option value="20" selected>20日</option><option value="10">10日</option><option value="31">月末（暦月）</option></select></label>`;
 const mixCard = () => miscCard('配合計算', '月次（実在庫登録の後に実行）。結果は材料受払表', invPeriod('mx'), '<button data-act="misc" data-kind="material-ledger" data-src="mx">実行（材料受払表 ⇩ Excel）</button>'); // 配合計算の画面（2026-11-04）
 const ledgerCard = () => miscCard('材料受払表', '月次（実在庫登録と商品仕入登録の後に実行）', invPeriod('mi'), '<button data-act="misc" data-kind="material-ledger" data-src="mi">⇩ Excel</button>'); // 「現行の配合計算処理＋材料受払表印刷」の注記は削除（2026-11-03）
@@ -1884,6 +1887,7 @@ function miscParams(kind, src) {
   if (src === 'rs') return { from: $('#rs-from').value, to: $('#rs-to').value, overdue: $('#rs-over').checked ? '1' : '' };
   if (src === 'ir') return { month: $('#ir-month').value };
   if (src === 'pl') return { month: $('#pl-month').value };
+  if (src === 'sd' || src === 'pd') return { date: $(`#${src}-date`).value };
   if (src === 'tl') return { to: $('#tl-to').value };
   return { from: $(`#${src}-from`).value, to: $(`#${src}-to`).value };
 }

@@ -1,6 +1,6 @@
 // 2026-10-21 再構成で追加した帳票（添付帳票⑭⑰・10/19 打合せの振込先一覧）。画面・印刷・Excel は共通形式
 // { title, ref, sub, columns: [{ key, label, num }], groups: [{ title, rows, totals }], totals } で返し、app.js / genericBook で描画する。
-import { check, isoDate, isoMonth, today } from './domain.mjs';
+import { check, isoDate, isoMonth, today, toNum } from './domain.mjs';
 import { rows, one } from './db.mjs';
 import { xlsx, band } from './xlsx.mjs';
 import { PURCHASE_KINDS, PURCHASE_UNITS, listExpenses } from './payables.mjs';
@@ -74,7 +74,77 @@ export async function transferList(c, q) {
       { key: 'due', label: '最早支払予定日' }, { key: 'docs', label: '伝票数', num: 1 }, { key: 'balance', label: '未払残高', num: 1 }],
     groups, totals: { balance: groups.reduce((n, g) => n + g.totals.balance, 0) } };
 }
-export const NEW_REPORTS = { 'purchase-register': purchaseRegister, 'inventory-register': inventoryRegister, 'transfer-list': transferList };
+// ---------- ㉖㉗㉘ 日報（現行 MEN120 日次業務 16・17・18。他帳票分26_27_28.pdf、2026-11-08 追加） ----------
+// 指定日の 前日累計（月度の初日〜前日）・当日・累計（月度の初日〜当日）。月度は現行どおり 20 日締め（前月21日〜当月20日）
+const ymd = d => toNum(d);
+const dayRange = q => {
+  const d = isoDate(q.date, '日付'), y = +d.slice(0, 4), m = +d.slice(5, 7), day = +d.slice(8, 10);
+  const from = day > 20 ? `${d.slice(0, 7)}-21` : new Date(Date.UTC(y, m - 2, 21)).toISOString().slice(0, 10);
+  return { d, from };
+};
+const DAY_COLS = (first, firstLabel) => [{ key: 'code', label: first ? 'コード' : '', w: 9 }, ...(firstLabel ? [{ key: 'party', label: firstLabel, w: 26 }] : []), { key: 'name', label: '品名', w: 28 }, { key: 'unit', label: '単位', w: 5 },
+  { key: 'pq', label: '前日累計数量', num: 1, dec: 1, w: 12 }, { key: 'pv', label: '前日累計金額', num: 1, w: 13 }, { key: 'dq', label: '当日数量', num: 1, dec: 1, w: 11 }, { key: 'dv', label: '当日金額', num: 1, w: 13 },
+  { key: 'cq', label: '累計数量', num: 1, dec: 1, w: 11 }, { key: 'cv', label: '累計金額', num: 1, w: 13 }];
+const r2d = v => Math.round(v * 100) / 100;
+const dayRow = (r, d) => { const dq = r2d(num(r.dq)), dv = num(r.dv), cq = r2d(num(r.cq)), cv = num(r.cv); return { pq: r2d(cq - dq), pv: cv - dv, dq, dv, cq, cv }; };
+const daySum = list => ['pq', 'pv', 'dq', 'dv', 'cq', 'cv'].reduce((o, k) => ({ ...o, [k]: k.endsWith('q') ? r2d(list.reduce((n, x) => n + x[k], 0)) : list.reduce((n, x) => n + x[k], 0) }), {});
+// ㉖ 商品別出荷日報（現行 HAR511）：商品ごと。合計 → 値引計 → 他社納入分 → 総合計
+export async function itemShipDaily(c, q) {
+  const { d, from } = dayRange(q);
+  const rs = await rows(c, `SELECT s.item_cd, MAX(COALESCE(NULLIF(i.item_nam, ''), s.item_name)) item_name, MAX(unit_name(i.unit)) unit,
+      CASE WHEN s.ship_kb='9' THEN 9 WHEN (CASE WHEN s.ship_kb='5' THEN o.ship_kb ELSE s.ship_kb END) IN ('2','4') THEN 1 ELSE 0 END sect,
+      SUM(CASE WHEN s.sales_date=? THEN s.quantity ELSE 0 END) dq, SUM(CASE WHEN s.sales_date=? THEN s.money ELSE 0 END) dv, SUM(s.quantity) cq, SUM(s.money) cv
+    FROM sales_trn s LEFT JOIN item_m i ON i.item_cd=s.item_cd LEFT JOIN sales_trn o ON s.ship_kb='5' AND o.order_no=s.sales_no AND o.order_suffix=1
+    WHERE s.sales_date BETWEEN ? AND ? GROUP BY s.item_cd, 4 ORDER BY 4, s.item_cd`, [ymd(d), ymd(d), ymd(from), ymd(d)]);
+  const row = r => ({ code: r.item_cd, name: String(r.item_name || '').trim(), unit: r.unit || '', ...dayRow(r, d) });
+  const own = rs.filter(r => Number(r.sect) === 0).map(row), disc = rs.filter(r => Number(r.sect) === 9).map(row), other = rs.filter(r => Number(r.sect) === 1).map(row);
+  const groups = [];
+  if (own.length) groups.push({ rows: own, label: '合　計', totals: daySum(own) });
+  if (disc.length) groups.push({ rows: [], label: '値引計', totals: daySum(disc) });
+  if (other.length) groups.push({ head: '（他社納入分）', rows: other, label: '合　計', totals: daySum(other) });
+  const all = [...own, ...disc, ...other];
+  return { title: '商品別出荷日報', ref: '帳票㉖（HAR511）', date: d, from, to: d, sub: `${d}（月度 ${from} 〜）`, columns: DAY_COLS(true), groups, ...(all.length ? { totals: daySum(all) } : {}) };
+}
+// ㉗ 得意先別出荷日報（現行 HAR531）：得意先ごとに商品別、得意先計。最後に値引・総合計
+export async function customerShipDaily(c, q) {
+  const { d, from } = dayRange(q);
+  const rs = await rows(c, `SELECT s.customers_cd, MAX(c.customers_name) customers_name, s.item_cd, MAX(COALESCE(NULLIF(i.item_nam, ''), s.item_name)) item_name, MAX(unit_name(i.unit)) unit,
+      CASE WHEN s.ship_kb='9' THEN 9 ELSE 0 END sect,
+      SUM(CASE WHEN s.sales_date=? THEN s.quantity ELSE 0 END) dq, SUM(CASE WHEN s.sales_date=? THEN s.money ELSE 0 END) dv, SUM(s.quantity) cq, SUM(s.money) cv
+    FROM sales_trn s LEFT JOIN item_m i ON i.item_cd=s.item_cd LEFT JOIN client_m c ON c.customers_cd=s.customers_cd
+    WHERE s.sales_date BETWEEN ? AND ? GROUP BY s.customers_cd, s.item_cd, 6 ORDER BY 6, s.customers_cd, s.item_cd`, [ymd(d), ymd(d), ymd(from), ymd(d)]);
+  const groups = [], all = [];
+  for (const r of rs.filter(x => Number(x.sect) === 0)) {
+    let g = groups.find(x => x.cd === r.customers_cd); if (!g) groups.push(g = { cd: r.customers_cd, title: `${r.customers_cd}　${r.customers_name || ''}`, rows: [], label: '得意先計' });
+    const x = { code: r.item_cd, name: String(r.item_name || '').trim(), unit: r.unit || '', ...dayRow(r, d) }; g.rows.push(x); all.push(x);
+  }
+  groups.forEach(g => { g.totals = daySum(g.rows); delete g.cd; });
+  const disc = rs.filter(x => Number(x.sect) === 9).map(r => ({ ...dayRow(r, d) }));
+  if (disc.length) { groups.push({ rows: [], label: '値　引', totals: daySum(disc) }); all.push(...disc); }
+  return { title: '得意先別出荷日報', ref: '帳票㉗（HAR531）', date: d, from, to: d, sub: `${d}（月度 ${from} 〜）`, columns: DAY_COLS(true), groups, ...(all.length ? { totals: daySum(all) } : {}) };
+}
+// ㉘ 商品別仕入日報（現行 HAR521）：仕入先ごとに商品別。商品仕入登録の区分 1＝仕入、2＝他社納入 を分けて、それぞれ合計
+export async function itemPurchaseDaily(c, q) {
+  const { d, from } = dayRange(q);
+  const rs = await rows(c, `SELECT COALESCE(p.purchase_kb, '1') kb, v.vendor_code, MAX(v.vendor_name) vendor_name, p.item_cd, MAX(i.item_nam) item_name, MAX(unit_name(i.unit)) unit,
+      SUM(CASE WHEN p.purchase_date=? THEN p.quantity ELSE 0 END) dq, SUM(CASE WHEN p.purchase_date=? THEN p.net_amount ELSE 0 END) dv, SUM(p.quantity) cq, SUM(p.net_amount) cv
+    FROM purchase p JOIN vendor v ON v.vendor_id=p.vendor_id LEFT JOIN item_m i ON i.item_cd=p.item_cd
+    WHERE p.purchase_date BETWEEN ? AND ? GROUP BY 1, v.vendor_code, p.item_cd ORDER BY 1, v.vendor_code, p.item_cd`, [d, d, from, d]);
+  const groups = [], all = [];
+  for (const [kb, label] of [['1', '仕入'], ['2', '他社納入']]) {
+    const mine = rs.filter(r => String(r.kb || '1') === kb); if (!mine.length) continue;
+    const gs = [];
+    for (const r of mine) {
+      let g = gs.find(x => x.cd === r.vendor_code); if (!g) gs.push(g = { cd: r.vendor_code, title: `${r.vendor_code}　${r.vendor_name || ''}`, rows: [] });
+      const x = { code: r.item_cd || '', name: r.item_cd ? String(r.item_name || '').trim() : '運賃・金額のみ', unit: r.unit || '', ...dayRow(r, d) }; g.rows.push(x);
+    }
+    const sec = gs.flatMap(g => g.rows); all.push(...sec);
+    gs.forEach(g => delete g.cd); gs[0].head = `区分 ${kb}．${label}`; gs[gs.length - 1].foot = { label: `${label} 合計`, totals: daySum(sec) };
+    groups.push(...gs);
+  }
+  return { title: '商品別仕入日報', ref: '帳票㉘（HAR521）', date: d, from, to: d, sub: `${d}（月度 ${from} 〜）`, columns: DAY_COLS(true), groups, ...(all.length ? { totals: daySum(all) } : {}) };
+}
+export const NEW_REPORTS = { 'purchase-register': purchaseRegister, 'inventory-register': inventoryRegister, 'transfer-list': transferList, 'item-ship-daily': itemShipDaily, 'customer-ship-daily': customerShipDaily, 'item-purchase-daily': itemPurchaseDaily };
 export async function genericBook(c, kind, q) {
   const d = await NEW_REPORTS[kind](c, q), H = v => ({ v, s: 'bold' }), S = v => ({ v, s: 'sum' });
   const out = [[{ v: d.title, s: 'title' }], [`${d.sub}　出力日 ${today()}`], [], d.columns.map(col => H(col.label))];

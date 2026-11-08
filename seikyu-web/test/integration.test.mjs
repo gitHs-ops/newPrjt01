@@ -257,6 +257,14 @@ test('workflow against PostgreSQL business tables', { skip, timeout: 900000 }, a
       assert.deepEqual([pr.groups.find(g => g.code === 'V' + tag).rows[0].date, pr.groups.find(g => g.code === 'V' + tag).totals, pr.totals], [`${d.slice(2, 4)}/${d.slice(5, 7)}/${d.slice(8, 10)}`, undefined, undefined]);
       // 単位は 1（t）・2（袋）・3 のみ入力でき、リストには単位名が出る（2026-11-03）
       assert.equal(pr.groups.find(g => g.code === 'V' + tag).rows[0].unit, 't');
+      // ㉖㉗㉘ 日報（2026-11-08）：指定日の 前日累計＋当日＝累計
+      for (const k of ['item-ship-daily', 'customer-ship-daily', 'item-purchase-daily']) {
+        const drr = await a.call(`/api/reports/misc/${k}?` + new URLSearchParams({ date: d })); ok(drr); const dr = drr.data;
+        assert.deepEqual(dr.columns.map(x => x.label).slice(-6), ['前日累計数量', '前日累計金額', '当日数量', '当日金額', '累計数量', '累計金額']);
+        for (const r of dr.groups.flatMap(g => g.rows)) { assert.equal(r.pv + r.dv, r.cv); assert.equal(Math.round((r.pq + r.dq) * 100), Math.round(r.cq * 100)); }
+        assert.equal((await a.call(`/api/reports/misc/${k}?` + new URLSearchParams({ date: d, format: 'xlsx' }))).status, 200);
+      }
+      { const pdr = (await a.call('/api/reports/misc/item-purchase-daily?' + new URLSearchParams({ date: d }))).data; assert.ok(pdr.groups.some(g => g.title?.startsWith('V' + tag)), JSON.stringify(pdr.groups.map(g => g.title))); }
       // 11/04 No.19：月指定で前月21日〜当月20日、仕入先別（2026-11-05）
       { const pm = d.slice(8) > '20' ? new Date(Date.UTC(+d.slice(0, 4), +d.slice(5, 7), 1)).toISOString().slice(0, 7) : d.slice(0, 7); const mr = (await a.call('/api/reports/misc/purchase-register?' + new URLSearchParams({ month: pm }))).data;
         assert.ok(mr.from <= d && d <= mr.to && mr.to === `${pm}-20` && mr.from.slice(8) === '21'); assert.equal(mr.groups.filter(g => g.code === 'V' + tag).length, 1); }
