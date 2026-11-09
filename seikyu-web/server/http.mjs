@@ -76,6 +76,7 @@ export async function createApp({ pool, publicDir, secureCookies = process.env.N
   route('GET', '/api/reports/billing-precheck', 'read', x => x.q.format === 'xlsx' ? db(c => X.billingPrecheckBook(c, x.q)).then(b => ({ file: b })) : db(c => S.billingPrecheck(c, x.q)));
   route('GET', '/api/reports/billing-confirm', 'read', x => x.q.format === 'xlsx' ? db(c => X.billingConfirmBook(c, x.q)).then(b => ({ file: b })) : db(c => S.billingConfirm(c, x.q)));
   route('GET', '/api/receipts', 'read', x => db(c => S.listReceipts(c, x.q)));
+  route('GET', '/api/receipt-detail', 'read', x => db(c => S.receiptDetail(c, x.q.id)));
   route('GET', '/api/purchases', 'read', x => db(c => P.listPurchases(c, x.q)));
   route('GET', '/api/inventory', 'read', x => db(c => P.listInventory(c, x.q)));
   route('GET', '/api/inventory/counts', 'read', x => db(c => P.listCounts(c, x.q)));

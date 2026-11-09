@@ -232,7 +232,8 @@ const SUBMENUS = {
   // 入金予定チェックリストは 2026-11-05 再表示（ユーザー指示）
   // 入金予定チェックリストは 2026-11-09 再び非表示（ユーザー指示。帳票設計 D-029「作成しない」に合わせる。画面・API は残す）
   // 入金消込は 2026-11-01 非表示（ユーザー指示。現行入金処理で入金する。画面・API は残す）
-  receipts: [{ k: 'targets', l: '入金消込', q: { tab: 'targets' }, hidden: true }, { k: 'legacy', l: '入金処理', q: { tab: 'legacy' }, tools: false }, { k: 'plan', l: '入金予定一覧', q: { tab: 'plan' } }, { k: 'list', l: '入金一覧', tools: true, hidden: true }, { k: 'schedule', l: '入金予定チェックリスト', hidden: true }],
+  // 入金処理は 2026-11-09 から一覧 →［＋ 新規登録］／［修正］で入力画面（ユーザー指示：他の画面と同じ流れ）
+  receipts: [{ k: 'targets', l: '入金消込', q: { tab: 'targets' }, hidden: true }, { k: 'legacy', l: '入金処理', q: { tab: 'legacy' }, tools: true }, { k: 'plan', l: '入金予定一覧', q: { tab: 'plan' } }, { k: 'list', l: '入金一覧', tools: true, hidden: true }, { k: 'schedule', l: '入金予定チェックリスト', hidden: true }],
   // 10/21 打合せの処理順（実在庫登録 → 配合計算 → 材料受払表 → 在庫計上）に並べる
   // 在庫登録リスト・配合計算・材料受払表は 2026-11-02 にそれぞれ小メニューに分けた（ユーザー指示）
   // 配合計算は自分の画面を出す（2026-11-04 ユーザー指示。以前は材料受払表の画面へ移っていた）。現行の配合計算処理は配合マスタ・配合単価と無関係で、結果が材料受払表（2026-11-02 ユーザー回答）
@@ -1020,7 +1021,7 @@ VIEWS.receipts = async q => {
   const A = actions;
   A.misc = d => miscReport(d.kind, d.src).catch(e => toast(e.message, true));
   const tab = ['targets', 'legacy', 'plan'].includes(q.tab) ? q.tab : 'list';
-  if (tab === 'legacy') return legacyReceiptView();
+  if (tab === 'legacy') return legacyReceiptView(q);
   A.tab = d => go('receipts', { tab: d.tab });
   A.clear = d => receiptForm(d.customer, Number(d.receipt) || 0);
   if (tab === 'plan') {
@@ -1191,7 +1192,8 @@ const LR_ACC = {
 };
 const lrBlank = () => ({ acc: '', sub: '', amount: '', due: '', tax: '', sub2: '', work: '', taxAmt: '', memo2: '', tcode: '' });
 // 借方の明細は最初 3 行（足りなければ［＋ 行追加］）。入金日の初期値は今日（いずれも 2026-11-01）
-const lrNew = () => ({ step: 1, date: today(), customer: '', lines: [lrBlank(), lrBlank(), lrBlank()], billTo: '', billInput: '', invoices: [], deposit: 0, from: '', to: today(), toAuto: true, key: uuid() });
+// open＝入力画面を表示中（false は一覧）。editId・editNo＝［修正］する入金、editPays＝元の入金の今回入金額（3 画面目を最初に開いたときに入れる）（2026-11-09）
+const lrNew = () => ({ step: 1, date: today(), customer: '', lines: [lrBlank(), lrBlank(), lrBlank()], billTo: '', billInput: '', invoices: [], deposit: 0, from: '', to: today(), toAuto: true, key: uuid(), open: false, editId: 0, editNo: '', editPays: null });
 let lr = lrNew();
 const lrNum = v => { const n = Number(String(v ?? '').replace(/,/g, '').trim()); return Number.isFinite(n) ? n : NaN; };
 const lrSub = l => LR_ACC[l.acc]?.subs?.find(s => s[0] === l.sub);
@@ -1217,7 +1219,7 @@ function lrStep1() {
   // 3画面目は 請求日（絞込）を入金日・得意先の行の後ろに置く（2026-11-01）
   if (lr.step > 1) return `<div class="inline-fields lr-step1 lr-fixed"><span>入金日：<b>${esc(lr.date)}</b></span><span>得意先：<b>${esc(lr.customer)} ${esc(lrName())}</b></span>${lr.step === 3 ? lrRange() : ''}${custHints()}</div>
     <div id="lr-detail">${lr.step === 2 ? lrStep2() : lrStep3()}</div>`;
-  return `<div class="inline-fields lr-step1">${field('入金日', `<input type="date" id="lr-date" value="${esc(lr.date)}">`, { req: 1 })}${field('得意先', `<input id="lr-cust" list="dl-pcust" autocomplete="off" value="${esc(lr.customer)}" placeholder="得意先コード" style="width:140px">${custHints()}<b id="lr-cname" class="lr-cname">${esc(lrName())}</b>`, { req: 1 })}<button type="button" data-act="lrSearch">実行</button></div>
+  return `<div class="inline-fields lr-step1">${field('入金日', `<input type="date" id="lr-date" value="${esc(lr.date)}">`, { req: 1 })}${field('得意先', `<input id="lr-cust" list="dl-pcust" autocomplete="off" value="${esc(lr.customer)}" placeholder="得意先コード" style="width:140px" ${lr.editId ? 'readonly title="修正では得意先は変えられません"' : ''}>${custHints()}<b id="lr-cname" class="lr-cname">${esc(lrName())}</b>`, { req: 1 })}<button type="button" data-act="lrSearch">実行</button></div>
     <div id="lr-detail"></div>`;
 }
 // 得意先はコードのほか「コード＋名称」・名称の一部（1件に決まるとき）でも受け付ける
@@ -1278,14 +1280,16 @@ const lrRange = () => `<div class="filters lr-range"><label class="field">請求
 const lrAddPayBtn = () => (canWrite() && lr.billTo && lrShown().length > (lr.pays ? lr.pays.length : 0) ? '<button type="button" class="mini" data-act="lrAddPay">＋ 行追加</button>' : '');
 function lrStep3() {
   return `<div class="lr-detail"><div class="lr-amount">入金額 <b>${yen(lrSum())}</b></div>
-    <div class="inline-fields lr-bill">${field('請求先', `<input id="lr-bill" list="dl-pcust" autocomplete="off" value="${esc(lr.billInput)}" placeholder="請求先コード" style="width:140px"><small id="lr-bname" class="muted">${esc(lrNameOf(lr.billInput))}</small><small id="lr-dep" class="muted">${esc(lrDepNote())}</small>`, { req: 1 })}</div>
+    <div class="inline-fields lr-bill">${field('請求先', `<input id="lr-bill" list="dl-pcust" autocomplete="off" value="${esc(lr.billInput)}" placeholder="請求先コード" style="width:140px" ${lr.editId ? 'readonly title="修正では請求先は変えられません"' : ''}><small id="lr-bname" class="muted">${esc(lrNameOf(lr.billInput))}</small><small id="lr-dep" class="muted">${esc(lrDepNote())}</small>`, { req: 1 })}</div>
     <div class="table-wrap"><table class="lr-pay"><thead><tr><th>請求先</th><th>請求日</th><th>請求No</th><th>予定日</th><th class="num">入金予定額</th><th class="num">今回入金額</th></tr></thead>
       <tbody id="lr-rows">${lrRows()}</tbody>
       <tfoot id="lr-foot">${lrPayFoot()}</tfoot></table></div>
     <p id="lr-addpay">${lrAddPayBtn()}</p>
-    ${canWrite() ? '' : '<p class="check-ng small">この利用者は登録できません</p>'}${lrKeys([...(canWrite() ? [['lrNext', '登録', 1]] : []), ['lrBack', '前画面'], ['lrEnd', '終了']])}</div>`;
+    ${canWrite() ? '' : '<p class="check-ng small">この利用者は登録できません</p>'}${lrKeys([...(canWrite() ? [['lrNext', lr.editId ? '更新' : '登録', 1]] : []), ['lrBack', '前画面'], ['lrEnd', '終了']])}</div>`;
 }
-const lrDraw = () => { const b = $('#lr-body'); if (!b) return; b.innerHTML = lrStep1() + tekiyoList(); };
+const lrEditNote = () => (lr.editId ? `<p class="small lr-editnote">入金No <b>${esc(lr.editNo)}</b> を修正します。［更新］で元の入金を取り消し（逆仕訳）、この内容で登録し直します（入金No は新しい番号になります）。</p>` : '');
+const lrBodyHtml = () => lrEditNote() + lrStep1() + tekiyoList();
+const lrDraw = () => { const b = $('#lr-body'); if (!b) return; b.innerHTML = lrBodyHtml(); };
 function lrCheckLines() {
   const used = lrUsed(); if (!used.length) throw Error('科目と入金額を入力してください');
   const kinds = new Set();
@@ -1316,13 +1320,14 @@ async function lrRegister() {
   const PART = { bank: 'BANK', cash: 'CASH', notes: 'NOTE', fee: 'FEE', coop: 'COOP', deposit: 'DEPOSIT', discount: 'DISCOUNT', loss: 'LOSS' };
   for (const l of lrUsed()) { const k = lrKind(l); body[k] = lrNum(l.amount); if (k === 'bank') body.bankCode = l.sub; if (k === 'notes') body.noteDue = l.due; if (l.tax && l.tax !== lrTaxDef(l)) (body.tax ||= {})[PART[k]] = l.tax;
     (body.detail ||= {})[PART[k]] = { sub2: k === 'notes' ? '' : l.sub2, work: l.work, memo2: l.memo2 && l.memo2 !== lrSub(l)?.[3] ? l.memo2 : '', ...(lrTaxable(l) ? { taxAmt: lrTax(l) } : {}) }; }
-  const r = await post('/api/receipts', body);
-  toast(`入金 ${r.no} を登録しました（請求先 ${lr.billTo}・仕訳 B01${dep ? `・預り金相殺 ${yen(dep)}円` : ''}${over ? `・預り金受入 ${yen(over)}円` : ''}）`); lr = lrNew(); lrDraw();
+  // 登録・更新の後は一覧に戻る（2026-11-09）。修正は元の入金を取り消して登録し直す（入金消込の［修正］と同じ API）
+  const edit = lr.editId, r = await post(edit ? '/api/receipts/update' : '/api/receipts', edit ? { ...body, id: edit } : body);
+  toast(`入金 ${r.no} を${edit ? `登録し直しました（元の入金No ${lr.editNo} は取消・逆仕訳。` : '登録しました（'}請求先 ${lr.billTo}・仕訳 B01${dep ? `・預り金相殺 ${yen(dep)}円` : ''}${over ? `・預り金受入 ${yen(over)}円` : ''}）`); lr = lrNew(); render();
 }
 // 請求先の残高のある請求を読む（入金日以前の締めだけ。入金日より後の締めの請求は登録できない）
 let lrLoadSeq = 0;
 async function lrLoadBill(code) {
-  const seq = ++lrLoadSeq, ctx = await api('/api/receipt-context?' + qs({ customer: code }));
+  const seq = ++lrLoadSeq, ctx = await api('/api/receipt-context?' + qs({ customer: code, exclude: lr.editId || '' }));   // 修正は元の入金を除いた残高
   if (seq !== lrLoadSeq) return false;
   lr.billTo = code; lr.invoices = ctx.invoices.filter(r => r.closing <= lr.date); lr.deposit = ctx.deposit;
   return true;
@@ -1340,21 +1345,46 @@ async function lrNext() {
     // 請求先の初期値は得意先。前画面から戻ったときは選んだ請求先のまま
     if (!lr.billInput) lr.billInput = lr.customer;
     if (lr.billTo || masters.customers.some(c => c.code === lr.billInput)) await lrLoadBill(lr.billTo || lr.billInput);
-    lr.key = uuid(); lr.step = 3; lr.pays = null; return lrDraw();   // 入金額が変わることがあるので行は自動割り当てに戻す
+    lr.key = uuid(); lr.step = 3; lr.pays = lr.editPays; lr.editPays = null; return lrDraw();   // 入金額が変わることがあるので行は自動割り当てに戻す（修正の最初だけ元の入金の今回入金額）
   }
   await lrRegister();
 }
 const lrBack = () => { if (lr.step > 1) { lr.step -= 1; lrDraw(); } };
-const lrEnd = () => { lr = lrNew(); lrDraw(); };
+const lrEnd = () => { lr = lrNew(); render({ fresh: true }); };   // 終了＝一覧に戻る（2026-11-09）
 const lrFind = () => { const i = $('#lr-cust'); if (!i) return; i.focus(); try { i.showPicker(); } catch {} };
 const lrRun = fn => Promise.resolve().then(fn).catch(e => toast(e.message, true));
-function legacyReceiptView() {
+// ［修正］：元の入金（借方の明細・口座・手形期日・処税率・消費税額・摘要2、今回入金額）を入れて入力画面を開く
+const LR_KIND_LINE = { BANK: ['bank', '1112'], CASH: ['cash', '1111'], NOTE: ['notes', '1120'], FEE: ['fee', '8330', '101'], COOP: ['coop', '8330', '107'], DEPOSIT: ['deposit', '4170'], DISCOUNT: ['discount', '8850', 'D'], LOSS: ['loss', '8850', 'L'] };
+function lrFromReceipt(r) {
+  const lines = Object.entries(LR_KIND_LINE).filter(([, [k]]) => r[k] > 0).map(([K, [k, acc, sub]]) => {
+    const d = r.detail?.[K] || {}, l = { ...lrBlank(), acc, sub: K === 'BANK' ? r.bankCode || '' : sub || '', amount: String(r[k]), due: K === 'NOTE' ? String(r.noteDue || '').slice(0, 10) : '', sub2: d.sub2 || '', memo2: d.memo2 || '' };
+    if (d.tax && ![lrTaxCode(l), lrTaxDef(l)].includes(d.tax)) l.tax = d.tax;
+    if (d.taxAmt !== null && d.taxAmt !== undefined && lrTaxable(l) && d.taxAmt !== lrTaxAuto(l)) l.taxAmt = String(d.taxAmt);
+    return l; });
+  while (lines.length < 3) lines.push(lrBlank());
+  const date = String(r.date).slice(0, 10);
+  return { ...lrNew(), open: true, editId: r.id, editNo: r.no, date, to: date, customer: r.customer, billInput: r.customer, lines, editPays: r.allocations.map(a => ({ id: String(a.invoiceId), amount: String(a.amount) })) };
+}
+// 入金処理：最初は入金の一覧（他の画面と同じ）。［＋ 新規登録］・［修正］で入力画面（入金日・得意先 → 借方 → 今回入金額）を開く（2026-11-09 ユーザー指示）
+async function legacyReceiptView(q = {}) {
   const A = actions;
   A.lrNext = () => lrRun(lrNext); A.lrSearch = () => lrRun(() => { lr.step = 1; return lrNext(); }); A.lrBack = lrBack; A.lrEnd = lrEnd; A.lrFind = lrFind;
   A.lrAddPay = () => { lrManual(); if (lr.pays.length >= lrShown().length) { lrPaintRows(); return toast('ほかに入金できる請求（入金日までに締めた残高のある請求）がありません', true); } lr.pays.push({ id: '', amount: '' }); lrPaintRows(); };
   A.lrDelPay = d => { lrManual(); lr.pays.splice(Number(d.i), 1); lrPaintRows(); };
   A.lrAddLine = () => { if (lr.lines.length < LR_MAX_LINES) { lr.lines.push(lrBlank()); lrDraw(); } };
-  return page('入金処理', '', '', `<section class="card glass lr" id="lr-body">${lrStep1()}</section>`);
+  A.lrNew = () => { lr = { ...lrNew(), open: true }; render(); };
+  A.lrEdit = d => lrRun(async () => { lr = lrFromReceipt(await api('/api/receipt-detail?' + qs({ id: d.id }))); render(); });
+  if (lr.open) return page('入金処理', '', '<button data-act="lrEnd">← 一覧</button>', `<section class="card glass lr" id="lr-body">${lrBodyHtml()}</section>`);
+  const month = q.month || thisMonth(), all = await api('/api/receipts?' + qs({ month, customer: q.customer }));
+  const RSTATES = { POSTED: '計上済', REVERSED: '取消済' }, rst = RSTATES[q.rstate] ? q.rstate : '', list = rst ? all.filter(r => r.status === rst) : all;
+  const sum = k => list.filter(r => r.status === 'POSTED').reduce((n, r) => n + (r[k] || 0), 0);
+  return page('入金処理', '入金の一覧です。［＋ 新規登録］で入金を登録し、［修正］で登録済みの入金を直します（月次確定前。元の入金を取り消して登録し直します）。',
+    `${monthInput('month', month)}${comboFilter('customer', 'customers', q.customer || '', '得意先（コード・名称）')}<select name="rstate" data-filter title="状態">${options(Object.entries(RSTATES).map(([code, name]) => ({ code, name })), rst, { blank: 'すべての状態', label: x => x.name })}</select>${canWrite() ? '<button class="primary" data-act="lrNew">＋ 新規登録</button>' : ''}`,
+    `<section class="card glass">${table([{ label: '入金No', value: r => r.no }, { label: '入金日', value: r => String(r.date).slice(0, 10) }, { label: '得意先', value: r => `${r.customer} ${r.customerName || ''}` }, { label: '振込', num: 1, value: r => yen(r.bank) }, { label: '銀行', value: r => nameOf('banks', r.bankCode) },
+      { label: '現金', num: 1, value: r => yen(r.cash) }, { label: '手形', num: 1, value: r => yen(r.notes) }, { label: '手数料', num: 1, value: r => yen(r.fee) }, { label: '協力会費', num: 1, value: r => yen(r.coop) }, { label: '預り金', num: 1, value: r => yen(r.deposit) }, { label: '値引', num: 1, value: r => yen(r.discount) }, { label: '雑損失', num: 1, value: r => yen(r.loss) }, { label: '消込額', num: 1, value: r => yen(r.settlement) },
+      { label: '消込先（請求日）', value: r => r.allocations.map(a => a.closing).join(', ') }, { label: '状態', html: r => status(r.status) },
+      { label: '', html: r => (canWrite() && r.status === 'POSTED' ? `<button class="mini" data-act="lrEdit" data-id="${r.id}">修正</button>` : '') }], list,
+      { empty: 'この条件の入金はありません', rowClass: r => (r.status === 'REVERSED' ? 'reversed' : ''), foot: ['合計（計上済）', '', '', yen(sum('bank')), '', yen(sum('cash')), yen(sum('notes')), yen(sum('fee')), yen(sum('coop')), yen(sum('deposit')), yen(sum('discount')), yen(sum('loss')), yen(sum('settlement')), '', '', ''] })}</section>`);
 }
 document.addEventListener('input', e => {
   const t = e.target; if (!t.closest?.('#lr-body')) return;

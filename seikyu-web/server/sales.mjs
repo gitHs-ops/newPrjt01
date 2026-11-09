@@ -683,6 +683,7 @@ export async function listReceipts(c, q = {}) {
   const args = [], w = [];
   if (q.month) { isoMonth(q.month); w.push("to_char(r.receipt_date,'YYYY-MM')=?"); args.push(q.month); }
   if (q.customer) { w.push('r.customers_cd=?'); args.push(q.customer); }
+  if (q.id) { w.push('r.receipt_id=?'); args.push(Number(q.id) || 0); }
   const rs = await rows(c, `SELECT r.*, c.customers_name, ${BANK_SUB} bank_code FROM receipt r LEFT JOIN client_m c ON c.customers_cd=r.customers_cd ${w.length ? 'WHERE ' + w.join(' AND ') : ''} ORDER BY r.receipt_date DESC, r.receipt_id DESC LIMIT 1000`, args);
   const ids = rs.map(r => r.receipt_id), ph = ids.map(() => '?').join(',');
   const comps = ids.length ? await rows(c, `SELECT * FROM receipt_component WHERE receipt_id IN (${ph})`, ids) : [];
@@ -693,6 +694,20 @@ export async function listReceipts(c, q = {}) {
       bank: part('BANK'), cash: part('CASH'), notes: part('NOTE'), fee: part('FEE'), coop: part('COOP'), deposit: part('DEPOSIT'), overpay: part('OVERPAY'), discount: part('DISCOUNT'), loss: part('LOSS'), bankCode: r.bank_code || '', noteDue: comps.find(x => x.receipt_id === r.receipt_id && x.component_kind === 'NOTE')?.maturity_date || '', status: r.status,
       allocations: allocs.filter(a => a.receipt_id === r.receipt_id).map(a => ({ invoiceId: a.invoice_id, closing: fromNum(a.closing_date), amount: num(a.amount) })) };
   });
+}
+// 入金処理の［修正］で元の入金を画面に戻すための明細（2026-11-09）：借方ごとの内訳2・摘要2・消費税額と、仕訳の処税率
+const RECEIPT_ACC = { BANK: ['1112'], CASH: ['1111'], NOTE: ['1120'], FEE: ['8330', '101'], COOP: ['8330', '107'], DEPOSIT: ['4170'], DISCOUNT: ['8850'], LOSS: ['8850'] };
+export async function receiptDetail(c, id) {
+  const [r] = await listReceipts(c, { id }); check(r, '入金が見つかりません');
+  const comps = await rows(c, 'SELECT * FROM receipt_component WHERE receipt_id=? ORDER BY component_no', [r.id]);
+  const jl = await rows(c, "SELECT jl.* FROM journal_entry je JOIN journal_line jl ON jl.journal_id=je.journal_id WHERE je.source_type='receipt' AND je.source_id=? AND je.reversal_of IS NULL AND jl.side='D' AND jl.account_code<>'1465' ORDER BY je.journal_id, jl.line_no", [String(r.id)]);
+  const used = new Set(), detail = {};
+  for (const k of Object.keys(RECEIPT_ACC)) {
+    const x = comps.find(y => y.component_kind === k); if (!x) continue;
+    const [acc, sub] = RECEIPT_ACC[k], i = jl.findIndex((l, n) => !used.has(n) && l.account_code === acc && (!sub || l.sub_code === sub)); if (i >= 0) used.add(i);
+    detail[k] = { sub2: x.sub2 || '', memo2: x.memo2 || '', taxAmt: x.tax_amount === null || x.tax_amount === undefined ? null : num(x.tax_amount), tax: i >= 0 ? jl[i].source_tax_code || '' : '' };
+  }
+  return { ...r, detail };
 }
 export async function createReceipt(c, ctx, p) {
   const idem = text(p.idempotencyKey, '処理キー', 100);
