@@ -651,26 +651,13 @@ async function deliveryNoteDialog() {
   modal({ title: '納品書発行', submit: '伝票発行', body: `<div class="form-grid">${field('出荷日', `<input type="date" name="date" value="${esc(bd)}">`, { req: 1 })}</div>`,
     onSubmit: async v => { await issueDeliveryNotes({ date: v.date }); } });
 }
+// 伝票発行は Excel で出力（2026-11-09 ユーザー指示。1伝票＝1シート。以前の印刷用 HTML は廃止）
 async function issueDeliveryNotes(p) {
-  const d = await post('/api/delivery-notes', p), co = d.company;
-  const ck = (on, label) => `<span class="dn-carry ${on ? 'on' : ''}">${label}</span>`, temp = s => (s.temperature === '' || s.temperature === null ? '' : esc(String(s.temperature)) + ' ℃');
-  $('#print-area').innerHTML = d.docs.map(s => `<section class="dn-doc">
-    <div class="dn-head">${s.reissue ? '<span class="dn-re">再</span>' : ''}<h1>納 品 書</h1></div>
-    <div class="dn-line"><span>${esc(s.date)}</span><span class="dn-no">No. ${esc(s.orderNo)}</span></div>
-    <p class="dn-to">${esc(s.customerName)}　殿</p>
-    <table class="dn-table"><tr><th>現場名</th><td colspan="3">${esc(s.siteName)}</td></tr><tr><th>種類</th><td colspan="3">${esc(s.itemName)}</td></tr>
-      <tr><th>車両番号</th><td>${esc(s.vehicle)}</td><th>天候</th><td>${esc(s.weather)}</td></tr>
-      <tr><th>出発時間</th><td>${esc(s.startH)} 時 ${esc(s.startM)} 分</td><th>出荷温度</th><td>${temp(s)}</td></tr>
-      <tr><th>到着時間</th><td>${esc(s.arriveH)} 時 ${esc(s.arriveM)} 分</td><th>到着温度</th><td>${temp(s)}</td></tr>
-      <tr><th>正味重量</th><td>${s.quantity.toFixed(2)} ${esc(s.unit)}</td><th rowspan="2">出荷係</th><td rowspan="2">${esc(s.operatorName)}</td></tr>
-      <tr><th>累計量</th><td>${s.cumulativeQty.toFixed(2)} ${esc(s.unit)}</td></tr>
-      <tr><th>累計台数</th><td>${s.cumulativeCount} 台</td><th>受領印</th><td class="dn-stamp"></td></tr>
-      <tr><th>運搬方法</th><td colspan="3">${ck(s.carry === 1, '1. 持込')}　${ck(s.carry === 2, '2. Ｐ渡')}</td></tr>
-      <tr><th>備考</th><td colspan="3" class="dn-remark">${esc(s.remarks)}</td></tr></table>
-    <p class="dn-thanks">毎度　ありがとうございます</p>
-    <div class="dn-co"><p>${esc(co.address)}</p><p class="dn-co1">${esc(co.name1)}</p><p>${esc(co.name2)}</p><p>TEL ${esc(co.tel)}</p><p>FAX ${esc(co.fax)}</p></div></section>`).join('');
-  toast(`伝票 ${d.docs.length} 件を発行しました`);
-  setTimeout(() => window.print(), 200);
+  const res = await fetch('/api/delivery-notes', { method: 'POST', cache: 'no-store', headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': session?.csrf || '' }, body: JSON.stringify({ ...p, format: 'xlsx' }) });
+  if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || `出力できません（HTTP ${res.status}）`);
+  const name = p.orderNo ? `納品書_${p.orderNo}.xlsx` : `納品書_${p.date}.xlsx`, url = URL.createObjectURL(await res.blob()), el = document.createElement('a');
+  el.href = url; el.download = name; el.click(); setTimeout(() => URL.revokeObjectURL(url), 2000);
+  toast(`伝票（納品書）を Excel で出力しました：${name}`);
   if (route.name === 'shipments') render();
 }
 

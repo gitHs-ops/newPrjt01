@@ -3,6 +3,7 @@
 // 機能一覧の範囲外のため、現行 Java ソースからの推定実装（2026-10-21）。
 import { check, Conflict, qty, isoDate, text, today } from './domain.mjs';
 import { rows, one, assertOpen, audit } from './db.mjs';
+import { xlsx } from './xlsx.mjs';
 import { priceFor, taxRateOn, roundModes, moneyOf, lineTax, siteOf, hhmm, applyPlan, workKeyArgs, businessDate } from './sales.mjs';
 
 const num = v => Number(v || 0);
@@ -94,6 +95,33 @@ export async function deletePlan(c, ctx, { orderNo }) {
 // ---------- 納品書発行（NI0060） ----------
 // 出荷日（1日）の全伝票、または照会画面からの1伝票。発行後 ship_printing_fg4：0→1、1→2（2は据え置き）。発行前が1以上なら「再」を印字。
 const CARRY = kbn => ([1, 3, 7].includes(kbn) ? 1 : kbn === 9 ? 2 : 0); // 運搬方法 1 持込 / 2 Ｐ渡（現行 jrxml の判定）
+// 納品書（Excel）：印刷の画面（app.js issueDeliveryNotes）と同じ並び。A4 縦、左に項目名・右に値の 4 列
+function noteSheet(s, co) {
+  const W = 4, rows = [], heights = {}, merges = [], st = (v, k) => ({ v, s: k }), ref = (r, a, b) => `${String.fromCharCode(65 + a)}${r}:${String.fromCharCode(65 + b)}${r}`;
+  const row = (cells, h = 24) => { const r = Array(W).fill(''); for (const [a, b, v, sk] of cells) { for (let k = a; k <= b; k++) r[k] = st(k === a ? v : '', sk); if (b > a) merges.push(ref(rows.length + 1, a, b)); } rows.push(r); heights[rows.length - 1] = h; };
+  const temp = s.temperature === '' || s.temperature === null ? '' : `${s.temperature} ℃`, q = n => `${Number(n).toFixed(2)} ${s.unit}`;
+  row([[0, 0, s.reissue ? '再' : '', 'iBold'], [1, 2, '納　品　書', 'iTitle']], 36);
+  row([[0, 1, s.date, 'iText'], [2, 3, `No. ${s.orderNo}`, 'iTextR']]);
+  row([]);
+  row([[0, 3, `${s.customerName}　殿`, 'iCust']], 26);
+  row([]);
+  row([[0, 0, '現場名', 'iHead'], [1, 3, s.siteName, 'iCell']]);
+  row([[0, 0, '種類', 'iHead'], [1, 3, s.itemName, 'iCell']]);
+  row([[0, 0, '車両番号', 'iHead'], [1, 1, s.vehicle, 'iCell'], [2, 2, '天候', 'iHead'], [3, 3, s.weather, 'iCell']]);
+  row([[0, 0, '出発時間', 'iHead'], [1, 1, `${s.startH} 時 ${s.startM} 分`, 'iCellC'], [2, 2, '出荷温度', 'iHead'], [3, 3, temp, 'iCellC']]);
+  row([[0, 0, '到着時間', 'iHead'], [1, 1, `${s.arriveH} 時 ${s.arriveM} 分`, 'iCellC'], [2, 2, '到着温度', 'iHead'], [3, 3, temp, 'iCellC']]);
+  row([[0, 0, '正味重量', 'iHead'], [1, 1, q(s.quantity), 'iNum'], [2, 2, '出荷係', 'iHead'], [3, 3, s.operatorName, 'iCellC']]);
+  row([[0, 0, '累計量', 'iHead'], [1, 1, q(s.cumulativeQty), 'iNum'], [2, 2, '', 'iHead'], [3, 3, '', 'iCellC']]);
+  merges.push(`C${rows.length - 1}:C${rows.length}`, `D${rows.length - 1}:D${rows.length}`);
+  row([[0, 0, '累計台数', 'iHead'], [1, 1, `${s.cumulativeCount} 台`, 'iNum'], [2, 2, '受領印', 'iHead'], [3, 3, '', 'iCell']], 48);
+  row([[0, 0, '運搬方法', 'iHead'], [1, 3, `${s.carry === 1 ? '■' : '□'} 1. 持込　　${s.carry === 2 ? '■' : '□'} 2. Ｐ渡`, 'iCell']]);
+  row([[0, 0, '備考', 'iHead'], [1, 3, s.remarks, 'iCell']], 36);
+  row([]);
+  row([[0, 3, '毎度　ありがとうございます', 'iText']]);
+  row([]);
+  for (const [v, k] of [[co.address, 'iText'], [co.name1, 'iBold'], [co.name2, 'iTextFit'], [co.tel ? `TEL ${co.tel}` : '', 'iText'], [co.fax ? `FAX ${co.fax}` : '', 'iText']]) if (v) row([[2, 3, v, k]], 20);
+  return { name: String(s.orderNo).slice(0, 31), rows, heights, merges, gridlines: false, portrait: true, widths: [14, 24, 14, 24] };
+}
 export async function deliveryNotes(c, ctx, p) {
   const orderNo = String(p.orderNo || ''), date = orderNo ? '' : isoDate(p.date, '出荷日');
   const rs = await rows(c, `SELECT s.*, c.customers_name, i.item_nam, unit_name(s.unit_cd) unit, op.tanto_nm, (SELECT w.code_dtl_nam FROM code_m w WHERE w.code_key='A0010' AND w.code_dtl=CAST(s.weather_cd AS TEXT)) weather_name FROM shipment_slip s LEFT JOIN client_m c ON c.customers_cd=s.customers_cd
@@ -110,5 +138,8 @@ export async function deliveryNotes(c, ctx, p) {
   if (orderNo) await c.query('UPDATE shipment_slip SET ship_printing_fg4=CASE WHEN ship_printing_fg4=0 THEN 1 ELSE 2 END, update_daytime=UTC_TIMESTAMP(6) WHERE order_no=? AND ship_printing_fg4<>2', [orderNo]);
   else await c.query('UPDATE shipment_slip SET ship_printing_fg4=CASE WHEN ship_printing_fg4=0 THEN 1 ELSE 2 END, update_daytime=UTC_TIMESTAMP(6) WHERE shipment_dt=? AND ship_printing_fg4<>2', [date]);
   await audit(c, ctx, 'shipment_slip', orderNo || date, 'delivery-note.issue', { slips: docs.length });
-  return { company: { name1: co?.company_name1 || '', name2: co?.company_name2 || '', address: [co?.pref, co?.addr1, co?.addr2].filter(Boolean).join(''), tel: co?.tel_no || '', fax: co?.fax_no || '' }, docs, issuedOn: today() };
+  const company = { name1: co?.company_name1 || '', name2: co?.company_name2 || '', address: [co?.pref, co?.addr1, co?.addr2].filter(Boolean).join(''), tel: co?.tel_no || '', fax: co?.fax_no || '' };
+  // 伝票発行は Excel で出力（2026-11-09 ユーザー指示。印刷の画面と同じ項目、1伝票＝1シート）
+  if (p.format === 'xlsx') return { file: { name: orderNo ? `納品書_${orderNo}.xlsx` : `納品書_${date}_${docs.length}件.xlsx`, body: xlsx(docs.map(s => noteSheet(s, company))) } };
+  return { company, docs, issuedOn: today() };
 }
