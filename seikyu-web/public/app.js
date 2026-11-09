@@ -597,7 +597,8 @@ function shipmentForm(r, bizDate) {
       for (const n of ['quantity', 'price', 'freight']) f[n].oninput = preview; f.quantity.onchange = cumulative;
       // 赤黒訂正は 単価・数量・訂正日 だけ入力可（2026-10-27 制限）。ほかの項目は元伝票のまま表示
       if (co) [...f.elements].forEach(el => { if (!el.name || ['quantity', 'price', 'date'].includes(el.name) || el.type === 'hidden') return; if (el.tagName === 'SELECT' || el.type === 'checkbox' || el.type === 'button') el.disabled = true; else el.readOnly = true; });
-      if (co) { const pv = () => { const qn = Number(f.quantity.value) || 0, black = Math.round(Math.round(qn * 100) * (Number(f.price.value) + Number(f.freight.value || 0)) / 100); $('#corr-preview').innerHTML = `赤 ${yen(-co.net)} 円 ＋ 黒 ${yen(black)} 円 ＝ 差額 <b>${yen(black - co.net)}</b> 円（税抜）`; };
+      if (co) { $('#modal-foot').prepend($('#corr-preview')); // 赤・黒・差額は下部の［キャンセル］［赤黒伝票を登録］の前（2026-11-09 ユーザー指示）
+        const pv = () => { const qn = Number(f.quantity.value) || 0, black = Math.round(Math.round(qn * 100) * (Number(f.price.value) + Number(f.freight.value || 0)) / 100); $('#corr-preview').innerHTML = `赤 ${yen(-co.net)} 円 ＋ 黒 ${yen(black)} 円 ＝ 差額 <b>${yen(black - co.net)}</b> 円（税抜）`; };
         for (const n of ['quantity', 'price', 'freight']) f[n].addEventListener('input', pv); pv(); }
       show('#sf-cname', 'customers', f.customer.value); show('#sf-oname', 'customers', f.otherCustomer.value); show('#sf-iname', 'items', f.item.value);
       siteList(); unitOf(); siteNames(true); preview(); cumulative(); if (!r || r.fromPlan) price();

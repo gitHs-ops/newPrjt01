@@ -571,5 +571,5 @@ dialog.modal.wide:has(#jva) { width: min(1480px, calc(100vw - 24px)); }
 .tax-set th{text-align:left;padding:4px 16px 4px 0;white-space:nowrap;font-weight:600}
 .tax-set td{padding:4px 12px 4px 0}
 
-/* 赤黒訂正：赤・黒・差額は画面の下部に表示（D-019、2026-11-09） */
-.corr-sum{margin-top:12px;padding:10px 14px;border-top:2px solid var(--line,#cbd5e1);text-align:right;font-size:15px}
+/* 赤黒訂正：赤・黒・差額は画面の下部、ボタンの前に表示（D-019、2026-11-09） */
+.corr-sum{align-self:center;margin-right:12px;font-size:15px;white-space:nowrap}
