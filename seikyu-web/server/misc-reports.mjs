@@ -110,6 +110,21 @@ export async function materialLedger(c, q) {
     note: '仕入の集計期間は締日単位（既定20日締め、現行と同じ）。実在庫は月度ごとの登録値。当月使用高＝前月末在庫＋当月仕入−当月末在庫（実在庫未登録の月は空欄）。金額のない在庫（評価額 0）は商品マスタの単価で評価。評価方法は確認待ち（Q07）。' };
 }
 
+// 配合計算の実行（D-072：計算年月を指定して実行し、結果を DB に保存して材料受払表に使う）。材料受払の計算結果を処理年月・締日ごとに保存する（2026-11-12）
+const mixKey = closing => { const d = Number(closing || 20); return d >= 31 ? '31' : String(d); };
+async function runMixLedger(c, ctx, q) {
+  const d = await materialLedger(c, q), runAt = new Date(Date.now() + 9 * 3600e3).toISOString().slice(0, 16).replace('T', ' ');
+  await c.query('INSERT INTO app_mix_result (month,closing,result,run_by,run_at) VALUES (?,?,?,?,UTC_TIMESTAMP(6)) ON DUPLICATE KEY UPDATE result=VALUES(result),run_by=VALUES(run_by),run_at=VALUES(run_at)',
+    [d.month, mixKey(q.closing), JSON.stringify({ ...d, runAt, runBy: ctx.user.login_id }), ctx.user.login_id]);
+}
+// 材料受払表：配合計算で保存した結果を出す。未実行の処理年月・締日は出さない
+export async function savedMaterialLedger(c, q) {
+  const month = isoMonth(q.month, '対象月'), r = await one(c, 'SELECT result FROM app_mix_result WHERE month=? AND closing=?', [month, mixKey(q.closing)]);
+  check(r, `${month}（${closingRange(month, q.closing).label}）の配合計算が実行されていません。在庫 → 配合計算 で実行してから出力してください`);
+  const d = JSON.parse(r.result);
+  return { ...d, note: `配合計算の結果（${d.runAt} ${d.runBy} 実行）。実行後に実在庫・仕入を直したときは配合計算をやり直してください。` + d.note };
+}
+
 // ---------- NO25 配合計算（暫定：配合マスタ×材料単価＋経費単価 → genka_m） ----------
 export async function mixCalc(c, q) {
   const month = isoMonth(q.month, '対象月');
@@ -158,18 +173,19 @@ export async function mixCalc(c, q) {
   return { title: '配合計算', ref: 'NO25（推定）', month, products, suggest, usage, production: prodQty, note: '配合表・経費配賦基準の資料が未提供のため推定。配合率は「マスタ管理 → 配合」、材料単価は「マスタ管理 → 材料単価」の手入力を優先し、無ければ移動平均（前月末在庫＋当月仕入）。経費単価は当月の経費÷製品出荷数量で自動算出（推定値・手修正可）。結果は原価（genka_m）に保存し、「マスタ管理 → 原価」で照会できます。' };
 }
 export async function saveMix(c, ctx, p) {
+  // 配合計算の実行：材料受払の計算結果を保存し、配合マスタがあれば原価（genka_m）も保存する（2026-11-12 保存を戻す。配合マスタが無ければ材料受払だけ）
   const d = await mixCalc(c, { month: p.month, closing: p.closing });
-  check(d.products.length, '配合マスタが登録されていません');
   const ov = {}; for (const k of ['denki', 'touyu', 'seizou', 'ippann']) { const t = String(p[k] ?? '0').trim(); check(/^\d{1,9}(\.\d{1,2})?$/.test(t), '経費単価は0以上の数値（小数2桁まで）で入力してください'); ov[k] = Number(t); }
-  const bad = d.products.filter(x => x.missing); check(!bad.length, '材料単価が無い製品があります: ' + bad.map(x => x.name).join('、') + '（マスタ管理 → 材料単価 で手入力できます）');
-  const ym = Number(d.month.replace('-', ''));
-  for (const x of d.products) {
+  // 材料単価が無い製品は原価を保存しない（材料受払の結果は保存する。2026-11-12）
+  await runMixLedger(c, ctx, p);
+  const ym = Number(d.month.replace('-', '')), ok = d.products.filter(x => !x.missing), skipped = d.products.filter(x => x.missing).map(x => `${x.item} ${x.name}`);
+  for (const x of ok) {
     const total = Math.round(x.haigo + ov.denki + ov.touyu + ov.seizou + ov.ippann);
     await c.query("INSERT INTO genka_m (nengetsu,item_cd,haigo_tanka,denki,touyu,seizou,ippann,total,delete_f) VALUES (?,?,?,?,?,?,?,?,'0') ON DUPLICATE KEY UPDATE haigo_tanka=VALUES(haigo_tanka),denki=VALUES(denki),touyu=VALUES(touyu),seizou=VALUES(seizou),ippann=VALUES(ippann),total=VALUES(total),delete_f='0'",
       [ym, x.item, x.haigo, ov.denki, ov.touyu, ov.seizou, ov.ippann, total]);
   }
-  await audit(c, ctx, 'genka_m', d.month, 'mix.calc', { products: d.products.map(x => x.item), ...ov });
-  return { saved: d.products.length };
+  await audit(c, ctx, 'genka_m', d.month, 'mix.calc', { closing: mixKey(p.closing), products: ok.map(x => x.item), skipped, ...ov });
+  return { saved: ok.length, skipped, ledger: true };
 }
 
 // ---------- JV（出資金）配分 ----------
@@ -321,7 +337,7 @@ export async function miscBook(c, kind, q) {
   }
   if (kind === 'material-ledger') {
     // 現行 HAR491（添付帳票⑧ p.1）の形式：1〜2行目の表題、期首残高〜当月末在庫の2段見出し、数量3桁・金額・単価1桁、0 は空欄、動きのない材料は出さない、【合計】に数量も（2026-11-02）
-    const d = await materialLedger(c, q), jst = new Date(Date.now() + 9 * 3600e3).toISOString(), yy = v => `${v.slice(2, 4)}/${v.slice(5, 7)}/${v.slice(8, 10)}`;
+    const d = await savedMaterialLedger(c, q), jst = new Date(Date.now() + 9 * 3600e3).toISOString(), yy = v => `${v.slice(2, 4)}/${v.slice(5, 7)}/${v.slice(8, 10)}`;
     const Q = v => ({ v: v || '', s: 'qty3' }), A = v => ({ v: v || '', s: 'num' });
     const out = [
       ['HAR491', ...Array(11).fill(''), { v: `作成日 ${yy(jst)} ${jst.slice(11, 19)}`, s: 'right' }],
@@ -402,4 +418,4 @@ export async function miscBook(c, kind, q) {
   }
   check(false, '帳票の種類が不正です');
 }
-export const MISC = { 'shipment-summary': shipmentSummary, 'customer-items': customerItems, 'cash-sales': cashSales, 'material-ledger': materialLedger, mix: mixCalc, 'jv-expenses': jvExpenses, 'jv-receipts': jvReceipts };
+export const MISC = { 'shipment-summary': shipmentSummary, 'customer-items': customerItems, 'cash-sales': cashSales, 'material-ledger': savedMaterialLedger, mix: mixCalc, 'jv-expenses': jvExpenses, 'jv-receipts': jvReceipts };

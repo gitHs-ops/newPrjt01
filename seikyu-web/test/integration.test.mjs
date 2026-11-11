@@ -301,6 +301,9 @@ test('workflow against PostgreSQL business tables', { skip, timeout: 900000 }, a
       // 年度の最初の仕入が同時に来ても番号は重複せず、P＋年度＋連番で振られる
       const pus = await Promise.all([1, 2, 3, 4].map(() => a.call('/api/purchases', { date: '2031-01-10', vendor: 'V' + tag, item: 'I' + tag, quantity: '1', unit: '1', price: 1000, taxCode: '10%' })));
       pus.forEach(ok); assert.deepEqual(pus.map(x => x.data.no).sort(), ['P203000001', 'P203000002', 'P203000003', 'P203000004']);
+      // 材料受払表は配合計算で保存した結果を出す（D-072。2026-11-12）。未実行の処理年月・締日は出さない
+      { const nr = await a.call('/api/reports/misc/material-ledger?closing=10&month=2031-07'); assert.equal(nr.status, 400); assert.match(nr.data.error, /配合計算が実行されていません/); }
+      ok(await a.call('/api/mix/save', { closing: '31', month: d.slice(0, 7) }));
       const ml = (await a.call('/api/reports/misc/material-ledger?closing=31&month=' + d.slice(0, 7))).data.items.find(x => x.item === 'I' + tag);
       assert.equal(ml.purchase.qty, 10); assert.equal(ml.purchase.value, 10000);
       // 金額のない在庫（実在庫登録のみ）は商品マスタの単価で評価（2026-11-02）
@@ -318,7 +321,7 @@ test('workflow against PostgreSQL business tables', { skip, timeout: 900000 }, a
       ok(await a.call('/api/masters/items', { mode: 'update', record: { ...mi, countFlag: true } }));
       assert.equal(await shown('2032-05-05'), true, 'フラグありは出す');
       assert.equal((await a.call('/api/masters/items')).data.find(x => x.code === 'M' + tag).countFlag, true);
-      const mm = async () => (await a.call('/api/reports/misc/material-ledger?month=' + c2.data.month)).data.items.find(x => x.item === 'M' + tag);
+      const mm = async () => { ok(await a.call('/api/mix/save', { month: c2.data.month })); return (await a.call('/api/reports/misc/material-ledger?month=' + c2.data.month)).data.items.find(x => x.item === 'M' + tag); };
       let mt = await mm(); assert.deepEqual([mt.prev.value, mt.end.value, mt.used.qty, mt.used.value, mt.price], [60000, 50000, 20, 10000, 500]);
       // 在庫登録リスト：コード・商品・製品名・在庫数量・単位だけ（評価は出さない。2026-11-03）
       const ir = (await a.call('/api/reports/misc/inventory-register?month=' + c1.data.month)).data;
@@ -377,7 +380,7 @@ test('workflow against PostgreSQL business tables', { skip, timeout: 900000 }, a
       assert.equal((await pool.query('SELECT COUNT(*)::int n FROM app_jv_alloc WHERE alloc_key=?', [cl.key]))[0][0].n, 1, '新キーで保存');
       await pool.query(`DELETE FROM sales_trn WHERE ${cashWhere}`, cashArgs);   // 後のテストの件数に影響させない
       for (const k of ['shipment-summary', 'customer-items', 'cash-sales', 'material-ledger', 'mix', 'jv-expenses', 'jv-receipts']) {
-        const x = await fetch(base + '/api/reports/misc/' + k + '?' + new URLSearchParams({ from: pm + '-01', to: d, month: d.slice(0, 7), format: 'xlsx' }), { headers: { cookie: a.cookie } });
+        const x = await fetch(base + '/api/reports/misc/' + k + '?' + new URLSearchParams({ from: pm + '-01', to: d, month: d.slice(0, 7), format: 'xlsx', ...(k === 'material-ledger' ? { closing: '31' } : {}) }), { headers: { cookie: a.cookie } });
         assert.equal(Buffer.from(await x.arrayBuffer()).subarray(0, 2).toString(), 'PK', k);
       }
       // 出資金請求明細表：現行と同じ見出し（2026-11-02）
@@ -400,7 +403,7 @@ test('workflow against PostgreSQL business tables', { skip, timeout: 900000 }, a
       for (const w of ['入金日', '入金科目', '入金先', '入金額', '配分額']) assert.ok(jvrx.includes(w), w);
       for (const w of ['＊配分する入金額＊', '＊配分しない入金額＊', '＊入金額　合計＊']) assert.ok(jvrx.includes(w), w);
       // 材料受払表：現行 HAR491 の様式（表題・2段見出し）
-      const mlx = Buffer.from(await (await fetch(base + '/api/reports/misc/material-ledger?' + new URLSearchParams({ month: d.slice(0, 7), format: 'xlsx' }), { headers: { cookie: a.cookie } })).arrayBuffer()).toString();
+      const mlx = Buffer.from(await (await fetch(base + '/api/reports/misc/material-ledger?' + new URLSearchParams({ month: d.slice(0, 7), closing: '31', format: 'xlsx' }), { headers: { cookie: a.cookie } })).arrayBuffer()).toString();
       for (const w of ['HAR491', '材　料　受　払　表', '期　首　残　高', '当　月　末　在　庫', '【合計】']) assert.ok(mlx.includes(w), w);
       // 売掛金残高一覧・未払残高一覧の Excel（2026-11-02）
       for (const [k, w] of [['ar', '売掛金残高一覧'], ['ap', '未払残高一覧']]) { const r = await fetch(base + `/api/reports/${k}?format=xlsx`, { headers: { cookie: a.cookie } }); assert.equal(r.status, 200, k); assert.ok(Buffer.from(await r.arrayBuffer()).toString().includes(w), w); }
