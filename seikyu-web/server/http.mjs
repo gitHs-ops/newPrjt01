@@ -100,6 +100,7 @@ export async function createApp({ pool, publicDir, secureCookies = process.env.N
   w('/api/tax-settings', (c, x, b) => M.saveTaxSettings(c, x, b));
   w('/api/masters/:kind', (c, x, b) => M.save(c, x, x.params.kind, b.record, b.mode === 'create' ? 'create' : 'update'));
   w('/api/masters/:kind/import', (c, x, b) => M.importCsv(c, x, x.params.kind, b.csv));
+  w('/api/jv-members/batch', (c, x, b) => M.saveJvBatch(c, x, b)); // 出資比率の一括登録（D-050。2026-11-12）
   w('/api/masters/:kind/delete', (c, x, b) => M.remove(c, x, x.params.kind, b.record), 'admin'); // マスタの削除は管理者だけ（2026-11-06）
   w('/api/shipments', (c, x, b) => S.saveShipment(c, x, b));
   w('/api/shipments/delete', (c, x, b) => S.deleteShipment(c, x, b));

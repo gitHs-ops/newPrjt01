@@ -341,22 +341,28 @@ test('workflow against PostgreSQL business tables', { skip, timeout: 900000 }, a
       ok(await a.call('/api/mix/save', { closing: '31', month: d.slice(0, 7), denki: '10', touyu: '20', seizou: '5.5', ippann: '4.5' }));
       assert.equal((await a.call('/api/reports/misc/mix?closing=31&month=' + d.slice(0, 7))).data.products.find(x => x.item === 'G' + tag).saved.total, 640);
       // JV members (deactivate leftovers first; this is a disposable test DB)
-      for (const m of (await a.call('/api/masters/jv')).data.filter(x => x.active)) ok(await a.call('/api/masters/jv', { mode: 'update', record: { ...m, active: false } }));
+      // D-050（2026-11-12）：合計 100% でなければ保存できないので、構成員はまとめて登録する（有効な構成員が 0 社の月度は JV なしとして可）
+      const jvb = (start, rows) => a.call('/api/jv-members/batch', { start, rows });
+      { const left = (await a.call('/api/masters/jv')).data.filter(x => x.active); for (const st of [...new Set(left.map(x => x.start))]) ok(await jvb(st, left.filter(x => x.start === st).map(x => ({ code: x.code, ratio: '', active: false })))); }
       assert.equal((await a.call('/api/reports/misc/jv-expenses?' + span)).status, 400, 'no members');
       assert.equal((await a.call('/api/reports/misc/petty-book?' + span)).status, 400, '⑪ も構成員なしはエラー（列を黙って消さない。2026-11-04）');
       // 構成員＝業者マスタ（HMW110）
-      for (const [k, r] of [['A', '47.5'], ['B', '47.5'], ['C', '5']]) { ok(await a.call('/api/masters/vendors', { mode: 'create', record: { code: 'J' + k + tag, name: 'JV' + k, active: true } })); ok(await a.call('/api/masters/jv', { mode: 'create', record: { code: 'J' + k + tag, name: 'JV' + k, ratio: r, seq: k.charCodeAt(0), active: true } })); }
+      for (const k of ['A', 'B', 'C']) ok(await a.call('/api/masters/vendors', { mode: 'create', record: { code: 'J' + k + tag, name: 'JV' + k, active: true } }));
+      { const bad = await a.call('/api/masters/jv', { mode: 'create', record: { code: 'JA' + tag, name: 'JVA', ratio: '47.5', seq: 65, active: true } }); assert.equal(bad.status, 400, '1 社だけ（47.5%）は保存できない'); assert.match(bad.data.error, /合計が 47\.50% です/); }
+      { const bad = await jvb('', [['A', '47.5'], ['B', '47.5'], ['C', '6']].map(([k, r]) => ({ code: 'J' + k + tag, name: 'JV' + k, ratio: r, seq: k.charCodeAt(0), active: true }))); assert.equal(bad.status, 400, '合計 101% は保存できない'); assert.match(bad.data.error, /101\.00%/); }
+      assert.equal((await a.call('/api/masters/jv')).data.filter(x => x.code.endsWith(tag)).length, 0, 'エラーのときは 1 件も保存しない');
+      ok(await jvb('', [['A', '47.5'], ['B', '47.5'], ['C', '5']].map(([k, r]) => ({ code: 'J' + k + tag, name: 'JV' + k, ratio: r, seq: k.charCodeAt(0), active: true }))));
+      { const m = (await a.call('/api/masters/jv')).data.find(x => x.code === 'JA' + tag); const bad = await a.call('/api/masters/jv', { mode: 'update', record: { ...m, ratio: '50' } }); assert.equal(bad.status, 400, '1 行だけ変えて 102.5% は保存できない'); assert.match(bad.data.error, /一括登録/); }
       const je = (await a.call('/api/reports/misc/jv-expenses?' + span)).data;
       const row = je.accounts.flatMap(x => x.rows).find(r => r.gross === 50000 && r.vendor === '試験業者');
       assert.deepEqual(row.parts, [23750, 23750, 2500]); assert.equal(row.tax, 4545);
       assert.equal(row.rate, '10%', '⑫ の税率は処税率コードでなく 10%（現行 HJR011。2026-11-04）');
       // 適用開始月度（履歴）：先の月度の変更は今の帳票に効かない。月度ごとに合計100%を確認
-      ok(await a.call('/api/masters/jv', { mode: 'create', record: { code: 'JA' + tag, start: '2099-01', ratio: '50', seq: 65, active: true } }));
+      assert.equal((await jvb('2099-01', [{ code: 'JA' + tag, ratio: '50', active: true }])).status, 400, '2099-01 の月度が 102.5% になる登録はできない');
       assert.deepEqual((await a.call('/api/reports/misc/jv-expenses?' + span)).data.accounts.flatMap(x => x.rows).find(r => r.gross === 50000 && r.vendor === '試験業者').parts, [23750, 23750, 2500]);
       const fut = 'from=2099-01-01&to=2099-01-20';
-      assert.equal((await a.call('/api/reports/misc/jv-expenses?' + fut)).status, 400, 'sum 102.5%');
-      ok(await a.call('/api/masters/jv', { mode: 'create', record: { code: 'JB' + tag, start: '2099-01', ratio: '50', seq: 66, active: true } }));
-      ok(await a.call('/api/masters/jv', { mode: 'create', record: { code: 'JC' + tag, start: '2099-01', ratio: '', seq: 67, active: false } }));
+      assert.deepEqual((await a.call('/api/reports/misc/jv-expenses?' + fut)).data.members.map(m => m.ratio), [47.5, 47.5, 5], '登録できなかったので 2099-01 も最初の比率');
+      ok(await jvb('2099-01', [{ code: 'JA' + tag, ratio: '50', active: true }, { code: 'JB' + tag, ratio: '50', active: true }, { code: 'JC' + tag, ratio: '', active: false }]));
       assert.deepEqual((await a.call('/api/reports/misc/jv-expenses?' + fut)).data.members.map(m => m.ratio), [50, 50]);
       const jr = (await a.call('/api/reports/misc/jv-receipts?' + span)).data;
       for (const l of jr.lines) assert.equal(l.parts.reduce((x, y) => x + y, 0), l.amount);

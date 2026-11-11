@@ -2222,6 +2222,8 @@ VIEWS.masters = async q => {
   // 一覧はページ分け（2026-11-06 ユーザー指示：得意先など件数が多いと表の下の横スクロールバーが見えない）。ナビゲーションは表の上
   const { shown, html: pagerHtml } = pageNav(list, q.page);
   A.mpage = d => go('masters', { ...q, kind, page: d.page });
+  A.jvBatch = () => jvBatchForm();
+  const jvCard = kind === 'jv' && canWrite() ? '<section class="card glass"><p class="small">月度ごとに有効な構成員の出資比率の合計は 100% にします（合計が 100% でなければ保存できません）。比率を変える・構成員が増減するときは、同じ月度の構成員をまとめて登録します。</p><p style="margin-top:8px"><button class="primary" data-act="jvBatch">出資比率の一括登録</button></p></section>' : '';
   A.import = () => modal({ title: `${m.label} CSV取込`, submit: '取込む', body: `<p class="small">1行目は列名（${m.fields.map(f => f.label).join('、')}）です。<b>1件でもエラーがあれば全件取消</b>します。既存コードは更新、新規コードは登録します。</p>
       <input type="file" name="file" accept=".csv,text/csv" required><p class="muted small"><a href="/api/export/master-${kind}" download>現在のデータをCSVで出力</a></p>`,
     onSubmit: async (v, f) => { const file = f.file.files[0]; if (!file) throw Error('ファイルを選択してください'); const buf = await file.arrayBuffer();
@@ -2231,7 +2233,7 @@ VIEWS.masters = async q => {
   // 「編集」は行の先頭（2026-11-06 ユーザー指示：項目が多く右端だと横スクロールしないと見えない）
   const show = f => r => r[f.name] === null || r[f.name] === undefined || (r[f.name] === '' && f.type !== 'bool') ? '' : f.type === 'bool' ? (r[f.name] ? '○' : '') : f.type === 'ref' ? `${r[f.name]} ${nameOf(f.ref, r[f.name])}` : f.type === 'select' ? (f.options.find(o => o[0] === String(r[f.name]))?.[1] || r[f.name]) : f.type === 'int' ? yen(r[f.name]) : f.type === 'dec' ? Number(r[f.name]).toLocaleString('ja-JP', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : r[f.name];
   return page('マスタ管理', `${Object.keys(meta.masters).length}種類のマスタを業務テーブルで直接管理します。登録後のコード・所属は変更できません（新規登録して旧マスタを無効化）。使われていないコードは編集画面から削除できます。`, `${months.length ? `<select id="m-month" name="month" data-filter><option value="">全年月</option>${months.map(x => `<option ${x === q.month ? 'selected' : ''}>${x}</option>`).join('')}</select>` : ''}<input id="m-search" placeholder="コード・名称などで検索" value="${esc(q.search || '')}" style="width:220px">${hasActive ? `<label class="small"><input type="checkbox" id="m-active" ${q.active === '1' ? 'checked' : ''}> 有効のみ</label>` : ''}<button class="primary" data-act="search">検索</button>${csvLink('master-' + kind)}${canWrite() && !m.readOnly ? '<button data-act="import">⇧ CSV取込</button><button class="primary" data-act="new">＋ 新規登録</button>' : ''}`,
-    `${tsCard}<section class="card glass master-list">${term ? `<p class="muted small">「${esc(q.search)}」の検索結果 ${list.length} / ${all.length} 件</p>` : ''}${pagerHtml}${table([...(canWrite() && !m.readOnly ? [{ label: '', html: r => `<button class="mini" data-act="edit" data-key="${esc(r.key)}">編集</button>` }] : []), ...m.fields.filter(f => f.name !== 'active').map(f => ({ label: f.label, num: f.type === 'int' || f.type === 'dec', value: show(f) })), { label: '状態', html: r => r.active ? badge('有効', 'green') : badge('無効', 'gray') }], shown, { rowClass: r => r.active ? '' : 'muted' })}</section>`);
+    `${tsCard}${jvCard}<section class="card glass master-list">${term ? `<p class="muted small">「${esc(q.search)}」の検索結果 ${list.length} / ${all.length} 件</p>` : ''}${pagerHtml}${table([...(canWrite() && !m.readOnly ? [{ label: '', html: r => `<button class="mini" data-act="edit" data-key="${esc(r.key)}">編集</button>` }] : []), ...m.fields.filter(f => f.name !== 'active').map(f => ({ label: f.label, num: f.type === 'int' || f.type === 'dec', value: show(f) })), { label: '状態', html: r => r.active ? badge('有効', 'green') : badge('無効', 'gray') }], shown, { rowClass: r => r.active ? '' : 'muted' })}</section>`);
 };
 // 新規でも最初から入っている値（現場2 で選んだ得意先）は無効のマスタでも選択肢に残す（2026-11-06）
 function masterInput(f, r, isNew) {
@@ -2249,7 +2251,7 @@ function masterInput(f, r, isNew) {
   return field(f.label, input, { req: !f.optional, hint: f.hint, wide: f.wide });
 }
 // JV構成員・出資比率（2026-11-05 ユーザー指示、11/04 打合せ No.16）：編集中の値で「有効な構成員の出資比率の合計」を月度ごとに計算し、100% でなければ画面に赤字で出す。
-// 保存はエラー（比率の入れ替えは 1 行ずつしか直せないため「合計が100%でなくても保存する」にチェックすれば保存できる）。帳票の出力時も合計100%を確認する
+// 合計が 100% でなければ保存できない（D-050。2026-11-12 から「合計が100%でなくても保存する」は無し）。比率の変更は［出資比率の一括登録］で同じ月度の構成員をまとめて登録する。帳票の出力時も合計100%を確認する
 function jvSumCheck(f, r) {
   let box = $('#jv-sum');
   if (!box) { $('#modal-body').insertAdjacentHTML('beforeend', '<div id="jv-sum" style="margin-top:10px"></div>'); box = $('#jv-sum'); ['ratio', 'start', 'active', 'code'].forEach(n => f[n]?.addEventListener(n === 'active' ? 'change' : 'input', () => jvSumCheck(f, r))); f.code?.addEventListener('change', () => jvSumCheck(f, r)); }
@@ -2259,8 +2261,31 @@ function jvSumCheck(f, r) {
   const months = [...new Set([start, ...rows.map(x => x.start || '').filter(m => m >= start)])].sort();
   let bad = '';
   for (const m of months) { const sum = Math.round(asOf(m).reduce((n, x) => n + Number(x.ratio || 0) * 100, 0)); if (sum !== 10000) { bad = `${m || '最初'}の月度：有効な構成員の出資比率の合計が ${(sum / 100).toFixed(2)}% です（100% にしてください）`; break; } }
-  box.innerHTML = bad ? `<p class="check-ng small">${esc(bad)}</p><label class="small"><input type="checkbox" name="jvForce"> 合計が100%でなくても保存する（他の構成員を続けて修正する）</label>` : '<p class="check-ok small">有効な構成員の出資比率の合計は 100% です</p>';
+  box.innerHTML = bad ? `<p class="check-ng small">${esc(bad)}。比率を変えるときは［出資比率の一括登録］で同じ月度の構成員をまとめて登録してください</p>` : '<p class="check-ok small">有効な構成員の出資比率の合計は 100% です</p>';
   return bad;
+}
+// 出資比率の一括登録（D-050。2026-11-12）：適用開始月度を選ぶとその月度で有効な比率を入れておき、構成員をまとめて登録する。合計が 100% でなければ登録できない
+function jvBatchForm() {
+  const all = masters.jv || [], codes = [...new Set(all.map(x => x.code))], nm = cd => all.find(x => x.code === cd)?.name || nameOf('vendors', cd);
+  const asOf = (cd, m) => all.filter(x => x.code === cd && (x.start || '') <= m).sort((a, b) => (a.start || '').localeCompare(b.start || '')).pop();
+  const rowsHtml = codes.map(cd => `<tr><td>${esc(cd)} ${esc(nm(cd))}</td><td><input name="r_${esc(cd)}" class="num jvb" style="width:90px"></td><td><label><input type="checkbox" name="a_${esc(cd)}" class="jvb"> 有効</label></td></tr>`).join('');
+  modal({ title: '出資比率の一括登録', submit: '登録する', body: `<div class="form-grid">${field('適用開始月度', `<input type="month" name="start" value="${thisMonth()}">`, { hint: '空欄＝最初から' })}</div>
+      <table class="small" style="margin-top:10px"><thead><tr><th>構成員</th><th>出資比率(%)</th><th>有効</th></tr></thead><tbody>${rowsHtml}
+      <tr><td><input name="newCode" list="dl-jvb-vendors" autocomplete="off" placeholder="追加する構成員（業者コード）" style="width:200px" class="jvb"></td><td><input name="newRatio" class="num jvb" style="width:90px"></td><td class="muted">追加</td></tr></tbody></table>
+      <datalist id="dl-jvb-vendors">${active('vendors').map(x => `<option value="${esc(x.code)}">${esc(x.name)}</option>`).join('')}</datalist><p id="jvb-sum" class="small" style="margin-top:8px"></p>`,
+    onOpen: f => {
+      const sum = () => { const n = Math.round(codes.reduce((t, cd) => t + (f['a_' + cd].checked ? Number(f['r_' + cd].value || 0) * 100 : 0), 0) + (f.newCode.value.trim() ? Number(f.newRatio.value || 0) * 100 : 0));
+        $('#jvb-sum').innerHTML = n === 10000 ? '<span class="check-ok">有効な構成員の合計は 100% です</span>' : `<span class="check-ng">有効な構成員の合計が ${(n / 100).toFixed(2)}% です（100% にしてください）</span>`; return n; };
+      const fill = () => { for (const cd of codes) { const x = asOf(cd, f.start.value || ''); f['r_' + cd].value = x ? x.ratio : ''; f['a_' + cd].checked = !!x?.active; } sum(); };
+      f.start.addEventListener('change', fill); f.addEventListener('input', e => { if (e.target.classList.contains('jvb')) sum(); }); f.addEventListener('change', e => { if (e.target.classList.contains('jvb')) sum(); });
+      f._jvSum = sum; fill();
+    },
+    onSubmit: async (v, f) => {
+      const n = f._jvSum(); if (n !== 10000) throw Error(`有効な構成員の出資比率の合計が ${(n / 100).toFixed(2)}% です。100% にしてください`);
+      const start = v.start || '', rows = codes.filter(cd => f['a_' + cd].checked || asOf(cd, start)?.active).map(cd => ({ code: cd, ratio: f['a_' + cd].checked ? v['r_' + cd] : '', active: f['a_' + cd].checked, seq: asOf(cd, start)?.seq ?? all.find(x => x.code === cd)?.seq ?? 0 }));
+      if (v.newCode.trim()) rows.push({ code: v.newCode.trim(), ratio: v.newRatio, active: true, seq: Math.max(0, ...all.map(x => x.seq || 0)) + 1 });
+      await post('/api/jv-members/batch', { start, rows }); toast(`出資比率を登録しました（${start || '最初'}の月度・${rows.length}社）`); await loadMasters(); render();
+    } });
 }
 // init：新規登録で最初から入れておく値（現場2 の得意先。2026-11-06）
 function masterForm(kind, r, init) {
@@ -2275,7 +2300,7 @@ function masterForm(kind, r, init) {
         $('#m-del').onclick = () => confirmBox(`${m.label}の削除`, `「${r.key.split('|').filter(Boolean).join('-')}」を削除します。元に戻せません。`, async () => { await post(`/api/masters/${kind}/delete`, { record: r }); toast('削除しました'); await loadMasters(); render(); }, '削除する'); }
     },
     onSubmit: async (v, f) => {
-      if (kind === 'jv') { const bad = jvSumCheck(f, r); if (bad && !f.jvForce?.checked) throw Error(`${bad}。他の構成員も続けて修正する場合は「合計が100%でなくても保存する」にチェックしてください`); }
+      if (kind === 'jv') { const bad = jvSumCheck(f, r); if (bad) throw Error(`${bad}。比率を変えるときは［出資比率の一括登録］で同じ月度の構成員をまとめて登録してください`); }
       const rec = { ...(r || {}), ...v }; for (const x of m.fields) if (x.type === 'bool') rec[x.name] = f[x.name].checked;
       await post('/api/masters/' + kind, { mode: r ? 'update' : 'create', record: rec }); toast(r ? '更新しました' : '登録しました'); await loadMasters(); render();
     } });

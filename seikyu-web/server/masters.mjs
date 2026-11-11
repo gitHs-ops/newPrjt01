@@ -467,7 +467,27 @@ async function current(c, cfg, key) {
   return r ? withVersion(cfg, r) : null;
 }
 // mode: 'create' requires the key to be absent; 'update' requires a matching version.
-export async function save(c, ctx, kind, input, mode) {
+// D-050：月度ごとに有効な構成員の出資比率の合計は 100%（有効な構成員が 1 社も無い月度は JV なしとして可）。保存・削除・取込の後に全月度を確認し、違えばエラー（トランザクションごと取消。2026-11-12）
+export async function jvSumError(c) {
+  const all = await rows(c, 'SELECT code, start_month, ratio, active FROM app_jv_member');
+  for (const m of [...new Set(all.map(x => x.start_month || ''))].sort()) {
+    const act = jvAsOf(all, m).filter(x => x.active), sum = act.reduce((n, x) => n + Number(x.ratio || 0), 0);
+    if (act.length && sum !== 10000) return `${m || '最初'}の月度：有効な構成員の出資比率の合計が ${(sum / 100).toFixed(2)}% です（100% にしてください）`;
+  }
+  return '';
+}
+// 出資比率の一括登録：適用開始月度（start）の構成員をまとめて登録・更新し、最後に合計 100% を確認する
+export async function saveJvBatch(c, ctx, b) {
+  const start = String(b?.start ?? '').trim(), list = Array.isArray(b?.rows) ? b.rows : [];
+  check(list.length, '構成員を入力してください');
+  for (const x of list) {
+    const code = String(x.code ?? '').trim(), old = await current(c, MASTERS.jv, [code, start]);
+    await save(c, ctx, 'jv', { ...(old || {}), code, start, ratio: x.ratio, active: x.active, name: old?.name || x.name || '', seq: old?.seq ?? x.seq ?? 0, version: old?.version }, old ? 'update' : 'create', { batch: true });
+  }
+  const bad = await jvSumError(c); check(!bad, bad);
+  return { saved: list.length };
+}
+export async function save(c, ctx, kind, input, mode, opts = {}) {
   const cfg = MASTERS[kind]; check(cfg, 'マスタ種別が不正です'); check(!cfg.readOnly, `${cfg.label}は登録・変更できません`);
   const r = cfg.validate(input || {}), key = cfg.keyOf(r);
   const old = await current(c, cfg, key);
@@ -478,6 +498,7 @@ export async function save(c, ctx, kind, input, mode) {
     if (old.version !== input.version) throw new Conflict('他の利用者が更新しました。再読込してからやり直してください');
   }
   await cfg.write(c, r, old);
+  if (kind === 'jv' && !opts.batch) { const bad = await jvSumError(c); check(!bad, bad + '。比率を変えるときは［出資比率の一括登録］で同じ月度の構成員をまとめて登録してください'); }
   const after = await current(c, cfg, key);
   await audit(c, ctx, cfg.table, key.join('|'), mode === 'create' ? 'master.create' : 'master.update', { kind, key: key.join('|'), fields: Object.keys(r).filter(k => !['account', 'holder'].includes(k) || kind !== 'vendors') });
   return after;
@@ -543,6 +564,7 @@ export async function remove(c, ctx, kind, input) {
   if (kind === 'taxRates') check(!used.length, '消費税率は最低1件必要です');
   check(!used.length, `${cfg.label}「${key.filter(v => v !== '').join('-')}」は ${used.join('・')} で使われているため削除できません。「有効」を外して無効にしてください（現行と同じ論理削除）`);
   for (const sql of rm.del) await c.query(sql, argsFor(sql, key));
+  if (kind === 'jv') { const bad = await jvSumError(c); check(!bad, bad + '。比率を変えるときは［出資比率の一括登録］で同じ月度の構成員をまとめて登録してください'); }
   await audit(c, ctx, cfg.table, key.join('|'), 'master.delete', { kind, key: key.join('|') });
   return { kind, key: key.join('|') };
 }
@@ -557,9 +579,10 @@ export async function importCsv(c, ctx, kind, csvText) {
     const rec = {}; fields.forEach((f, j) => { if (f) rec[f] = table[i][j] ?? ''; });
     try {
       const v = cfg.validate(rec), old = await current(c, cfg, cfg.keyOf(v));
-      await save(c, ctx, kind, { ...rec, version: old?.version }, old ? 'update' : 'create'); old ? updated++ : created++;
+      await save(c, ctx, kind, { ...rec, version: old?.version }, old ? 'update' : 'create', { batch: true }); old ? updated++ : created++;
     } catch (e) { const d = mapSqlError(e) || e; d.message = `${i + 1}行目: ${d.message}`; throw d; }
   }
+  if (kind === 'jv') { const bad = await jvSumError(c); check(!bad, bad + '（取込は全件取消）'); }
   return { created, updated };
 }
 export function exportRows(cfg, list) { return [cfg.fields.map(f => f.name), ...list.map(r => cfg.fields.map(f => f.type === 'bool' ? (r[f.name] ? '1' : '0') : r[f.name]))]; }
