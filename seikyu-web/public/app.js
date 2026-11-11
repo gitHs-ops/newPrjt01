@@ -2277,8 +2277,12 @@ function jvBatchForm() {
       const sum = () => { const n = Math.round(codes.reduce((t, cd) => t + (f['a_' + cd].checked ? Number(f['r_' + cd].value || 0) * 100 : 0), 0) + (f.newCode.value.trim() ? Number(f.newRatio.value || 0) * 100 : 0));
         $('#jvb-sum').innerHTML = n === 10000 ? '<span class="check-ok">有効な構成員の合計は 100% です</span>' : `<span class="check-ng">有効な構成員の合計が ${(n / 100).toFixed(2)}% です（100% にしてください）</span>`; return n; };
       const fill = () => { for (const cd of codes) { const x = asOf(cd, f.start.value || ''); f['r_' + cd].value = x ? x.ratio : ''; f['a_' + cd].checked = !!x?.active; } sum(); };
-      f.start.addEventListener('change', fill); f.addEventListener('input', e => { if (e.target.classList.contains('jvb')) sum(); }); f.addEventListener('change', e => { if (e.target.classList.contains('jvb')) sum(); });
-      f._jvSum = sum; fill();
+      // ［この月度の登録を削除］：選んだ適用開始月度に登録した行をまとめて削除（管理者だけ。1 行ずつは合計 100% にならず削除できないため）
+      const del = () => { const st = f.start.value || '', b = $('#jvb-del'); if (b) b.hidden = !(st && all.some(x => (x.start || '') === st)); };
+      if (isAdmin()) { $('#modal-foot').insertAdjacentHTML('afterbegin', '<button type="button" class="danger" id="jvb-del" style="margin-right:auto">この月度の登録を削除</button>');
+        $('#jvb-del').onclick = () => { const st = f.start.value; confirmBox('出資比率の削除', `適用開始月度 ${st} に登録した構成員・出資比率（${all.filter(x => (x.start || '') === st).length}件）を削除します。元に戻せません。`, async () => { await post('/api/jv-members/delete-month', { start: st }); toast(`${st} の月度の出資比率を削除しました`); await loadMasters(); render(); }, '削除する'); }; }
+      f.start.addEventListener('change', () => { fill(); del(); }); f.addEventListener('input', e => { if (e.target.classList.contains('jvb')) sum(); }); f.addEventListener('change', e => { if (e.target.classList.contains('jvb')) sum(); });
+      f._jvSum = sum; fill(); del();
     },
     onSubmit: async (v, f) => {
       const n = f._jvSum(); if (n !== 10000) throw Error(`有効な構成員の出資比率の合計が ${(n / 100).toFixed(2)}% です。100% にしてください`);

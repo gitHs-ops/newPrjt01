@@ -487,6 +487,16 @@ export async function saveJvBatch(c, ctx, b) {
   const bad = await jvSumError(c); check(!bad, bad);
   return { saved: list.length };
 }
+// 適用開始月度の行をまとめて削除（最初の月度＝空欄は消さない）。削除後も合計 100% を確認する
+export async function deleteJvMonth(c, ctx, b) {
+  const start = String(b?.start ?? '').trim();
+  check(/^\d{4}-(0[1-9]|1[0-2])$/.test(start), '削除する適用開始月度を YYYY-MM で指定してください（最初の月度は削除できません）');
+  const n = (await rows(c, 'SELECT code FROM app_jv_member WHERE start_month=?', [start])).length; check(n, `${start} の月度の登録はありません`);
+  await c.query('DELETE FROM app_jv_member WHERE start_month=?', [start]);
+  const bad = await jvSumError(c); check(!bad, bad);
+  await audit(c, ctx, 'app_jv_member', start, 'master.delete', { kind: 'jv', start, rows: n });
+  return { deleted: n };
+}
 export async function save(c, ctx, kind, input, mode, opts = {}) {
   const cfg = MASTERS[kind]; check(cfg, 'マスタ種別が不正です'); check(!cfg.readOnly, `${cfg.label}は登録・変更できません`);
   const r = cfg.validate(input || {}), key = cfg.keyOf(r);

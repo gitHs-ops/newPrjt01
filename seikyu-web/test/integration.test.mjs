@@ -363,6 +363,9 @@ test('workflow against PostgreSQL business tables', { skip, timeout: 900000 }, a
       const fut = 'from=2099-01-01&to=2099-01-20';
       assert.deepEqual((await a.call('/api/reports/misc/jv-expenses?' + fut)).data.members.map(m => m.ratio), [47.5, 47.5, 5], '登録できなかったので 2099-01 も最初の比率');
       ok(await jvb('2099-01', [{ code: 'JA' + tag, ratio: '50', active: true }, { code: 'JB' + tag, ratio: '50', active: true }, { code: 'JC' + tag, ratio: '', active: false }]));
+      { const one = (await a.call('/api/masters/jv')).data.find(x => x.code === 'JA' + tag && x.start === '2099-01'); assert.equal((await a.call('/api/masters/jv/delete', { record: one })).status, 400, '1 行だけの削除は 102.5% になるので不可'); }
+      ok(await a.call('/api/jv-members/delete-month', { start: '2099-01' })); assert.equal((await a.call('/api/masters/jv')).data.filter(x => x.start === '2099-01').length, 0, '月度ごと削除');
+      ok(await jvb('2099-01', [{ code: 'JA' + tag, ratio: '50', active: true }, { code: 'JB' + tag, ratio: '50', active: true }, { code: 'JC' + tag, ratio: '', active: false }]));
       assert.deepEqual((await a.call('/api/reports/misc/jv-expenses?' + fut)).data.members.map(m => m.ratio), [50, 50]);
       const jr = (await a.call('/api/reports/misc/jv-receipts?' + span)).data;
       for (const l of jr.lines) assert.equal(l.parts.reduce((x, y) => x + y, 0), l.amount);
