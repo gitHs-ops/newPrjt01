@@ -973,17 +973,19 @@ function legacyInvoice(s) {
       ${s.buckets.map(b => `<tr class="lg-rate"><td colspan="6"></td><td class="num">${yen(b.net)}</td><td>${b.rate}%</td></tr><tr class="lg-rate"><td colspan="6"></td><td class="num">${yen(b.tax)}</td><td>税</td></tr>`).join('')}</table>
     </section>`;
 }
-// 2026-11-04 請求書は請求現場（明細の現場CD・枝番）ごとに1枚（現行 帳票③④⑤）。納入先（明細の現場名）は備考に出すだけ。工事名は請求現場の名称（現場マスタ。s.siteNames）。
+// 2026-11-04 請求書は請求現場（明細の現場CD・枝番）ごとに1枚（現行 帳票③④⑤）。現場CD の無い明細は現場名ごとに1枚（2026-11-12）。納入先（明細の現場名）は備考に出すだけ。工事名は請求現場の名称（現場マスタ。s.siteNames）。
 // 一部の納入先だけを発行した回（現場別発行）は、その納入先の明細・金額だけ。消費税は splitBySite と同じ按分（納入先ごと）を請求現場ごとに足す。want＝納入先の名前（無ければ全部）
 const invoicePages = (s, want) => {
   const parts = splitBySite(s), mine = want ? parts.filter(p => want.includes(siteLabel(p.siteName))) : parts, g = new Map();
-  for (const p of mine) { const k = p.lines[0]?.site || '|'; if (!g.has(k)) g.set(k, []); g.get(k).push(p); }
-  const keys = [...g.keys()].sort((a, b) => (a === '|' ? -1 : b === '|' ? 1 : a < b ? -1 : a > b ? 1 : 0)), whole = keys.length === 1 && mine.length === parts.length;
+  // 現場CD の無い明細は現場名（納入先）ごとに 1 枚（請求一覧照会と同じ単位。2026-11-12 テスト指摘 STEP⑥ 得意先 1057）。コード無しの現場が先、出てきた順
+  const keyOf = p => { const st = p.lines[0]?.site || ''; return st && st !== '|' ? st : '|' + siteLabel(p.siteName); }, noCode = k => k.startsWith('|');
+  for (const p of mine) { const k = keyOf(p); if (!g.has(k)) g.set(k, []); g.get(k).push(p); }
+  const keys = [...g.keys()].sort((a, b) => (noCode(a) || noCode(b) ? noCode(b) - noCode(a) : a < b ? -1 : a > b ? 1 : 0)), whole = keys.length === 1 && mine.length === parts.length;
   return keys.map((k, i) => {
     const ps = g.get(k), buckets = []; for (const p of ps) for (const b of p.buckets) { const x = buckets.find(y => y.rate === b.rate); if (x) { x.net += b.net; x.tax += b.tax; } else buckets.push({ ...b }); }
     const net = whole ? s.net : ps.reduce((n, p) => n + p.net, 0), tax = whole ? s.tax : ps.reduce((n, p) => n + p.tax, 0), total = net + tax, keep = new Set(ps.flatMap(p => p.lines));
     const no = Math.max(...ps.map(p => p.siteIssueNo?.[siteLabel(p.siteName)] ?? p.issueNo ?? 0));
-    return { ...s, lines: s.lines.filter(l => keep.has(l)), buckets: whole ? s.buckets : buckets, net, tax, total, discount: 0, prevBalance: 0, received: 0, carried: 0, grandTotal: total, siteName: s.siteNames?.[k] || '', page: i + 1, pages: keys.length, pageIssueNo: no || undefined };
+    return { ...s, lines: s.lines.filter(l => keep.has(l)), buckets: whole ? s.buckets : buckets, net, tax, total, discount: 0, prevBalance: 0, received: 0, carried: 0, grandTotal: total, siteName: noCode(k) ? (g.get(k)[0].siteName === '（現場なし）' ? '' : g.get(k)[0].siteName) : s.siteNames?.[k] || '', page: i + 1, pages: keys.length, pageIssueNo: no || undefined };
   });
 };
 // site：請求一覧照会の現場の行から控えを出すとき、その現場の明細だけの1枚
