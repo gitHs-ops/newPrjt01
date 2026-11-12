@@ -3,6 +3,9 @@
 import { check, isoDate, fromNum, today } from './domain.mjs';
 import { rows, invoiceNos } from './db.mjs';
 import { xlsx, band } from './xlsx.mjs';
+import { normalize } from './taxcode.mjs';
+// 処税率は 3 桁で出す（自動仕訳の「9」は対象外 090。2026-11-12 結合テスト IT-05）
+const taxOut = v => normalize(v) || String(v || '');
 
 export const LISTS = {
   A01: { title: '売掛金計上自動仕訳リスト', ref: 'NO8 / 帳票⑦（HAR363）', prefix: 'R', source: 'billing_head' },
@@ -75,19 +78,19 @@ export async function journalList(c, q) {
         if (l.side === 'C' && l.account_code === '1131') { const cl = s.closings?.[creditNo++] || ''; memo2 = cl ? `${cl.slice(2, 4)}/${cl.slice(5, 7)}/${cl.slice(8, 10)}` : ''; }
       }
       // 在庫計上（C01）：現行 HAR463 と同じく 摘要1＝前月末在庫／当月末在庫（商品は 1360 の内訳1）。2026-10-28 摘要1＝商品・摘要2＝前月末在庫 から変更
-      if (e.pattern_code === 'C01') return { ...link, dept: l.department_code || '', account: l.account_code, accountName: l.account_name || '', sub, subName, sub2: '', tax: l.source_tax_code || '', amount: Number(l.amount),
+      if (e.pattern_code === 'C01') return { ...link, dept: l.department_code || '', account: l.account_code, accountName: l.account_name || '', sub, subName, sub2: '', tax: taxOut(l.source_tax_code), amount: Number(l.amount),
         memo1Code: '', memo1: (l.side === 'D' ? l.account_code === '82316' : l.account_code === '1360') ? '前月末在庫' : '当月末在庫', memo2: '' };
       // 定時請求（D01）は現行 HAR152：摘要1 は借方だけ（業者）、摘要2＝明細の摘要（無ければ伝票の摘要）。貸方の摘要2 は下で借方と同じにする（2026-11-04）
       if (e.pattern_code === 'D01' && s.lines) {
         const x = l.side === 'D' ? s.lines.filter(y => Number(y.gross_amount) > 0)[debitNo++] : null;
-        return { ...link, dept: l.department_code || '', account: l.account_code, accountName: l.account_name || '', sub, subName, sub2: '', tax: l.source_tax_code || '', amount: Number(l.amount),
+        return { ...link, dept: l.department_code || '', account: l.account_code, accountName: l.account_name || '', sub, subName, sub2: '', tax: taxOut(l.source_tax_code), amount: Number(l.amount),
           memo1Code: l.side === 'D' ? partner?.code || '' : '', memo1: l.side === 'D' ? partner?.name || '' : '', memo2: x?.memo || memo2 };
       }
       if (e.pattern_code === 'E01' && l.side === 'D' && s.lines) {
         const x = s.lines.filter(y => Number(y.gross_amount) > 0)[debitNo++];
-        if (x && (x.vendor_code || x.payee)) return { ...link, dept: l.department_code || '', account: l.account_code, accountName: l.account_name || '', sub, subName, sub2: '', tax: l.source_tax_code || '', amount: Number(l.amount), memo1Code: x.vendor_code || '', memo1: x.vendor_name || x.payee, memo2: x.memo || memo2 };
+        if (x && (x.vendor_code || x.payee)) return { ...link, dept: l.department_code || '', account: l.account_code, accountName: l.account_name || '', sub, subName, sub2: '', tax: taxOut(l.source_tax_code), amount: Number(l.amount), memo1Code: x.vendor_code || '', memo1: x.vendor_name || x.payee, memo2: x.memo || memo2 };
       }
-      return { ...link, dept: l.department_code || '', account: l.account_code, accountName: l.account_name || '', sub, subName, sub2: '', tax: l.source_tax_code || '', amount: Number(l.amount),
+      return { ...link, dept: l.department_code || '', account: l.account_code, accountName: l.account_name || '', sub, subName, sub2: '', tax: taxOut(l.source_tax_code), amount: Number(l.amount),
         memo1Code: partner?.code || '', memo1: partner?.name || '', memo2 };
     };
     const dr = lines.filter(l => l.side === 'D'), cr = lines.filter(l => l.side === 'C'), pairs = [];

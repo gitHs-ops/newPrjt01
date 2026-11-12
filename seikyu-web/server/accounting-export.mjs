@@ -71,3 +71,23 @@ export async function accountingExport(c, ctx, q) {
   await audit(c, ctx, 'journal_entry', `${from}..${to}`, 'accounting.export', { format, slips: slips.length });
   return { file };
 }
+
+// マスタの会計システム（勘定奉行）形式の出力（D-059・D-060。2026-11-12 結合テスト IT-13）：取引先（得意先・業者）・部門・勘定科目・補助科目（内訳科目＝銀行・内訳）。
+// 取引先コードは取引先コード変換表で会計の取引先コードに置き換える（変換表に無いカナ付きコードがあると出力しない。仕訳の勘定奉行CSVと同じ）。有効なものだけ。文字コードは勘定奉行連携の設定
+export const BUGYO_MASTERS = { partners: '取引先', depts: '部門', accounts: '勘定科目', subaccounts: '補助科目' };
+export async function accountingMasters(c, ctx, q) {
+  const kind = String(q.kind || ''); check(BUGYO_MASTERS[kind], '出力するマスタが不正です');
+  let out;
+  if (kind === 'partners') {
+    const conv = new Map((await dbRows(c, "SELECT code_dtl, code_dtl_nam FROM code_m WHERE code_key='PCNV' AND category3<>'0'")).map(r => [r.code_dtl, r.code_dtl_nam])), missing = [];
+    const list = [...(await dbRows(c, "SELECT customers_cd code, customers_name name FROM client_m WHERE delete_f<>'1' ORDER BY customers_cd")).map(r => ({ ...r, kind: 'C' })),
+      ...(await dbRows(c, 'SELECT vendor_code code, vendor_name name FROM vendor WHERE active ORDER BY vendor_code')).map(r => ({ ...r, kind: 'V' }))];
+    out = [['取引先コード', '取引先名称'], ...list.map(r => { const code = conv.get(`${r.kind}:${r.code}`) || r.code; if (!/^[0-9A-Za-z]+$/.test(code)) missing.push(`${r.kind === 'C' ? '得意先' : '業者'} ${r.code} ${r.name}`); return [code, r.name]; })];
+    if (missing.length) throw new DomainError(`取引先コードに半角英数以外の文字がある得意先・業者が ${missing.length} 件あります。マスタ管理の「取引先コード変換表」で会計の取引先コードを登録してください: ${missing.slice(0, 10).join(' / ')}${missing.length > 10 ? ' ほか' : ''}`);
+  } else if (kind === 'depts') out = [['部門コード', '部門名称'], ...(await dbRows(c, "SELECT code_dtl, code_dtl_nam FROM code_m WHERE code_key='DEPT' AND COALESCE(category1,'')<>'0' ORDER BY code_dtl")).map(r => [r.code_dtl, r.code_dtl_nam])];
+  else if (kind === 'accounts') out = [['勘定科目コード', '勘定科目名称'], ...(await dbRows(c, 'SELECT account_code, account_name FROM account_subject WHERE active ORDER BY account_code')).map(r => [r.account_code, r.account_name])];
+  else out = [['勘定科目コード', '補助科目コード', '補助科目名称'], ...(await dbRows(c, 'SELECT s.account_code, s.sub_code, s.sub_name FROM account_subsubject s JOIN account_subject a ON a.account_code=s.account_code AND a.active WHERE s.active ORDER BY s.account_code, s.sub_code')).map(r => [r.account_code, r.sub_code, r.sub_name])];
+  const { encoding } = await bugyoSettings(c), text = csv(out), name = `会計連携_勘定奉行_${BUGYO_MASTERS[kind]}マスタ.csv`;
+  await audit(c, ctx, 'master', kind, 'accounting.masters', { kind, rows: out.length - 1 });
+  return { file: { name, body: encoding === 'utf-8' ? Buffer.from(text, 'utf8') : iconv.encode(text.replace(/^\uFEFF/, ''), 'Shift_JIS'), type: `text/csv; charset=${encoding === 'utf-8' ? 'utf-8' : 'Shift_JIS'}` } };
+}

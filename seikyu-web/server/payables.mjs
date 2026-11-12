@@ -173,7 +173,7 @@ const lastInvSlip = async (c, end) => (await one(c, "SELECT n.slip_no FROM journ
 // 前月度が未計上だと前月末在庫が 0 扱いになり、受払表の当月末在庫と在庫計上の仕訳（C01）の金額が合わなかった（2026-11-06 ユーザー指摘：⑧と⑨の不一致）
 export async function inventoryPrice(c, item, month, from, to) {
   const prior = await one(c, "SELECT quantity, valuation_price, valuation_amount FROM inventory_count WHERE item_cd=? AND location_code='MAIN' AND period_start=? AND status IN ('POSTED','DRAFT')", [item, addMonths(month, -1) + '-01']);
-  const pur = await one(c, 'SELECT COALESCE(SUM(quantity),0) q, COALESCE(SUM(net_amount),0) v FROM purchase WHERE item_cd=? AND purchase_date BETWEEN ? AND ?', [item, from, to]);
+  const pur = await one(c, "SELECT COALESCE(SUM(quantity),0) q, COALESCE(SUM(net_amount),0) v FROM purchase WHERE item_cd=? AND purchase_date BETWEEN ? AND ? AND COALESCE(purchase_kb,'1')<>'2'", [item, from, to]);
   // 金額のない在庫（前月の評価額 0）は商品マスタの単価で評価する（2026-11-02 ユーザー指摘：マスタ単価を入れても金額が出ない）
   const tanka = Number((await one(c, 'SELECT tanka FROM item_m WHERE item_cd=?', [item]))?.tanka || 0);
   const pq = Number(prior?.quantity || 0) + Number(pur.q), pv = (Number(prior?.valuation_amount || 0) || Math.round(Number(prior?.quantity || 0) * tanka)) + Number(pur.v);

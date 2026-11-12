@@ -87,7 +87,7 @@ export async function materialLedger(c, q) {
   let fs = month; while (Number(fs.slice(5, 7)) !== fyStartM) fs = addMonths(fs, -1);
   const [prev, end, open] = [await inv(c, addMonths(month, -1)), await inv(c, month), await inv(c, addMonths(fs, -1))];
   const cr = closingRange(month, q.closing);
-  const pur = Object.fromEntries((await rows(c, 'SELECT item_cd, SUM(quantity) q, SUM(net_amount) v FROM purchase WHERE purchase_date BETWEEN ? AND ? GROUP BY item_cd', [cr.from, cr.to])).map(r => [r.item_cd, { qty: num(r.q), value: num(r.v) }]));
+  const pur = Object.fromEntries((await rows(c, "SELECT item_cd, SUM(quantity) q, SUM(net_amount) v FROM purchase WHERE purchase_date BETWEEN ? AND ? AND COALESCE(purchase_kb,'1')<>'2' GROUP BY item_cd", [cr.from, cr.to])).map(r => [r.item_cd, { qty: num(r.q), value: num(r.v) }]));
   const codes = new Set([...Object.keys(prev), ...Object.keys(end), ...Object.keys(open), ...Object.keys(pur)]);
   const kinds = await rows(c, "SELECT item_cd, item_nam, unit_name(unit) unit, item_product_kb FROM item_m WHERE item_product_kb='1'"); // 1=材料（現行 Java）
   kinds.forEach(k => codes.add(k.item_cd));
@@ -131,7 +131,7 @@ export async function mixCalc(c, q) {
   const recipes = await rows(c, "SELECT category1 product, category2 material, category3 r FROM code_m WHERE code_key='MIX' AND code_dtl_abr<>'0' ORDER BY category1, category2");
   const [prev, end] = [await inv(c, addMonths(month, -1)), await inv(c, month)];
   const cr = closingRange(month, q.closing);
-  const pur = Object.fromEntries((await rows(c, 'SELECT item_cd, SUM(quantity) q, SUM(net_amount) v FROM purchase WHERE purchase_date BETWEEN ? AND ? GROUP BY item_cd', [cr.from, cr.to])).map(r => [r.item_cd, { qty: num(r.q), value: num(r.v) }]));
+  const pur = Object.fromEntries((await rows(c, "SELECT item_cd, SUM(quantity) q, SUM(net_amount) v FROM purchase WHERE purchase_date BETWEEN ? AND ? AND COALESCE(purchase_kb,'1')<>'2' GROUP BY item_cd", [cr.from, cr.to])).map(r => [r.item_cd, { qty: num(r.q), value: num(r.v) }]));
   const names = Object.fromEntries((await rows(c, 'SELECT item_cd, item_nam, unit_name(unit) unit FROM item_m')).map(r => [r.item_cd, r]));
   // 手入力の材料単価（マスタ管理 → 材料単価）。登録があれば最優先
   const manual = Object.fromEntries((await rows(c, "SELECT category2, code_dtl_nam FROM code_m WHERE code_key='MATPR' AND category1=? AND code_dtl_abr<>'0'", [month.replace('-', '')])).map(r => [r.category2, num(r.code_dtl_nam)]));
@@ -262,6 +262,11 @@ export async function jvReceipts(c, q) {
     WHERE r.status='POSTED' AND k.component_kind IN ('BANK','NOTE','FEE','COOP','LOSS') AND (CASE WHEN k.component_kind='NOTE' THEN COALESCE(k.maturity_date, r.receipt_date) ELSE r.receipt_date END) BETWEEN ? AND ? ORDER BY 3, r.receipt_id, k.component_no`, [from, to]);
   const lines = rs.map(r => { const amount = num(r.amount); return { key: `R:${r.receipt_id}:${r.component_no}`, date: String(r.d instanceof Date ? r.d.toISOString() : r.d).slice(0, 10), no: r.receipt_no, account: PART_ACCOUNT[r.component_kind] || r.component_kind, memo: PART_MEMO[r.component_kind] || '売掛金入金', kbn: r.component_kind === 'NOTE' ? '受取手形' : '売掛金入金', noAlloc: JV_NOALLOC.has(r.component_kind), customer: r.customers_name, amount, parts: allocate(amount, ms) }; });
   const ids = [...new Set(rs.map(r => r.receipt_id))], billed = {};
+  // 過入金（預り金 4170 で受け入れた額）は構成員に配分しない（D-077・D-036）。その入金の当座預金（無ければ受取手形）の行から差し引く（2026-11-12 結合テスト IT-07）
+  if (ids.length) for (const o of await rows(c, `SELECT receipt_id, SUM(amount) v FROM receipt_component WHERE component_kind='OVERPAY' AND receipt_id IN (${ids.map(() => '?').join(',')}) GROUP BY receipt_id`, ids)) {
+    const k = rs.findIndex(r => r.receipt_id === o.receipt_id && r.component_kind === 'BANK'), j = k >= 0 ? k : rs.findIndex(r => r.receipt_id === o.receipt_id && r.component_kind === 'NOTE');
+    if (j >= 0) { const l = lines[j], v = Math.min(num(o.v), l.amount); l.amount -= v; l.overpay = v; l.parts = allocate(l.amount, ms); }
+  }
   if (ids.length) for (const a of await rows(c, `SELECT DISTINCT a.receipt_id, h.closing_date FROM receipt_allocation a JOIN billing_head h ON h.invoice_id=a.invoice_id WHERE a.receipt_id IN (${ids.map(() => '?').join(',')}) ORDER BY h.closing_date`, ids)) (billed[a.receipt_id] ||= []).push(fromNum(a.closing_date));
   const span = ds => (ds.length > 2 ? `${ds[0]}〜${ds[ds.length - 1]}（${ds.length}件）` : ds.join('・'));   // 何か月分もまとめて消し込んだ入金は 最初〜最後（件数）
   for (const l of lines) l.billed = span(billed[l.key.split(':')[1]] || []);

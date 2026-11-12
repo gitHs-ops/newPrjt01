@@ -119,7 +119,7 @@ export async function siteOf(c, cust, p) {
   if (s.code) { const f = await one(c, 'SELECT * FROM field_name_m WHERE customers_cd=? AND field_cd=? AND field_suffix=?', [cust.customers_cd, s.code, s.suffix]); check(f && f.delete_f !== '1', '得意先に登録された有効な現場を選択してください'); return f; }
   return { field_cd: '', field_suffix: '', field_name1: text(p.siteName1, '現場名1', 20, { required: false }), field_name2: text(p.siteName2, '現場名2', 20, { required: false }) };
 }
-async function slipValues(c, p, label = '') {
+async function slipValues(c, p, label = '', keepKbn = '') {
   const date = isoDate(p.date, label + '出荷日'); await assertOpen(c, date);
   const cust = await one(c, 'SELECT * FROM client_m WHERE customers_cd=?', [String(p.customer || '')]); check(cust && cust.delete_f !== '1', '有効な得意先を選択してください');
   const f = await siteOf(c, cust, p);
@@ -131,8 +131,10 @@ async function slipValues(c, p, label = '') {
   const opCode = text(p.operator, label + '担当者', 6, { pattern: /^\d{1,6}$/ });
   const op = await one(c, "SELECT tanto_cd FROM operator_m WHERE tanto_cd=? AND delete_f<>'1'", [Number(opCode)]); check(op, label + '担当者を担当者マスタから選択してください');
   const kbn = text(p.deliveryKbn, label + '納入区分', 2, { pattern: /^\d{1,2}$/ });
-  const dk = await one(c, "SELECT category1 FROM code_m WHERE code_key='A0000' AND code_dtl=?", [kbn]); check(dk, label + '納入区分を選択してください');
-  if (dk.category1 === '2') check(freight === 0, '納入区分が引取のため運賃は0です');
+  const dk = await one(c, "SELECT category1 FROM code_m WHERE code_key='A0000' AND code_dtl=?", [kbn]);
+  // 赤黒訂正の黒は元伝票の納入区分のまま。移行データの区分（7・9 など納入区分マスタに無いもの）もそのまま引き継ぐ（2026-11-12 結合テスト IT-01）
+  check(dk || (keepKbn && kbn === keepKbn), label + '納入区分を選択してください');
+  if (dk?.category1 === '2') check(freight === 0, '納入区分が引取のため運賃は0です');
   // 伝票区分（提案書・現行 A0009）：1 出荷売上 / 2 他社納入 / 3 他社顧客購入 / 4 他社納入２ / 5 訂正（赤：元伝票No 必須、saveShipment で検査）。値引（9）は入金時に処理するため対象外（Q18）。区分 2・4 は他社得意先が必須、それ以外は入力不可
   const shipKb = String(p.shipKb || '1'); check(['1', '2', '3', '4', '5'].includes(shipKb), '伝票区分が不正です');
   const other = text(p.otherCustomer, '他社得意先', 5, { required: false });
@@ -219,7 +221,7 @@ export async function correctShipment(c, ctx, p) {
     // 得意先・現場・商品・運賃・決済・担当・納入区分は元伝票のまま。得意先・現場などの誤りは 数量0（取消）→ 正しい内容で出荷登録
     black = await slipValues(c, { date, customer: orig.customers_cd, site: orig.field_cd ? `${orig.field_cd}|${orig.field_suffix}` : '', siteName1: orig.field_name1, siteName2: orig.field_name2,
       item: orig.item_cd, quantity: p.quantity, price: p.price ?? red.price, freight: red.freight, method: red.method, operator: red.operator, deliveryKbn: red.kbn,
-      shipKb: '1', otherCustomer: '', vehicle: slip?.vehicle_no || '', remarks: orig.remarks ?? '' }, '黒伝票の'); // 黒の備考は元伝票の備考を引き継ぐ（指摘 No.26）
+      shipKb: '1', otherCustomer: '', vehicle: slip?.vehicle_no || '', remarks: orig.remarks ?? '' }, '黒伝票の', red.kbn); // 黒の備考は元伝票の備考を引き継ぐ（指摘 No.26）
     blackNo = await nextShipNo(c);
     await insertSlip(c, { orderNo: blackNo, ...black, shipKb: CORRECTION, salesNo: orig.order_no, salesSuffix: 3 }); // black（slipValues）の shipKb '1' で上書きしない
     await c.query('UPDATE sales_trn SET correction_date=? WHERE order_no=?', [toNum(corrDate), blackNo]);
@@ -379,6 +381,12 @@ export async function listInvoices(c, q = {}) {
         return { site: ls[0].field_cd ? `${ls[0].field_cd}|${ls[0].field_suffix}` : '', siteName: ls[0].field_name || '', method: [...new Set(ls.map(x => METHODS[x.payment_method_cd] || ''))].filter(Boolean).join('・'), net, tax, total: net + tax,
           issues: iss.get(i.id)?.of(siteLabel(ls[0].field_name)).length || 0 }; });
     }
+  }
+  // 再作成区分（D-004）：未発行・未消込の請求で、締日までの未請求の掛売上（赤黒の伝票など）がある＝請求データ作成で作り直す（2026-11-12 結合テスト IT-02）
+  if (list.length) {
+    const rb = new Set((await rows(c, `SELECT h.invoice_id FROM billing_head h WHERE h.invoice_id IN (${list.map(() => '?').join(',')}) AND h.invoice_flag='0' AND NOT EXISTS (SELECT 1 FROM receipt_allocation a WHERE a.invoice_id=h.invoice_id)
+      AND EXISTS (SELECT 1 FROM sales_trn s WHERE s.customers_cd=h.customers_cd AND s.process_status='0' AND s.payment_method_cd=2 AND s.sales_date<=h.closing_date)`, list.map(i => i.id))).map(r => Number(r.invoice_id)));
+    for (const i of list) i.rebuild = rb.has(i.id);
   }
   if (q.status === 'open') list = list.filter(i => i.balance > 0);
   else if (q.status) list = list.filter(i => i.status === q.status);

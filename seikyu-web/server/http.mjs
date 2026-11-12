@@ -16,7 +16,7 @@ import * as PR from './payment-reports.mjs';
 import * as MR from './misc-reports.mjs';
 import * as XR from './extra-reports.mjs';
 import { invoiceBook } from './invoice-book.mjs';
-import { accountingExport } from './accounting-export.mjs';
+import { accountingExport, accountingMasters } from './accounting-export.mjs';
 import * as KB from './kb.mjs';
 import { NEW_REPORTS, genericBook } from './new-reports.mjs';
 import { bugyoSettings, saveBugyoSettings, BUGYO_ITEMS } from './bugyo.mjs';
@@ -51,6 +51,7 @@ export async function createApp({ pool, publicDir, secureCookies = process.env.N
   route('GET', '/api/billing/preview', 'read', x => db(c => S.billingPreview(c, x.q)));
   route('GET', '/api/invoices', 'read', x => db(c => S.listInvoices(c, x.q)));
   route('GET', '/api/accounting/export', 'read', x => db(c => accountingExport(c, x, x.q)));
+  route('GET', '/api/accounting/masters', 'read', x => db(c => accountingMasters(c, x, x.q)));
   route('GET', '/api/invoices/book', 'read', x => db(c => invoiceBook(c, x.q)).then(b => ({ file: b })));
   // 多数の現場を指定すると URL が長すぎる（431）ため、画面からは POST で送る（2026-10-27）
   route('POST', '/api/invoices/book', 'read', x => db(c => invoiceBook(c, { ids: [].concat(x.body.ids || []).join(','), sites: JSON.stringify(x.body.sites || {}) })).then(b => ({ file: b })));

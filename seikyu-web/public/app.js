@@ -754,7 +754,9 @@ ${heldNote}` : ''}`);
       { label: '売上額', num: 1, value: r => yen(r.net) }, { label: '消費税', num: 1, value: r => yen(r.tax) }, { label: '今回請求額', num: 1, value: r => yen(r.total) },
       // 発行状況は現場の行ごと（請求書発行と同じ 未発行／発行済／再発行。2026-10-28）。入金・クレジットの状況は得意先の先頭行に並べる
       { label: '請求書発行状況', html: r => issueCell(r) + (r.first && ['partial', 'paid', 'credit'].includes(r.inv.status) ? ' ' + status(r.inv.status) : '') },
-      { label: '', html: r => `<button class="mini" data-act="detail" data-k="${r.k}">詳細</button>` }], lines, { empty: '請求がありません', foot: ['合計', '', '', '', '', yen(sum('net')), yen(sum('tax')), yen(sum('total')), '', ''] })}</section>`);
+      // 再作成区分（D-004）：赤黒などの未請求の出荷がある未発行の請求。請求データ作成で作り直す（2026-11-12 結合テスト IT-02）
+      { label: '再作成区分', html: r => (r.first && r.inv.rebuild ? `<span title="未請求の出荷（赤黒など）があります。請求データ作成で作り直してください">${badge('1 再作成', 'amber')}</span>` : '') },
+      { label: '', html: r => `<button class="mini" data-act="detail" data-k="${r.k}">詳細</button>` }], lines, { empty: '請求がありません', foot: ['合計', '', '', '', '', yen(sum('net')), yen(sum('tax')), yen(sum('total')), '', '', ''] })}</section>`);
 };
 // 請求一覧照会・請求書発行で共通：検索条件（請求年月・締日・得意先。得意先は任意）と 得意先×現場 の行
 const invoiceSearch = q => `${monthInput('month', q.month || '')}<select name="closing" data-filter title="締日">${options(closingList().map(x => ({ code: String(x), name: closingName(x) })), q.closing, { blank: 'すべての締日', label: x => x.name })}</select>${comboFilter('customer', 'customers', q.customer || '', '得意先（コード・名称）')}`;
@@ -1195,7 +1197,8 @@ const LR_ACC = {
 const lrBlank = () => ({ acc: '', sub: '', amount: '', due: '', tax: '', sub2: '', work: '', taxAmt: '', memo2: '', tcode: '' });
 // 借方の明細は最初 3 行（足りなければ［＋ 行追加］）。入金日の初期値は今日（いずれも 2026-11-01）
 // open＝入力画面を表示中（false は一覧）。editId・editNo＝［修正］する入金、editPays＝元の入金の今回入金額（3 画面目を最初に開いたときに入れる）（2026-11-09）
-const lrNew = () => ({ step: 1, date: today(), customer: '', lines: [lrBlank(), lrBlank(), lrBlank()], billTo: '', billInput: '', invoices: [], deposit: 0, from: '', to: today(), toAuto: true, key: uuid(), open: false, editId: 0, editNo: '', editPays: null });
+// 1 行目の科目の初期値は当座預金（D-071。2026-11-12 結合テスト IT-04）
+const lrNew = () => ({ step: 1, date: today(), customer: '', lines: [{ ...lrBlank(), acc: '1112' }, lrBlank(), lrBlank()], billTo: '', billInput: '', invoices: [], deposit: 0, from: '', to: today(), toAuto: true, key: uuid(), open: false, editId: 0, editNo: '', editPays: null });
 let lr = lrNew();
 const lrNum = v => { const n = Number(String(v ?? '').replace(/,/g, '').trim()); return Number.isFinite(n) ? n : NaN; };
 const lrSub = l => LR_ACC[l.acc]?.subs?.find(s => s[0] === l.sub);
@@ -1263,7 +1266,7 @@ const lrDepUse = () => (lrDepLine() ? 0 : Math.min(lr.deposit || 0, Math.max(0, 
 const lrFull = () => lr.invoices.length > 0 && lr.invoices.every(r => lrPays().some(x => x.r && x.r.id === r.id && x.n === r.balance));
 const lrOver = () => { const d = lrSum() + lrDepUse() - lrPayTotal(); return d > 0 && lrFull() ? d : 0; };
 const lrPayFoot = () => `<tr><th colspan="5">合計</th><td class="num"><b>${yen(lrPayTotal() - lrDepUse())}</b></td></tr>`
-  + (lrOver() ? `<tr><th colspan="5">過入金（預り金 4170 で受入）</th><td class="num"><b>${yen(lrOver())}</b></td></tr>` : '');
+  + (lrOver() ? `<tr class="lr-deprow"><th colspan="4">過入金（預り金 4170 で受入）</th><td class="num neg"><b>${yen(-lrOver())}</b></td><td></td></tr>` : '');   // 過入金は入金予定額の欄にマイナス（D-077。2026-11-12 結合テスト IT-06）
 const lrDepRow = who => (lr.deposit > 0 ? `<tr class="lr-deprow"><td>${who}</td><td></td><td>預り金</td><td></td><td class="num neg">${yen(-lr.deposit)}</td><td class="num neg" id="lr-depuse">${lrDepUse() ? yen(-lrDepUse()) : ''}</td></tr>` : '');
 const lrFootPaint = () => { const f = $('#lr-foot'); if (f) f.innerHTML = lrPayFoot(); const d = $('#lr-depuse'); if (d) d.textContent = lrDepUse() ? yen(-lrDepUse()) : ''; };
 const lrRows = () => {
@@ -1888,8 +1891,16 @@ const pettyReportsCard = () => miscCard('小口現金出納簿', '定額資金�
 const receiptScheduleCard = () => miscCard('入金予定チェックリスト', '得意先別・工事（現場）別', `<label class="field">入金予定日（から）<input type="date" id="rs-from" value="${addMonths(thisMonth(), -6)}-01"></label><label class="field">入金予定日（まで）<input type="date" id="rs-to" value="${today()}"></label><label class="field"><span>超過分のみ</span><span><input type="checkbox" id="rs-over"> 予定日を過ぎた未入金</span></label><button data-act="misc" data-kind="receipt-schedule" data-src="rs">入金予定チェックリスト</button>`,
   '', '残高のある請求が対象（未発行を含み、発行の有無を表示）。入金方法・入金先は過去の入金実績から推定します。'); // 条件とボタンを1行に（2026-10-27）
 const accountingCard = () => miscCard('会計連携データ', '会計システムは勘定奉行（奉行クラウド）。受入は CSV／Excel（QA回答 2026-10-08）', rangeInputs('ac', '仕訳日'),
-  '<button class="primary" data-act="acct" data-format="bugyo">⇩ 勘定奉行 受入CSV</button><button data-act="acct" data-format="generic">⇩ 汎用CSV（借貸併記・UTF-8）</button><button data-act="acct" data-format="yayoi">⇩ 弥生会計形式（Shift_JIS）</button>',
+  '<button class="primary" data-act="acct" data-format="bugyo">⇩ 勘定奉行 受入CSV</button><button data-act="acct" data-format="generic">⇩ 汎用CSV（借貸併記・UTF-8）</button><button data-act="acct" data-format="yayoi">⇩ 弥生会計形式（Shift_JIS）</button><div class="filters-break"></div><span class="small muted">マスタ（勘定奉行形式）</span><button data-act="acctMaster" data-kind="partners">⇩ 取引先</button><button data-act="acctMaster" data-kind="depts">⇩ 部門</button><button data-act="acctMaster" data-kind="accounts">⇩ 勘定科目</button><button data-act="acctMaster" data-kind="subaccounts">⇩ 補助科目</button>',
   '補助科目は内訳科目だけ、得意先・業者は取引先コードで連携します（カナを含むコードは「マスタ管理 → 取引先コード変換表」で会計の取引先コードを登録。未登録があると勘定奉行CSVは出力しません）。勘定奉行CSVの見出しは「財務会計 → 会計設定 → 勘定奉行連携」で登録した OBC受入記号（未登録は項目名）、税区分は処税率→奉行税区分の対応表で変換します。受入記号・税区分コードは「データ受入形式一覧表」で確定予定（Q14/Q19）。出力は操作履歴に記録されます。');
+// マスタの勘定奉行形式（取引先・部門・勘定科目・補助科目）。取引先コードは取引先コード変換表で置き換え（2026-11-12 結合テスト IT-13）
+async function accountingMasterDownload(kind) {
+  const res = await fetch('/api/accounting/masters?' + qs({ kind }), { cache: 'no-store' });
+  if (!res.ok) return toast((await res.json().catch(() => ({}))).error || '出力できません', true);
+  const href = URL.createObjectURL(await res.blob()), el = document.createElement('a');
+  el.href = href; el.download = `会計連携_勘定奉行_${{ partners: '取引先', depts: '部門', accounts: '勘定科目', subaccounts: '補助科目' }[kind]}マスタ.csv`; el.click(); setTimeout(() => URL.revokeObjectURL(href), 2000);
+  toast('マスタを出力しました');
+}
 async function accountingDownload(format) {
   const url = '/api/accounting/export?' + qs({ from: $('#ac-from').value, to: $('#ac-to').value, format }), res = await fetch(url, { cache: 'no-store' });
   if (!res.ok) return toast((await res.json().catch(() => ({}))).error || '出力できません', true);
@@ -2049,7 +2060,7 @@ async function pettyRefillDialog() {
 // ----- 仕訳・会計連携 -----
 VIEWS.journals = async q => {
   const A = actions;
-  A.acct = d => accountingDownload(d.format).catch(e => toast(e.message, true));
+  A.acct = d => accountingDownload(d.format).catch(e => toast(e.message, true)); A.acctMaster = d => accountingMasterDownload(d.kind).catch(e => toast(e.message, true));
   const month = q.month || thisMonth(), tab = q.tab || 'list';
   A.tab = d => go('journals', { ...route.q, tab: d.tab });
   let body;
@@ -2112,7 +2123,7 @@ async function journalListsView(q) {
 // ----- 帳票・データ出力 -----
 VIEWS.reports = async q => {
   const A = actions;
-  A.acct = d => accountingDownload(d.format).catch(e => toast(e.message, true));
+  A.acct = d => accountingDownload(d.format).catch(e => toast(e.message, true)); A.acctMaster = d => accountingMasterDownload(d.kind).catch(e => toast(e.message, true));
   A.misc = d => miscReport(d.kind, d.src).catch(e => toast(e.message, true)); A.jvAlloc = () => jvAllocDialog().catch(e => toast(e.message, true));
   // 売掛金残高一覧・未払残高一覧：「検索」は Excel と同じ行に置く（2026-11-06 ユーザー指示。以前は空欄の案内文の横に出ていた）
   const month = q.month || thisMonth(), [ar, ap] = await Promise.all([api('/api/reports/ar'), api('/api/reports/ap')]);
@@ -2140,12 +2151,11 @@ VIEWS.periods = async () => {
       <label class="field wide" style="margin-top:12px"><span><input type="checkbox" name="force"> 未請求・未発行があっても確定する（テスト・移行データ用。操作履歴に記録します）</span></label>`,
       onSubmit: async v => { if (v.force !== 'on') throw Error('未請求・未発行があるため確定できません。確定する場合は「未請求・未発行があっても確定する」にチェックしてください'); await post('/api/periods/close', { month: d.month, force: true }); toast('確定しました'); render(); } });
   };
-  // 年次更新（更新区分 1。10/26 打合せ）：決算月で実行し、年度の 12 か月を年次更新済みにする（解除できない）。各月は先に仮更新（更新区分 2）
-  A.annual = d => confirmBox('年次更新（更新区分 1）', `${d.month}（決算月）で年次更新します。年度の 12 か月（${d.month} まで）が年次更新済みになり、解除できなくなります。年度の各月は先に仮更新（確定）しておいてください。`, () => post('/api/periods/close', { month: d.month, kind: '1' }).then(() => { toast('年次更新しました'); render(); }), '年次更新する');
+  // 仮更新（更新区分 2）・年次更新の選択は設けない（D-057：月次整理→自動仕訳→会計システムへ取込。会計の月次更新は会計システム側。2026-11-12 結合テスト IT-11）
   A.reopen = d => confirmBox('確定解除', `${d.month} の確定を解除します。`, () => post('/api/periods/reopen', { month: d.month }).then(() => { toast('解除しました'); render(); }), '解除する');
-  return page('月次確定', `確定した月の伝票は登録・変更・取消ができなくなります。確定・解除は管理者のみ実行できます。更新区分：2 仮更新＝各月の確定（後の月から順に解除して追加修正できる）、1 年次更新＝決算月（${p.closingMonth}月）で年度の 12 か月を確定（解除できない）。`, '', `<section class="card glass">${table([{ label: '月', value: r => r.month + (r.fiscalEnd ? '（決算月）' : '') }, { label: '状態', html: r => r.closed ? badge('確定済', 'green') : badge('未確定', 'gray') }, { label: '更新区分', html: r => (r.closed ? (r.kind === '1' ? badge('1 年次更新', 'green') : badge('2 仮更新', 'amber')) : '') },
+  return page('月次確定', `確定した月の伝票は登録・変更・取消ができなくなります。確定・解除は管理者のみ実行できます。`, '', `<section class="card glass">${table([{ label: '月', value: r => r.month + (r.fiscalEnd ? '（決算月）' : '') }, { label: '状態', html: r => r.closed ? badge('確定済', 'green') : badge('未確定', 'gray') },
     { label: '確定日時 / 実行者', value: r => r.closed ? `${jst(r.closedAt, 16)} / ${r.closedBy}` : '' }, { label: 'チェック', html: r => `<div id="chk-${r.month}">${r.closed ? '' : `<button class="mini" data-act="check" data-month="${r.month}">確定前チェック</button>`}</div>` },
-    { label: '', html: r => isAdmin() ? (r.closed ? (r.kind === '1' ? '' : `<button class="mini danger" data-act="reopen" data-month="${r.month}">解除</button>`) : `<button class="mini primary" data-act="close" data-month="${r.month}">確定（仮更新）</button>`) + (r.fiscalEnd && r.kind !== '1' ? ` <button class="mini" data-act="annual" data-month="${r.month}">年次更新</button>` : '') : '' }], p.months)}</section>
+    { label: '', html: r => isAdmin() ? (r.closed ? (r.kind === '1' ? '' : `<button class="mini danger" data-act="reopen" data-month="${r.month}">解除</button>`) : `<button class="mini primary" data-act="close" data-month="${r.month}">確定</button>`) : '' }], p.months)}</section>
     `);
 };
 
