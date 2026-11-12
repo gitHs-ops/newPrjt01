@@ -333,8 +333,15 @@ export async function createExpense(c, ctx, p, old = null) {
     if (diff) { check(exLines.length, '外税の明細がないため外税消費税は入力できません'); const last = exLines[exLines.length - 1]; last.taxAmt += diff; last.gross += diff; }
   }
   const amount = ls.reduce((n, l) => n + l.gross, 0); check(amount > 0, '合計金額がマイナスまたは0です');
-  // 支払予定日は常に業者マスタの支払繰延区分・繰延最低限度額から計算（画面からの値は使わない。10-29 画面レビュー No.6）
-  const due = kind === 'PAYABLE' ? await vendorDue(c, v.vendor_code, date, amount) : null;
+  // 支払予定日は業者マスタの支払繰延区分・繰延最低限度額から計算（休日は翌営業日）。画面で手入力した日があればその日（D-044。2026-11-12 結合テスト IT-12）。
+  // 手入力の日は締切日以降の営業日だけ（休日は全銀の振込日にできない）
+  let due = null;
+  if (kind === 'PAYABLE') {
+    if (String(p.due || '').trim()) {
+      due = isoDate(p.due, '支払予定日'); check(due >= date, '支払予定日が締切日より前です');
+      check(nextBusinessDay(due, await holidaySet(c)) === due, `支払予定日（${due}）は休日です（土日・カレンダーの休日）。営業日を入力してください`);
+    } else due = await vendorDue(c, v.vendor_code, date, amount);
+  }
   const extTax = ls.filter(l => l.split).reduce((n, l) => n + l.taxAmt, 0);
   // 10/21 打合せ：定時請求の合計金額は現行どおり手入力し、明細の合計と一致するかチェックする
   if (kind === 'PAYABLE' && p.total !== undefined) { const t = yen(p.total, '合計金額', { max: 9999999999, positive: false }); check(t === amount, `合計金額（${t.toLocaleString('ja-JP')}円）と明細の合計（${amount.toLocaleString('ja-JP')}円）が一致しません`); }

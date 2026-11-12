@@ -1612,7 +1612,7 @@ function expenseView(kind) {
         ${field('伝票No', '<input name="docNo" value="（登録時に自動採番）" disabled>')}<div class="span2"></div>
         <div class="span2">${field('業者', '<div style="display:flex;gap:12px;align-items:center"><input name="vendor" list="dl-hw-vendors" maxlength="7" autocomplete="off" placeholder="業者コード" style="width:140px;min-width:0"><output id="hw-vname"></output></div>', { req: 1 })}</div><div></div>
         ${tekiyoList()}<datalist id="dl-hw-vendors">${active('vendors').map(x => `<option value="${esc(x.code)}">${esc(x.name)}</option>`).join('')}</datalist>
-        ${field('支払繰延区分', '<output id="ex-defer" class="muted">業者コードを入力すると業者マスタから表示</output>')}${field('支払予定日', '<input type="date" name="due" readonly tabindex="-1" style="background:transparent;border-style:dashed" title="業者マスタの支払繰延区分から自動計算（入力不可）">', { hint: '業者マスタから自動' })}${field('合計金額', '<input name="total" class="num" inputmode="numeric">', { req: 1, hint: '明細の合計と一致させる' })}
+        ${field('支払繰延区分', '<output id="ex-defer" class="muted">業者コードを入力すると業者マスタから表示</output>')}${field('支払予定日', '<input type="date" name="due" title="業者マスタの支払繰延区分から自動計算（休日は翌営業日）。手入力で修正できます">', { hint: '業者マスタから自動・修正可' })}${field('合計金額', '<input name="total" class="num" inputmode="numeric">', { req: 1, hint: '明細の合計と一致させる' })}
       </div>` : `<div class="inline-fields">
       ${field('支払日（領収書の日付）', `<input type="date" name="date" value="${today()}">`, { req: 1 })}${field('組織（部門）', `<output id="ex-dept">${esc(deptLabel())}</output>`)}
 </div>
@@ -1649,12 +1649,16 @@ function expenseView(kind) {
         g.addEventListener('input', e => { if (e.target.name === 'lvendor') vname(e.target.closest('tr')); if (e.target.name === 'memoCode') { const tr = e.target.closest('tr'); tekiyoFill(e.target, tr.querySelector('[name=lmemo]')); } });
         if (payable) {
           $('#ex-lines-total')?.parentElement && ($('#ex-lines-total').parentElement.hidden = true);
-          // 支払予定日は入力項目ではない（10-29 画面レビュー No.6）。業者マスタの支払繰延区分から計算して表示するだけ
+          // 支払予定日は業者マスタの支払繰延区分から計算し、手入力で修正できる（D-044。2026-11-12 結合テスト IT-12）。
+          // 手で直した日（dataset.manual）は合計金額が変わっても上書きしない。業者・締切日を変えたら計算し直す
           const due = f.querySelector('[name=due]');
+          const manual = () => { due.dataset.manual = due.value ? '1' : ''; };
+          due.addEventListener('input', manual); due.addEventListener('change', manual);
           const terms = () => { const code = f.querySelector('[name=vendor]').value.trim(), v = (masters.vendors || []).find(x => x.code === code), t = vendorTerms(v, f.querySelector('[name=date]').value, num(f.dataset.total || 0));
             $('#hw-vname').innerHTML = !code ? '' : v ? esc(v.name) : '<span class="check-ng">該当なし</span>';
-            $('#ex-defer').textContent = v ? t.label : '業者コードを入力すると業者マスタから表示'; due.value = v && t.due ? t.due : ''; };
-          f._terms = terms; f.querySelector('[name=vendor]').addEventListener('input', terms); f.querySelector('[name=vendor]').addEventListener('change', terms); f.querySelector('[name=date]').addEventListener('change', terms);
+            $('#ex-defer').textContent = v ? t.label : '業者コードを入力すると業者マスタから表示'; if (!due.dataset.manual) due.value = v && t.due ? t.due : ''; };
+          const reterms = () => { due.dataset.manual = ''; terms(); };
+          f._terms = terms; f.querySelector('[name=vendor]').addEventListener('input', reterms); f.querySelector('[name=vendor]').addEventListener('change', reterms); f.querySelector('[name=date]').addEventListener('change', reterms);
           const ext = f.querySelector('[name=extTax]'); ext.addEventListener('input', () => { ext.dataset.manual = ext.value.trim() === '' ? '' : '1'; recalc(); });
           f.querySelector('[name=total]').addEventListener('input', recalc);
         }
@@ -1713,6 +1717,7 @@ function expenseView(kind) {
     const colsP = [{ label: '伝票No', value: r => `${r.no}-${String(r.L.no).padStart(2, '0')}` }, { label: '支払日', value: r => r.date },
       { label: '支払先', value: r => (r.L.vendor ? `${r.L.vendor} ${r.L.payee}` : r.L.payee || r.payee || '') }, { label: '科目・内訳', value: r => `${r.L.account} ${r.L.accountName}${r.L.sub ? `／${r.L.sub} ${r.L.subName}` : ''}` },
       { label: '処税率', value: r => taxLabel(r.L.taxCode) }, { label: '支払額', num: 1, value: r => yen(r.L.amount) }, { label: '摘要コード', value: r => r.L.memoCode }, { label: '摘要', value: r => r.L.memo },
+      { label: '状態', html: r => (r.status === 'POSTED' ? badge('支払済', 'green') : status(r.status)) },   // D-065：小口現金は登録＝支払済（取消済は一覧に出さない。2026-11-12 結合テスト IT-08）
       { label: '', html: r => canWrite() && r.status === 'POSTED' ? `<button class="mini" data-act="lineEdit" data-id="${r.id}" data-ln="${r.L.no}">修正</button> <button class="mini danger" data-act="lineDel" data-id="${r.id}" data-ln="${r.L.no}">削除</button>` : '' }];
     const lineOf = d => { const R = list.find(x => x.id === Number(d.id)); return [R, R?.lines.find(l => l.no === Number(d.ln))]; };
     A.lineEdit = d => { const [R, L] = lineOf(d); if (!L) return toast('再表示してください', true); form({ ...R, no: `${R.no}-${String(L.no).padStart(2, '0')}`, lines: [L], lineNo: L.no }, true); };
