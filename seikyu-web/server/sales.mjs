@@ -79,7 +79,7 @@ export async function listShipments(c, q = {}) {
   if (q.status === 'billed') where += " AND s.process_status='1'";
   if (q.method) { where += ' AND s.payment_method_cd=?'; args.push(Number(q.method)); }
   const rs = await rows(c, `SELECT s.*, c.customers_name, sl.vehicle_no, unit_name(sl.unit_cd) unit, sl.unit_price slip_price, sl.freight slip_freight, sl.person_in_charge_cd, sl.delivery_kbn_cd, sl.cumulative_quantity, sl.cumulative_number, sl.other_company_customers_cd, sl.weather_cd, sl.start_temperature, (SELECT w.code_dtl_nam FROM code_m w WHERE w.code_key='A0010' AND w.code_dtl=CAST(sl.weather_cd AS TEXT)) weather_name, sl.start_time, sl.plan_start_time, sl.plan_cumulative_quantity, sl.ship_printing_fg4, oc.customers_name other_name, op.tanto_nm, dk.code_dtl_nam delivery_kbn_name, h.invoice_id,
-      (SELECT COUNT(*) FROM sales_trn x WHERE x.sales_no=s.order_no AND x.order_no<>s.order_no) corrections
+      (SELECT COUNT(*) FROM sales_trn x WHERE (x.sales_no=s.order_no AND x.order_no<>s.order_no) OR (s.ship_kb='5' AND s.sales_no<>s.order_no AND MOD(s.sales_suffix, 2)=1 AND x.sales_no=s.sales_no AND x.sales_suffix>s.sales_suffix)) corrections
     FROM sales_trn s LEFT JOIN client_m c ON c.customers_cd=s.customers_cd LEFT JOIN shipment_slip sl ON sl.order_no=s.order_no
     LEFT JOIN client_m oc ON oc.customers_cd=NULLIF(sl.other_company_customers_cd,'') LEFT JOIN operator_m op ON op.tanto_cd=CAST(NULLIF(sl.person_in_charge_cd,'') AS INTEGER) LEFT JOIN code_m dk ON dk.code_key='A0000' AND dk.code_dtl=CAST(sl.delivery_kbn_cd AS TEXT)
     LEFT JOIN billing_detail d ON d.order_no=s.order_no LEFT JOIN billing_head h ON ${DETAIL_JOIN}
@@ -175,6 +175,14 @@ export async function saveShipment(c, ctx, p) {
   }
   return { orderNo };
 }
+// 赤黒の枝番は元伝票（最初の伝票）基準（2026-11-14 ユーザー決定）：黒をさらに訂正しても sales_no＝最初の元伝票No のまま、枝番を 04（赤）・05（黒）…と続ける。
+// 赤＝偶数・黒＝奇数（赤だけの取消でも黒の番号は空けておく）。訂正できるのは最新の黒（後の赤黒が無いもの）だけ
+async function correctionBase(c, orig) {
+  const black = orig.ship_kb === CORRECTION && orig.sales_no && orig.sales_no !== orig.order_no;
+  const root = black ? orig.sales_no : orig.order_no, mine = black ? Number(orig.sales_suffix) : 1;
+  const m = Number((await one(c, 'SELECT MAX(sales_suffix) m FROM sales_trn WHERE sales_no=? AND order_no<>?', [root, root]))?.m || 1);
+  return { root, later: m > mine, red: m - (m % 2) + 2 };
+}
 // 赤伝票の備考：「M/D 分削除」（元伝票の売上日、10/23 打合せ）
 const redMemo = orig => { const d = fromNum(orig.sales_date); return `${Number(d.slice(5, 7))}/${Number(d.slice(8, 10))} 分削除`; };
 // 登録画面の赤伝票（区分 5）：元伝票と得意先・商品が同じで、数量は元伝票と逆符号・元伝票の数量以内。訂正済み・赤伝票は元にできない
@@ -182,22 +190,23 @@ async function redLink(c, p, v) {
   const no = String(p.originalNo || '').trim(); check(no, '伝票区分が訂正のときは元伝票No を入力してください');
   const orig = await one(c, 'SELECT * FROM sales_trn WHERE order_no=? AND order_suffix=1 FOR UPDATE', [no]); check(orig, `元伝票No ${no} の出荷伝票がありません`);
   check(!(orig.ship_kb === CORRECTION && Number(orig.quantity) < 0), '赤伝票を元伝票にはできません');
-  check(!(await one(c, 'SELECT 1 x FROM sales_trn WHERE sales_no=? AND order_no<>? LIMIT 1', [no, no])), `元伝票No ${no} は訂正済みです`);
+  const base = await correctionBase(c, orig); check(!base.later, `元伝票No ${no} は訂正済みです`);
   check(v.cust.customers_cd === orig.customers_cd, `得意先が元伝票（${orig.customers_cd}）と違います`);
   check(v.it.item_cd === orig.item_cd, `商品が元伝票（${orig.item_cd}）と違います`);
   check(v.date >= fromNum(orig.sales_date), '出荷日が元伝票の出荷日より前です');
   const oq = Number(orig.quantity), nq = Number(v.q.text);
   check(Math.sign(nq) === -Math.sign(oq) && Math.abs(nq) <= Math.abs(oq), `赤伝票の数量は元伝票（${oq}）と逆符号で、元の数量以内です`);
   if (!v.remarks) v.remarks = redMemo(orig);
-  return { salesNo: no, salesSuffix: 2 };
+  return { salesNo: base.root, salesSuffix: base.red };
 }
 // NO11 出荷伝票訂正（10/14 打合せ：赤黒）。元伝票は変更せず、赤＝元伝票の全量マイナス、黒＝訂正後の内容（日付・得意先・現場・商品・数量・単価・運賃すべて変更可）を起票。
 // 請求書・明細には 元 / 赤 / 黒 の3行で表示される。黒の数量 0（または未入力）は赤のみ＝取消。訂正伝票は sales_no＝元伝票No で結び付ける（区分 5）。
 export async function correctShipment(c, ctx, p) {
   const orig = await one(c, 'SELECT * FROM sales_trn WHERE order_no=? AND order_suffix=1 FOR UPDATE', [String(p.orderNo || '')]);
   if (!orig) throw new Conflict('訂正元の出荷伝票が見つかりません');
-  check(!(await one(c, 'SELECT 1 x FROM sales_trn WHERE sales_no=? AND order_no<>? LIMIT 1', [orig.order_no, orig.order_no])), 'この伝票は訂正済みです。訂正後（黒）の伝票を訂正してください');
   check(!(orig.ship_kb === CORRECTION && Number(orig.quantity) < 0), '赤伝票は訂正できません');
+  const base = await correctionBase(c, orig);
+  check(!base.later, 'この伝票は訂正済みです。訂正後（黒）の伝票を訂正してください');
   const slip = await one(c, 'SELECT * FROM shipment_slip WHERE order_no=?', [orig.order_no]);
   // 赤・黒の売上日は元伝票の売上日（現行と同じ、2026-10-27 大西さん回答 H）。訂正日は correction_date に持つ
   const corrDate = isoDate(p.date, '訂正日'), origDate = fromNum(orig.sales_date); await assertOpen(c, corrDate);
@@ -212,7 +221,7 @@ export async function correctShipment(c, ctx, p) {
     operator: slip?.person_in_charge_cd || '', kbn: String(slip?.delivery_kbn_cd ?? orig.shipping_kb ?? 1) };
   if (Number(orig.quantity) < 0) red.q = qty(String(-Number(orig.quantity)), '数量'); // 元がマイナス伝票なら赤はプラス
   const redNo = await nextShipNo(c);
-  await insertSlip(c, { orderNo: redNo, shipKb: CORRECTION, ...red, salesNo: orig.order_no, salesSuffix: 2 });
+  await insertSlip(c, { orderNo: redNo, shipKb: CORRECTION, ...red, salesNo: base.root, salesSuffix: base.red });
   await c.query('UPDATE sales_trn SET correction_date=? WHERE order_no=?', [toNum(corrDate), redNo]);
   await recalcCumulative(c, await one(c, 'SELECT * FROM shipment_slip WHERE order_no=?', [redNo]));
   let blackNo = null, black = null;
@@ -223,13 +232,13 @@ export async function correctShipment(c, ctx, p) {
       item: orig.item_cd, quantity: p.quantity, price: p.price ?? red.price, freight: red.freight, method: red.method, operator: red.operator, deliveryKbn: red.kbn,
       shipKb: '1', otherCustomer: '', vehicle: slip?.vehicle_no || '', remarks: orig.remarks ?? '' }, '黒伝票の', red.kbn); // 黒の備考は元伝票の備考を引き継ぐ（指摘 No.26）
     blackNo = await nextShipNo(c);
-    await insertSlip(c, { orderNo: blackNo, ...black, shipKb: CORRECTION, salesNo: orig.order_no, salesSuffix: 3 }); // black（slipValues）の shipKb '1' で上書きしない
+    await insertSlip(c, { orderNo: blackNo, ...black, shipKb: CORRECTION, salesNo: base.root, salesSuffix: base.red + 1 }); // black（slipValues）の shipKb '1' で上書きしない
     await c.query('UPDATE sales_trn SET correction_date=? WHERE order_no=?', [toNum(corrDate), blackNo]);
     await recalcCumulative(c, await one(c, 'SELECT * FROM shipment_slip WHERE order_no=?', [blackNo]));
   }
-  await dropSummaryOf(c, orig.order_no);
-  await audit(c, ctx, 'sales_trn', orig.order_no, 'shipment.correct', { original: orig.order_no, red: redNo, black: blackNo, net: red.net + (black?.net || 0) });
-  return { orderNo: blackNo || redNo, red: redNo, black: blackNo, original: orig.order_no, redSlip: `${orig.order_no}-02`, blackSlip: blackNo ? `${orig.order_no}-03` : null, net: red.net + (black?.net || 0) };
+  await dropSummaryOf(c, base.root);
+  await audit(c, ctx, 'sales_trn', orig.order_no, 'shipment.correct', { original: orig.order_no, root: base.root, red: redNo, black: blackNo, net: red.net + (black?.net || 0) });
+  return { orderNo: blackNo || redNo, red: redNo, black: blackNo, original: orig.order_no, redSlip: `${base.root}-${BRANCH(base.red)}`, blackSlip: blackNo ? `${base.root}-${BRANCH(base.red + 1)}` : null, net: red.net + (black?.net || 0) };
 }
 // 入力中の累計数量・累計台数・予定数量・予定時間（現行 NS006001 の lastCumulative／planInformation と同じ考え方）。登録後はサーバーで振り直す。
 // 登録済みの出荷日の範囲（帳票の期間指定の目安）
@@ -257,7 +266,10 @@ export async function deleteShipment(c, ctx, { orderNo }) {
   check(!(await one(c, 'SELECT 1 x FROM sales_trn WHERE sales_no=? AND order_no<>? LIMIT 1', [orderNo, orderNo])), '訂正伝票がある出荷は取消できません（先に訂正伝票を取消してください）');
   await assertOpen(c, fromNum(old.sales_date));
   // 赤黒は組で取消（赤だけ・黒だけを残さない）
-  const pair = old.ship_kb === CORRECTION ? (await rows(c, "SELECT order_no FROM sales_trn WHERE sales_no=? AND order_no<>sales_no AND ship_kb=? AND process_status='0'", [old.sales_no, CORRECTION])).map(r => r.order_no) : [orderNo];
+  // 枝番は元伝票基準（赤＝偶数・黒＝奇数で 1 組）。後の赤黒がある組は取消できない（後の組から取消）
+  const linked = old.ship_kb === CORRECTION && old.sales_no && old.sales_no !== old.order_no, pb = Number(old.sales_suffix) - (Number(old.sales_suffix) % 2);
+  if (linked) check(!(await one(c, 'SELECT 1 x FROM sales_trn WHERE sales_no=? AND order_no<>sales_no AND sales_suffix>? LIMIT 1', [old.sales_no, pb + 1])), '後の赤黒訂正がある伝票は取消できません（後の赤黒から取消してください）');
+  const pair = linked ? (await rows(c, "SELECT order_no FROM sales_trn WHERE sales_no=? AND order_no<>sales_no AND ship_kb=? AND process_status='0' AND sales_suffix IN (?, ?)", [old.sales_no, CORRECTION, pb, pb + 1])).map(r => r.order_no) : [orderNo];
   for (const no of pair) { const sl = await one(c, 'SELECT * FROM shipment_slip WHERE order_no=?', [no]); await c.query('DELETE FROM sales_trn WHERE order_no=?', [no]); await c.query('DELETE FROM shipment_slip WHERE order_no=?', [no]); if (sl) await recalcCumulative(c, sl); }
   if (old.ship_kb === CORRECTION && old.sales_no && old.sales_no !== old.order_no) await dropSummaryOf(c, old.sales_no);
   await audit(c, ctx, 'sales_trn', orderNo, 'shipment.delete', { date: fromNum(old.sales_date), customer: old.customers_cd, net: Number(old.money), slips: pair });

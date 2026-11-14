@@ -62,6 +62,16 @@ test('workflow against PostgreSQL business tables', { skip, timeout: 900000 }, a
       const corr = await a.call('/api/shipments/correct', { orderNo: s1.data.orderNo, date: sd, quantity: '10' });
       assert.equal(corr.status, 200, JSON.stringify(corr.data)); assert.equal(corr.data.net, -500); assert.ok(corr.data.red && corr.data.black);
       assert.equal((await a.call('/api/shipments/correct', { orderNo: s1.data.orderNo, date: sd, quantity: '9' })).status, 400, 'already corrected');
+      // 枝番は元伝票基準（2026-11-14）：黒をさらに訂正すると 元伝票No-04（赤）／-05（黒）。前の黒は訂正済み・前の組は取消できない
+      assert.equal(corr.data.redSlip, s1.data.orderNo + '-02'); assert.equal(corr.data.blackSlip, s1.data.orderNo + '-03');
+      const okd = r => (assert.equal(r.status, 200, JSON.stringify(r.data)), r.data);
+      const corr2 = okd(await a.call('/api/shipments/correct', { orderNo: corr.data.black, date: sd, quantity: '9.5' }));
+      assert.equal(corr2.redSlip, s1.data.orderNo + '-04'); assert.equal(corr2.blackSlip, s1.data.orderNo + '-05');
+      assert.equal((await a.call('/api/shipments/correct', { orderNo: corr.data.black, date: sd, quantity: '9' })).status, 400, 'old black already corrected');
+      assert.equal((await a.call('/api/shipments/delete', { orderNo: corr.data.red })).status, 400, 'earlier pair cannot be cancelled first');
+      const ls = (await a.call('/api/shipments?customer=' + C)).data;
+      const lr = (Array.isArray(ls) ? ls : ls.rows || []).find(r => r.orderNo === corr.data.black); if (lr) assert.ok(lr.corrected, 'old black marked corrected');
+      okd(await a.call('/api/shipments/delete', { orderNo: corr2.red })); // 最新の組は取消できる（-04・-05 を一緒に）
       const cash = await a.call('/api/shipments', { date: sd, customer: C, site: `S${tag}|000`, item: 'I' + tag, quantity: '1', price: 500, taxRate: 10, operator: '1', deliveryKbn: '1', method: 1 });
       const run = await a.call('/api/billing/run', { month, closing: 31, customers: [C] });
       assert.equal(run.status, 200, JSON.stringify(run.data)); assert.equal(run.data.created, 1); invoiceId = run.data.ids[0];
