@@ -564,7 +564,8 @@ function shipmentForm(r, bizDate) {
       const cumulative = async () => { const my = ++seq, d = await api('/api/shipments/preview?' + qs({ date: f.date.value, customer: f.customer.value, site: siteVal(), siteName1: f.siteName1.value, siteName2: f.siteName2.value, item: f.item.value, deliveryKbn: f.deliveryKbn.value, quantity: f.quantity.value, shipKb: f.shipKb.value, orderNo: r?.orderNo || '' })).catch(() => null);
         if (!d || my !== seq) return; $('#sf-cq').textContent = n2(d.cumulativeQty); $('#sf-cn').textContent = d.cumulativeCount; $('#sf-pq').textContent = n2(d.planQty); $('#sf-pt').innerHTML = esc(d.planTime) || '&nbsp;'; };
       const pickup = () => active('deliveryKinds').find(k => k.code === f.deliveryKbn.value)?.pickup;
-      const price = async () => { if (!nameOf('items', f.item.value) || !nameOf('customers', f.customer.value)) return; const p = await api('/api/price?' + qs({ item: f.item.value, customer: f.customer.value, site: siteVal(), date: f.date.value })); f.price.value = p.price; f.freight.value = pickup() ? 0 : p.freight; f.taxRate.value = p.taxRate; preview(); toast(`単価: ${p.source} ${yen(p.price)}円${p.freight ? '・運賃 ' + yen(p.freight) + '円' : ''}`); };
+      let masterFreight = null, wasPickup = !!pickup(); // 単価マスタの運賃（引取→運賃ありに戻したとき戻す。2026-11-15）
+      const price = async () => { if (!nameOf('items', f.item.value) || !nameOf('customers', f.customer.value)) return; const p = await api('/api/price?' + qs({ item: f.item.value, customer: f.customer.value, site: siteVal(), date: f.date.value })); masterFreight = p.freight; f.price.value = p.price; f.freight.value = pickup() ? 0 : p.freight; f.taxRate.value = p.taxRate; preview(); toast(`単価: ${p.source} ${yen(p.price)}円${p.freight ? '・運賃 ' + yen(p.freight) + '円' : ''}`); };
       // 現場CD は得意先の現場マスタから選ぶ（2026-10-27）。マスタに無い現場の伝票（移行データ等）はその現場を選択肢に残す
       const siteList = () => { const cur = siteVal(), list = (masters.sites || []).filter(x => x.customer === f.customer.value && x.active).map(x => ({ v: `${x.code}|${x.suffix}`, l: `${x.code}-${x.suffix}　${x.name} ${x.name2 || ''}` }));
         if (cur && !list.some(x => x.v === cur)) list.unshift({ v: cur, l: `${cur.replace('|', '-')}（マスタなし）` });
@@ -578,7 +579,7 @@ function shipmentForm(r, bizDate) {
       f.item.onchange = () => { show('#sf-iname', 'items', f.item.value); unitOf(); price(); cumulative(); };
       f.sitePick.onchange = () => { const [code = '', suffix = ''] = f.sitePick.value.split('|'); f.siteCode.value = code; f.siteSuffix.value = suffix; siteNames(); price(); cumulative(); };
       f.date.onchange = () => { price(); cumulative(); };
-      f.deliveryKbn.onchange = () => { if (pickup()) f.freight.value = 0; preview(); cumulative(); };
+      f.deliveryKbn.onchange = () => { const pk = !!pickup(); if (pk) f.freight.value = 0; else if (wasPickup && masterFreight != null) f.freight.value = masterFreight; wasPickup = pk; preview(); cumulative(); };
       // 区分 5 訂正：元伝票No を入れると元伝票の内容を写し、数量を逆符号（全量）にする。数量は元の数量以内で減らせる
       const origInfo = t => { const e = $('#sf-orig'); if (e) e.innerHTML = t; };
       f.shipKb.onchange = () => { if (f.originalNo) { const on = f.shipKb.value === '5'; f.originalNo.disabled = !on; if (on) f.originalNo.focus(); else { f.originalNo.value = ''; origInfo(''); } } cumulative(); };
