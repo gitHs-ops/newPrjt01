@@ -7,6 +7,8 @@ import { check } from './domain.mjs';
 
 export const TAX_KIND = { 1: '課税売上', 2: '非課税売上', 3: '輸出売上', 4: '課税売上対応仕入', 5: '非課税売上対応仕入', 6: '共通対応仕入', 7: '非課税仕入', 9: '対象外' };
 export const TAX_RATE = { 0: 0, 1: 10, 2: 3, 3: 6, 4: 2.8, 5: 5, 8: 8 };
+// 消費税区分.xlsx が意味を明記している非課税のコード（例「   4 1　非課税という意味。」）
+export const NON_TAX = new Set(['041']);
 // 旧来の入力値（仕入・経費の税区分）からの読み替え
 const LEGACY = { '10%': '141', '8%': '148', 非課税: '070', 対象外: '090' };
 
@@ -27,10 +29,11 @@ export function decode(v) {
   const code = normalize(v); if (!code) return null;
   const [incl, kind, r] = code, rate = TAX_RATE[r], k = Number(kind);
   const side = k <= 3 ? 'S' : k <= 7 ? 'P' : '';
-  const taxable = rate > 0 && [1, 4, 5, 6].includes(k);
+  // 「 41」は消費税区分.xlsx の例示どおり非課税（2026-11-16。外税 10% として計算していたのはプロトタイプの誤り）
+  const taxable = rate > 0 && [1, 4, 5, 6].includes(k) && !NON_TAX.has(code);
   const excl = taxable && incl !== '1';
   const how = !taxable ? '' : excl ? '外税' : '税込';
-  const name = k === 9 ? '対象外' : !taxable && [4, 5, 6].includes(k) ? `非課税・不課税（${TAX_KIND[k]}）` : `${TAX_KIND[k]}${rate && [1, 4, 5, 6].includes(k) ? ' ' + rate + '%' : ''}${how ? `（${how}）` : ''}`;
+  const name = k === 9 ? '対象外' : NON_TAX.has(code) ? '非課税' : !taxable && [4, 5, 6].includes(k) ? `非課税・不課税（${TAX_KIND[k]}）` : `${TAX_KIND[k]}${rate && [1, 4, 5, 6].includes(k) ? ' ' + rate + '%' : ''}${how ? `（${how}）` : ''}`;
   return { code, display: (incl === '0' ? ' ' : incl) + kind + (r === '0' ? ' ' : r), incl, kind: k, rate, side, taxable, excl, name };
 }
 export const mustDecode = (v, label = '処税率') => { const d = decode(v); check(d, `${label}「${v ?? ''}」は処税率として不正です（例 141・148・041・011・090）`); return d; };

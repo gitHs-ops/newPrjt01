@@ -8,7 +8,7 @@ import iconv from 'iconv-lite';
 import { check, isoDate, csv, DomainError } from './domain.mjs';
 import { audit, rows as dbRows } from './db.mjs';
 import { journalList, LISTS } from './journal-lists.mjs';
-import { decode } from './taxcode.mjs';
+import { decode, NON_TAX } from './taxcode.mjs';
 import { bugyoSettings, bugyoFile } from './bugyo.mjs';
 
 // 処税率 → 弥生の税区分（2桁目＝区分、3桁目＝税率）
@@ -17,7 +17,7 @@ export function yayoiTax(code) {
   const rate = t.rate === 8 ? '8%(軽)' : `${t.rate}%`;
   if (t.kind === 9) return '対象外';
   if (t.side === 'S') return t.kind === 1 ? (t.taxable ? `課税売上${rate}` : '対象外') : t.kind === 2 ? '非課売上' : '輸出売上';
-  if (!t.taxable) return t.kind === 7 ? '非課仕入' : '対象外';
+  if (!t.taxable) return t.kind === 7 || NON_TAX.has(t.code) ? '非課仕入' : '対象外';   // 「 41」＝非課税（2026-11-16）
   return { 4: '課対仕入', 5: '非対仕入', 6: '共対仕入' }[t.kind] + rate;
 }
 async function entries(c, from, to) {

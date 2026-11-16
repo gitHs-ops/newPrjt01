@@ -958,7 +958,7 @@ function proposalInvoice(s) {
     </section>`;
 }
 // 現行の請求書（帳票③④⑤、2026-11-04）：A4 横。左に得意先の〒・住所・名称 御中、右に発行元（〒・住所・会社名・登録番号・共同企業体・TEL・振込先・口座名義）、
-// 請求年月日・得意先コード・締日、工事名・当月御買上額・消費税額・当月値引額・当月御請求額、明細（年月日・伝票番号・商品名・数量・単位・単価・金額・備考）、末尾に税率別の金額と税
+// 請求年月日・得意先コード・締日、工事名・当月御買上額・消費税額・当月御請求額（当月値引額の欄は設けない。D-022・D-006、2026-11-16）、明細（年月日・伝票番号・商品名・数量・単位・単価・金額・備考）、末尾に税率別の金額と税
 const zipOf = z => (z ? `〒 ${String(z).replace(/^(\d{3})-?(\d{4})$/, '$1-$2')}` : '');
 function legacyInvoice(s) {
   const c = s.company, u = s.customer, ymd = d => String(d || '').slice(2).replaceAll('-', '/'), day = Number(String(s.closing).slice(8)), banks = c.banks || (c.bankText ? [c.bankText] : []);
@@ -969,8 +969,8 @@ function legacyInvoice(s) {
       <div class="lg-from"><p>${esc(zipOf(c.postcode))}</p><p>${esc(cAddr || c.address || '')}</p><p>${esc(c.name1 || c.name)}</p>${c.invoiceNo ? `<p>${esc(c.invoiceNo)}</p>` : ''}${c.name2 ? `<p class="lg-jv"><span>${esc(c.name2)}</span><span>TEL. ${esc(c.tel)}</span></p>` : `<p>TEL. ${esc(c.tel)}</p>`}
         ${banks.length ? `<p class="lg-bank">${banks.map(esc).join('<br>')}</p><p class="lg-holder">${esc(c.name1 || c.name)}</p>` : ''}</div></div>
     <table class="lg-key"><tr><th>請求年月日</th><th>得意先コード</th><th>締日</th></tr><tr><td>${ymd(s.closing)}</td><td>${esc(u.code)}</td><td>${day >= 28 ? 31 : day}</td></tr></table>
-    <table class="lg-sum"><tr><th class="lg-site">工　事　名</th><th>当月御買上額</th><th>消費税額</th><th>当月値引額</th><th>当月御請求額</th></tr>
-      <tr><td>${esc(s.siteName || '')}</td><td class="num">${yen(s.net)}</td><td class="num">${yen(s.tax)}</td><td class="num">${yen(s.discount || 0)}</td><td class="num">${yen(s.total)}</td></tr></table>
+    <table class="lg-sum"><tr><th class="lg-site">工　事　名</th><th>当月御買上額</th><th>消費税額</th><th>当月御請求額</th></tr>
+      <tr><td>${esc(s.siteName || '')}</td><td class="num">${yen(s.net)}</td><td class="num">${yen(s.tax)}</td><td class="num">${yen(s.total)}</td></tr></table>
     <table class="lg-lines"><tr><th>年月日</th><th>伝票番号</th><th>商品名</th><th class="num">数量</th><th>単位</th><th class="num">単価</th><th class="num">金額</th><th>備考</th></tr>
       ${s.lines.map(l => `<tr><td>${ymd(l.date)}</td><td>${esc(l.orderNo)}</td><td>${esc(l.itemName)}</td><td class="num">${Number(l.quantity).toFixed(2)}</td><td>${esc(l.unit || '')}</td><td class="num">${yen(l.price)}</td><td class="num">${yen(l.net)}</td><td>${esc(l.siteName || '')}${l.remarks ? ' ' + esc(l.remarks) : ''}</td></tr>`).join('')}
       ${s.buckets.map(b => `<tr class="lg-rate"><td colspan="6"></td><td class="num">${yen(b.net)}</td><td>${b.rate}%</td></tr><tr class="lg-rate"><td colspan="6"></td><td class="num">${yen(b.tax)}</td><td>税</td></tr>`).join('')}</table>
@@ -993,7 +993,7 @@ const invoicePages = (s, want) => {
 };
 // site：請求一覧照会の現場の行から控えを出すとき、その現場の明細だけの1枚
 function printDocs(docs, site = null) {
-  // 現行の請求書（帳票一覧③）と同じ構成：当月御買上額・消費税額・当月値引額・当月御請求額、明細（年月日・伝票番号・商品名・数量・単位・単価・金額・備考）、税率別合計
+  // 現行の請求書（帳票一覧③）と同じ構成：当月御買上額・消費税額・当月御請求額、明細（年月日・伝票番号・商品名・数量・単位・単価・金額・備考）、税率別合計
   const pages = docs.flatMap(d => invoicePages(d, site ? [siteLabel(site.siteName)] : d.sites));
   $('#print-area').innerHTML = pages.map(s => {
     return (s.company.layout || 'legacy') === 'proposal' ? proposalInvoice(s) : legacyInvoice(s); }).join('');
@@ -2353,7 +2353,7 @@ VIEWS.migration = async () => {
       <li>出荷：伝票番号 YYMM＋5桁、伝票区分・他社得意先、担当者・納入区分は必須、天候・出発時間・出発温度、累計数量・累計台数・予定数量。画面は提案書 スライド7・17 の配置。</li>
       <li>出荷予定と納品書発行（NI0060）を推定で実装（機能一覧の範囲外）。</li>
       <li>会計月度は 21日〜20日、決算は 10月20日（期首 10月21日）。財務会計（勘定奉行相当）も同じ月度で集計します。</li>
-      <li>請求書は現行様式（帳票③④⑤：当月御買上額・消費税額・当月値引額・当月御請求額。2026-11-04）が既定、提案書様式は会社マスタの請求書様式で選択。請求書発行確認表は現行 HAR430 の項目。</li>
+      <li>請求書は現行様式（帳票③④⑤：当月御買上額・消費税額・当月御請求額。2026-11-04、当月値引額の欄は 11-16 に削除）が既定、提案書様式は会社マスタの請求書様式で選択。請求書発行確認表は現行 HAR430 の項目。</li>
       <li>マスタは使用中のコードを削除せず無効化を案内。画面はサイドバーの小メニューで機能ごとに表示します。</li></ul>
       <h3 style="margin-top:12px">2026-10-23 反映（議事メモ 10/22 版・入金配賦登録）</h3><ul class="list small"><li>出資金：現行の端数調整画面「入金額配賦登録」（HJW030）に合わせ、帳票・データ出力 → 出資金（JV）帳票に「入金額配賦登録（端数調整）」を追加。締切日の月度の入金ごとに構成員別の配分額を直して登録し、入金明細及び配分表はその金額で出力（Q27・Q36）。</li><li>定時請求の締切日：初期値は直近の締日、手入力で変更できる（決算月は更新処理が遅れるため）。</li><li>定時請求入力明細表は請求書登録後のチェック用（月末〜翌月3日頃に出力）。小口現金出納簿は20日締め・翌月1〜3日頃に出力（Q31）。</li><li>現行メニューの「出資金支払日別明細表印刷」は要否を確認（Q37）。</li></ul>
       <h3 style="margin-top:12px">2026-10-22 反映（10/21 打合せ・再検証）</h3><ul class="list small"><li>在庫：実在庫登録（調査日の月度に品目ごとの数量）と在庫計上を分離。在庫計上は月度ごとに1回、単価＝(前月末在庫金額＋当月仕入)÷(前月末在庫数＋当月仕入数)で評価し洗い替え仕訳。修正は「在庫計上の取消」（逆仕訳）後に再実行（Q07）。</li><li>定時請求データ入力：現行 HAW050 の並び（組織・締切日・請求No・業者・支払繰延区分・支払予定日・合計金額、明細2段）。合計金額は手入力で、明細合計（対象外＋内税＋外税＋外税消費税）と一致しないと登録不可。外税消費税は自動計算（端数は手修正、仮払消費税 1465）。締切日の初期値は直近の締日。</li><li>処税率の1桁目は 1=内税、2・空白=外税で確定（Q01・Q26）。</li><li>定時請求入力明細表：部門・区分（1 組織／ブランク 工事）・業者コード From〜To（ブランク＝出力しない、To 9999999＝全業者、From＞To はエラー、英字は大文字にそろえて比較）。月度の初期値は直近の締日。</li><li>出資金帳票：締切日で指示。明細表・合計表は支払日別・科目別。入金明細は当座預金への入金（振込・手形）・入金時手数料・現金売上（Q36）。</li><li>配合計算：材料単価の手入力（マスタ管理 → 材料単価、月別）と原価の照会画面（マスタ管理 → 原価、照会のみ）を追加。配合マスタのサンプルは削除し、配合表の受領待ち（Q34）。</li></ul>

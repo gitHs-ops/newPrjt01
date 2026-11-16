@@ -36,6 +36,7 @@ const invoicePages = (s, want) => {
   });
 };
 // 現行の請求書（帳票③④⑤、2026-11-04）：印刷の legacyInvoice と同じ並び。A4 横・目盛線なし
+// 当月値引額の欄は設けない（D-022・D-006。0 を出すのは請求書発行確認表②・請求一覧表①だけ。2026-11-16）
 const zipOf = z => (z ? `〒 ${String(z).replace(/^(\d{3})-?(\d{4})$/, '$1-$2')}` : '');
 function legacySheet(s) {
   const c = s.company, u = s.customer, ymd = d => String(d || '').slice(2).replaceAll('-', '/'), day = Number(String(s.closing).slice(8)), banks = c.banks || (c.bankText ? [c.bankText] : []);
@@ -51,8 +52,8 @@ function legacySheet(s) {
   push(['', '', '', '', '', st('請求年月日', 'rCenter'), st('得意先コード', 'rCenter'), st('締日', 'rCenter')]);
   push(['', '', '', '', '', st(ymd(s.closing), 'rCenter'), st(u.code, 'rCenter'), st(day >= 28 ? 31 : day, 'rCenter')]);
   push([], 10);
-  merges.push(ref(push([st('工　事　名', 'rCenter'), '', '', st('当月御買上額', 'rCenter'), '', st('消費税額', 'rCenter'), st('当月値引額', 'rCenter'), st('当月御請求額', 'rCenter')]), 0, 2), ref(rows.length, 3, 4));
-  merges.push(ref(push([st(s.siteName || '', 'rCenter'), '', '', st(s.net, 'rNum'), '', st(s.tax, 'rNum'), st(s.discount || 0, 'rNum'), st(s.total, 'rNum')]), 0, 2), ref(rows.length, 3, 4));
+  merges.push(ref(push([st('工　事　名', 'rCenter'), '', '', st('当月御買上額', 'rCenter'), '', st('消費税額', 'rCenter'), '', st('当月御請求額', 'rCenter')]), 0, 2), ref(rows.length, 3, 4), ref(rows.length, 5, 6));
+  merges.push(ref(push([st(s.siteName || '', 'rCenter'), '', '', st(s.net, 'rNum'), '', st(s.tax, 'rNum'), '', st(s.total, 'rNum')]), 0, 2), ref(rows.length, 3, 4), ref(rows.length, 5, 6));
   push([], 12);
   push(['年月日', '伝票番号', '商品名', '数量', '単位', '単価', '金額', '備考'].map(h => st(h, 'rHead')), 18);
   for (const l of s.lines) push([st(ymd(l.date), 'rCenter'), st(l.orderNo, 'rCell'), st(l.itemName, 'rCell'), st(l.quantity, 'rQty'), st(l.unit || '', 'rCenter'), st(l.price, 'rNum'), st(l.net, 'rNum'), st(`${l.siteName || ''}${l.remarks ? ' ' + l.remarks : ''}`, 'rCell')], 17);
