@@ -426,7 +426,8 @@ VIEWS.shipments = async q => {
   A.notes = () => deliveryNoteDialog(); A.notesIssue = () => issueDeliveryNotes({ date: $('#dn-date').value }).catch(e => toast(e.message, true));
   if (q.tab === 'plans' && SUBMENUS.shipments.some(x => x.k === 'plans' && !x.disabled)) return planView(q);
   // 10/23 打合せ：売上日 From〜To・得意先・現場で伝票を特定。既定は当月
-  const month = q.month || thisMonth(), from = q.from || `${month}-01`, to = q.to || monthEnd(month), kind = SHIP_KINDS[q.kind] ? q.kind : '', list = await api('/api/shipments?' + qs({ from, to, customer: q.customer, site: q.site, ...(SHIP_KINDS[kind]?.q || {}) }));
+  // 既定の期間は締日を毎月20日に固定：前月21日〜当月20日（2026-11-17 ユーザー指示）
+  const month = q.month || thisMonth(), from = q.from || `${addMonths(month, -1)}-21`, to = q.to || `${month}-20`, kind = SHIP_KINDS[q.kind] ? q.kind : '', list = await api('/api/shipments?' + qs({ from, to, customer: q.customer, site: q.site, ...(SHIP_KINDS[kind]?.q || {}) }));
   const bd = (await api('/api/business-date')).date;
   A.misc = d => miscReport(d.kind, d.src).catch(e => toast(e.message, true));
   // 業務日付（現行 MA057 出荷日変更・自社情報の取引日）：出荷日の初期値。変更は自社情報で行う（現行どおり出荷伝票画面には出さない）
