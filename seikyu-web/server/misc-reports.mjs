@@ -1,6 +1,6 @@
 // ④ 在庫・出資金・出荷集計: NO25 配合計算, NO26 材料受払表, NO35 出資金請求明細表(定時), NO36 入金明細配分表, NO41〜43 出荷集計
 import { check, isoDate, isoMonth, toNum, fromNum, today, addMonths, METHODS, yen } from './domain.mjs';
-import { taxOf, decode as taxDecode, TAX_RATE } from './taxcode.mjs';
+import { taxOf, decode as taxDecode, digitOfRate } from './taxcode.mjs';
 import { slipNoOf } from './sales.mjs';
 import { rows, one, audit } from './db.mjs';
 import { xlsx, band } from './xlsx.mjs';
@@ -61,7 +61,6 @@ export async function customerItems(c, q) {
 // ---------- NO43 現金売上明細表：現行 HAR551 の並び（2026-11-04） ----------
 // 列は 得意先（コード＋名称、得意先の 1 行目だけ）・現場名・売上日・伝票No・商品名（コード＋名称）・数量・単位・単価・金額・処税率・運送・備考。得意先ごとに「*** 得意先計 ***」（金額）
 // 単価は売上単価（単価＋運賃）。処税率は売上の 3 桁コード「2 1 税率区分」。運送は納入区分が引取（category1=2）なら 2 先方、それ以外は 1 現場
-const RATE_DIGIT = Object.fromEntries(Object.entries(TAX_RATE).map(([k, v]) => [v, k]));
 export async function cashSales(c, q) {
   const { from, to } = range(q);
   const rs = await rows(c, `SELECT s.*, c.customers_name, unit_name(i.unit) unit, (SELECT COUNT(*) FROM sales_trn x WHERE x.sales_no=s.order_no AND x.order_no<>s.order_no) corrections,
@@ -73,7 +72,7 @@ export async function cashSales(c, q) {
     let cu = customers.find(x => x.customer === r.customers_cd); if (!cu) customers.push(cu = { customer: r.customers_cd, name: r.customers_name || '', rows: [], net: 0 });
     const rate = num(r.tax_rate);
     cu.rows.push({ site: [r.field_name1, r.field_name2].map(v => String(v || '').trim()).filter(Boolean).join(' '), date: fromNum(r.sales_date), no: slipNoOf(r), item: r.item_cd || '', itemName: String(r.item_name || '').trim(),
-      qty: num(r.quantity), unit: r.unit || '', price: num(r.unit_price), net: num(r.money), tax: rate ? `21${RATE_DIGIT[rate] ?? ''}` : '090', carry: r.kbn_cat === '2' ? '2 先方' : '1 現場', remarks: r.remarks || '' });
+      qty: num(r.quantity), unit: r.unit || '', price: num(r.unit_price), net: num(r.money), tax: rate ? `21${digitOfRate(rate) ?? ''}` : '090', carry: r.kbn_cat === '2' ? '2 先方' : '1 現場', remarks: r.remarks || '' });
     cu.net += num(r.money);
   }
   return { title: '現金売上明細表', ref: 'NO43 / 添付帳票⑲（HAR551）', from, to, customers };

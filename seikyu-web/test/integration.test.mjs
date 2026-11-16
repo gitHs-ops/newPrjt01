@@ -690,6 +690,35 @@ test('workflow against PostgreSQL business tables', { skip, timeout: 900000 }, a
       ok(await a.call('/api/invoices/cancel', { id, site: lb.site, siteName: lb.siteName }));
       assert.notEqual((await a.call('/api/invoices/' + id)).status, 200, 'invoice removed after its last site');
     });
+    await t.test('D-041 価格調整（マイナスの定時請求）と支払での相殺、D-049 立替金、No.4 税率区分マスタ', async () => {
+      const ok = r => { assert.equal(r.status, 200, JSON.stringify(r.data)); return r.data; }, W = 'W' + tag, cd = pm + '-20';
+      ok(await a.call('/api/masters/vendors', { mode: 'create', record: { code: W, name: '価格調整試験', bank: '0001', branch: '001', accountType: '1', account: '7654321', holder: 'ｶｶｸ', active: true } }));
+      const plus = ok(await a.call('/api/expenses', { kind: 'PAYABLE', date: cd, vendor: W, due: cd, total: 7039318, lines: [{ account: '8231', taxCode: '141', amount: 7039318, memo: 'ストレートアスファルト' }] }));
+      const minus = ok(await a.call('/api/expenses', { kind: 'PAYABLE', date: cd, vendor: W, due: cd, total: -5859234, lines: [{ account: '8231', taxCode: '141', amount: -5859234, memo: 'ストアス価格調整R8.7～9' }] }));
+      const open = ok(await a.call('/api/expenses?' + new URLSearchParams({ kind: 'PAYABLE', vendor: W, open: 1 })));
+      assert.deepEqual(open.map(r => r.balance).sort((x, y) => x - y), [-5859234, 7039318], 'マイナスの請求も未払（未充当）に出る');
+      // 仕訳 D01：マイナスの請求は買掛金 4121 が借方、仕入 8231 が貸方
+      const jl = ok(await a.call('/api/reports/journal-list?' + new URLSearchParams({ pattern: 'D01', from: cd, to: cd })));
+      assert.ok(JSON.stringify(jl).includes('5859234') || JSON.stringify(jl).includes('5,859,234'), 'D01 に価格調整の仕訳');
+      assert.equal((await a.call('/api/payments', { idempotencyKey: 'wn' + tag, date: cd, vendor: W, bankCode: 'B' + tag, allocations: [{ expenseId: minus.id, amount: -5859234 }] })).status, 400, 'マイナスだけの支払は不可');
+      assert.equal((await a.call('/api/payments', { idempotencyKey: 'wx' + tag, date: cd, vendor: W, bankCode: 'B' + tag, allocations: [{ expenseId: plus.id, amount: 7039318 }, { expenseId: minus.id, amount: -6000000 }] })).status, 400, '未充当額を超えるマイナスは不可');
+      const pay = ok(await a.call('/api/payments', { idempotencyKey: 'wp' + tag, date: cd, vendor: W, bankCode: 'B' + tag, allocations: [{ expenseId: plus.id, amount: 7039318 }, { expenseId: minus.id, amount: -5859234 }] }));
+      const pr = ok(await a.call('/api/payments?' + new URLSearchParams({ month: cd.slice(0, 7) }))).find(r => r.id === pay.id);
+      assert.equal(pr.amount, 1180084, '振込額＝7,039,318−5,859,234');
+      assert.equal(ok(await a.call('/api/expenses?' + new URLSearchParams({ kind: 'PAYABLE', vendor: W, open: 1 }))).length, 0);
+      assert.equal((await a.call('/api/expenses', { kind: 'PETTY_CASH', date: cd, lines: [{ account: '8317', taxCode: '141', amount: -100, payee: '戻し' }] })).status, 400, '小口現金は合計マイナス不可');
+      // D-049：立替金（支払調整）は業者立替金の残高まで
+      const p2 = ok(await a.call('/api/expenses', { kind: 'PAYABLE', date: cd, vendor: W, due: cd, total: 1000, lines: [{ account: '8231', taxCode: '090', amount: 1000 }] }));
+      assert.match((await a.call('/api/payments', { idempotencyKey: 'wo' + tag, date: cd, vendor: W, bankCode: 'B' + tag, offset: 500, allocations: [{ expenseId: p2.id, amount: 1000 }] })).data.error, /業者立替金の残高/);
+      // No.4：税率区分マスタ（処税率の 3 桁目）。区分を追加すると処税率で使える。0 は 0% 固定、使用中は削除不可
+      assert.equal((await a.call('/api/masters/taxDigits', { mode: 'update', record: { ...ok(await a.call('/api/masters/taxDigits')).find(r => r.code === '0'), rate: 5 } })).status, 400);
+      assert.equal((await a.call('/api/expenses', { kind: 'PAYABLE', date: cd, vendor: W, due: cd, total: 11200, lines: [{ account: '8231', taxCode: '246', amount: 10000 }] })).status, 400, '未登録の区分 6 は不正');
+      ok(await a.call('/api/masters/taxDigits', { mode: 'create', record: { code: '6', rate: '12', name: '' } }));
+      const e6 = ok(await a.call('/api/expenses', { kind: 'PAYABLE', date: cd, vendor: W, due: cd, total: 11200, lines: [{ account: '8231', taxCode: '246', amount: 10000 }] }));
+      const r6 = ok(await a.call('/api/masters/taxDigits')).find(r => r.code === '6'); assert.equal(r6.rate, 12); assert.equal(r6.name, '12%');
+      assert.match((await a.call('/api/masters/taxDigits/delete', { record: r6 })).data.error || '', /使われている|削除できません/);
+      ok(await a.call('/api/expenses/reverse', { id: e6.id }));
+    });
     await t.test('請求書発行確認表の運送＝納入区分の名称、区分が違えば同じ日・同じ商品でも別の行（11/04 打合せ No.26）', async () => {
       const ok = r => { assert.equal(r.status, 200, JSON.stringify(r.data)); return r.data; };
       const U = 'U' + tag;

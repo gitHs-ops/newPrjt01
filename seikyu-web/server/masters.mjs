@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { check, Conflict, text, bool, yen, closingDay, isoDate, today, parseCsv, fromNum } from './domain.mjs';
 import { rows, one, audit, mapSqlError } from './db.mjs';
 import { toZenginKana, zenginInvalid } from './zengin.mjs';
+import { setRateDigits } from './taxcode.mjs';
 
 // Accounts referenced by automatic journal patterns. They cannot be deactivated.
 export const SYSTEM_ACCOUNTS = [
@@ -382,6 +383,25 @@ export const MASTERS = {
       else await c.query("UPDATE code_m SET code_dtl_nam=?,code_dtl_abr=?,category1=?,category3=? WHERE code_key='A0007' AND code_dtl=?", [r.rate + '%', r.rate + '%', String(r.rate), r.active ? ' ' : '0', k]);
     },
   },
+  // 税率区分（処税率の 3 桁目 → 税率。2026-11-16 検証結果 No.4「処税率 3 桁目と税率マスタの対応付け」）。code_m A0008、category1＝税率％。
+  // 初期値は消費税区分.xlsx（空白 0%・1 10%・2 3%・3 6%・4 2.8%・5 5%・8 8%）。税率改定は新しい区分を追加する（既存の区分の税率を変えると、その区分の処税率で入力済みの伝票を再計算したときに金額が変わる）
+  taxDigits: {
+    label: '税率区分（処税率3桁目）', table: 'code_m',
+    fields: [F('code', '税率区分', { max: 1, key: true, hint: '処税率の 3 桁目（1〜9。0＝空白＝0% は固定）' }), F('rate', '税率(%)', { type: 'dec', hint: '例 10・8・2.8' }), F('name', '名称', { max: 20, optional: true, hint: '空欄は「税率％」' })],
+    select: "SELECT * FROM code_m WHERE code_key='A0008'", where: 'code_dtl=?', keyOf: r => [r.code],
+    decode: r => ({ code: r.code_dtl, rate: Number(r.category1), name: r.code_dtl_nam }),
+    validate: r => {
+      const code = text(r.code, '税率区分', 1, { pattern: /^\d$/ }), rate = Number(String(r.rate ?? '').trim());
+      check(String(r.rate ?? '').trim() !== '' && Number.isFinite(rate) && rate >= 0 && rate <= 100 && Math.round(rate * 10) === rate * 10, '税率(%)は 0〜100、小数 1 桁までです');
+      check(code !== '0' || rate === 0, '税率区分 0（空白）は 0% 固定です');
+      return { code, rate, name: text(r.name || `${rate}%`, '名称', 20) };
+    },
+    async write(c, r, old) {
+      if (!old) await c.query("INSERT INTO code_m (code_key,code_key_nam,code_dtl,code_dtl_nam,code_dtl_abr,category1,category2,category3) VALUES ('A0008','税率区分',?,?,?,?,' ',' ')", [r.code, r.name, r.name, String(r.rate)]);
+      else await c.query("UPDATE code_m SET code_dtl_nam=?,code_dtl_abr=?,category1=? WHERE code_key='A0008' AND code_dtl=?", [r.name, r.name, String(r.rate), r.code]);
+      await loadRateDigits(c);
+    },
+  },
   // カレンダー（休日）：土日は自動で休日、祝日・銀行休業日・会社休日をここに登録する。支払予定日・全銀データの振込指定日が休日なら翌営業日（2026-10-31 定時請求・支払データ作成の打合せ）
   holidays: {
     label: 'カレンダー（休日）', table: 'code_m',
@@ -551,6 +571,10 @@ const REMOVE = {
   units: { refs: [['商品マスタ', 'SELECT 1 x FROM item_m WHERE unit=? LIMIT 1'], ['出荷伝票', 'SELECT 1 x FROM shipment_slip WHERE unit_cd=? LIMIT 1'], ['出荷予定', 'SELECT 1 x FROM shipment_plan WHERE unit_cd=? LIMIT 1']],
     del: ["DELETE FROM code_m WHERE code_key='A0003' AND code_dtl=?"] },
   holidays: { refs: [], del: ["DELETE FROM code_m WHERE code_key='HOL' AND code_dtl=?"] },
+  // 処税率の 3 桁目がこの区分の伝票・科目があれば削除不可（0 は固定）
+  taxDigits: { refs: [['税率区分 0（固定）', "SELECT 1 x WHERE ?='0'"], ['定時請求・小口現金', 'SELECT 1 x FROM expense_line WHERE RIGHT(source_tax_code,1)=? LIMIT 1'], ['財務会計の伝票', 'SELECT 1 x FROM kb_line WHERE RIGHT(tax_code,1)=? LIMIT 1'],
+    ['勘定科目の既定処税率', 'SELECT 1 x FROM kb_account WHERE RIGHT(tax_code,1)=? LIMIT 1']],
+    del: ["DELETE FROM code_m WHERE code_key='A0008' AND code_dtl=?"] },
   taxRates: { refs: [['最後の1件', "SELECT 1 x FROM (SELECT COUNT(*) n FROM code_m WHERE code_key='A0007' AND code_dtl<>?) t WHERE t.n=0"],
     ['この税率期間の出荷・売上', "SELECT 1 x FROM sales_trn WHERE sales_date>=CAST(? AS INTEGER) AND sales_date<COALESCE((SELECT MIN(CAST(code_dtl AS INTEGER)) FROM code_m WHERE code_key='A0007' AND code_dtl>?),99999999) LIMIT 1"]], del: ["DELETE FROM code_m WHERE code_key='A0007' AND code_dtl=?"] },
   operators: { refs: [['出荷伝票', "SELECT 1 x FROM shipment_slip WHERE person_in_charge_cd=lpad(CAST(? AS TEXT),6,'0') LIMIT 1"], ['出荷予定', "SELECT 1 x FROM shipment_plan WHERE person_in_charge_cd=lpad(CAST(? AS TEXT),6,'0') LIMIT 1"]],
@@ -574,6 +598,7 @@ export async function remove(c, ctx, kind, input) {
   if (kind === 'taxRates') check(!used.length, '消費税率は最低1件必要です');
   check(!used.length, `${cfg.label}「${key.filter(v => v !== '').join('-')}」は ${used.join('・')} で使われているため削除できません。「有効」を外して無効にしてください（現行と同じ論理削除）`);
   for (const sql of rm.del) await c.query(sql, argsFor(sql, key));
+  if (kind === 'taxDigits') await loadRateDigits(c);
   if (kind === 'jv') { const bad = await jvSumError(c); check(!bad, bad + '。比率を変えるときは［出資比率の一括登録］で同じ月度の構成員をまとめて登録してください'); }
   await audit(c, ctx, cfg.table, key.join('|'), 'master.delete', { kind, key: key.join('|') });
   return { kind, key: key.join('|') };
@@ -597,6 +622,10 @@ export async function importCsv(c, ctx, kind, csvText) {
 }
 export function exportRows(cfg, list) { return [cfg.fields.map(f => f.name), ...list.map(r => cfg.fields.map(f => f.type === 'bool' ? (r[f.name] ? '1' : '0') : r[f.name]))]; }
 
+// 税率区分マスタ（A0008）を処税率の計算に反映する。起動時（schema.prepare）とマスタの保存・削除時
+export async function loadRateDigits(c) {
+  return setRateDigits((await rows(c, "SELECT code_dtl, category1 FROM code_m WHERE code_key='A0008'")).map(r => ({ digit: r.code_dtl, rate: r.category1 })));
+}
 // 消費税の設定（2026-11-09 ユーザー指示：現行の 申告方法・端数処理・消費税自動対応区分・期首開始月 を マスタ管理 › 消費税率 に置く）
 // 端数処理は自社情報の tax_round（A0005：1 切上・2 切捨・3 四捨五入）を現行のコード（ブランク 四捨五入・1 切り捨て・2 切り上げ）で表示・保存する。
 // 期首開始月は自社情報の 決算月・月度締日 から求める（締日 20 なら決算月の 21 日が期首＝決算月、暦月なら決算月の翌月）。保存すると決算月を直す。

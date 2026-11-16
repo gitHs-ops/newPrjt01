@@ -1,7 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { rows, one, NUMBERING } from './db.mjs';
-import { SYSTEM_ACCOUNTS } from './masters.mjs';
+import { SYSTEM_ACCOUNTS, loadRateDigits } from './masters.mjs';
 import { TABLES } from './ledger.mjs';
 import { hashPassword, verifyPassword, ROLES } from './users.mjs';
 import { prepareKb, getsudoMigration } from './kb.mjs';
@@ -84,6 +84,8 @@ const JAVA_CODES = [
   ['A0000', '納入区分', [['1', '大型現着', '1', '大現'], ['2', '8t現着', '1', '８現'], ['3', '4t現着', '1', '４現'], ['4', '引取', '2', '引取'], ['5', 'その他', '1', 'その他']]],
   ['A0003', '単位', [['01', 't'], ['02', 'm3'], ['03', 'Kg'], ['04', 'KL'], ['05', 'L'], ['06', '本'], ['07', '缶'], ['08', '袋'], ['09', '日'], ['10', '時間'], ['11', '人'], ['12', '台'], ['13', '回'], ['14', '式'], ['15', '㎡'], ['16', '年'], ['17', '月'], ['18', '箱'], ['19', '名'], ['20', '円'], ['21', '枚'], ['22', 'm'], ['23', '点'], ['99', 'その他']]],
   ['A0007', '消費税率', [['20140401', '8%', '8'], ['20191001', '10%', '10']]],
+  // 税率区分（処税率の 3 桁目。消費税区分.xlsx。2026-11-16）：category1＝税率％
+  ['A0008', '税率区分', [['0', '0%', '0'], ['1', '10%', '10'], ['2', '3%', '3'], ['3', '6%', '6'], ['4', '2.8%', '2.8'], ['5', '5%', '5'], ['8', '8%', '8']]],
   ['A0010', '天候', [['1', '晴れ'], ['2', '曇り'], ['3', '雨'], ['4', '雪']]], // 現行の値は資料になく推定（提案書の画面例「晴れ」）
 ];
 async function javaCodes(pool, env) {
@@ -214,6 +216,10 @@ export async function prepare(pool, env = process.env) {
   await getsudoMigration(pool);
   await gsMigration(pool); // 外部システム gsLink のテーブル（2026-11-05）
   await javaCodes(pool, env);
+  // D-041（2026-11-16）：価格調整（マイナスの定時請求）を支払で相殺するため、支払の割当はマイナスも可（0 は不可）
+  await pool.query('ALTER TABLE payment_allocation DROP CONSTRAINT IF EXISTS payment_allocation_chk_1');
+  await pool.query("DO $c$ BEGIN ALTER TABLE payment_allocation ADD CONSTRAINT payment_allocation_amount_nz CHECK (amount <> 0); EXCEPTION WHEN duplicate_object THEN NULL; END $c$");
+  await loadRateDigits(pool);   // 税率区分マスタ → 処税率の計算
   for (const [id, name] of Object.entries(ROLES)) await pool.query('INSERT INTO roles (role_id,role_name) VALUES (?,?) ON DUPLICATE KEY UPDATE role_name=VALUES(role_name)', [Number(id), name]);
   for (const [id, title, url, icon, grp] of MENUS) {
     await pool.query('INSERT INTO menus (menu_id,menu_title,launch_url,parent_menu_id,display_seq,menu_class,group_title) VALUES (?,?,?,0,?,?,?) ON DUPLICATE KEY UPDATE menu_title=VALUES(menu_title),launch_url=VALUES(launch_url),display_seq=VALUES(display_seq),menu_class=VALUES(menu_class),group_title=VALUES(group_title)', [id, title, url, id * 10, icon, grp]);

@@ -1745,7 +1745,7 @@ VIEWS.payments = async q => {
       ${/* 現行 HJW200 支払内訳入力の並び（2026-11-08）：支払内訳 → 支払合計 → 振込銀行 → 振込方法・手数料 → 支払銀行 → 前々々月〜前月の繰越。
            現金・小切手・手形は 10/19 打合せ「振込のみ」で置かない。立替金（相殺）は定時請求データ入力の明細（科目 1431、マイナス）で入力する（10/28 回答②）ので支払の画面では入力しない。
            前払金・その他は仕訳の実績（仕訳パターン分析 F-01〜F-03）にないため置かない（要確認） */ ''}
-      <h3>支払内訳</h3><div class="form-grid py-stack">${field('振込', '<input id="py-bank" class="num" readonly value="0" tabindex="-1">')}${field('手数料', `<input name="fee" class="num" value="${old ? old.fee : 0}">`)}${field('安全協力費（差引）', `<input name="safety" class="num" value="${old ? old.safety : 0}">`)}<input type="hidden" name="offset" value="${old ? old.offset : 0}">${field('支払合計', '<input id="py-total" class="num" readonly value="0" tabindex="-1">')}</div>
+      <h3>支払内訳</h3><div class="form-grid py-stack">${field('振込', '<input id="py-bank" class="num" readonly value="0" tabindex="-1">')}${field('手数料', `<input name="fee" class="num" value="${old ? old.fee : 0}">`)}${field('安全協力費（差引）', `<input name="safety" class="num" value="${old ? old.safety : 0}">`)}${/* D-049（11/11 回答）：支払調整は支払内訳入力で振込金額を立替金に置き換える。業者立替金 1431 の残高まで（仕訳 F01 貸方 1431） */ ''}${field('立替金（支払調整）', `<input name="offset" class="num" value="${old ? old.offset : 0}">`, { hint: '振込金額のうち立替金に置き換える額（業者立替金の残高まで）' })}${field('支払合計', '<input id="py-total" class="num" readonly value="0" tabindex="-1">')}</div>
       <div class="form-grid py-stack">${field('振込方法', `<select name="transferMethod">${options([{ code: '0', name: '電信' }, { code: '1', name: '文書' }], old?.transferMethod || '0', { label: x => `${x.code}: ${x.name}` })}</select>`)}${field('手数料', `<select name="feeKbn">${options([{ code: '0', name: 'とらない' }, { code: '1', name: 'とる' }], old ? old.feeKbn || (old.fee ? '1' : '0') : '0', { label: x => `${x.code}: ${x.name}` })}</select>`)}${field('支払銀行（支払元口座）', `<select name="bankCode">${options(active('banks'), old?.fromBank || active('banks')[0]?.code)}</select>`, { req: 1 }).replace('class="field', 'class="field py-w2')}</div>
       <div class="note" id="py-payee">振込銀行: -</div>${/* 振込銀行の表示は入力項目（振込方法・手数料・支払銀行）の下（2026-11-08 ユーザー指示） */ ''}
       <h3>繰越と今回支（月別）</h3><div id="py-carry"></div>
@@ -1763,7 +1763,7 @@ VIEWS.payments = async q => {
         const now = nowVals(), total = now[0] + now[1] + now[2];
         $('#py-total').value = yen(total); $('#py-bank').value = yen(total - num(f.fee.value) - num(f.safety.value) - num(f.offset.value));
         if ($('#py-nowsum')) { $('#py-nowsum').textContent = yen(total); $('#py-diff').textContent = yen(sum.buckets.reduce((n, x) => n + x.carry, 0) - total); }
-        [0, 1, 2].forEach(i => { const x = $(`#py-now${i}`); if (x) x.classList.toggle('check-ng', now[i] > openOf(i).reduce((n, d) => n + Number(d.balance), 0)); }); };
+        [0, 1, 2].forEach(i => { const x = $(`#py-now${i}`), ds = openOf(i), neg = ds.reduce((n, d) => n + Math.min(Number(d.balance), 0), 0); if (x) x.classList.toggle('check-ng', now[i] > ds.reduce((n, d) => n + Number(d.balance), 0) || (now[i] !== 0 && now[i] < neg) || (now[i] < 0 && !neg)); }); };
       const drawCarry = () => {
         if (!sum) { $('#py-carry').innerHTML = f.vendor.value ? '<p class="check-ng small">繰越を取得できません</p>' : '<p class="muted small">業者を選択してください</p>'; return recalc(); }
         const b = sum.buckets, row = (l, g) => `<tr><th>${l}</th>${[0, 1, 2].map(i => `<td class="num">${yen(g(i))}</td>`).join('')}<td class="num">${yen(g(0) + g(1) + g(2))}</td></tr>`;
@@ -1771,9 +1771,9 @@ VIEWS.payments = async q => {
         const init = i => (old ? openOf(i).reduce((n, d) => n + (old.allocations.find(a => a.expenseId === d.id)?.amount || 0), 0) : openOf(i).reduce((n, d) => n + Number(d.balance), 0));
         $('#py-carry').innerHTML = `<div class="table-wrap"><table><thead><tr><th></th><th class="num">前々々月以前（${sum.months[0]}）</th><th class="num">前々月（${sum.months[1]}）</th><th class="num">前月以降（${sum.months[2]}〜）</th><th class="num">合計</th></tr></thead><tbody>${row('請求額', i => b[i].billed + (b[i].before || 0))}${row('支払済', i => b[i].paid)}${row('繰越額', i => b[i].carry)}
           <tr><th>今回支</th>${[0, 1, 2].map(i => `<td class="num py-nowcell"><input id="py-now${i}" class="num" value="${init(i)}"${openOf(i).length ? '' : ' disabled'}></td>`).join('')}<td class="num" id="py-nowsum"></td></tr></tbody>
-          <tfoot><tr><th colspan="4" style="text-align:right">差引支払（繰越額－今回支）</th><td class="num" id="py-diff"></td></tr></tfoot></table></div><p class="muted small" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">請求額は計上月で集計（前々々月以前は過去の未払を含む）・支払済はこの支払を除く・今回支は古い伝票から割当</p>`;
+          <tfoot><tr><th colspan="4" style="text-align:right">差引支払（繰越額－今回支）</th><td class="num" id="py-diff"></td></tr></tfoot></table></div><p class="muted small" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">請求額は計上月で集計（前々々月以前は過去の未払を含む）・支払済はこの支払を除く・今回支は古い伝票から割当（価格調整のマイナスは先に全額）</p>`;
         [0, 1, 2].forEach(i => { const x = $(`#py-now${i}`); if (x) x.oninput = recalc; }); recalc(); };
-      f.feeKbn.onchange = recalc; f.fee.oninput = recalc; f.safety.oninput = recalc;
+      f.feeKbn.onchange = recalc; f.fee.oninput = recalc; f.safety.oninput = recalc; f.offset.oninput = recalc;
       f.date.onchange = () => { if (f.vendor.value) f.vendor.onchange(true); };
       f.vendor.onchange = async keepBank => {
       const v = masters.vendors.find(x => x.code === f.vendor.value); $('#py-payee').textContent = v?.bank ? `振込銀行: ${v.bank}-${v.branch} ${({ 1: '普通', 2: '当座', 4: '貯蓄' })[v.accountType] || ''} ${v.account} ${v.holder}` : '振込銀行: 未登録（マスタ管理で登録できます）';
@@ -1788,11 +1788,16 @@ VIEWS.payments = async q => {
       const now = H.nowVals(), allocations = [];
       for (const i of [0, 1, 2]) {
         let rest = now[i]; const docs = H.openOf(i), bal = docs.reduce((n, d) => n + Number(d.balance), 0), label = ['前々々月以前', '前々月', '前月以降'][i];
-        if (rest < 0) throw Error(`今回支（${label}）にマイナスは入力できません`);
+        // 価格調整（マイナスの請求、D-041）：今回支を入れた月は、その月のマイナスの請求を先に全額充当し、残りをプラスの請求へ古い順に割り当てる
+        const neg = docs.filter(d => Number(d.balance) < 0), negSum = neg.reduce((n, d) => n + Number(d.balance), 0);
+        if (!rest) continue;
         if (rest > bal) throw Error(`今回支（${label}）が未払残高 ${yen(bal)} を超えています`);
-        for (const d of docs) { if (rest <= 0) break; const a = Math.min(rest, Number(d.balance)); allocations.push({ expenseId: d.id, amount: a }); rest -= a; }
+        if (rest < Math.min(negSum, 0) || (rest < 0 && !negSum)) throw Error(`今回支（${label}）が${negSum ? `価格調整（マイナス）の合計 ${yen(negSum)}` : '0'} を下回っています`);
+        for (const d of neg) { allocations.push({ expenseId: d.id, amount: Number(d.balance) }); rest -= Number(d.balance); }
+        for (const d of docs.filter(x => Number(x.balance) > 0)) { if (rest <= 0) break; const a = Math.min(rest, Number(d.balance)); allocations.push({ expenseId: d.id, amount: a }); rest -= a; }
       }
       if (!allocations.length) throw Error('今回支を入力してください');
+      if (allocations.reduce((n, a) => n + a.amount, 0) <= 0) throw Error('今回支の合計が0以下です（価格調整のマイナスは、同じ業者のプラスの請求と一緒に支払ってください）');
       if (old) { const r = await post('/api/payments/update', { ...v, id: old.id, force: !!old.exported, allocations, idempotencyKey: key }); toast(`支払 ${old.no} を取り消し、${r.no} で登録し直しました（仕訳 F01）`); return render(); }
       const r = await post('/api/payments', { ...v, allocations, idempotencyKey: key }); toast(`支払 ${r.no} を登録しました（仕訳 F01）`); render(); } }); };
   A.new = () => pyForm(null);

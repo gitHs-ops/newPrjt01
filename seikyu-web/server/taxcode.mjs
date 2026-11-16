@@ -6,7 +6,9 @@
 import { check } from './domain.mjs';
 
 export const TAX_KIND = { 1: '課税売上', 2: '非課税売上', 3: '輸出売上', 4: '課税売上対応仕入', 5: '非課税売上対応仕入', 6: '共通対応仕入', 7: '非課税仕入', 9: '対象外' };
-export const TAX_RATE = { 0: 0, 1: 10, 2: 3, 3: 6, 4: 2.8, 5: 5, 8: 8 };
+// 3桁目（税率区分）→ 税率％。初期値は消費税区分.xlsx。マスタ管理 › 税率区分（code_m A0008）の内容で置き換える（setRateDigits。起動時とマスタ保存時）
+export const DEFAULT_RATE_DIGITS = { 0: 0, 1: 10, 2: 3, 3: 6, 4: 2.8, 5: 5, 8: 8 };
+export const TAX_RATE = { ...DEFAULT_RATE_DIGITS };
 // 消費税区分.xlsx が意味を明記している非課税のコード（例「   4 1　非課税という意味。」）
 export const NON_TAX = new Set(['041']);
 // 旧来の入力値（仕入・経費の税区分）からの読み替え
@@ -41,4 +43,16 @@ export const mustDecode = (v, label = '処税率') => { const d = decode(v); che
 export function taxOf(amount, v) { const d = decode(v); if (!d?.taxable) return 0; const r = Math.round(d.rate * 10); return Math.floor(amount * r / (d.excl ? 1000 : 1000 + r)); }
 
 // 画面の選択肢（よく使うもの）。これ以外の組合せも decode できれば入力可。251（非課税売上対応仕入 10% 外税）は 2026-11-01 追加
-export const CATALOG = ['090', '011', '111', '018', '118', '211', '020', '030', '141', '148', '241', '248', '151', '251', '161', '070', '041'].map(decode);
+const CATALOG_CODES = ['090', '011', '111', '018', '118', '211', '020', '030', '141', '148', '241', '248', '151', '251', '161', '070', '041'];
+export const CATALOG = CATALOG_CODES.map(decode);
+// 税率区分マスタの内容を反映する（list：[{ digit, rate }]）。0 は 0% 固定。CATALOG（画面の選択肢）も作り直す
+export function setRateDigits(list) {
+  const next = { 0: 0 };
+  for (const x of list || []) { const d = String(x.digit ?? '').trim(), r = Number(x.rate); if (/^[1-9]$/.test(d) && Number.isFinite(r) && r >= 0 && r <= 100) next[d] = r; }
+  for (const k of Object.keys(TAX_RATE)) delete TAX_RATE[k];
+  Object.assign(TAX_RATE, next);
+  CATALOG.splice(0, CATALOG.length, ...CATALOG_CODES.map(decode).filter(Boolean));
+  return { ...TAX_RATE };
+}
+// 税率％ → 3桁目（同じ税率が複数なら小さい数字）
+export const digitOfRate = rate => Object.keys(TAX_RATE).filter(k => k !== '0').sort().find(k => TAX_RATE[k] === Number(rate));

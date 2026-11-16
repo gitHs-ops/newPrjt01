@@ -2,7 +2,7 @@
 import { check, isoDate, isoMonth, toNum, fromNum, today, METHODS } from './domain.mjs';
 import { rows, one } from './db.mjs';
 import { xlsx, band } from './xlsx.mjs';
-import { decode as taxDecode, TAX_RATE } from './taxcode.mjs';
+import { decode as taxDecode, digitOfRate } from './taxcode.mjs';
 import { allocate, members as jvMembersChecked } from './misc-reports.mjs';
 import { companyPeriod } from './period.mjs';
 import { customerSite, siteDue, slipNoOf, priceOf } from './sales.mjs';
@@ -96,7 +96,6 @@ export async function pettyCashBook(c, q) {
 //   処税率は売上（外税・課税売上）の 3 桁コード「2 1 税率区分」。運送区分は納入区分が引取（category1=2）なら 2 先方、それ以外は 1 現場
 //   在庫品コードは商品コードと違うときだけ出す
 const SR_KIND = { 1: '売上', 2: '他社', 3: '他社', 4: '他社', 5: '訂正', 9: '値引' };
-const RATE_DIGIT = Object.fromEntries(Object.entries(TAX_RATE).map(([k, v]) => [v, k]));
 export async function salesRegister(c, q) {
   const { from, to } = range(q);
   const rs = await rows(c, `SELECT s.*, c.customers_name, unit_name(i.unit) unit, sl.unit_price slip_price, sl.freight slip_freight,
@@ -108,7 +107,7 @@ export async function salesRegister(c, q) {
     let cu = customers.find(x => x.customer === r.customers_cd); if (!cu) customers.push(cu = { customer: r.customers_cd, name: r.customers_name, rows: [] });
     const prev = cu.rows[cu.rows.length - 1], date = fromNum(r.sales_date), kind = SR_KIND[r.ship_kb] || '', rate = num(r.tax_rate);
     cu.rows.push({ date, kind, showDate: prev?.date !== date, showKind: prev?.date !== date || prev?.kind !== kind, no: slipNoOf(r), item: r.item_cd || '', itemName: r.item_name || '',
-      qty: num(r.quantity), unit: r.unit || '', price: num(r.unit_price), net: num(r.money), tax: rate ? `21${RATE_DIGIT[rate] ?? ''}` : '090',
+      qty: num(r.quantity), unit: r.unit || '', price: num(r.unit_price), net: num(r.money), tax: rate ? `21${digitOfRate(rate) ?? ''}` : '090',
       carry: r.kbn_cat === '2' ? '2 先方' : '1 現場', freight: priceOf(r.unit_price, r.slip_price, r.slip_freight).freight,
       site: [r.field_cd, String(r.field_name1 || '').trim()].filter(Boolean).join(' '), site2: String(r.field_name2 || '').trim(), stock: r.item_zaiko_cd && r.item_zaiko_cd !== r.item_cd ? r.item_zaiko_cd : '' });
   }

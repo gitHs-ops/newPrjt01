@@ -13,7 +13,7 @@ export const PURCHASE_KINDS = { 1: '仕入', 2: '他社納入' };
 // 単位は現行画面（HAW010）の下のガイダンスどおり 1〜3 のコードで入力（単位マスタからの取得は保留。2026-11-03）
 export const PURCHASE_UNITS = { 1: 't', 2: '袋', 3: '' };
 const PU_UNIT = `CASE p.unit WHEN '1' THEN 't' WHEN '2' THEN '袋' WHEN '3' THEN '' ELSE unit_name(i.unit) END`;
-export const TAX_CODES = CATALOG.map(t => ({ code: t.code, name: t.name }));
+export const taxCodes = () => CATALOG.map(t => ({ code: t.code, name: t.name }));   // 税率区分マスタの変更を反映するため毎回作る
 export async function listPurchases(c, q = {}) {
   const w = [], args = []; monthWhere('p.purchase_date', q, w, args);
   if (q.from) { w.push('p.purchase_date>=?'); args.push(isoDate(q.from, '開始日')); }
@@ -224,7 +224,7 @@ export async function listExpenses(c, q = {}) {
   if (q.vendor) { w.push('v.vendor_code=?'); args.push(q.vendor); }
   // payment＝修正する支払（2026-11-08）：その支払を取り消した後の未払残高で返す
   const paid = q.payment ? PAID.replace("p.status='POSTED'", `p.status='POSTED' AND p.payment_id<>${Number(q.payment) || 0}`) : PAID;
-  if (q.open) w.push(`d.status='POSTED' AND d.gross_amount>${paid}`);
+  if (q.open) w.push(`d.status='POSTED' AND d.gross_amount<>${paid}`);   // 価格調整（マイナスの請求）の未充当も出す（D-041）
   const rs = await rows(c, `SELECT d.*, v.vendor_code, v.vendor_name, l.account_code, l.sub_code, l.department_code, l.source_tax_code, l.memo line_memo, a.account_name, ${paid} paid
     FROM expense_document d LEFT JOIN vendor v ON v.vendor_id=d.vendor_id LEFT JOIN expense_line l ON l.expense_id=d.expense_id AND l.line_no=1 LEFT JOIN account_subject a ON a.account_code=l.account_code
     ${w.length ? 'WHERE ' + w.join(' AND ') : ''} ORDER BY d.booked_on DESC, d.expense_id DESC LIMIT 1000`, args);
@@ -332,7 +332,9 @@ export async function createExpense(c, ctx, p, old = null) {
     const ext = yen(p.extTax, '外税消費税', { negative: true }), diff = ext - exCalc;
     if (diff) { check(exLines.length, '外税の明細がないため外税消費税は入力できません'); const last = exLines[exLines.length - 1]; last.taxAmt += diff; last.gross += diff; }
   }
-  const amount = ls.reduce((n, l) => n + l.gross, 0); check(amount > 0, '合計金額がマイナスまたは0です');
+  // D-041（11/11 回答）：業者立替金は価格調整＝費用のマイナス。定時請求は合計がマイナスの請求（例 8231 仕入 ▲5,859,234「ストアス価格調整」）も登録でき、
+  // 支払では同じ業者の請求と相殺する（今回支の割当でマイナスの請求を先に全額充当）。仕訳 D01 は買掛金 4121 が借方になる。小口現金はマイナス不可
+  const amount = ls.reduce((n, l) => n + l.gross, 0); check(kind === 'PAYABLE' ? amount !== 0 : amount > 0, kind === 'PAYABLE' ? '合計金額が0です' : '合計金額がマイナスまたは0です');
   // 支払予定日は業者マスタの支払繰延区分・繰延最低限度額から計算（休日は翌営業日）。画面で手入力した日があればその日（D-044。2026-11-12 結合テスト IT-12）。
   // 手入力の日は締切日以降の営業日だけ（休日は全銀の振込日にできない）
   let due = null;
@@ -344,7 +346,7 @@ export async function createExpense(c, ctx, p, old = null) {
   }
   const extTax = ls.filter(l => l.split).reduce((n, l) => n + l.taxAmt, 0);
   // 10/21 打合せ：定時請求の合計金額は現行どおり手入力し、明細の合計と一致するかチェックする
-  if (kind === 'PAYABLE' && p.total !== undefined) { const t = yen(p.total, '合計金額', { max: 9999999999, positive: false }); check(t === amount, `合計金額（${t.toLocaleString('ja-JP')}円）と明細の合計（${amount.toLocaleString('ja-JP')}円）が一致しません`); }
+  if (kind === 'PAYABLE' && p.total !== undefined) { const t = yen(p.total, '合計金額', { max: 9999999999, negative: true }); check(t === amount, `合計金額（${t.toLocaleString('ja-JP')}円）と明細の合計（${amount.toLocaleString('ja-JP')}円）が一致しません`); }
   const memo = text(p.memo || ls[0].memo || (kind === 'PAYABLE' ? '定時請求' : '小口現金'), '摘要', 500), no = old ? old.document_no : await nextSlipNoFy(c, kind === 'PAYABLE' ? DOC_SERIES.payable : DOC_SERIES.petty, date);
   let billNo = old && old.vendor_id === v?.vendor_id ? old.bill_no : null;
   if (kind === 'PAYABLE' && !billNo) {
@@ -357,7 +359,7 @@ export async function createExpense(c, ctx, p, old = null) {
       [r.insertId, i + 1, l.account, l.sub, dept, l.tax, l.gross - l.taxAmt, l.taxAmt, l.gross, l.memo || memo, l.memoCode || null, l.linePayee || null, l.lineVendor?.vendor_id || null]);
   // 外税の明細は科目に税抜金額、消費税は仮払消費税 1465 に計上（推定）。内税・対象外は従来どおり科目に金額
   await postJournal(c, { date, pattern: kind === 'PAYABLE' ? 'D01' : 'E01', sourceType: 'expense_document', sourceId: r.insertId, lines: [
-    ...ls.map(l => line(l.amount < 0 ? 'C' : 'D', l.account, Math.abs(l.amount), { sub: l.sub, dept, tax: l.tax, ...(l.account === ADVANCE_ACCOUNT ? { vendor: v.vendor_id } : {}) })), ...(extTax ? [line(extTax < 0 ? 'C' : 'D', '1465', Math.abs(extTax), { tax: '9' })] : []), kind === 'PAYABLE' ? line('C', '4121', amount, { vendor: v.vendor_id, tax: '9' }) : line('C', '1111', amount, { tax: '9' })] });
+    ...ls.map(l => line(l.amount < 0 ? 'C' : 'D', l.account, Math.abs(l.amount), { sub: l.sub, dept, tax: l.tax, ...(l.account === ADVANCE_ACCOUNT ? { vendor: v.vendor_id } : {}) })), ...(extTax ? [line(extTax < 0 ? 'C' : 'D', '1465', Math.abs(extTax), { tax: '9' })] : []), kind === 'PAYABLE' ? line(amount < 0 ? 'D' : 'C', '4121', Math.abs(amount), { vendor: v.vendor_id, tax: '9' }) : line('C', '1111', amount, { tax: '9' })] });
   await audit(c, ctx, 'expense_document', r.insertId, old ? (kind === 'PAYABLE' ? 'payable.update' : 'pettycash.update') : kind === 'PAYABLE' ? 'payable.create' : 'pettycash.create', { no, billNo, vendor: v?.vendor_code, lines: ls.length, amount, ...(old ? { before: Number(old.gross_amount) } : {}) });
   return { id: r.insertId, no, billNo, due };
 }
@@ -410,16 +412,19 @@ export async function createPayment(c, ctx, p) {
   }
   const bankCode = String(p.bankCode || ''); const b = await one(c, "SELECT category1 FROM code_m WHERE code_key='BANK' AND code_dtl=?", [bankCode]); check(b && b.category1 !== '0', '支払元口座（銀行）を選択してください');
   check(Array.isArray(p.allocations) && p.allocations.length, '支払対象の伝票を選択してください');
-  const allocs = p.allocations.map(a => ({ id: Number(a.expenseId), amount: yen(a.amount, '支払額') })).filter(a => a.amount > 0).sort((a, b) => a.id - b.id);
+  // マイナスの請求（価格調整、D-041）はマイナスで割り当てる（同じ業者のプラスの請求と相殺）
+  const allocs = p.allocations.map(a => ({ id: Number(a.expenseId), amount: yen(a.amount, '支払額', { negative: true }) })).filter(a => a.amount !== 0).sort((a, b) => a.id - b.id);
   check(allocs.length && new Set(allocs.map(a => a.id)).size === allocs.length, '支払対象が不正です');
   for (const a of allocs) {
     const d = await one(c, 'SELECT d.* FROM expense_document d WHERE d.expense_id=? FOR UPDATE', [a.id]);
     if (d) d.paid = (await one(c, `SELECT ${PAID} paid FROM expense_document d WHERE d.expense_id=?`, [a.id])).paid;
     check(d && d.expense_kind === 'PAYABLE' && d.status === 'POSTED', '支払対象の定時請求が見つかりません');
     check(d.vendor_id === v.vendor_id, '異なる業者の伝票は同時に支払えません'); check(date >= d.booked_on, '支払日が計上日より前です');
-    check(a.amount <= Number(d.gross_amount) - Number(d.paid), `伝票${d.document_no}の未払残高を超えています`);
+    const bal = Number(d.gross_amount) - Number(d.paid);
+    check(bal > 0 ? a.amount > 0 && a.amount <= bal : a.amount < 0 && a.amount >= bal, bal > 0 ? `伝票${d.document_no}の未払残高を超えています` : `伝票${d.document_no}（価格調整）の未充当額を超えています`);
   }
   const total = allocs.reduce((n, a) => n + a.amount, 0), bank = total - fee - offset - safety;
+  check(total > 0, '支払額の合計が0以下です（価格調整のマイナスは、同じ業者のプラスの請求と一緒に支払ってください）');
   // 振込手数料は現行 CS5785 どおり雑収入 8790-001（税抜）と仮受消費税 4415 に分ける。内消費税＝floor(手数料×10/110)（支払案内書の内消費税と同じ。2026-11-04）
   const feeTax = Math.floor(fee * 10 / 110);
   check(bank >= 0, '手数料・相殺額が支払額を超えています');
