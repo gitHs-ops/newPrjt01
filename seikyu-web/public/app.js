@@ -421,17 +421,17 @@ const shipSiteOptions = (customer, rows = null) => { if (rows) shipNames = rows;
   const names = [...new Set(shipNames.filter(r => !customer || r.customer === customer).map(r => r.siteName).filter(Boolean))].map(n => [n, '']);
   return [...sites, ...names].map(([v, l]) => `<option value="${esc(v)}">${esc(l)}</option>`).join(''); };
 document.addEventListener('change', e => { if (e.target.id !== 'ship-cust') return; const t = e.target.value.trim(), x = (masters.customers || []).find(r => `${r.code} ${r.name}` === t || r.code === t); $('#dl-fsite').innerHTML = shipSiteOptions(x ? x.code : ''); });
-// 売掛金計上（2026-11-17 ユーザー指示）：締日は毎月20日固定（前月21日〜当月20日）。次に実行する締日だけを出し、［実行］（会計連携）は元に戻せない。
-// 実行すると次は翌月20日を出す（11/20 → 12/20）。売掛金計上自動仕訳リスト（Excel）は一度も実行していなければ押せない。実行後は最後に実行した締日を出力する
+// 売掛金計上（2026-11-17 ユーザー指示）：締日は毎月20日固定（前月21日〜当月20日）。次に会計連携する締日を出す。［実行］は確認・完了のメッセージを出さず、何度でもできる（漏れた伝票があれば押し直す）。
+// 売掛金計上自動仕訳リスト（Excel）はその締日で一度も実行していなければ押せない。会計連携データを作成すると元に戻せず、次は翌月20日の締日になる（11/20 → 12/20）
 async function arPostView() {
-  const A = actions, d = await api('/api/ar-post'), nx = d.next, last = d.last; // actions は await の前に受け取る
-  A.arRun = () => confirmBox('売掛金計上（会計連携）', `締日 ${nx.to}（${nx.from} 〜 ${nx.to}）の売掛金計上を実行します。実行すると元に戻せません。次回は翌月20日の締日になります。`, () => post('/api/ar-post/run', { month: nx.month }).then(r => { toast(`締日 ${r.last.to} の売掛金計上を実行しました（${r.last.slips}伝票・${yen(r.last.total)}円）`); render({ fresh: true }); }), '実行する');
-  A.arXlsx = () => last && saveXlsx('/api/reports/journal-list?' + qs({ pattern: 'A01', from: last.to, to: last.to, format: 'xlsx' })).then(() => toast(`売掛金計上自動仕訳リスト（締日 ${last.to}）を Excel で出力しました`)).catch(e => toast(e.message, true));
+  const A = actions, d = await api('/api/ar-post'), nx = d.next, run = d.run; // actions は await の前に受け取る
+  A.arRun = async (_, btn) => { if (btn) btn.disabled = true; try { await post('/api/ar-post/run', { month: nx.month }); render({ fresh: true }); } catch (e) { toast(e.message, true); if (btn) btn.disabled = false; } };
+  A.arXlsx = () => run && saveXlsx('/api/reports/journal-list?' + qs({ pattern: 'A01', from: nx.to, to: nx.to, format: 'xlsx' })).catch(e => toast(e.message, true));
   return page('出荷・売上', '', '', `<section class="card glass" data-sub="sales"><div class="card-head"><h2>売掛金計上</h2></div>
     <div class="filters"><label class="field">締日<input value="${esc(nx.to)}" readonly tabindex="-1" style="width:130px"></label><label class="field">対象期間<input value="${esc(nx.from)} 〜 ${esc(nx.to)}" readonly tabindex="-1" style="width:220px"></label>
-      ${canWrite() ? '<button class="primary" data-act="arRun">実行</button>' : ''}<button data-act="arXlsx" ${last ? '' : 'disabled title="一度実行すると出力できます"'}>⇩ 売掛金計上自動仕訳リスト（Excel）</button></div>
-    <p class="small muted" style="margin-top:8px">締日は毎月20日に固定です。［実行］（会計連携）すると元に戻せず、次回は翌月20日の締日になります。</p>
-    <p class="small ${last ? '' : 'muted'}" id="ar-status">${last ? `前回の実行：締日 ${esc(last.to)}　${esc(last.at)}（${esc(last.by)}）　${last.slips}伝票・合計 ${yen(last.total)} 円` : '未実行'}</p></section>`);
+      ${canWrite() ? '<button class="primary" data-act="arRun">実行</button>' : ''}<button data-act="arXlsx" ${run ? '' : 'disabled title="実行すると出力できます"'}>⇩ 売掛金計上自動仕訳リスト（Excel）</button></div>
+    <p class="small muted" style="margin-top:8px">締日は毎月20日に固定です。［実行］は何度でもできます（漏れた伝票があれば押し直してください）。仕訳・会計連携 → 会計連携データ を作成すると元に戻せず、次回は翌月20日の締日になります。</p>
+    <p class="small ${run ? '' : 'muted'}" id="ar-status">${run ? `実行：${esc(run.at)}（${esc(run.by)}）　${run.slips}伝票・合計 ${yen(run.total)} 円` : '未実行'}${d.linked ? `　／　会計連携済み：締日 ${esc(d.linked.to)} まで` : ''}</p></section>`);
 }
 VIEWS.shipments = async q => {
   const A = actions;
@@ -1919,7 +1919,7 @@ const receiptScheduleCard = () => miscCard('入金予定チェックリスト', 
   '', '残高のある請求が対象（未発行を含み、発行の有無を表示）。入金方法・入金先は過去の入金実績から推定します。'); // 条件とボタンを1行に（2026-10-27）
 const accountingCard = () => miscCard('会計連携データ', '会計システムは勘定奉行（奉行クラウド）。受入は CSV／Excel（QA回答 2026-10-08）', rangeInputs('ac', '仕訳日'),
   '<button class="primary" data-act="acct" data-format="bugyo">⇩ 勘定奉行 受入CSV</button><button data-act="acct" data-format="generic">⇩ 汎用CSV（借貸併記・UTF-8）</button><button data-act="acct" data-format="yayoi">⇩ 弥生会計形式（Shift_JIS）</button><div class="filters-break"></div><span class="small muted">マスタ（勘定奉行形式）</span><button data-act="acctMaster" data-kind="partners">⇩ 取引先</button><button data-act="acctMaster" data-kind="depts">⇩ 部門</button><button data-act="acctMaster" data-kind="accounts">⇩ 勘定科目</button><button data-act="acctMaster" data-kind="subaccounts">⇩ 補助科目</button>',
-  '補助科目は内訳科目だけ、得意先・業者は取引先コードで連携します（カナを含むコードは「マスタ管理 → 取引先コード変換表」で会計の取引先コードを登録。未登録があると勘定奉行CSVは出力しません）。勘定奉行CSVの見出しは「財務会計 → 会計設定 → 勘定奉行連携」で登録した OBC受入記号（未登録は項目名）、税区分は処税率→奉行税区分の対応表で変換します。受入記号・税区分コードは「データ受入形式一覧表」で確定予定（Q14/Q19）。出力は操作履歴に記録されます。');
+  '作成すると、期間に入る締日（毎月20日）は会計連携済みになり、売掛金計上は次の締日に進みます（元に戻せません。2026-11-17）。補助科目は内訳科目だけ、得意先・業者は取引先コードで連携します（カナを含むコードは「マスタ管理 → 取引先コード変換表」で会計の取引先コードを登録。未登録があると勘定奉行CSVは出力しません）。勘定奉行CSVの見出しは「財務会計 → 会計設定 → 勘定奉行連携」で登録した OBC受入記号（未登録は項目名）、税区分は処税率→奉行税区分の対応表で変換します。受入記号・税区分コードは「データ受入形式一覧表」で確定予定（Q14/Q19）。出力は操作履歴に記録されます。');
 // マスタの勘定奉行形式（取引先・部門・勘定科目・補助科目）。取引先コードは取引先コード変換表で置き換え（2026-11-12 結合テスト IT-13）
 async function accountingMasterDownload(kind) {
   const res = await fetch('/api/accounting/masters?' + qs({ kind }), { cache: 'no-store' });

@@ -7,7 +7,7 @@
 import iconv from 'iconv-lite';
 import { check, isoDate, csv, DomainError } from './domain.mjs';
 import { audit, rows as dbRows } from './db.mjs';
-import { journalList, LISTS } from './journal-lists.mjs';
+import { journalList, LISTS, markAcctLinked } from './journal-lists.mjs';
 import { decode, NON_TAX } from './taxcode.mjs';
 import { bugyoSettings, bugyoFile } from './bugyo.mjs';
 
@@ -68,7 +68,8 @@ export async function accountingExport(c, ctx, q) {
     });
     file = { name: `会計連携_弥生_${from}_${to}.csv`, body: iconv.encode(lines.join('\r\n') + '\r\n', 'Shift_JIS'), type: 'text/csv; charset=Shift_JIS' };
   }
-  await audit(c, ctx, 'journal_entry', `${from}..${to}`, 'accounting.export', { format, slips: slips.length });
+  const linked = await markAcctLinked(c, ctx, from, to); // 会計連携済みの印（売掛金計上は次の締日に進む。2026-11-17）
+  await audit(c, ctx, 'journal_entry', `${from}..${to}`, 'accounting.export', { format, slips: slips.length, linked });
   return { file };
 }
 
