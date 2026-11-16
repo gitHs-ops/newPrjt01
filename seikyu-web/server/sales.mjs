@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { check, Conflict, yen, qty, taxOf, isoDate, isoMonth, toNum, fromNum, period, dueDate, closingDay, text, RATES, METHODS, CREDIT, today } from './domain.mjs';
-import { rows, one, nextSlipNoFy, docNo, invoiceNos, DOC_SERIES, assertOpen, isClosed, audit, stamp, postJournal, reverseJournal, line, AR_SLIP_MAX } from './db.mjs';
+import { rows, one, nextSlipNoFy, docNo, invoiceNos, DOC_SERIES, assertOpen, isClosed, audit, stamp, postJournal, reverseJournal, discardOrReverseJournal, line, AR_SLIP_MAX } from './db.mjs';
 import { mustDecode, decode } from './taxcode.mjs';
 
 const site = s => { const [code = '', suffix = ''] = String(s || '').split('|'); return { code, suffix }; };
@@ -349,7 +349,7 @@ export async function runBilling(c, ctx, { month, closing, customers, slip: cont
     const all = await rows(c, "SELECT money, tax_rate FROM billing_detail WHERE customers_cd=? AND closing_yymm=? AND claim_processing_period=?", [cu.customers_cd, yymm, toNum(end)]);
     const { net, tax } = totals(all);
     await c.query('UPDATE billing_head SET money=?, consumption_tax=?, row_version=row_version+1 WHERE invoice_id=?', [net, tax, h.invoice_id]);
-    if (!h.isNew) await reverseJournal(c, { sourceType: 'billing_head', sourceId: h.invoice_id, date: end });
+    if (!h.isNew) await discardOrReverseJournal(c, { sourceType: 'billing_head', sourceId: h.invoice_id, date: end });
     await postBillingJournal(c, h.invoice_id, end, cu.customers_cd, net, tax, slip);
     (h.isNew ? created : appended).push(h.invoice_id);
     await audit(c, ctx, 'billing_head', h.invoice_id, h.isNew ? 'billing.create' : 'billing.append', { customer: cu.customers_cd, closing: end, net, tax, lines: list.length, lateEntries: list.filter(x => fromNum(x.sales_date) < period(month, closing).start).length, credit: net + tax < 0 });
@@ -655,7 +655,7 @@ export async function cancelInvoice(c, ctx, { id, site, siteName }) {
     await c.query('UPDATE shipment_slip SET claim_status=0, claim_processing_period=0 WHERE order_no=?', [o.order_no]);
   }
   await c.query(`DELETE FROM billing_detail WHERE ${w.sql}`, w.args);
-  await reverseJournal(c, { sourceType: 'billing_head', sourceId: h.invoice_id, date: fromNum(h.closing_date) });
+  await discardOrReverseJournal(c, { sourceType: 'billing_head', sourceId: h.invoice_id, date: fromNum(h.closing_date) });
   await c.query('DELETE FROM billing_head WHERE invoice_id=?', [h.invoice_id]);
   await audit(c, ctx, 'billing_head', h.invoice_id, 'billing.cancel', { customer: h.customers_cd, closing: fromNum(h.closing_date), orders: orders.length });
   return { cancelled: h.invoice_id };
@@ -671,7 +671,7 @@ async function cancelSite(c, ctx, h, w, orders, label) {
   const { net, tax } = totals(await rows(c, `SELECT money, tax_rate FROM billing_detail WHERE ${w.sql}`, w.args));
   await c.query('UPDATE billing_head SET money=?, consumption_tax=?, row_version=row_version+1 WHERE invoice_id=?', [net, tax, h.invoice_id]);
   const prev = await one(c, "SELECT s.slip_no FROM journal_entry e JOIN app_slip_no s ON s.journal_id=e.journal_id WHERE e.source_type='billing_head' AND e.source_id=? AND e.status='POSTED' AND e.reversal_of IS NULL", [String(h.invoice_id)]);
-  await reverseJournal(c, { sourceType: 'billing_head', sourceId: h.invoice_id, date: end });
+  await discardOrReverseJournal(c, { sourceType: 'billing_head', sourceId: h.invoice_id, date: end });
   await postBillingJournal(c, h.invoice_id, end, h.customers_cd, net, tax, prev ? { max: AR_SLIP_MAX, no: prev.slip_no, count: 0 } : { max: AR_SLIP_MAX });
   await audit(c, ctx, 'billing_head', h.invoice_id, 'billing.cancel', { customer: h.customers_cd, closing: end, site: label, orders: orders.length, net, tax });
   return { cancelled: h.invoice_id, site: label, orders: orders.length, net, tax };

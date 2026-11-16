@@ -112,6 +112,19 @@ export async function reverseJournal(c, { sourceType, sourceId, date }) {
   }
   return entries.length;
 }
+// 売掛金計上（請求 A01）の取消・作り直し：会計連携前の締日（app_acct_link に無い月度）の仕訳は逆仕訳を作らず削除する（現行 HAR363 どおり、
+// 2026-11-17 ユーザー指示「現行どおり」）。会計連携済みの月度は従来どおり逆仕訳。月度＝前月21日〜当月20日（20日締め）
+const arMonthOf = d => { const s = String(d).slice(0, 10), [y, m] = s.split('-').map(Number); return Number(s.slice(8)) > 20 ? new Date(Date.UTC(y, m, 1)).toISOString().slice(0, 7) : s.slice(0, 7); };
+export async function discardOrReverseJournal(c, { sourceType, sourceId, date }) {
+  const entries = await rows(c, "SELECT journal_id, journal_date FROM journal_entry WHERE source_type=? AND source_id=? AND status='POSTED' AND reversal_of IS NULL FOR UPDATE", [sourceType, String(sourceId)]);
+  let n = 0;
+  for (const e of entries) {
+    if (await one(c, 'SELECT 1 x FROM app_acct_link WHERE month=?', [arMonthOf(e.journal_date)])) continue;
+    for (const t of ['journal_line', 'app_slip_no', 'journal_entry']) await c.query(`DELETE FROM ${t} WHERE journal_id=?`, [e.journal_id]);
+    n++;
+  }
+  return n + await reverseJournal(c, { sourceType, sourceId, date });
+}
 export function mapSqlError(e) {
   if (e instanceof DomainError) return e;
   const m = { ER_DUP_ENTRY: 'コードまたは番号が重複しています', ER_NO_REFERENCED_ROW_2: '参照先のマスタが存在しません', ER_ROW_IS_REFERENCED_2: '他のデータから参照されているため変更できません',

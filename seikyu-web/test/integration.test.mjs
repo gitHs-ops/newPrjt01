@@ -507,6 +507,19 @@ test('workflow against PostgreSQL business tables', { skip, timeout: 900000 }, a
       const inv3 = ok(await a.call('/api/invoices/' + h2.ids[0])); assert.equal(inv3.total, 3300); assert.equal(inv3.lines.length, 2);
       const jl = ok(await a.call('/api/journals?month=' + curMonth)).filter(j => j.source === 'billing_head' && j.sourceId === String(h2.ids[0]));
       assert.equal(jl.filter(j => j.status === 'POSTED' && !j.reversalOf).length, 1, 'one live journal after append');
+      // 会計連携前の締日：作り直しは逆仕訳を作らず旧の A01 を削除（現行 HAR363 どおり、2026-11-17）
+      assert.equal(jl.length, 1, 'no reversal journal before accounting link');
+      // 会計連携済みの締日：作り直しは逆仕訳（別の得意先で確認）
+      const K2 = 'R' + tag; ok(await a.call('/api/masters/customers', { mode: 'create', record: { code: K2, name: '連携後試験', closing: cl, active: true } }));
+      ok(await a.call('/api/masters/sites', { mode: 'create', record: { customer: K2, code: K2, suffix: '000', name: 'Q現場', active: true } }));
+      const shipQ = day => a.call('/api/shipments', { date: pm + day, customer: K2, site: K2 + '|000', item: 'I' + tag, quantity: '1', price: 1000, taxRate: 10, operator: '1', deliveryKbn: '1', method: 2 });
+      ok(await shipQ('-04')); const hq = ok(await a.call('/api/billing/run', { month: pm, closing: cl, customers: [K2] }));
+      await pool.query("INSERT INTO app_acct_link (month,linked_by,linked_at,period) VALUES (?,'test','test','test') ON CONFLICT DO NOTHING", [pm]);
+      try {
+        ok(await shipQ('-05')); ok(await a.call('/api/billing/run', { month: pm, closing: cl, customers: [K2] }));
+        const jl2 = ok(await a.call('/api/journals?month=' + pm)).filter(j => j.source === 'billing_head' && j.sourceId === String(hq.ids[0]));
+        assert.equal(jl2.filter(j => j.reversalOf).length, 1, 'reversal after accounting link'); assert.equal(jl2.filter(j => j.status === 'POSTED' && !j.reversalOf).length, 1);
+      } finally { await pool.query('DELETE FROM app_acct_link WHERE month=? AND linked_by=?', [pm, 'test']); }
       // payment with 先方負担手数料 and 相殺
       const ven = ok(await a.call('/api/masters/vendors')).find(x => x.code === 'V' + tag);
       ok(await a.call('/api/masters/vendors', { mode: 'update', record: { ...ven, advance: 3000 } }));
