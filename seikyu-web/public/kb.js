@@ -175,7 +175,7 @@ export function installKb(h) {
     A.back = () => history.back();
     const head = s ? `伝票No <b>${s.no}</b> ／ ${badge(s.sourceName, s.source === 'MANUAL' ? '' : 'amber')} ${s.sourceRef ? `<span class="muted small">元仕訳 #${esc(s.sourceRef)}</span>` : ''} <span class="muted small">更新 ${esc(s.updatedBy)}</span>` : '<span class="muted">新規伝票（伝票No は登録時に年度内連番で採番）</span>';
     return page(s ? '仕訳入力（伝票修正）' : '仕訳入力（振替伝票）', '借方・貸方を同じ行に入力します。科目を選ぶと補助・既定税区分が切り替わり、消費税額は税込金額から自動計算します（手入力で上書き可）。',
-      `${s ? '<button data-act="back">← 戻る</button>' : `<button type="button" class="sample-btn" data-act="sample" title="サンプル入力" aria-label="サンプル入力">${SAMPLE_ICON}</button>`}<a class="button" href="#kb-journal">仕訳帳へ</a>`,
+      `${s ? '<button data-act="back">閉じる</button>' : `<button type="button" class="sample-btn" data-act="sample" title="サンプル入力" aria-label="サンプル入力">${SAMPLE_ICON}</button>`}<a class="button" href="#kb-journal">仕訳帳へ</a>`,
       `<section class="card glass"><form id="kb-slip" data-id="${s?.id || ''}" data-version="${s?.version || ''}">
         <div class="kb-slip-head"><label class="field req"><span>伝票日付</span><input type="date" name="date" value="${esc(date)}" required></label>
           <label class="field wide"><span>伝票摘要</span><input name="memo" maxlength="100" value="${esc(s?.memo || '')}" placeholder="例）3月分 事務所家賃"></label><div class="kb-slip-info">${head}</div></div>

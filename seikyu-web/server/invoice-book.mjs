@@ -132,5 +132,5 @@ export async function invoiceBook(c, q) {
   }
   // シート名は重複させない（同じ請求の別の発行回が並ぶとき）
   const seen = new Map(); for (const sh of sheets) { const n = (seen.get(sh.name) || 0) + 1; seen.set(sh.name, n); if (n > 1) sh.name = `${sh.name.slice(0, 28)}_${n}`; }
-  return { name: `請求書_${today()}_${ids.length}件.xlsx`, body: xlsx(sheets) };
+  return { name: `請求書_${today()}_${ids.length}件.xlsx`, body: xlsx(sheets.map(s => ({ ...s, doc: true }))) };   // 請求書は文書の様式（帳票イメージの一覧様式にしない）
 }

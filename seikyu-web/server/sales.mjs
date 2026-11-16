@@ -226,10 +226,10 @@ export async function correctShipment(c, ctx, p) {
   await recalcCumulative(c, await one(c, 'SELECT * FROM shipment_slip WHERE order_no=?', [redNo]));
   let blackNo = null, black = null;
   if (p.quantity !== undefined && p.quantity !== '' && Number(p.quantity) !== 0) {
-    // 訂正できるのは 単価・数量 だけ（2026-10-27：お客様の運用は決められた範囲で行う。10/23「まずは単価・数量の2種類」）。
-    // 得意先・現場・商品・運賃・決済・担当・納入区分は元伝票のまま。得意先・現場などの誤りは 数量0（取消）→ 正しい内容で出荷登録
+    // 訂正できるのは 商品・単価・数量（2026-10-27：お客様の運用は決められた範囲で行う。10/23「まずは単価・数量の2種類」。商品は 2026-11-17 ユーザー指示で追加）。
+    // 得意先・現場・運賃・決済・担当・納入区分は元伝票のまま。得意先・現場などの誤りは 数量0（取消）→ 正しい内容で出荷登録
     black = await slipValues(c, { date, customer: orig.customers_cd, site: orig.field_cd ? `${orig.field_cd}|${orig.field_suffix}` : '', siteName1: orig.field_name1, siteName2: orig.field_name2,
-      item: orig.item_cd, quantity: p.quantity, price: p.price ?? red.price, freight: red.freight, method: red.method, operator: red.operator, deliveryKbn: red.kbn,
+      item: String(p.item || '').trim() || orig.item_cd, quantity: p.quantity, price: p.price ?? red.price, freight: red.freight, method: red.method, operator: red.operator, deliveryKbn: red.kbn,
       shipKb: '1', otherCustomer: '', vehicle: slip?.vehicle_no || '', remarks: orig.remarks ?? '' }, '黒伝票の', red.kbn); // 黒の備考は元伝票の備考を引き継ぐ（指摘 No.26）
     blackNo = await nextShipNo(c);
     await insertSlip(c, { orderNo: blackNo, ...black, shipKb: CORRECTION, salesNo: base.root, salesSuffix: base.red + 1 }); // black（slipValues）の shipKb '1' で上書きしない
@@ -469,11 +469,9 @@ export async function billingList(c, { month, closing }) {
     if (!s.lines.length && !s.prevBalance && !s.received) continue;
     const sites = [...new Set(s.lines.map(l => l.site))].map(k => { const ls = s.lines.filter(l => l.site === k), net = ls.reduce((n, l) => n + l.net, 0);
       const tax = RATES.reduce((n, r) => n + bucketTax(ls.filter(l => l.taxRate === r).reduce((a, l) => a + l.net, 0), r), 0); return { site: k, siteName: ls[0]?.siteName || '', net, tax, discount: 0, total: net + tax }; });
-    // 請求一覧表（HAR431）の行（2026-11-03）：現場別発行した請求は現場ごと、それ以外は得意先 1 行（現場名は空欄）。sites は請求一覧照会（得意先×現場）用にそのまま残す
-    // 現場別発行＝一部の現場だけを発行した回がある（全現場の発行も app_invoice_issue_site に全現場の行を残すため、件数で見分ける）
-    const h = sites.length > 1 ? await one(c, 'SELECT invoice_id FROM billing_head WHERE customers_cd=? AND closing_date=?', [cu.customers_cd, toNum(end)]) : null;
-    const split = h && (await rows(c, 'SELECT COUNT(*) n FROM app_invoice_issue_site WHERE invoice_id=? GROUP BY issue_no', [h.invoice_id])).some(r => Number(r.n) < sites.length);
-    const bookRows = !sites.length ? [] : split ? sites : [{ site: '', siteName: '', net: s.net, tax: s.tax, discount: 0, total: s.net + s.tax }];
+    // 請求一覧表（HAR431）の行：得意先×現場ごとに 1 行（現場名を出す。2026-11-17 ユーザー指示。以前は 2026-11-03 から現場別発行の得意先以外は得意先 1 行・現場名空欄）。
+    // 現場が 2 つ以上の得意先は帳票側で「得意先合計」の行を付ける
+    const bookRows = sites;
     out.push({ ...s, name: cu.customers_name, stateName: STATE[s.state], lineCount: s.lines.length, discount: 0, sites, bookRows, lines: undefined });
   }
   return { month, closing: day, end, rows: out };
@@ -725,7 +723,7 @@ export async function receiptDetail(c, id) {
   for (const k of Object.keys(RECEIPT_ACC)) {
     const x = comps.find(y => y.component_kind === k); if (!x) continue;
     const [acc, sub] = RECEIPT_ACC[k], i = jl.findIndex((l, n) => !used.has(n) && l.account_code === acc && (!sub || l.sub_code === sub)); if (i >= 0) used.add(i);
-    detail[k] = { sub2: x.sub2 || '', memo2: x.memo2 || '', taxAmt: x.tax_amount === null || x.tax_amount === undefined ? null : num(x.tax_amount), tax: i >= 0 ? jl[i].source_tax_code || '' : '' };
+    detail[k] = { sub2: x.sub2 || '', memo2: x.memo2 || '', memo1: x.memo1 || '', taxAmt: x.tax_amount === null || x.tax_amount === undefined ? null : num(x.tax_amount), tax: i >= 0 ? jl[i].source_tax_code || '' : '' };
   }
   return { ...r, detail };
 }
@@ -765,8 +763,8 @@ export async function createReceipt(c, ctx, p) {
   // 現行入金処理の内訳2・工種・消費税額・摘要2（p.detail：{ FEE: { sub2, work, taxAmt, memo2 }, … }）。消費税額は 0〜入金額
   const det = k => { const d = p.detail?.[k] || {}, t = d.taxAmt === undefined || d.taxAmt === '' || d.taxAmt === null ? null : yen(d.taxAmt, `${RECEIPT_PARTS[k]}の消費税額`);
     check(t === null || (t >= 0 && t <= parts[k]), `${RECEIPT_PARTS[k]}の消費税額は入金額以下で入力してください`);
-    return { sub2: String(d.sub2 ?? '').trim().slice(0, 20) || null, work: String(d.work ?? '').trim().slice(0, 20) || null, taxAmt: t, memo2: String(d.memo2 ?? '').trim().slice(0, 100) || null }; };
-  for (const [k, v] of Object.entries(parts)) if (v) { const d = det(k); await c.query('INSERT INTO receipt_component (receipt_id,component_no,component_kind,amount,maturity_date,sub2,work_type,tax_amount,memo2) VALUES (?,?,?,?,?,?,?,?,?)', [r.insertId, ++n, k, v, k === 'NOTE' ? noteDue : null, d.sub2, d.work, d.taxAmt, d.memo2]); }
+    return { sub2: String(d.sub2 ?? '').trim().slice(0, 20) || null, work: String(d.work ?? '').trim().slice(0, 20) || null, taxAmt: t, memo2: String(d.memo2 ?? '').trim().slice(0, 100) || null, memo1: String(d.memo1 ?? '').trim().slice(0, 100) || null }; };   // 摘要1 は手入力（空なら得意先名。2026-11-17）
+  for (const [k, v] of Object.entries(parts)) if (v) { const d = det(k); await c.query('INSERT INTO receipt_component (receipt_id,component_no,component_kind,amount,maturity_date,sub2,work_type,tax_amount,memo2,memo1) VALUES (?,?,?,?,?,?,?,?,?,?)', [r.insertId, ++n, k, v, k === 'NOTE' ? noteDue : null, d.sub2, d.work, d.taxAmt, d.memo2, d.memo1]); }
   if (overpay) await c.query('INSERT INTO receipt_component (receipt_id,component_no,component_kind,amount) VALUES (?,?,?,?)', [r.insertId, ++n, 'OVERPAY', overpay]);
   for (const a of allocs) await c.query('INSERT INTO receipt_allocation (receipt_id,invoice_id,customers_cd,amount) VALUES (?,?,?,?)', [r.insertId, a.id, cust.customers_cd, a.amount]);
   // 仕訳パターン分析 B-01〜B-06（処税率: 協力会費は141/41混在のため141で仮置き Q04）

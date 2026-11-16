@@ -45,7 +45,7 @@ export async function journalList(c, q) {
       for (const a of await rows(c, `SELECT a.receipt_id, h.closing_date FROM receipt_allocation a JOIN billing_head h ON h.invoice_id=a.invoice_id WHERE a.receipt_id IN (${ph(srcIds)}) ORDER BY a.receipt_id, a.invoice_id`, srcIds)) src.get(a.receipt_id)?.closings.push(fromNum(a.closing_date));
       for (const k of await rows(c, `SELECT receipt_id, maturity_date FROM receipt_component WHERE component_kind='NOTE' AND receipt_id IN (${ph(srcIds)})`, srcIds)) if (src.get(k.receipt_id)) src.get(k.receipt_id).note = `手形 期日${k.maturity_date || ''}`;
       // 現行入金処理で入力した摘要2（借方の内訳ごと。2026-11-01）
-      for (const k of await rows(c, `SELECT receipt_id, component_kind, memo2 FROM receipt_component WHERE memo2 IS NOT NULL AND receipt_id IN (${ph(srcIds)})`, srcIds)) if (src.get(k.receipt_id)) (src.get(k.receipt_id).memo2Of ||= {})[k.component_kind] = k.memo2;
+      for (const k of await rows(c, `SELECT receipt_id, component_kind, memo2, memo1 FROM receipt_component WHERE (memo2 IS NOT NULL OR memo1 IS NOT NULL) AND receipt_id IN (${ph(srcIds)})`, srcIds)) if (src.get(k.receipt_id)) { const x = src.get(k.receipt_id); if (k.memo2 !== null) (x.memo2Of ||= {})[k.component_kind] = k.memo2; if (k.memo1) (x.memo1Of ||= {})[k.component_kind] = k.memo1; }   // 摘要1 は手入力したものだけ（2026-11-17）
     }
     if (def.source === 'inventory_count') for (const r of await rows(c, `SELECT n.inventory_id id, n.item_cd, i.item_nam FROM inventory_count n LEFT JOIN item_m i ON i.item_cd=n.item_cd WHERE n.inventory_id IN (${ph(srcIds)})`, srcIds)) src.set(r.id, { no: 'V' + r.id, item: `${r.item_cd} ${r.item_nam || ''}` });
     if (def.source === 'expense_document') {
@@ -55,11 +55,12 @@ export async function journalList(c, q) {
     }
     if (def.source === 'payment') for (const r of await rows(c, `SELECT payment_id id, payment_no FROM payment WHERE payment_id IN (${ph(srcIds)})`, srcIds)) src.set(r.id, { no: r.payment_no });
   }
-  const DEDUCT = { '8330|101': '手数料', '8330|107': '協力費', '8850|': '値引き', '4170|': '預り金充当' };
+  // 8330-101 各種手数料 の摘要2「手数料」は 2026-11-17 ユーザー指示で外した（入力した摘要2 だけ出す）
+  const DEDUCT = { '8330|107': '協力費', '8850|': '値引き', '4170|': '預り金充当' };
   const slips = es.map(e => {
     const s = e.source_type === 'inventory_month' ? { no: `棚卸 ${e.source_id.slice(0, 4)}-${e.source_id.slice(4)}月度` } : src.get(Number(e.source_id)) || { no: '' }, lines = ls.filter(l => l.journal_id === e.journal_id);
     const partnerLine = lines.find(l => l.customers_cd || l.vendor_id), partner = partnerLine ? { kind: partnerLine.customers_cd ? 'C' : 'V', code: partnerLine.customers_cd || partnerLine.vendor_code, name: partnerLine.customers_name || partnerLine.vendor_name } : null;
-    let creditNo = 0, debitNo = 0; const usedKind = new Set();
+    let creditNo = 0, debitNo = 0, bk = null; const usedKind = new Set();
     // 入金（B01）の借方の行 → 入金の内訳（receipt_component）。8850 は値引き → 雑損失の順
     const kindOf = l => { const k = { 1112: 'BANK', 1111: 'CASH', 1120: 'NOTE', 4170: 'DEPOSIT' }[l.account_code] || (l.account_code === '8330' ? { 101: 'FEE', 107: 'COOP' }[l.sub_code] : l.account_code === '8850' ? ['DISCOUNT', 'LOSS'].find(x => !usedKind.has(x) && s.memo2Of?.[x] !== undefined) || (usedKind.has('DISCOUNT') ? 'LOSS' : 'DISCOUNT') : null); if (k) usedKind.add(k); return k; };
     const side = l => {
@@ -74,7 +75,7 @@ export async function journalList(c, q) {
       let memo2 = s.memo2 || '';
       if (e.pattern_code === 'B01') {
         memo2 = DEDUCT[`${l.account_code}|${l.sub_code || ''}`] || (l.account_code === '1120' ? s.note : '');
-        if (l.side === 'D') { const k = kindOf(l); if (k && s.memo2Of?.[k]) memo2 = s.memo2Of[k]; }
+        bk = null; if (l.side === 'D') { const k = kindOf(l); bk = k; if (k && s.memo2Of?.[k]) memo2 = s.memo2Of[k]; }
         // 売掛金の摘要2＝消し込んだ請求の締日。表記は現行 HAR413 の YY/MM/DD（2026-11-04）
         if (l.side === 'C' && l.account_code === '1131') { const cl = s.closings?.[creditNo++] || ''; memo2 = cl ? `${cl.slice(2, 4)}/${cl.slice(5, 7)}/${cl.slice(8, 10)}` : ''; }
       }
@@ -92,7 +93,7 @@ export async function journalList(c, q) {
         if (x && (x.vendor_code || x.payee)) return { ...link, dept: l.department_code || '', account: l.account_code, accountName: l.account_name || '', sub, subName, sub2: '', tax: taxOut(l.source_tax_code), amount: Number(l.amount), memo1Code: x.vendor_code || '', memo1: x.vendor_name || x.payee, memo2: x.memo || memo2 };
       }
       return { ...link, dept: l.department_code || '', account: l.account_code, accountName: l.account_name || '', sub, subName, sub2: '', tax: taxOut(l.source_tax_code), amount: Number(l.amount),
-        memo1Code: partner?.code || '', memo1: partner?.name || '', memo2 };
+        memo1Code: partner?.code || '', memo1: (e.pattern_code === 'B01' && bk && s.memo1Of?.[bk]) || partner?.name || '', memo2 };
     };
     const dr = lines.filter(l => l.side === 'D'), cr = lines.filter(l => l.side === 'C'), pairs = [];
     // Inventory pairs follow the 洗替 order (前月末戻し, 当月末計上) even if one side is zero.

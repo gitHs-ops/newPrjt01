@@ -140,6 +140,6 @@ export async function deliveryNotes(c, ctx, p) {
   await audit(c, ctx, 'shipment_slip', orderNo || date, 'delivery-note.issue', { slips: docs.length });
   const company = { name1: co?.company_name1 || '', name2: co?.company_name2 || '', address: [co?.pref, co?.addr1, co?.addr2].filter(Boolean).join(''), tel: co?.tel_no || '', fax: co?.fax_no || '' };
   // 伝票発行は Excel で出力（2026-11-09 ユーザー指示。印刷の画面と同じ項目、1伝票＝1シート）
-  if (p.format === 'xlsx') return { file: { name: orderNo ? `納品書_${orderNo}.xlsx` : `納品書_${date}_${docs.length}件.xlsx`, body: xlsx(docs.map(s => noteSheet(s, company))) } };
+  if (p.format === 'xlsx') return { file: { name: orderNo ? `納品書_${orderNo}.xlsx` : `納品書_${date}_${docs.length}件.xlsx`, body: xlsx(docs.map(s => ({ ...noteSheet(s, company), doc: true }))) } };
   return { company, docs, issuedOn: today() };
 }

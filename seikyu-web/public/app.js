@@ -13,8 +13,8 @@ const addMonths = (m, n) => { const [y, mo] = m.split('-').map(Number); return n
 const uuid = () => (crypto.randomUUID ? crypto.randomUUID() : Date.now() + '-' + Math.random().toString(16).slice(2));
 let session, meta, masters = {}, actions = {}, route = { name: 'dashboard', q: {} }, renderSeq = 0;
 const canWrite = () => [1, 2, 3, 4].includes(session?.user.role), isAdmin = () => session?.user.role === 1;
-// user01 でログインしたときは出荷伝票一覧の［＋ 出荷登録］を出さない（2026-11-17 ユーザー指示。ほかの権限は reviewer と同じ）
-const hideShipEntry = () => session?.user.loginId === 'user01';
+// user01 でログインしたとき（2026-11-17 ユーザー指示。ほかの権限は reviewer と同じ）：出荷伝票一覧の［＋ 出荷登録］を出さない・請求データ作成の「発行済みのため次回締めで請求する得意先」の確認を出さない
+const isUser01 = () => session?.user.loginId === 'user01';
 
 // ---------- API ----------
 // DB の読込は検索系のボタン（検索・タブ切替など）と登録・更新の後だけ（2026-10-23）。画面の描画中の GET は apiMode で切り替える：
@@ -230,7 +230,7 @@ const SUBMENUS = {
     /* 出荷予定・納品書発行・出荷・売上帳票は 2026-11-17 にメニューから削除（ユーザー指示。画面の部品・API は残す） */],
   // 発行前確認一覧は 2026-10-25 非表示 → 2026-10-27 再表示（確認事項 F）→ 2026-10-27 再び非表示（画面・API は残す）
   // 請求書発行は 2026-10-27 に請求一覧照会から分けた（10/26 打合せ・提案書 P13。照会は確認と発行確認表の出力だけ）
-  invoices: [{ k: 'precheck', l: '発行前確認一覧', q: { view: 'precheck' }, hidden: true }, { k: 'create', l: '請求データ作成', tools: false }, { k: 'list', l: '請求一覧照会', tools: true }, { k: 'issue', l: '請求書発行', q: { view: 'issue' } }, { k: 'reports', l: '請求帳票' }, { k: 'balance', l: '得意先別残高照会', q: { view: 'balance' } }, { k: 'ledger', l: '請求残高照会', q: { view: 'ledger' } }],
+  invoices: [{ k: 'precheck', l: '発行前確認一覧', q: { view: 'precheck' }, hidden: true }, { k: 'create', l: '請求データ作成', tools: false }, { k: 'list', l: '請求一覧照会', tools: true }, { k: 'issue', l: '請求書発行', q: { view: 'issue' } }, /* 請求帳票は 2026-11-17 ユーザー指示でメニューから削除（画面の部品・API は残す） */ { k: 'balance', l: '得意先別残高照会', q: { view: 'balance' }, noUser01: true }, { k: 'ledger', l: '請求残高照会', q: { view: 'ledger' }, noUser01: true }],   // noUser01：user01 のときはメニューに出さない（2026-11-17 ユーザー指示）
   // 入金予定一覧は 2026-10-27 削除 → 2026-11-01 復元（確認事項 P の回答③：入金予定一覧で予定日を過ぎた未入金を確認する）
   // 入金一覧・入金予定チェックリストは 2026-10-27 非表示（10/27 打合せ：消込の結果は入金消込の一覧で確認、入金予定チェックリストは不要。画面・API は残す）
   // 入金予定チェックリストは 2026-11-05 再表示（ユーザー指示）
@@ -294,7 +294,7 @@ function navSubs() {
   const subs = subsOf(route.name), link = $(`.nav-link[data-nav="${route.name}"]`);
   if (!subs || !link) return;
   link.classList.add('open');
-  link.insertAdjacentHTML('afterend', `<div class="nav-subs">${subs.filter(s => !s.hidden).map(s => (s.disabled ? `<span class="nav-sub disabled" aria-disabled="true" title="現在は使用できません">${esc(s.l)}</span>` : `<a class="nav-sub ${s.k === route.sub ? 'active' : ''}" href="#${route.name}/${s.to || s.k}">${esc(s.l)}</a>`)).join('')}</div>`);
+  link.insertAdjacentHTML('afterend', `<div class="nav-subs">${subs.filter(s => !s.hidden && !(s.noUser01 && isUser01())).map(s => (s.disabled ? `<span class="nav-sub disabled" aria-disabled="true" title="現在は使用できません">${esc(s.l)}</span>` : `<a class="nav-sub ${s.k === route.sub ? 'active' : ''}" href="#${route.name}/${s.to || s.k}">${esc(s.l)}</a>`)).join('')}</div>`);
 }
 function parseHash() {
   const [path, q] = location.hash.slice(1).split('?'), [name, sub] = (path || '').split('/');
@@ -303,7 +303,7 @@ function parseHash() {
 // 小メニューの決定：明示 → 条件（従来タブのURL）一致 → 先頭。小メニューの q を条件に足す
 function resolveSub(r) {
   const subs = subsOf(r.name); if (!subs) return r;
-  const usable = subs.filter(s => !s.disabled), hit = usable.find(s => s.k === r.sub), item = (hit?.to && usable.find(s => s.k === hit.to)) || hit || (!r.sub && usable.find(s => s.q && Object.entries(s.q).every(([k, v]) => r.q[k] === v))) || usable.find(s => !s.hidden);
+  const usable = subs.filter(s => !s.disabled && !(s.noUser01 && isUser01())), hit = usable.find(s => s.k === r.sub), item = (hit?.to && usable.find(s => s.k === hit.to)) || hit || (!r.sub && usable.find(s => s.q && Object.entries(s.q).every(([k, v]) => r.q[k] === v))) || usable.find(s => !s.hidden);
   return { ...r, sub: item.k, subItem: item, subTools: item.tools ?? (item === subs[0] || !!item.q), q: { ...r.q, ...(item.q || {}) } };
 }
 // freshNext：次の描画で DB を読む。画面のボタン（検索・タブ切替など）から go() したときは読み、サイドバーのメニュー・小メニューは読まない
@@ -358,6 +358,8 @@ async function render({ fresh = false } = {}) {
     document.dispatchEvent(new CustomEvent('view:rendered', { detail: route.name }));
   } finally { if (reading) busy(false); }
 }
+// サイドバーの［入金処理］から開くと入力画面（2026-11-17 ユーザー指示。一覧は入力画面の［一覧］）
+document.addEventListener('click', e => { if (!e.target.closest?.('a.nav-sub[href^="#receipts/legacy"], a.nav-link[data-nav="receipts"]') || lr.editId || lr.open) return; lr.open = true; if (route.name === 'receipts' && route.sub === 'legacy') setTimeout(() => render(), 0); }, true);   // 一覧を表示中に押したときはハッシュが変わらないので描き直す
 document.addEventListener('click', e => {
   const b = e.target.closest('[data-act]'); if (!b || !actions[b.dataset.act]) return;
   e.preventDefault(); actions[b.dataset.act](b.dataset, b);
@@ -451,8 +453,8 @@ VIEWS.shipments = async q => {
   A.new = () => shipmentForm(null, bd);
   // 類似登録（提案書 スライド7・17）は 2026-10-23 に画面から外した（A.copy は残す）
   A.copy = d => { const r = list.find(x => x.orderNo === d.id); shipmentForm({ ...r, orderNo: undefined, date: bd, copyOf: r.orderNo }, bd); };
-  // 「詳細」：変更できる伝票は修正画面（更新できる）、できない伝票（請求済・訂正伝票・訂正済・参照権限）は照会画面で「更新する」を使えなくする
-  A.detail = d => { const r = list.find(x => x.orderNo === d.id), why = slipLock(r); if (why) slipInquiry(r, why); else shipmentForm(r); }; A.correct = d => correctionForm(list.find(r => r.orderNo === d.id));
+  // 2026-11-17 ユーザー指示：「詳細」は照会だけ（［更新する］を削除、［キャンセル］→［閉じる］）。変更は 赤黒訂正・取消 で行う
+  A.detail = d => { const r = list.find(x => x.orderNo === d.id); slipInquiry(r, slipLock(r)); }; A.correct = d => correctionForm(list.find(r => r.orderNo === d.id));
   A.del = d => confirmBox('出荷の取消', `売上No ${d.id} を取消します。請求前の伝票のみ取消できます（赤黒は組で取消）。`, () => post('/api/shipments/delete', { orderNo: d.id }).then(() => { toast('取消しました'); render(); }), '取消する');
   const red = r => r.shipKb === 5 && r.quantity < 0;
   // 赤黒訂正のある伝票：元伝票・赤・黒を常に並べて出す（10/26 打合せ「元のがあって、打ち消された赤伝があって、黒伝がある」）。
@@ -477,7 +479,7 @@ VIEWS.shipments = async q => {
   };
   return page('出荷・売上', '出荷伝票（shipment_slip）と売上（sales_trn）を同時に登録します。請求済みの伝票は「赤黒訂正」で、元伝票のマイナス（赤）と訂正後（黒）を起票します（NO11、10/14 打合せ）。',
     `<input type="date" name="from" value="${esc(from)}" data-filter title="売上日（から）"><span>〜</span><input type="date" name="to" value="${esc(to)}" data-filter title="売上日（まで）">${comboFilter('customer', 'customers', q.customer || '', '得意先（コード・名称）', 'ship-cust')}<input name="site" list="dl-fsite" value="${esc(q.site || '')}" placeholder="現場（コード・名称）" title="現場（コード・名称）" autocomplete="off" data-filter style="width:200px"><datalist id="dl-fsite">${shipSiteOptions(q.customer, list)}</datalist><select name="kind" data-filter title="決済方法">${options(Object.entries(SHIP_KINDS).map(([code, x]) => ({ code, name: x.name })), kind, { blank: 'すべて', label: r => r.name })}</select>
-     ${canWrite() && !hideShipEntry() ? '<button class="primary" data-act="new">＋ 出荷登録</button>' : ''}`,
+     ${canWrite() && !isUser01() ? '<button class="primary" data-act="new">＋ 出荷登録</button>' : ''}`,
     `<section class="card glass" data-sub="slips">${sortBar}${table([{ label: '売上No', value: r => r.slipNo || r.orderNo } /* 赤黒は「元伝票No－枝番」だけ（内部の売上Noは出さない。指摘 No.6） */, { label: '出荷日', value: r => r.date }, { label: '得意先', value: r => r.customerName }, { label: '現場', value: r => r.siteName }, { label: '商品', value: r => r.itemName },
       { label: '数量', num: 1, html: r => `${r.quantity < 0 ? `<span class="check-ng">${r.quantity}</span>` : r.quantity} ${esc(r.unit)}${r.cumulativeCount ? `<br><span class="small muted" title="同日・同現場・同商品・同納入区分の累計">累計 ${r.cumulativeQty}／${r.cumulativeCount}台</span>` : ''}` },
       { label: '担当・納入', html: r => `<span class="small">${esc(r.operatorName || r.operator)}<br>${esc(r.deliveryKbnName)}</span>` },
@@ -511,7 +513,7 @@ const siteSelectRO = (customer, code, suffix) => { const cur = code ? `${code}|$
 const slipLock = r => (!canWrite() ? '参照権限のため変更できません' : r.billed ? '請求済みのため変更できません（「赤黒訂正」で訂正）' : r.shipKb === 5 ? '訂正伝票（赤・黒）は変更できません（取消して再登録）' : r.corrected ? '赤黒訂正済みのため変更できません' : '');
 function slipInquiry(r, why = '') {
   const n2 = v => Number(v || 0).toFixed(2), [sc = '', ss = ''] = r.site.split('|');
-  modal({ title: `出荷伝票の詳細（${r.slipNo || r.orderNo}）`, wide: true, submit: '更新する', body: `${why ? `<p class="note small" style="margin-bottom:10px">照会のみ：${esc(why)}</p>` : ''}<div class="slip-sheet">
+  modal({ title: `出荷伝票の詳細（${r.slipNo || r.orderNo}）`, wide: true, body: `${why ? `<p class="note small" style="margin-bottom:10px">照会のみ：${esc(why)}</p>` : ''}<div class="slip-sheet">
     ${SL('伝票番号', RO(esc(r.slipNo || r.orderNo)))}${SL('伝票区分', RO(esc(r.shipKbName)))}<div class="span4c sv right muted small status-cell">${r.billed ? '請求済' : '未請求'}・伝票 ${r.printed ? (r.printed >= 2 ? '再発行済' : '発行済') : '未発行'}</div>
     ${SL('出荷日', RO(esc(r.date.replaceAll('-', '/')) + (r.correctionDate ? `<span class="muted small">（訂正日 ${esc(r.correctionDate.replaceAll('-', '/'))}）</span>` : '')))}${SL('天候', RO(esc(r.weatherName)))}${SEP}
     <div class="sl">得意先</div>${CODE_NAME(RO(esc(r.customer)), RO(esc(r.customerName)))}
@@ -525,7 +527,7 @@ function slipInquiry(r, why = '') {
     ${SL('出発時間', RO(esc(r.startTime)))}${SL('予定時間', RO(esc(r.planTime)))}${SL('出発温度', RO(r.startTemp === '' ? '' : esc(r.startTemp) + ' ℃', 1))}${SL('担当者', RO(esc(r.operatorName || r.operator)))}
     ${SL('伝票備考', RO(esc(r.remarks)), { span: 4 })}</div>
     ${canWrite() && r.shipKb !== 5 ? '<div class="filters right" style="margin-top:12px"><button type="button" class="primary" id="dn-one">伝票発行</button></div>' : ''}`,
-    onOpen: () => { const s = $('#modal-submit'); if (s) { s.disabled = true; s.title = why; } $('#dn-one')?.addEventListener('click', () => issueDeliveryNotes({ orderNo: r.orderNo }).catch(e => toast(e.message, true))); }, onSubmit: () => false });
+    onOpen: () => { $('#dn-one')?.addEventListener('click', () => issueDeliveryNotes({ orderNo: r.orderNo }).catch(e => toast(e.message, true))); } });
 }
 const siteFields = (cust, r) => `${field('現場', `<select name="site">${siteOptions(cust, r?.site, '（マスタ外・自由入力）')}</select>`)}
     ${field('現場名1', `<input name="siteName1" maxlength="20" value="${esc(r?.siteName1 || '')}">`)}${field('現場名2', `<input name="siteName2" maxlength="20" value="${esc(r?.siteName2 || '')}">`)}`;
@@ -589,7 +591,7 @@ function shipmentForm(r, bizDate) {
         if (!d || my !== seq) return; $('#sf-cq').textContent = n2(d.cumulativeQty); $('#sf-cn').textContent = d.cumulativeCount; $('#sf-pq').textContent = n2(d.planQty); $('#sf-pt').innerHTML = esc(d.planTime) || '&nbsp;'; };
       const pickup = () => active('deliveryKinds').find(k => k.code === f.deliveryKbn.value)?.pickup;
       let masterFreight = null, wasPickup = !!pickup(); // 単価マスタの運賃（引取→運賃ありに戻したとき戻す。2026-11-15）
-      const price = async () => { if (!nameOf('items', f.item.value) || !nameOf('customers', f.customer.value)) return; const p = await api('/api/price?' + qs({ item: f.item.value, customer: f.customer.value, site: siteVal(), date: f.date.value })); masterFreight = p.freight; f.price.value = p.price; f.freight.value = pickup() ? 0 : p.freight; f.taxRate.value = p.taxRate; preview(); toast(`単価: ${p.source} ${yen(p.price)}円${p.freight ? '・運賃 ' + yen(p.freight) + '円' : ''}`); };
+      const price = async () => { if (!nameOf('items', f.item.value) || !nameOf('customers', f.customer.value)) return; const p = await api('/api/price?' + qs({ item: f.item.value, customer: f.customer.value, site: siteVal(), date: f.date.value })); masterFreight = p.freight; f.price.value = p.price; if (!co) f.freight.value = pickup() ? 0 : p.freight; f.taxRate.value = p.taxRate; f.price.dispatchEvent(new Event('input')); preview(); /* 赤黒訂正の運賃は元伝票のまま（サーバーと同じ）。単価を変えたら差額の表示も直す */ toast(`単価: ${p.source} ${yen(p.price)}円${p.freight ? '・運賃 ' + yen(p.freight) + '円' : ''}`); };
       // 現場CD は得意先の現場マスタから選ぶ（2026-10-27）。マスタに無い現場の伝票（移行データ等）はその現場を選択肢に残す
       const siteList = () => { const cur = siteVal(), list = (masters.sites || []).filter(x => x.customer === f.customer.value && x.active).map(x => ({ v: `${x.code}|${x.suffix}`, l: `${x.code}-${x.suffix}　${x.name} ${x.name2 || ''}` }));
         if (cur && !list.some(x => x.v === cur)) list.unshift({ v: cur, l: `${cur.replace('|', '-')}（マスタなし）` });
@@ -623,7 +625,8 @@ function shipmentForm(r, bizDate) {
       f.siteName1.onchange = f.siteName2.onchange = cumulative;
       for (const n of ['quantity', 'price', 'freight']) f[n].oninput = preview; f.quantity.onchange = cumulative;
       // 赤黒訂正は 単価・数量・訂正日 だけ入力可（2026-10-27 制限）。ほかの項目は元伝票のまま表示
-      if (co) [...f.elements].forEach(el => { if (!el.name || ['quantity', 'price', 'date'].includes(el.name) || el.type === 'hidden') return; if (el.tagName === 'SELECT' || el.type === 'checkbox' || el.type === 'button') el.disabled = true; else el.readOnly = true; });
+      // 赤黒訂正で変えられるのは 訂正日・商品・数量・単価（商品は 2026-11-17 ユーザー指示で追加）
+      if (co) [...f.elements].forEach(el => { if (!el.name || ['quantity', 'price', 'date', 'item'].includes(el.name) || el.type === 'hidden') return; if (el.tagName === 'SELECT' || el.type === 'checkbox' || el.type === 'button') el.disabled = true; else el.readOnly = true; });
       if (co) { $('#modal-foot').prepend($('#corr-preview')); // 赤・黒・差額は下部の［キャンセル］［赤黒伝票を登録］の前（2026-11-09 ユーザー指示）
         const pv = () => { const qn = Number(f.quantity.value) || 0, black = Math.round(Math.round(qn * 100) * (Number(f.price.value) + Number(f.freight.value || 0)) / 100); $('#corr-preview').innerHTML = `赤 ${yen(-co.net)} 円 ＋ 黒 ${yen(black)} 円 ＝ 差額 <b>${yen(black - co.net)}</b> 円（税抜）`; };
         for (const n of ['quantity', 'price', 'freight']) f[n].addEventListener('input', pv); pv(); }
@@ -728,7 +731,7 @@ VIEWS.invoices = async q => {
     const targets = p.customers.filter(r => r.count && !(r.created && r.locked));
     const held = p.customers.filter(r => r.count && r.created && r.locked);
     // メッセージに件数は出さない（2026-10-29）
-    const heldNote = held.length ? `発行済みのため次回締めで請求する得意先：${held.map(r => `${r.customer} ${r.name}`).join('、')}` : '';
+    const heldNote = held.length && !isUser01() ? `発行済みのため次回締めで請求する得意先：${held.map(r => `${r.customer} ${r.name}`).join('、')}` : '';
     // 作成する分が無いとき（作成済み）も完了のメッセージは出さず、請求一覧照会へ（2026-11-17 ユーザー指示：漏れた伝票があれば押し直せば作られる。何度でも実行できる）
     if (!targets.length) { if (heldNote) alertBox(heldNote); freshNext = true; location.hash = '#invoices/list?' + qs({ month, closing }); return; }
     // 確認のポップアップは出さずにそのまま作成し、終わったら請求書発行確認表（未発行を含む）の Excel を出す（2026-10-27。10/27 打合せ「メッセージはいらない、処理中→終了でよい」）
@@ -889,7 +892,7 @@ async function billingReport(kind, month, closing, unissued = false, customer = 
   const title = kind === 'list' ? '請求一覧表（確認用）' : unissued ? '請求書発行確認表（未発行を含む）' : '請求書発行確認表';
   let body;
   if (kind === 'list') {
-    // 現行 HAR431：得意先・現場名・売上額・税額・値引額・請求額、得意先計・会社合計。得意先ごとに 1 行（現場別発行の得意先だけ現場ごと）、得意先計は 2 行以上のときだけ、状態は出さない（2026-11-03）
+    // 現行 HAR431：得意先・現場名・売上額・税額・値引額・請求額、得意先計・会社合計。得意先×現場ごとに 1 行（2026-11-17 から全得意先。以前は現場別発行の得意先だけ）、得意先計は 2 行以上のときだけ、状態は出さない
     let html = '';
     for (const r of d.rows) {
       r.bookRows.forEach((x, i) => { html += `<tr><td>${i ? '' : `${esc(r.customer)} ${esc(r.name)}`}</td><td>${i ? i + 1 : ''}</td><td>${esc(x.siteName)}</td><td class="num">${yen(x.net)}</td><td class="num">${yen(x.tax)}</td><td class="num">${yen(x.discount)}</td><td class="num">${yen(x.total)}</td></tr>`; });
@@ -930,12 +933,12 @@ async function invoiceDetail(id, site = null) {
   // 明細の列は請求書発行確認表と同じ（運送＝納入区分の名称（11/04 打合せ No.26）、備考＝現場名。2026-10-27、10/27 打合せ）
   const lineTable = () => table([{ label: '日付', value: r => r.date }, { label: '売上No', value: r => r.orderNo }, { label: '区分', html: r => r.shipKb === 5 ? badge('訂正', 'amber') : '売上' }, { label: '商品', value: r => r.itemName }, { label: '数量', num: 1, value: r => r.quantity }, { label: '単価', num: 1, value: r => yen(r.price) }, { label: '金額', num: 1, value: r => yen(r.net) }, { label: '処税率', num: 1, value: r => r.taxRate + '%' },
     { label: '運送', value: r => r.carry || '' }, { label: '備考', value: r => r.siteName }], pick(inv.lines));
-  modal({ title: `請求 No.${inv.id} ${inv.customerName}${site ? ' ／ ' + (site.siteName || '（現場なし）') : ''}`, wide: true, body: `
+  modal({ title: `請求 ${inv.customerName}`, wide: true,   /* 見出しの請求No（システム連番）と現場名は出さない（2026-11-17 ユーザー指示。現場は本文に表示） */ body: `
     <div class="grid3"><div><div class="muted small">${site ? '現場' : '請求単位'}</div><b>${esc(site ? site.siteName || '（現場なし）' : inv.siteName)}</b></div><div><div class="muted small">締日 / 支払期日</div><b>${esc(inv.closing)} / ${esc(inv.due)}</b></div><div><div class="muted small">状態</div>${status(inv.status)}</div></div>
     <div class="grid3" style="margin:12px 0"><div class="sum-line"><span>税抜金額</span><b>${yen(site ? site.net : inv.net)}</b></div><div class="sum-line"><span>消費税</span><b>${yen(site ? site.tax : inv.tax)}</b></div>${site ? `<div class="sum-line"><span>今回請求額</span><b>${yen(site.total)}</b></div>` : `<div class="sum-line"><span>請求額 / 残高</span><b>${yen(inv.total)} / ${yen(inv.balance)}</b></div>`}</div>
     <h3>明細</h3><div id="inv-lines">${lineTable()}</div>
     ${/* 発行履歴・入金消込の表は 2026-10-27 に削除（10/27 打合せ：詳細は請求書発行確認表と同じ明細だけ） */ ''}
-    <div class="filters" style="margin-top:14px">${(site ? site.issues : inv.issues) ? '<button type="button" id="inv-copy">⇩ 最新発行分の Excel（控え）</button>' : ''}${canWrite() && !site ? `<button type="button" class="primary" id="inv-issue">${inv.issues ? '再発行して Excel' : '発行して Excel'}</button>` : ''}${canWrite() && !inv.issues && !inv.allocations.length ? `<button type="button" class="danger" id="inv-cancel">${site ? '請求取消（この現場）' : '請求取消'}</button>` : ''}</div>`,
+    <div class="filters" style="margin-top:14px">${(site ? site.issues : inv.issues) ? '<button type="button" id="inv-copy">⇩ 最新発行分の Excel（控え）</button>' : ''}${canWrite() && !site ? `<button type="button" class="primary" id="inv-issue">${inv.issues ? '再発行して Excel' : '発行して Excel'}</button>` : ''}</div>`, /* ［請求取消］は 2026-11-17 ユーザー指示で詳細画面から削除（API・下の処理は残す） */
     onOpen: () => {
       // 控え・発行は印刷せず Excel（現場ごとに最新の発行分を1シート）をダウンロード（2026-10-27 Excel に統一）
       const book = () => saveXlsx('/api/invoices/book', { ids: [inv.id], sites: site ? { [inv.id]: [siteLabel(site.siteName)] } : {} });
@@ -1217,14 +1220,17 @@ function receiptForm(customer, receiptId = 0) {
 const LR_MAX_LINES = 8;
 const LR_ACC = {
   1112: { name: '当座預金', kind: () => 'bank', tax: '9', dept: '' }, 1111: { name: '現金', kind: () => 'cash', tax: '9', dept: '' }, 1120: { name: '受取手形', kind: () => 'notes', tax: '9', dept: '' },
-  8330: { name: '雑費', subs: [['101', '各種手数料', 'fee', '手数料'], ['107', 'その他雑品', 'coop', '協力費']], tax: '141', dept: '063' }, 4170: { name: '預り金', kind: () => 'deposit', tax: '9', dept: '' },
+  8330: { name: '雑費', subs: [['101', '各種手数料', 'fee', ''],   // 各種手数料に摘要2 の初期値を付けない（2026-11-17 ユーザー指示）
+    ['107', 'その他雑品', 'coop', '協力費']], tax: '141', dept: '063' }, 4170: { name: '預り金', kind: () => 'deposit', tax: '9', dept: '' },
   8850: { name: '値引・雑損失', subs: [['D', '値引き', 'discount', '値引き'], ['L', '雑損失', 'loss', '雑損失']], dept: '063' },
 };
-const lrBlank = () => ({ acc: '', sub: '', amount: '', due: '', tax: '', sub2: '', work: '', taxAmt: '', memo2: '', tcode: '' });
+const lrBlank = () => ({ acc: '', sub: '', amount: '', due: '', tax: '', sub2: '', work: '', taxAmt: '', memo1: '', memo2: '', tcode: '' });
 // 借方の明細は最初 3 行（足りなければ［＋ 行追加］）。入金日の初期値は今日（いずれも 2026-11-01）
 // open＝入力画面を表示中（false は一覧）。editId・editNo＝［修正］する入金、editPays＝元の入金の今回入金額（3 画面目を最初に開いたときに入れる）（2026-11-09）
 // 1 行目の科目の初期値は当座預金（D-071。2026-11-12 結合テスト IT-04）
-const lrNew = () => ({ step: 1, date: today(), customer: '', lines: [{ ...lrBlank(), acc: '1112' }, lrBlank(), lrBlank()], billTo: '', billInput: '', invoices: [], deposit: 0, from: '', to: today(), toAuto: true, key: uuid(), open: false, editId: 0, editNo: '', editPays: null });
+// 入金日の初期値は当月 20 日（変更可。2026-11-17 ユーザー指示）。メニューから開くと入力画面（open: true）、［一覧］で入金の一覧
+const lr20 = () => `${today().slice(0, 7)}-20`;
+const lrNew = () => ({ step: 1, date: lr20(), customer: '', lines: [{ ...lrBlank(), acc: '1112' }, lrBlank(), lrBlank()], billTo: '', billInput: '', invoices: [], deposit: 0, from: '', fromAuto: true, to: lr20(), toAuto: true, key: uuid(), open: true, editId: 0, editNo: '', editPays: null });
 let lr = lrNew();
 const lrNum = v => { const n = Number(String(v ?? '').replace(/,/g, '').trim()); return Number.isFinite(n) ? n : NaN; };
 const lrSub = l => LR_ACC[l.acc]?.subs?.find(s => s[0] === l.sub);
@@ -1248,9 +1254,10 @@ function lrStep1() {
   // 入金日・得意先（コード＋名称）は1行に並べる。「実行」で次画面（借方）の内容をこの下に出す。最初の画面にはファンクションキーのボタンを置かない（2026-10-31）
   // 「実行」の後は現行 HAW110 と同じく入金日・得意先は表示だけ（直すときは F12 前画面）
   // 3画面目は 請求日（絞込）を入金日・得意先の行の後ろに置く（2026-11-01）
-  if (lr.step > 1) return `<div class="inline-fields lr-step1 lr-fixed"><span>入金日：<b>${esc(lr.date)}</b></span><span>得意先：<b>${esc(lr.customer)} ${esc(lrName())}</b></span>${lr.step === 3 ? lrRange() : ''}${custHints()}</div>
-    <div id="lr-detail">${lr.step === 2 ? lrStep2() : lrStep3()}</div>`;
-  return `<div class="inline-fields lr-step1">${field('入金日', `<input type="date" id="lr-date" value="${esc(lr.date)}">`, { req: 1 })}${field('得意先', `<input id="lr-cust" list="dl-pcust" autocomplete="off" value="${esc(lr.customer)}" placeholder="得意先コード" style="width:140px" ${lr.editId ? 'readonly title="修正では得意先は変えられません"' : ''}>${custHints()}<b id="lr-cname" class="lr-cname">${esc(lrName())}</b>`, { req: 1 })}<button type="button" data-act="lrSearch">実行</button></div>
+  // 入金予定照会（3 画面目）はポップアップ（2026-11-17）。この画面は借方の明細のまま
+  if (lr.step > 1) return `<div class="inline-fields lr-step1 lr-fixed"><span>入金日：<b>${esc(lr.date)}</b></span><span>得意先：<b>${esc(lr.customer)} ${esc(lrName())}</b></span>${custHints()}<button type="button" data-act="lrEnd">一覧</button></div>
+    <div id="lr-detail">${lrStep2()}</div>`;
+  return `<div class="inline-fields lr-step1">${field('入金日', `<input type="date" id="lr-date" value="${esc(lr.date)}">`, { req: 1 })}${field('得意先', `<input id="lr-cust" list="dl-pcust" autocomplete="off" value="${esc(lr.customer)}" placeholder="得意先コード" style="width:140px" ${lr.editId ? 'readonly title="修正では得意先は変えられません"' : ''}>${custHints()}<b id="lr-cname" class="lr-cname">${esc(lrName())}</b>`, { req: 1 })}<button type="button" data-act="lrSearch">実行</button><button type="button" data-act="lrEnd">一覧</button></div>
     <div id="lr-detail"></div>`;
 }
 // 得意先はコードのほか「コード＋名称」・名称の一部（1件に決まるとき）でも受け付ける
@@ -1265,14 +1272,14 @@ function lrLine(l, i) {
       <td><select data-lr="acc" data-i="${i}" aria-label="科目"><option value=""></option>${Object.entries(LR_ACC).map(([k, x]) => `<option value="${k}" ${k === l.acc ? 'selected' : ''}>${k} ${esc(x.name)}</option>`).join('')}</select></td>
       <td>${sub}</td><td>${kind === 'notes' ? `<input type="date" data-lr="due" data-i="${i}" value="${esc(l.due)}" title="手形期日" aria-label="手形期日">` : `<input data-lr="sub2" data-i="${i}" value="${esc(l.sub2)}" maxlength="20" aria-label="内訳2" ${l.acc ? '' : 'disabled'}>`}</td>
       <td><input class="num" data-lr="amount" data-i="${i}" value="${esc(l.amount)}" inputmode="numeric" aria-label="入金額" ${l.acc ? '' : 'disabled'}></td><td>${l.acc ? `<select name="taxCode" data-lr="tax" data-i="${i}" aria-label="処税率" style="width:130px">${lrTaxDef(l) ? '' : '<option value="">選択</option>'}${meta.taxCodes.map(t => `<option value="${t.code}" title="${esc(t.name)}" ${t.code === lrTaxEff(l) ? 'selected' : ''}>${esc(t.code)}</option>`).join('')}</select><small class="muted lr-taxname">${esc(meta.taxCodes.find(t => t.code === lrTaxEff(l))?.name || '')}</small>` : ''}</td><td><input class="num" data-lr="taxamt" data-i="${i}" value="${l.acc && lrTaxable(l) ? esc(l.taxAmt !== '' ? l.taxAmt : String(lrTax(l))) : ''}" inputmode="numeric" aria-label="消費税額" ${l.acc && lrTaxable(l) ? '' : 'disabled'}></td></tr>
-    <tr><th>摘要1</th><td colspan="6">${l.acc ? `${esc(lr.customer)} ${esc(lrName())}` : ''}</td></tr>
+    <tr><th>摘要1</th><td colspan="6">${l.acc ? `<input data-lr="memo1" data-i="${i}" value="${esc(l.memo1 || lrName())}" maxlength="100" aria-label="摘要1" style="width:100%">` : ''}</td></tr>
     <tr><th>摘要2</th><td colspan="6">${l.acc ? `<div style="display:flex;gap:6px"><select data-lr="tcode" data-i="${i}" aria-label="適用コード" style="width:220px;flex:none" title="適用コード（摘要）マスタから選ぶと摘要2に名称が入ります"><option value="">${active('tekiyo').length ? '適用コードを選択' : '適用コード未登録（マスタ管理）'}</option>${active('tekiyo').map(x => `<option value="${esc(x.code)}" ${x.code === l.tcode ? 'selected' : ''}>${esc(x.code)} ${esc(x.name)}</option>`).join('')}</select><input data-lr="memo2" data-i="${i}" value="${esc(l.memo2 || lrSub(l)?.[3] || '')}" data-auto="${esc(l.memo2Auto ?? (l.memo2 ? '' : lrSub(l)?.[3] || ''))}" maxlength="100" placeholder="${kind === 'notes' ? '空欄なら「手形 期日…」' : ''}" aria-label="摘要2" style="width:100%"></div>` : ''}</td></tr></tbody>`;
 }
-const lrTotals = () => { const used = lrUsed(), fund = used.filter(l => ['bank', 'cash'].includes(lrKind(l))).reduce((n, l) => n + (lrNum(l.amount) || 0), 0), tax = used.reduce((n, l) => n + lrTax(l), 0); return `<div class="lr-totals"><span>借方合計 <b>${yen(lrSum())}</b></span><span>貸方合計 <b>0</b></span><span>仮払消費税 <b>${yen(tax)}</b></span><span>仮受消費税 <b>0</b></span><span>資金残高 <b>${yen(fund)}</b></span></div>`; };
+const lrTotals = () => { const used = lrUsed(), fund = used.filter(l => ['bank', 'cash'].includes(lrKind(l))).reduce((n, l) => n + (lrNum(l.amount) || 0), 0), tax = used.reduce((n, l) => n + lrTax(l), 0); return `<div class="lr-totals"><span>借方合計 <b>${yen(lrSum())}</b></span><span>仮払消費税 <b>${yen(tax)}</b></span><span>仮受消費税 <b>0</b></span><span>資金残高 <b>${yen(fund)}</b></span></div>`; };
 function lrStep2() {
   return `<div class="table-wrap lr-detail"><table class="lr-grid"><thead><tr><th>行</th><th>部門</th><th>科目</th><th>内訳1</th><th>内訳2</th><th class="num">入金額</th><th>処税率</th><th class="num">消費税額</th></tr></thead>${lr.lines.map(lrLine).join('')}</table></div>
     <p>${lr.lines.length < LR_MAX_LINES ? '<button type="button" class="mini" data-act="lrAddLine">＋ 行追加</button>' : ''}</p><div id="lr-totals">${lrTotals()}</div>
-    ${lrKeys([['lrNext', '次画面', 1], ['lrNext', '貸方'], ['lrBack', '前画面'], ['lrEnd', '終了']])}`;
+    ${lrKeys([['lrNext', '入金予定照会', 1]])}`;
 }
 // 今回入金額は表示のみ（2026-10-31 ユーザー指示：現場別の入力を決めるまで）。入金額を表示中の請求へ請求No の古い順に配分する（入金消込の自動配分と同じ）
 const lrShown = () => lr.invoices.filter(r => (!lr.from || r.closing >= lr.from) && (!lr.to || r.closing <= lr.to)).sort((a, b) => a.id - b.id);
@@ -1316,11 +1323,17 @@ function lrStep3() {
       <tbody id="lr-rows">${lrRows()}</tbody>
       <tfoot id="lr-foot">${lrPayFoot()}</tfoot></table></div>
     <p id="lr-addpay">${lrAddPayBtn()}</p>
-    ${canWrite() ? '' : '<p class="check-ng small">この利用者は登録できません</p>'}${lrKeys([...(canWrite() ? [['lrNext', lr.editId ? '更新' : '登録', 1]] : []), ['lrBack', '前画面'], ['lrEnd', '終了']])}</div>`;
+    ${canWrite() ? '' : '<p class="check-ng small">この利用者は登録できません</p>'}${lrKeys(canWrite() ? [['lrNext', lr.editId ? '更新' : '登録', 1]] : [])}</div>`;
 }
 const lrEditNote = () => (lr.editId ? `<p class="small lr-editnote">入金No <b>${esc(lr.editNo)}</b> を修正します。［更新］で元の入金を取り消し（逆仕訳）、この内容で登録し直します（入金No は新しい番号になります）。</p>` : '');
 const lrBodyHtml = () => lrEditNote() + lrStep1() + tekiyoList();
-const lrDraw = () => { const b = $('#lr-body'); if (!b) return; b.innerHTML = lrBodyHtml(); };
+const lrPopHtml = () => lrRange() + lrStep3();
+const lrDraw = () => { const b = $('#lr-body'); if (!b) return; b.innerHTML = lrBodyHtml(); const p = $('#lr-pop'); if (p && lr.step === 3) p.innerHTML = lrPopHtml(); };
+// 入金予定照会のポップアップ。閉じると借方の画面に戻る（Enter で閉じないようにフォームの送信は止める）
+const lrOpenPop = () => modal({ title: '入金予定照会', wide: true, body: `<div id="lr-pop">${lrPopHtml()}</div>`, onOpen: () => {
+  $('#modal-form').onsubmit = e => e.preventDefault();
+  $('#dialog').addEventListener('close', () => { if (lr.step === 3) { lr.step = 2; lrDraw(); } }, { once: true });
+} });
 function lrCheckLines() {
   const used = lrUsed(); if (!used.length) throw Error('科目と入金額を入力してください');
   const kinds = new Set();
@@ -1350,10 +1363,10 @@ async function lrRegister() {
   const body = { idempotencyKey: lr.key, date: lr.date, customer: lr.billTo, allocations: pays.map(x => ({ invoiceId: x.r.id, amount: x.n })), ...(dep ? { deposit: dep } : {}), ...(over ? { overpayToDeposit: true } : {}) };
   const PART = { bank: 'BANK', cash: 'CASH', notes: 'NOTE', fee: 'FEE', coop: 'COOP', deposit: 'DEPOSIT', discount: 'DISCOUNT', loss: 'LOSS' };
   for (const l of lrUsed()) { const k = lrKind(l); body[k] = lrNum(l.amount); if (k === 'bank') body.bankCode = l.sub; if (k === 'notes') body.noteDue = l.due; if (l.tax && l.tax !== lrTaxDef(l)) (body.tax ||= {})[PART[k]] = l.tax;
-    (body.detail ||= {})[PART[k]] = { sub2: k === 'notes' ? '' : l.sub2, work: l.work, memo2: l.memo2 && l.memo2 !== lrSub(l)?.[3] ? l.memo2 : '', ...(lrTaxable(l) ? { taxAmt: lrTax(l) } : {}) }; }
+    (body.detail ||= {})[PART[k]] = { sub2: k === 'notes' ? '' : l.sub2, work: l.work, memo1: l.memo1 && l.memo1 !== lrName() ? l.memo1 : '', memo2: l.memo2 && l.memo2 !== lrSub(l)?.[3] ? l.memo2 : '', ...(lrTaxable(l) ? { taxAmt: lrTax(l) } : {}) }; }
   // 登録・更新の後は一覧に戻る（2026-11-09）。修正は元の入金を取り消して登録し直す（入金消込の［修正］と同じ API）
   const edit = lr.editId, r = await post(edit ? '/api/receipts/update' : '/api/receipts', edit ? { ...body, id: edit } : body);
-  toast(`入金 ${r.no} を${edit ? `登録し直しました（元の入金No ${lr.editNo} は取消・逆仕訳。` : '登録しました（'}請求先 ${lr.billTo}・仕訳 B01${dep ? `・預り金相殺 ${yen(dep)}円` : ''}${over ? `・預り金受入 ${yen(over)}円` : ''}）`); lr = lrNew(); render();
+  toast(`入金 ${r.no} を${edit ? `登録し直しました（元の入金No ${lr.editNo} は取消・逆仕訳。` : '登録しました（'}請求先 ${lr.billTo}・仕訳 B01${dep ? `・預り金相殺 ${yen(dep)}円` : ''}${over ? `・預り金受入 ${yen(over)}円` : ''}）`); lr = lrNew(); $('#dialog').close(); render();   // 登録の後は新しい入力画面
 }
 // 請求先の残高のある請求を読む（入金日以前の締めだけ。入金日より後の締めの請求は登録できない）
 let lrLoadSeq = 0;
@@ -1361,6 +1374,7 @@ async function lrLoadBill(code) {
   const seq = ++lrLoadSeq, ctx = await api('/api/receipt-context?' + qs({ customer: code, exclude: lr.editId || '' }));   // 修正は元の入金を除いた残高
   if (seq !== lrLoadSeq) return false;
   lr.billTo = code; lr.invoices = ctx.invoices.filter(r => r.closing <= lr.date); lr.deposit = ctx.deposit;
+  if (lr.fromAuto) lr.from = lr.invoices.map(r => r.closing).sort()[0] || '';   // 請求日（自）の初期値は残高のある最も古い請求日（自・至とも日付で表示。2026-11-17）
   return true;
 }
 const lrPaintRows = () => { const b = $('#lr-rows'); if (!b) return; b.innerHTML = lrRows(); $('#lr-foot').innerHTML = lrPayFoot(); $('#lr-dep').textContent = lrDepNote(); const ap = $('#lr-addpay'); if (ap) ap.innerHTML = lrAddPayBtn(); };
@@ -1376,19 +1390,19 @@ async function lrNext() {
     // 請求先の初期値は得意先。前画面から戻ったときは選んだ請求先のまま
     if (!lr.billInput) lr.billInput = lr.customer;
     if (lr.billTo || masters.customers.some(c => c.code === lr.billInput)) await lrLoadBill(lr.billTo || lr.billInput);
-    lr.key = uuid(); lr.step = 3; lr.pays = lr.editPays; lr.editPays = null; return lrDraw();   // 入金額が変わることがあるので行は自動割り当てに戻す（修正の最初だけ元の入金の今回入金額）
+    lr.key = uuid(); lr.step = 3; lr.pays = lr.editPays; lr.editPays = null; lrDraw(); return lrOpenPop();   // 入金額が変わることがあるので行は自動割り当てに戻す（修正の最初だけ元の入金の今回入金額）
   }
   await lrRegister();
 }
 const lrBack = () => { if (lr.step > 1) { lr.step -= 1; lrDraw(); } };
-const lrEnd = () => { lr = lrNew(); render({ fresh: true }); };   // 終了＝一覧に戻る（2026-11-09）
+const lrEnd = () => { lr = { ...lrNew(), open: false }; render({ fresh: true }); };   // ［一覧］＝入金の一覧（2026-11-17 ［終了］から変更）
 const lrFind = () => { const i = $('#lr-cust'); if (!i) return; i.focus(); try { i.showPicker(); } catch {} };
 const lrRun = fn => Promise.resolve().then(fn).catch(e => toast(e.message, true));
 // ［修正］：元の入金（借方の明細・口座・手形期日・処税率・消費税額・摘要2、今回入金額）を入れて入力画面を開く
 const LR_KIND_LINE = { BANK: ['bank', '1112'], CASH: ['cash', '1111'], NOTE: ['notes', '1120'], FEE: ['fee', '8330', '101'], COOP: ['coop', '8330', '107'], DEPOSIT: ['deposit', '4170'], DISCOUNT: ['discount', '8850', 'D'], LOSS: ['loss', '8850', 'L'] };
 function lrFromReceipt(r) {
   const lines = Object.entries(LR_KIND_LINE).filter(([, [k]]) => r[k] > 0).map(([K, [k, acc, sub]]) => {
-    const d = r.detail?.[K] || {}, l = { ...lrBlank(), acc, sub: K === 'BANK' ? r.bankCode || '' : sub || '', amount: String(r[k]), due: K === 'NOTE' ? String(r.noteDue || '').slice(0, 10) : '', sub2: d.sub2 || '', memo2: d.memo2 || '' };
+    const d = r.detail?.[K] || {}, l = { ...lrBlank(), acc, sub: K === 'BANK' ? r.bankCode || '' : sub || '', amount: String(r[k]), due: K === 'NOTE' ? String(r.noteDue || '').slice(0, 10) : '', sub2: d.sub2 || '', memo1: d.memo1 || '', memo2: d.memo2 || '' };
     if (d.tax && ![lrTaxCode(l), lrTaxDef(l)].includes(d.tax)) l.tax = d.tax;
     if (d.taxAmt !== null && d.taxAmt !== undefined && lrTaxable(l) && d.taxAmt !== lrTaxAuto(l)) l.taxAmt = String(d.taxAmt);
     return l; });
@@ -1405,7 +1419,7 @@ async function legacyReceiptView(q = {}) {
   A.lrAddLine = () => { if (lr.lines.length < LR_MAX_LINES) { lr.lines.push(lrBlank()); lrDraw(); } };
   A.lrNew = () => { lr = { ...lrNew(), open: true }; render(); };
   A.lrEdit = d => lrRun(async () => { lr = lrFromReceipt(await api('/api/receipt-detail?' + qs({ id: d.id }))); render(); });
-  if (lr.open) return page('入金処理', '', '<button data-act="lrEnd">← 一覧</button>', `<section class="card glass lr" id="lr-body">${lrBodyHtml()}</section>`);
+  if (lr.open) return page('入金処理', '', '', `<section class="card glass lr" id="lr-body">${lrBodyHtml()}</section>`);
   const month = q.month || thisMonth(), all = await api('/api/receipts?' + qs({ month, customer: q.customer }));
   const RSTATES = { POSTED: '計上済', REVERSED: '取消済' }, rst = RSTATES[q.rstate] ? q.rstate : '', list = rst ? all.filter(r => r.status === rst) : all;
   const sum = k => list.filter(r => r.status === 'POSTED').reduce((n, r) => n + (r[k] || 0), 0);
@@ -1418,7 +1432,7 @@ async function legacyReceiptView(q = {}) {
       { empty: 'この条件の入金はありません', rowClass: r => (r.status === 'REVERSED' ? 'reversed' : ''), foot: ['合計（計上済）', '', '', yen(sum('bank')), '', yen(sum('cash')), yen(sum('notes')), yen(sum('fee')), yen(sum('coop')), yen(sum('deposit')), yen(sum('discount')), yen(sum('loss')), yen(sum('settlement')), '', '', ''] })}</section>`);
 }
 document.addEventListener('input', e => {
-  const t = e.target; if (!t.closest?.('#lr-body')) return;
+  const t = e.target; if (!t.closest?.('#lr-body, #lr-pop')) return;
   if (t.id === 'lr-date') { lr.date = t.value; if (lr.toAuto) lr.to = t.value; }
   else if (t.id === 'lr-cust') { lr.customer = t.value.trim(); lr.billInput = ''; lr.billTo = ''; lr.invoices = []; $('#lr-cname').textContent = lrName(); }
   else if (t.id === 'lr-bill') {
@@ -1431,16 +1445,16 @@ document.addEventListener('input', e => {
   // 消費税額を空にすると自動計算に戻す
   else if (t.dataset.lp === 'amount') { lrManual(); lr.pays[t.dataset.i].amount = t.value; lrFootPaint(); }
   else if (t.dataset.lr === 'taxamt') { lr.lines[t.dataset.i].taxAmt = t.value.trim(); $('#lr-totals').innerHTML = lrTotals(); }
-  else if (['due', 'sub2', 'work', 'memo2'].includes(t.dataset.lr)) lr.lines[t.dataset.i][t.dataset.lr] = t.value;
+  else if (['due', 'sub2', 'work', 'memo1', 'memo2'].includes(t.dataset.lr)) lr.lines[t.dataset.i][t.dataset.lr] = t.value;
   // 適用コード → 摘要2 に名称（11/04 打合せ No.7）。コードは保存しない（摘要2 の文字だけ）。2026-11-05 ユーザー指示で入力欄をマスタから選ぶ select に変更
   else if (t.dataset.lr === 'tcode') { const l = lr.lines[t.dataset.i], m = $(`[data-lr="memo2"][data-i="${t.dataset.i}"]`); l.tcode = t.value; tekiyoFill(t, m); if (m?.dataset.auto) l.memo2Auto = m.dataset.auto; }
 });
 document.addEventListener('change', e => {
-  const t = e.target; if (!t.closest?.('#lr-body')) return;
+  const t = e.target; if (!t.closest?.('#lr-body, #lr-pop')) return;
   if (t.dataset.lr === 'acc') { const l = lr.lines[t.dataset.i]; l.acc = t.value; l.sub = ''; l.due = ''; l.tax = ''; l.taxAmt = ''; l.memo2 = ''; if (!t.value) Object.assign(l, { amount: '', sub2: '', work: '' }); lrDraw(); }
   else if (t.dataset.lr === 'sub') { const l = lr.lines[t.dataset.i]; l.sub = t.value; l.tax = ''; l.taxAmt = ''; lrDraw(); }
   else if (t.dataset.lr === 'tax') { const l = lr.lines[t.dataset.i]; l.tax = t.value; l.taxAmt = ''; lrDraw(); }
-  else if (t.id === 'lr-from' || t.id === 'lr-to') { lr[t.id === 'lr-from' ? 'from' : 'to'] = t.value; if (t.id === 'lr-to') lr.toAuto = false; lr.pays = null; lrDraw(); }
+  else if (t.id === 'lr-from' || t.id === 'lr-to') { lr[t.id === 'lr-from' ? 'from' : 'to'] = t.value; if (t.id === 'lr-to') lr.toAuto = false; else lr.fromAuto = false; lr.pays = null; lrDraw(); }
   else if (t.dataset.lp === 'id') { lrManual(); lr.pays[t.dataset.i].id = t.value; lrPaintRows(); }
 });
 // ファンクションキーはこの画面だけ
