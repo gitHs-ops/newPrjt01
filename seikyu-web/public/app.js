@@ -718,11 +718,11 @@ VIEWS.invoices = async q => {
     // 締日が来ていない締めは作成できない（サーバーも拒否する）。得意先ごとに失敗させず、ここで止める（2026-10-27）
     if (p.end > today()) return alertBox(`締日（${p.end}）が到来していないため、${month} ${closingLabel(closing)}締の請求データは作成できません。`);
     const targets = p.customers.filter(r => r.count && !(r.created && r.locked));
-    const held = p.customers.filter(r => r.count && r.created && r.locked), done = p.customers.filter(r => r.created && !r.count).length;
+    const held = p.customers.filter(r => r.count && r.created && r.locked);
     // メッセージに件数は出さない（2026-10-29）
     const heldNote = held.length ? `発行済みのため次回締めで請求する得意先：${held.map(r => `${r.customer} ${r.name}`).join('、')}` : '';
-    if (!targets.length) return alertBox(`作成する請求データはありません（${month} ${closingLabel(closing)}締：請求期間 ${p.start}〜${p.end}${done ? '、作成済み' : ''}）${heldNote ? `
-${heldNote}` : ''}`);
+    // 作成する分が無いとき（作成済み）も完了のメッセージは出さず、請求一覧照会へ（2026-11-17 ユーザー指示：漏れた伝票があれば押し直せば作られる。何度でも実行できる）
+    if (!targets.length) { if (heldNote) alertBox(heldNote); freshNext = true; location.hash = '#invoices/list?' + qs({ month, closing }); return; }
     // 確認のポップアップは出さずにそのまま作成し、終わったら請求書発行確認表（未発行を含む）の Excel を出す（2026-10-27。10/27 打合せ「メッセージはいらない、処理中→終了でよい」）
     const sum = { created: 0, appended: 0, skipped: [], failed: [] }; let slip = ''; // 売掛金計上の伝票番号（1伝票45得意先まで同じ番号、Q08）
     if (btn) btn.disabled = true;
@@ -736,7 +736,7 @@ ${heldNote}` : ''}`);
     // 作成できなかった得意先・次回締めに回る得意先があるときだけ知らせる
     if (sum.failed.length || heldNote) alertBox([sum.failed.length ? `作成できなかった得意先：\n${sum.failed.join('\n')}` : '', heldNote].filter(Boolean).join('\n\n'));
     freshNext = true; location.hash = '#invoices/list?' + qs({ month, closing });
-    if (sum.created || sum.appended) await billingReport('confirm', month, closing, true).catch(e => toast(e.message, true));
+    if (sum.created || sum.appended) await billingReport('confirm', month, closing, true, '', true).catch(e => toast(e.message, true)); // 完了のメッセージは出さない（2026-11-17）
   };
   // 10/26 打合せ：［詳細］は現場の行ごと。その現場の明細だけを出す
   A.detail = d => { const x = lines[Number(d.k)]; if (x) invoiceDetail(x.inv.id, x.site || x.siteName ? x : null); };
@@ -876,7 +876,7 @@ async function invoiceBalanceView(q) {
       d.rows, { empty: st ? 'この請求書状況の得意先はありません' : 'この締日の得意先はありません', foot: ['合計', yen(s('prevBalance')), yen(s('received')), yen(s('carried')), yen(s('net')), yen(s('tax')), yen(s('total')), '', '', ''] })}</section>`);
 }
 // NO12 / NO13 report viewer with print and Excel download.
-async function billingReport(kind, month, closing, unissued = false, customer = '') {
+async function billingReport(kind, month, closing, unissued = false, customer = '', quiet = false) { // quiet：請求データ作成の後の自動出力（出力・該当なしのメッセージを出さない）
   const url = `/api/reports/${kind === 'list' ? 'billing-list' : 'billing-confirm'}?${qs({ month, closing, customer, ...(kind !== 'list' && unissued ? { unissued: '1' } : {}) })}`, d = await api(url);
   const title = kind === 'list' ? '請求一覧表（確認用）' : unissued ? '請求書発行確認表（未発行を含む）' : '請求書発行確認表';
   let body;
@@ -903,7 +903,8 @@ async function billingReport(kind, month, closing, unissued = false, customer = 
   }
   // データがあれば選択のポップアップを出さず Excel をダウンロード（2026-10-27）。無いときだけ理由を出す
   const n = d.rows.length, total = d.rows.reduce((t, r) => t + (r.current || 0), 0);
-  if (n) { await saveXlsx(url + '&format=xlsx'); return toast(`${title}（${n}得意先・今回請求額 ${yen(total)} 円）を Excel で出力しました`); }
+  if (n) { await saveXlsx(url + '&format=xlsx'); return quiet || toast(`${title}（${n}得意先・今回請求額 ${yen(total)} 円）を Excel で出力しました`); }
+  if (quiet) return;
   const head = `<p><b>データがありません。</b>（${esc(month)} ${esc(closingLabel(closing))}締）</p>`;
   modal({ title: `${title} ${month} ${closingLabel(closing)}締`, body: `${head}<div id="rep-body"${n ? ' hidden' : ''}>${n ? body : body.replace(/<div class="empty">[^<]*<\/div>/, '')}</div>`,
     onOpen: () => {
