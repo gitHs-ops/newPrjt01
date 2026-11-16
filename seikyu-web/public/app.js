@@ -222,7 +222,8 @@ new MutationObserver(ms => { for (const m of ms) for (const n of m.addedNodes) i
 // 小メニュー（サイドバー）：#画面/小メニュー で直接開ける。q＝従来のタブ等の条件、tools＝上部の検索・登録ボタンを出すか（既定は先頭と q 付きのみ）
 const SUBMENUS = {
   // 出荷予定・納品書発行は機能一覧の範囲外（推定実装）のため小メニューを無効表示（納品書発行は 2026-10-24）（2026-10-23、要否は大西さんに確認。画面・API は残す）
-  shipments: [{ k: 'slips', l: '出荷伝票一覧' }, // 10/27 打合せ：画面の題名を「出荷伝票一覧」に
+  // 売上計上は 2026-11-16 に先頭へ追加（ユーザー指示：出荷伝票一覧と同じ画面を開く）
+  shipments: [{ k: 'sales', l: '売上計上', tools: true }, { k: 'slips', l: '出荷伝票一覧', tools: true }, // 10/27 打合せ：画面の題名を「出荷伝票一覧」に
     { k: 'plans', l: '出荷予定', q: { tab: 'plans' }, disabled: true }, { k: 'notes', l: '納品書発行', disabled: true }, { k: 'reports', l: '出荷・売上帳票' }],
   // 発行前確認一覧は 2026-10-25 非表示 → 2026-10-27 再表示（確認事項 F）→ 2026-10-27 再び非表示（画面・API は残す）
   // 請求書発行は 2026-10-27 に請求一覧照会から分けた（10/26 打合せ・提案書 P13。照会は確認と発行確認表の出力だけ）
@@ -454,7 +455,7 @@ VIEWS.shipments = async q => {
   return page('出荷・売上', '出荷伝票（shipment_slip）と売上（sales_trn）を同時に登録します。請求済みの伝票は「赤黒訂正」で、元伝票のマイナス（赤）と訂正後（黒）を起票します（NO11、10/14 打合せ）。',
     `<input type="date" name="from" value="${esc(from)}" data-filter title="売上日（から）"><span>〜</span><input type="date" name="to" value="${esc(to)}" data-filter title="売上日（まで）">${comboFilter('customer', 'customers', q.customer || '', '得意先（コード・名称）', 'ship-cust')}<input name="site" list="dl-fsite" value="${esc(q.site || '')}" placeholder="現場（コード・名称）" title="現場（コード・名称）" autocomplete="off" data-filter style="width:200px"><datalist id="dl-fsite">${shipSiteOptions(q.customer, list)}</datalist><select name="kind" data-filter title="決済方法">${options(Object.entries(SHIP_KINDS).map(([code, x]) => ({ code, name: x.name })), kind, { blank: 'すべて', label: r => r.name })}</select>
      ${canWrite() ? '<button class="primary" data-act="new">＋ 出荷登録</button>' : ''}`,
-    `<section class="card glass" data-sub="slips">${table([{ label: '売上No', value: r => r.slipNo || r.orderNo } /* 赤黒は「元伝票No－枝番」だけ（内部の売上Noは出さない。指摘 No.6） */, { label: '出荷日', value: r => r.date }, { label: '得意先', value: r => r.customerName }, { label: '現場', value: r => r.siteName }, { label: '商品', value: r => r.itemName },
+    `<section class="card glass" data-sub="slips sales">${table([{ label: '売上No', value: r => r.slipNo || r.orderNo } /* 赤黒は「元伝票No－枝番」だけ（内部の売上Noは出さない。指摘 No.6） */, { label: '出荷日', value: r => r.date }, { label: '得意先', value: r => r.customerName }, { label: '現場', value: r => r.siteName }, { label: '商品', value: r => r.itemName },
       { label: '数量', num: 1, html: r => `${r.quantity < 0 ? `<span class="check-ng">${r.quantity}</span>` : r.quantity} ${esc(r.unit)}${r.cumulativeCount ? `<br><span class="small muted" title="同日・同現場・同商品・同納入区分の累計">累計 ${r.cumulativeQty}／${r.cumulativeCount}台</span>` : ''}` },
       { label: '担当・納入', html: r => `<span class="small">${esc(r.operatorName || r.operator)}<br>${esc(r.deliveryKbnName)}</span>` },
       { label: '単価', num: 1, value: r => yen(r.price) }, { label: '運賃', num: 1, value: r => (r.freight ? yen(r.freight) : '') }, { label: '金額', num: 1, value: r => yen(r.net) }, { label: '税', num: 1, value: r => `${r.taxRate}%` },
