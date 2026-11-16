@@ -406,10 +406,7 @@ export async function createPayment(c, ctx, p) {
   const transferMethod = String(p.transferMethod ?? '0'), feeKbn = String(p.feeKbn ?? (fee ? '1' : '0'));
   check(['0', '1'].includes(transferMethod), '振込方法は 0（電信）か 1（文書）です'); check(['0', '1'].includes(feeKbn), '手数料区分は 0（とらない）か 1（とる）です');
   check(feeKbn === '1' || !fee, '手数料区分が 0（とらない）のときは手数料を入力できません');
-  if (offset) {
-    const bal = await advanceBalance(c, v.vendor_id);
-    check(offset <= bal, `相殺額が業者立替金の残高（${bal.toLocaleString('ja-JP')}円）を超えています`);
-  }
+  // 立替金（支払調整）は現行 HJW200 どおり入力した額をそのまま相殺する。業者立替金の残高による上限は設けない（2026-11-16 ユーザー指示「現行どおり」、立替金関連_整理_20261110）
   const bankCode = String(p.bankCode || ''); const b = await one(c, "SELECT category1 FROM code_m WHERE code_key='BANK' AND code_dtl=?", [bankCode]); check(b && b.category1 !== '0', '支払元口座（銀行）を選択してください');
   check(Array.isArray(p.allocations) && p.allocations.length, '支払対象の伝票を選択してください');
   // マイナスの請求（価格調整、D-041）はマイナスで割り当てる（同じ業者のプラスの請求と相殺）

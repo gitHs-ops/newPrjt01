@@ -511,7 +511,7 @@ test('workflow against PostgreSQL business tables', { skip, timeout: 900000 }, a
       const ven = ok(await a.call('/api/masters/vendors')).find(x => x.code === 'V' + tag);
       ok(await a.call('/api/masters/vendors', { mode: 'update', record: { ...ven, advance: 3000 } }));
       const doc = ok(await a.call('/api/expenses', { kind: 'PAYABLE', date: d, vendor: 'V' + tag, account: '8231', taxCode: '10%', amount: 10000, memo: '手数料相殺試験' }));
-      assert.equal((await a.call('/api/payments', { idempotencyKey: 'po' + tag, date: d, vendor: 'V' + tag, bankCode: 'B' + tag, fee: 0, offset: 5000, allocations: [{ expenseId: doc.id, amount: 10000 }] })).status, 400, 'offset above advance');
+      // 立替金（相殺）は残高の上限なし（2026-11-16 現行 HJW200 どおり）（D-049 のテストで確認）
       const pay = ok(await a.call('/api/payments', { idempotencyKey: 'pf' + tag, date: d, vendor: 'V' + tag, bankCode: 'B' + tag, fee: 770, offset: 2000, safety: 500, allocations: [{ expenseId: doc.id, amount: 10000 }] }));
       const pj = ok(await a.call('/api/journals?month=' + curMonth)).find(j => j.source === 'payment' && j.sourceId === String(pay.id));
       const amt = (side, acc) => pj.lines.filter(l => l.side === side && l.account === acc).reduce((n, l) => n + l.amount, 0);
@@ -707,9 +707,12 @@ test('workflow against PostgreSQL business tables', { skip, timeout: 900000 }, a
       assert.equal(pr.amount, 1180084, '振込額＝7,039,318−5,859,234');
       assert.equal(ok(await a.call('/api/expenses?' + new URLSearchParams({ kind: 'PAYABLE', vendor: W, open: 1 }))).length, 0);
       assert.equal((await a.call('/api/expenses', { kind: 'PETTY_CASH', date: cd, lines: [{ account: '8317', taxCode: '141', amount: -100, payee: '戻し' }] })).status, 400, '小口現金は合計マイナス不可');
-      // D-049：立替金（支払調整）は業者立替金の残高まで
+      // D-049：立替金（支払調整）は現行 HJW200 どおり残高の上限なし（立替金の開始残高 0 でも相殺でき、振込額が減る。2026-11-16）
       const p2 = ok(await a.call('/api/expenses', { kind: 'PAYABLE', date: cd, vendor: W, due: cd, total: 1000, lines: [{ account: '8231', taxCode: '090', amount: 1000 }] }));
-      assert.match((await a.call('/api/payments', { idempotencyKey: 'wo' + tag, date: cd, vendor: W, bankCode: 'B' + tag, offset: 500, allocations: [{ expenseId: p2.id, amount: 1000 }] })).data.error, /業者立替金の残高/);
+      const po = ok(await a.call('/api/payments', { idempotencyKey: 'wo' + tag, date: cd, vendor: W, bankCode: 'B' + tag, offset: 500, allocations: [{ expenseId: p2.id, amount: 1000 }] }));
+      const por = ok(await a.call('/api/payments?' + new URLSearchParams({ month: cd.slice(0, 7) }))).find(r => r.id === po.id);
+      assert.equal(por.amount, 500); assert.equal(por.offset, 500);
+      assert.equal((await a.call('/api/payments', { idempotencyKey: 'wq' + tag, date: cd, vendor: W, bankCode: 'B' + tag, offset: 2000, allocations: [{ expenseId: (ok(await a.call('/api/expenses', { kind: 'PAYABLE', date: cd, vendor: W, due: cd, total: 1000, lines: [{ account: '8231', taxCode: '090', amount: 1000 }] }))).id, amount: 1000 }] })).status, 400, '立替金が支払額を超えると不可');
       // No.4：税率区分マスタ（処税率の 3 桁目）。区分を追加すると処税率で使える。0 は 0% 固定、使用中は削除不可
       assert.equal((await a.call('/api/masters/taxDigits', { mode: 'update', record: { ...ok(await a.call('/api/masters/taxDigits')).find(r => r.code === '0'), rate: 5 } })).status, 400);
       assert.equal((await a.call('/api/expenses', { kind: 'PAYABLE', date: cd, vendor: W, due: cd, total: 11200, lines: [{ account: '8231', taxCode: '246', amount: 10000 }] })).status, 400, '未登録の区分 6 は不正');
