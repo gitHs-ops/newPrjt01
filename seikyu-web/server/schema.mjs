@@ -151,6 +151,8 @@ export async function prepare(pool, env = process.env) {
   await pool.query('ALTER TABLE app_jv_alloc ALTER COLUMN alloc_key TYPE varchar(200)');
   // 配合計算の結果（材料受払表の計算結果。処理年月×締日ごと、result＝JSON）。配合計算の実行で保存し、材料受払表はこれを出力する（D-072。2026-11-12）
   await pool.query(`CREATE TABLE IF NOT EXISTS app_mix_result (month varchar(7) COLLATE "C" NOT NULL, closing varchar(2) COLLATE "C" NOT NULL, result text NOT NULL, run_by varchar(256) COLLATE "C" NOT NULL, run_at timestamp(6) NOT NULL, PRIMARY KEY (month, closing))`); // 現金売上のキーに現場名が入る（2026-11-04 N-39。40 では長い現場名で登録できない）
+  // 売掛金計上の実行済みの印（計上年月ごと。締日は毎月20日固定。2026-11-17）。一度でも実行すれば売掛金計上自動仕訳リスト（Excel）を出せる
+  await pool.query(`CREATE TABLE IF NOT EXISTS app_ar_post_run (month varchar(7) COLLATE "C" PRIMARY KEY, run_by varchar(256) COLLATE "C" NOT NULL, run_at varchar(16) COLLATE "C" NOT NULL, slips integer NOT NULL, total bigint NOT NULL)`);
   // JV 構成員・出資比率の履歴（2026-11-02。11/01 決定：適用開始日を持たせ、帳票は月度時点の比率で配分）。start_month＝適用開始の月度 YYYY-MM（''＝最初から）、ratio＝出資比率×100
   // 旧 code_m 'JV'（1 件 1 値）は表を作るときに一度だけ「最初から」の行として写す（code_m の行は消さない）
   if (!(await rows(pool, "SELECT to_regclass('app_jv_member') t"))[0].t) {

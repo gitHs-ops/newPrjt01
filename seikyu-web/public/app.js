@@ -19,7 +19,8 @@ const canWrite = () => [1, 2, 3, 4].includes(session?.user.role), isAdmin = () =
 //  lazy … メニュー・小メニューで開いたとき。読込済みの結果（apiCache）を使い、無ければサーバーに「空の画面」（X-Empty-View：DB を読まず0件）を頼む
 //  fresh … DB から読み、結果を apiCache に入れる。登録・更新（GET 以外）の後はキャッシュを捨て、次の描画で読み直す
 // 利用者管理（/api/users）・操作履歴（/api/audit）はメニューで開いたときから一覧を表示する（2026-11-07 ユーザー指示）
-const apiCache = new Map(), LAZY_FETCH = /^\/api\/(business-date|petty\/settings|tax-settings|kb\/meta|kb\/bugyo|coverage|periods|users|audit)(\?|$)/;
+// 売掛金計上（/api/ar-post）は次の締日・実行済みの印を出すため、メニューで開いたときから読む（2026-11-17）
+const apiCache = new Map(), LAZY_FETCH = /^\/api\/(business-date|ar-post|petty\/settings|tax-settings|kb\/meta|kb\/bugyo|coverage|periods|users|audit)(\?|$)/;
 let apiMode = null, apiDirty = false, emptyShown = false;
 const fetchJson = async (url, opt) => {
   const res = await fetch(url, { cache: 'no-store', ...opt });
@@ -222,9 +223,9 @@ new MutationObserver(ms => { for (const m of ms) for (const n of m.addedNodes) i
 // 小メニュー（サイドバー）：#画面/小メニュー で直接開ける。q＝従来のタブ等の条件、tools＝上部の検索・登録ボタンを出すか（既定は先頭と q 付きのみ）
 const SUBMENUS = {
   // 出荷予定・納品書発行は機能一覧の範囲外（推定実装）のため小メニューを無効表示（納品書発行は 2026-10-24）（2026-10-23、要否は大西さんに確認。画面・API は残す）
-  // 売掛金計上は 2026-11-16 に先頭へ追加（ユーザー指示：出荷伝票一覧と同じ画面を開く。2026-11-17 名称を 売上計上 → 売掛金計上 に訂正）
-  shipments: [{ k: 'sales', l: '売掛金計上', tools: true }, { k: 'slips', l: '出荷伝票一覧', tools: true }, // 10/27 打合せ：画面の題名を「出荷伝票一覧」に
-    { k: 'plans', l: '出荷予定', q: { tab: 'plans' }, disabled: true }, { k: 'notes', l: '納品書発行', disabled: true }, { k: 'reports', l: '出荷・売上帳票' }],
+  // 売掛金計上は 2026-11-16 に先頭へ追加（2026-11-17 名称を 売上計上 → 売掛金計上 に訂正。同日、出荷伝票一覧と同じ画面 → 専用画面：締日20日固定・実行・自動仕訳リスト Excel）
+  shipments: [{ k: 'sales', l: '売掛金計上', tools: false }, { k: 'slips', l: '出荷伝票一覧', tools: true }, // 10/27 打合せ：画面の題名を「出荷伝票一覧」に
+    /* 出荷予定・納品書発行・出荷・売上帳票は 2026-11-17 にメニューから削除（ユーザー指示。画面の部品・API は残す） */],
   // 発行前確認一覧は 2026-10-25 非表示 → 2026-10-27 再表示（確認事項 F）→ 2026-10-27 再び非表示（画面・API は残す）
   // 請求書発行は 2026-10-27 に請求一覧照会から分けた（10/26 打合せ・提案書 P13。照会は確認と発行確認表の出力だけ）
   invoices: [{ k: 'precheck', l: '発行前確認一覧', q: { view: 'precheck' }, hidden: true }, { k: 'create', l: '請求データ作成', tools: false }, { k: 'list', l: '請求一覧照会', tools: true }, { k: 'issue', l: '請求書発行', q: { view: 'issue' } }, { k: 'reports', l: '請求帳票' }, { k: 'balance', l: '得意先別残高照会', q: { view: 'balance' } }, { k: 'ledger', l: '請求残高照会', q: { view: 'ledger' } }],
@@ -420,11 +421,24 @@ const shipSiteOptions = (customer, rows = null) => { if (rows) shipNames = rows;
   const names = [...new Set(shipNames.filter(r => !customer || r.customer === customer).map(r => r.siteName).filter(Boolean))].map(n => [n, '']);
   return [...sites, ...names].map(([v, l]) => `<option value="${esc(v)}">${esc(l)}</option>`).join(''); };
 document.addEventListener('change', e => { if (e.target.id !== 'ship-cust') return; const t = e.target.value.trim(), x = (masters.customers || []).find(r => `${r.code} ${r.name}` === t || r.code === t); $('#dl-fsite').innerHTML = shipSiteOptions(x ? x.code : ''); });
+// 売掛金計上（2026-11-17 ユーザー指示）：締日は毎月20日固定（前月21日〜当月20日）。次に実行する締日だけを出し、［実行］（会計連携）は元に戻せない。
+// 実行すると次は翌月20日を出す（11/20 → 12/20）。売掛金計上自動仕訳リスト（Excel）は一度も実行していなければ押せない。実行後は最後に実行した締日を出力する
+async function arPostView() {
+  const A = actions, d = await api('/api/ar-post'), nx = d.next, last = d.last; // actions は await の前に受け取る
+  A.arRun = () => confirmBox('売掛金計上（会計連携）', `締日 ${nx.to}（${nx.from} 〜 ${nx.to}）の売掛金計上を実行します。実行すると元に戻せません。次回は翌月20日の締日になります。`, () => post('/api/ar-post/run', { month: nx.month }).then(r => { toast(`締日 ${r.last.to} の売掛金計上を実行しました（${r.last.slips}伝票・${yen(r.last.total)}円）`); render({ fresh: true }); }), '実行する');
+  A.arXlsx = () => last && saveXlsx('/api/reports/journal-list?' + qs({ pattern: 'A01', from: last.to, to: last.to, format: 'xlsx' })).then(() => toast(`売掛金計上自動仕訳リスト（締日 ${last.to}）を Excel で出力しました`)).catch(e => toast(e.message, true));
+  return page('出荷・売上', '', '', `<section class="card glass" data-sub="sales"><div class="card-head"><h2>売掛金計上</h2></div>
+    <div class="filters"><label class="field">締日<input value="${esc(nx.to)}" readonly tabindex="-1" style="width:130px"></label><label class="field">対象期間<input value="${esc(nx.from)} 〜 ${esc(nx.to)}" readonly tabindex="-1" style="width:220px"></label>
+      ${canWrite() ? '<button class="primary" data-act="arRun">実行</button>' : ''}<button data-act="arXlsx" ${last ? '' : 'disabled title="一度実行すると出力できます"'}>⇩ 売掛金計上自動仕訳リスト（Excel）</button></div>
+    <p class="small muted" style="margin-top:8px">締日は毎月20日に固定です。［実行］（会計連携）すると元に戻せず、次回は翌月20日の締日になります。</p>
+    <p class="small ${last ? '' : 'muted'}" id="ar-status">${last ? `前回の実行：締日 ${esc(last.to)}　${esc(last.at)}（${esc(last.by)}）　${last.slips}伝票・合計 ${yen(last.total)} 円` : '未実行'}</p></section>`);
+}
 VIEWS.shipments = async q => {
   const A = actions;
   A.shipTab = d => go('shipments', d.tab === 'plans' ? { tab: 'plans' } : {});
   A.notes = () => deliveryNoteDialog(); A.notesIssue = () => issueDeliveryNotes({ date: $('#dn-date').value }).catch(e => toast(e.message, true));
   if (q.tab === 'plans' && SUBMENUS.shipments.some(x => x.k === 'plans' && !x.disabled)) return planView(q);
+  if (route.sub === 'sales') return arPostView();
   // 10/23 打合せ：売上日 From〜To・得意先・現場で伝票を特定。既定は当月
   // 既定の期間は締日を毎月20日に固定：前月21日〜当月20日（2026-11-17 ユーザー指示）
   const month = q.month || thisMonth(), from = q.from || `${addMonths(month, -1)}-21`, to = q.to || `${month}-20`, kind = SHIP_KINDS[q.kind] ? q.kind : '', list = await api('/api/shipments?' + qs({ from, to, customer: q.customer, site: q.site, ...(SHIP_KINDS[kind]?.q || {}) }));
@@ -456,7 +470,7 @@ VIEWS.shipments = async q => {
   return page('出荷・売上', '出荷伝票（shipment_slip）と売上（sales_trn）を同時に登録します。請求済みの伝票は「赤黒訂正」で、元伝票のマイナス（赤）と訂正後（黒）を起票します（NO11、10/14 打合せ）。',
     `<input type="date" name="from" value="${esc(from)}" data-filter title="売上日（から）"><span>〜</span><input type="date" name="to" value="${esc(to)}" data-filter title="売上日（まで）">${comboFilter('customer', 'customers', q.customer || '', '得意先（コード・名称）', 'ship-cust')}<input name="site" list="dl-fsite" value="${esc(q.site || '')}" placeholder="現場（コード・名称）" title="現場（コード・名称）" autocomplete="off" data-filter style="width:200px"><datalist id="dl-fsite">${shipSiteOptions(q.customer, list)}</datalist><select name="kind" data-filter title="決済方法">${options(Object.entries(SHIP_KINDS).map(([code, x]) => ({ code, name: x.name })), kind, { blank: 'すべて', label: r => r.name })}</select>
      ${canWrite() ? '<button class="primary" data-act="new">＋ 出荷登録</button>' : ''}`,
-    `<section class="card glass" data-sub="slips sales">${table([{ label: '売上No', value: r => r.slipNo || r.orderNo } /* 赤黒は「元伝票No－枝番」だけ（内部の売上Noは出さない。指摘 No.6） */, { label: '出荷日', value: r => r.date }, { label: '得意先', value: r => r.customerName }, { label: '現場', value: r => r.siteName }, { label: '商品', value: r => r.itemName },
+    `<section class="card glass" data-sub="slips">${table([{ label: '売上No', value: r => r.slipNo || r.orderNo } /* 赤黒は「元伝票No－枝番」だけ（内部の売上Noは出さない。指摘 No.6） */, { label: '出荷日', value: r => r.date }, { label: '得意先', value: r => r.customerName }, { label: '現場', value: r => r.siteName }, { label: '商品', value: r => r.itemName },
       { label: '数量', num: 1, html: r => `${r.quantity < 0 ? `<span class="check-ng">${r.quantity}</span>` : r.quantity} ${esc(r.unit)}${r.cumulativeCount ? `<br><span class="small muted" title="同日・同現場・同商品・同納入区分の累計">累計 ${r.cumulativeQty}／${r.cumulativeCount}台</span>` : ''}` },
       { label: '担当・納入', html: r => `<span class="small">${esc(r.operatorName || r.operator)}<br>${esc(r.deliveryKbnName)}</span>` },
       { label: '単価', num: 1, value: r => yen(r.price) }, { label: '運賃', num: 1, value: r => (r.freight ? yen(r.freight) : '') }, { label: '金額', num: 1, value: r => yen(r.net) }, { label: '税', num: 1, value: r => `${r.taxRate}%` },

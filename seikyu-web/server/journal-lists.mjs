@@ -1,7 +1,8 @@
 // ② 自動仕訳リスト（帳票一覧⑥⑦⑨・9/17資料ア〜エ）。現行 HAR363/HAR413/HAR152/HAR733/CS5785 と同じ「借方・貸方を1行に併記」形式。
 // 削減案5により全リストを同一フォーマットで出力する。エ（銀行別随時支払一覧表）のみ別形式。
-import { check, isoDate, fromNum, today } from './domain.mjs';
-import { rows, invoiceNos } from './db.mjs';
+import { check, isoDate, isoMonth, fromNum, today, addMonths } from './domain.mjs';
+import { businessDate } from './sales.mjs';
+import { rows, one, audit, invoiceNos } from './db.mjs';
 import { xlsx, band } from './xlsx.mjs';
 import { normalize } from './taxcode.mjs';
 // 処税率は 3 桁で出す（自動仕訳の「9」は対象外 090。2026-11-12 結合テスト IT-05）
@@ -127,6 +128,24 @@ export async function journalList(c, q) {
   }
   const dates = [...new Set(slips.map(s => s.date))].map(date => ({ date, total: slips.filter(s => s.date === date).reduce((n, s) => n + s.total, 0) }));
   return { pattern: q.pattern, ...def, from, to, slips, dates, total: slips.reduce((n, s) => n + s.total, 0) };
+}
+
+// 売掛金計上（2026-11-17 ユーザー指示）：締日は毎月20日に固定（前月21日〜当月20日）。画面は「次に実行する締日」だけを出し、［実行］（会計連携）すると
+// 実行済みの印を残して元に戻せない。次は翌月20日を出す（11/20 を実行 → 12/20）。最初は業務日付以前で直近の20日（業務日付 11/17 → 10/20、11/20 → 11/20）。
+// 一度でも実行していれば、最後に実行した締日の「売掛金計上自動仕訳リスト（Excel）」を出せる。A01 の仕訳は従来どおり請求データ作成で起票する（ここでは起票しない）
+const arRange = month => { const [y, m] = month.split('-').map(Number); return { month, from: new Date(Date.UTC(y, m - 2, 21)).toISOString().slice(0, 10), to: `${month}-20` }; };
+export async function arPostStatus(c) {
+  const last = await one(c, 'SELECT month, run_by, run_at, slips, total FROM app_ar_post_run ORDER BY month DESC LIMIT 1');
+  const bd = isoDate(String(await businessDate(c)).slice(0, 10)), next = last ? addMonths(last.month, 1) : Number(bd.slice(8)) >= 20 ? bd.slice(0, 7) : addMonths(bd.slice(0, 7), -1);
+  return { closing: 20, next: arRange(next), last: last ? { ...arRange(last.month), by: last.run_by, at: last.run_at, slips: Number(last.slips), total: Number(last.total) } : null };
+}
+export async function runArPost(c, ctx, b) {
+  const st = await arPostStatus(c), { month, to } = st.next;
+  check(b?.month === month, `次に実行する締日は ${to} です。画面を開き直してください`); // 二重実行・古い画面からの実行を止める
+  const d = await journalList(c, { pattern: 'A01', from: to, to }), at = new Date(Date.now() + 9 * 3600e3).toISOString().slice(0, 16).replace('T', ' ');
+  await c.query('INSERT INTO app_ar_post_run (month,run_by,run_at,slips,total) VALUES (?,?,?,?,?)', [month, ctx.user.login_id, at, d.slips.length, d.total]);
+  await audit(c, ctx, 'app_ar_post_run', month, 'arpost.run', { closing: to, slips: d.slips.length, total: d.total });
+  return arPostStatus(c);
 }
 
 export async function bankPaymentList(c, q) {
