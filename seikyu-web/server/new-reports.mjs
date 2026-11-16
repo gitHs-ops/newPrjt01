@@ -37,7 +37,7 @@ export async function purchaseRegister(c, q) {
   for (const g of groups) delete g.last;
   return { title: '商品仕入登録リスト', ref: '帳票⑭（HAR011）', from, to, sub: `仕入日 ${from} 〜 ${to}`,
     // 項目名は現行の見本（HAR011・添付帳票⑭ p.1-2）どおり（2026-10-29）。単位は仕入数量の右で見出しなし。科目ｺｰﾄﾞ・内訳名は見本でも空欄。摘要は見本にないので出さない
-    columns: [{ key: 'date', label: '仕入日', w: 11 }, { key: 'kind', label: '区分', w: 8 }, { key: 'no', label: '伝票No.', w: 15 }, { key: 'item', label: '商品名', w: 30 }, { key: 'qty', label: '仕入数量', num: 1, w: 11 }, { key: 'unit', label: '', w: 4 },
+    columns: [{ key: 'date', label: '仕入日', w: 11 }, { key: 'kind', label: '区分', w: 8 }, { key: 'no', label: '伝票No.', w: 15 }, { key: 'item', label: '商品名', w: 30 }, { key: 'qty', label: '仕入数量', num: 1, dec: 1, w: 11 }, { key: 'unit', label: '', w: 4 },
       { key: 'price', label: '仕入単価', num: 1, dec: 1, w: 11 }, { key: 'net', label: '仕入金額', num: 1, w: 13 }, { key: 'account', label: '科目ｺｰﾄﾞ', w: 9 }, { key: 'subName', label: '内訳名', w: 14 }, { key: 'tax', label: '処税率', w: 30 }],
     groups };
 }
@@ -50,7 +50,7 @@ export async function inventoryRegister(c, q) {
   const list = [...rs.filter(r => r.item_product_kb === '2'), ...rs.filter(r => r.item_product_kb !== '2')];
   const groups = list.length ? [{ rows: list.map(r => ({ code: r.item_cd, name: r.item_nam || '', qty: num(r.quantity), unit: r.unit || '' })) }] : [];
   return { title: '在庫登録リスト', ref: '帳票⑰（HAR061）', month, sub: `${month} 月度（${monthEnd(month)} 現在）${no ? '　伝票No ' + no : ''}`,
-    columns: [{ key: 'code', label: 'コード' }, { key: 'name', label: '商品・製品名' }, { key: 'qty', label: '在庫数量', num: 1 }, { key: 'unit', label: '単位' }],
+    columns: [{ key: 'code', label: 'コード' }, { key: 'name', label: '商品・製品名' }, { key: 'qty', label: '在庫数量', num: 1, dec: 1 }, { key: 'unit', label: '単位' }],
     groups }; // 総合計も出さない（2026-11-03）
 }
 // 振込先一覧（10/19 打合せ）：支払予定日が基準日までの未払がある業者を、業者マスタの振込サイクル・振込元口座・振込先口座とともに一覧
