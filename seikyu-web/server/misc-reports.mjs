@@ -9,6 +9,8 @@ import { jvAsOf } from './masters.mjs';
 
 const num = v => Number(v || 0);
 const H = v => ({ v, s: 'bold' }), S = v => ({ v, s: 'sum' }), T = v => ({ v, s: 'title' });
+// 数量：小数 2 桁の書式（整数の書式だと 12.5t が 13 と表示される。2026-11-16）
+const Q2 = v => (typeof v === 'number' ? { v, s: 'qty' } : v);
 const range = q => { const from = isoDate(q.from, '開始日'), to = isoDate(q.to, '終了日'); check(from <= to, '期間が不正です'); return { from, to }; };
 const monthEnd = m => new Date(Date.UTC(+m.slice(0, 4), +m.slice(5, 7), 0)).toISOString().slice(0, 10);
 const r2 = v => Math.round(v * 100) / 100;
@@ -318,7 +320,7 @@ export async function miscBook(c, kind, q) {
     d.sections.forEach((sc, k) => {
       if (sc.other) out.push([], [T(`${d.title}${sc.title}`)]);
       out.push(['', '商品名・製品名', '', '数量', '', '金額'].map(H));
-      for (const g of sc.groups) { g.items.forEach((x, i) => out.push([i ? '' : g.label, x.item, x.name, x.qty, x.unit, x.net])); out.push(['', '', S(`【${g.label}計】`), '', '', S(g.net)], []); }
+      for (const g of sc.groups) { g.items.forEach((x, i) => out.push([i ? '' : g.label, x.item, x.name, Q2(x.qty), x.unit, x.net])); out.push(['', '', S(`【${g.label}計】`), '', '', S(g.net)], []); }
       out.push(['', '', S('【合　計】'), '', '', S(sc.net)]);
       if (k === d.sections.length - 1 && sc.other) out.push([], ['', '', S('【総合計】'), '', '', S(d.total)]);
     });
@@ -329,15 +331,15 @@ export async function miscBook(c, kind, q) {
     d.sections.forEach(sc => {
       if (sc.other) out.push([], [T(`${d.title}　${sc.title}`)]);
       out.push(['得意先', '', '品名', '', '単位', '累計数量', '累計金額'].map(H));
-      for (const cu of sc.customers) { cu.items.forEach((x, i) => out.push([i ? '' : cu.customer, i ? '' : cu.name, x.item, x.name, x.unit, x.qty, x.net])); out.push(['', '', '', S('得意先計'), '', S(cu.qty), S(cu.net)], []); }
-      out.push(['', '', '', S('総合計'), '', S(sc.qty), S(sc.net)], ['', '', '', S('値引'), '', S(sc.discount.qty), S(sc.discount.net)]);
+      for (const cu of sc.customers) { cu.items.forEach((x, i) => out.push([i ? '' : cu.customer, i ? '' : cu.name, x.item, x.name, x.unit, Q2(x.qty), x.net])); out.push(['', '', '', S('得意先計'), '', Q2(cu.qty), S(cu.net)], []); }
+      out.push(['', '', '', S('総合計'), '', Q2(sc.qty), S(sc.net)], ['', '', '', S('値引'), '', Q2(sc.discount.qty), S(sc.discount.net)]);
     });
     return { name: `得意先別商品別出荷累計表_${d.from}_${d.to}.xlsx`, body: xlsx([{ name: '出荷累計表', rows: out, widths: [9, 24, 8, 24, 6, 12, 14] }]) };
   }
   if (kind === 'cash-sales') {
     const d = await cashSales(c, q), out = head(d, `期間 ${d.from} 〜 ${d.to}`);
     out.push(['得意先', '', '', '売上日', '伝票No', '商品名', '', '数量', '', '単価', '金額', '処税率', '運送', '備考'].map(H));
-    for (const cu of d.customers) { cu.rows.forEach((r, i) => out.push([i ? '' : cu.customer, i ? '' : cu.name, r.site, r.date, r.no, r.item, r.itemName, r.qty, r.unit, r.price, r.net, r.tax, r.carry, r.remarks])); out.push(['', '', '', '', '', '', S('*** 得意先計 ***'), '', '', '', S(cu.net)]); }
+    for (const cu of d.customers) { cu.rows.forEach((r, i) => out.push([i ? '' : cu.customer, i ? '' : cu.name, r.site, r.date, r.no, r.item, r.itemName, Q2(r.qty), r.unit, r.price, r.net, r.tax, r.carry, r.remarks])); out.push(['', '', '', '', '', '', S('*** 得意先計 ***'), '', '', '', S(cu.net)]); }
     return { name: `現金売上明細表_${d.from}_${d.to}.xlsx`, body: xlsx([{ name: '現金売上明細表', rows: out, widths: [8, 18, 20, 11, 12, 7, 22, 9, 4, 10, 12, 7, 8, 20] }]) };
   }
   if (kind === 'material-ledger') {

@@ -204,7 +204,7 @@ export async function extraBook(c, kind, q) {
   if (kind === 'sales-register') {
     const d = await salesRegister(c, q), out = head(d, `期間 ${d.from} 〜 ${d.to}`);
     out.push(['売上日', '区分', '伝票No', '商品名', '', '数量', '', '売上単価', '売上金額', '処税率', '運送区分', '運賃', '現場', '', '在庫品コード'].map(H));
-    for (const cu of d.customers) { out.push(band(SALES_REG_W, [`${cu.customer} ${cu.name || ''}`])); for (const r of cu.rows) out.push([r.showDate ? r.date : '', r.showKind ? r.kind : '', r.no, r.item, r.itemName, r.qty, r.unit, r.price, r.net, r.tax, r.carry, r.freight, r.site, r.site2, r.stock]); }
+    for (const cu of d.customers) { out.push(band(SALES_REG_W, [`${cu.customer} ${cu.name || ''}`])); for (const r of cu.rows) out.push([r.showDate ? r.date : '', r.showKind ? r.kind : '', r.no, r.item, r.itemName, { v: r.qty, s: 'qty' }, r.unit, r.price, r.net, r.tax, r.carry, r.freight, r.site, r.site2, r.stock]); }   // 数量は小数 2 桁（整数の書式だと 12.5t が 13 と表示される。2026-11-16）
     return { name: `商品売上登録リスト_${d.from}_${d.to}.xlsx`, body: xlsx([{ name: '商品売上登録リスト', rows: out, widths: SALES_REG_W }]) };
   }
   if (kind === 'receipt-schedule') {
