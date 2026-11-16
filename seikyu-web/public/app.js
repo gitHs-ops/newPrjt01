@@ -761,7 +761,7 @@ VIEWS.invoices = async q => {
   // 請求一覧照会（10/23 打合せ：提案書 P11＋現場名）：行は 得意先×現場。発行状況は表示だけ（発行・一括ダウンロードは請求書発行。10/26 打合せ）
   const lines = invoiceLines(list);
   const sum = k => lines.reduce((n, r) => n + r[k], 0);
-  const closeSel = id => `<select id="${id}">${closings.map(c => `<option value="${c}">${closingName(c)}</option>`).join('')}</select>`;
+  const closeSel = id => `<select id="${id}">${closings.map(c => `<option value="${c}"${String(c) === '20' ? ' selected' : ''}>${closingName(c)}</option>`).join('')}</select>`; // 締日の既定は20日（2026-11-17 ユーザー指示）
   return page('請求締め・発行', '得意先単位・締日ごとの請求を、得意先×現場の行で照会します。請求書の発行は「請求書発行」で行います。',
     `${invoiceSearch({ ...q, month })}<button data-act="listBook" title="検索条件（請求年月・締日）の請求一覧表（現行 HAR431）を Excel で出力">請求一覧表出力</button><button data-act="confirmBook" title="検索条件（請求年月・締日・得意先）の請求書発行確認表（未発行を含む）">請求書発行確認表出力</button>`,
     `<div>${canWrite() ? `<section class="card glass" data-sub="create"><div class="card-head"><h2>請求データ作成</h2></div>
