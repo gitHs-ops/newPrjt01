@@ -433,6 +433,7 @@ async function arPostView() {
     <p class="small muted" style="margin-top:8px">締日は毎月20日に固定です。［実行］は何度でもできます（漏れた伝票があれば押し直してください）。仕訳・会計連携 → 会計連携データ を作成すると元に戻せず、次回は翌月20日の締日になります。</p>
     <p class="small ${run ? '' : 'muted'}" id="ar-status">${run ? `実行：${esc(run.at)}（${esc(run.by)}）　${run.slips}伝票・合計 ${yen(run.total)} 円` : '未実行'}${d.linked ? `　／　会計連携済み：締日 ${esc(d.linked.to)} まで` : ''}</p></section>`);
 }
+let shipSort = { k: 'date', dir: -1 }; // 出荷伝票一覧の並び（既定はサーバーの並び：出荷日の新しい順）
 VIEWS.shipments = async q => {
   const A = actions;
   A.shipTab = d => go('shipments', d.tab === 'plans' ? { tab: 'plans' } : {});
@@ -458,7 +459,12 @@ VIEWS.shipments = async q => {
   const linked = r => r.shipKb === 5 && root(r) !== String(r.orderNo) && has.has(root(r)), kids = new Map();
   for (const r of list) if (linked(r)) { if (!kids.has(root(r))) kids.set(root(r), []); kids.get(root(r)).push(r); }
   const tree = r => [r, ...(kids.get(String(r.orderNo)) || []).sort((a, b) => String(a.slipNo).localeCompare(String(b.slipNo), 'ja', { numeric: true })).flatMap(tree)];
-  const shown = list.filter(r => !linked(r)).flatMap(tree);
+  // 並べ替えボタン（売上No・出荷日・得意先。2026-11-17 ユーザー指示）：同じボタンをもう一度押すと昇順／降順を切り替える。赤黒は元伝票の下のまま。DB は読み直さない
+  const noKey = r => String(r.slipNo || r.orderNo).split('-')[0], byNo = (a, b) => noKey(a).localeCompare(noKey(b), 'ja', { numeric: true }), byDate = (a, b) => String(a.date).localeCompare(String(b.date)) || byNo(a, b);
+  const SORTS = { no: byNo, date: byDate, cust: (a, b) => String(a.customer).localeCompare(String(b.customer), 'ja', { numeric: true }) || byDate(a, b) };
+  A.shipSort = d => { shipSort = shipSort.k === d.k ? { k: d.k, dir: -shipSort.dir } : { k: d.k, dir: 1 }; render(); };
+  const shown = list.filter(r => !linked(r)).sort((a, b) => SORTS[shipSort.k](a, b) * shipSort.dir).flatMap(tree);
+  const sortBar = `<div class="sort-bar small" style="display:flex;gap:6px;align-items:center;margin-bottom:8px"><span class="muted">並べ替え</span>${[['no', '売上No'], ['date', '出荷日'], ['cust', '得意先']].map(([k, l]) => `<button type="button" class="mini${shipSort.k === k ? ' primary' : ''}" data-act="shipSort" data-k="${k}">${l}${shipSort.k === k ? (shipSort.dir > 0 ? ' ▲' : ' ▼') : ''}</button>`).join('')}</div>`;
   const net = shown.reduce((n, r) => n + r.net, 0), tax = shown.reduce((n, r) => n + r.tax, 0);
   const acts = r => {
     const b = [`<button class="mini" data-act="detail" data-id="${esc(r.orderNo)}">詳細</button>`];
@@ -470,7 +476,7 @@ VIEWS.shipments = async q => {
   return page('出荷・売上', '出荷伝票（shipment_slip）と売上（sales_trn）を同時に登録します。請求済みの伝票は「赤黒訂正」で、元伝票のマイナス（赤）と訂正後（黒）を起票します（NO11、10/14 打合せ）。',
     `<input type="date" name="from" value="${esc(from)}" data-filter title="売上日（から）"><span>〜</span><input type="date" name="to" value="${esc(to)}" data-filter title="売上日（まで）">${comboFilter('customer', 'customers', q.customer || '', '得意先（コード・名称）', 'ship-cust')}<input name="site" list="dl-fsite" value="${esc(q.site || '')}" placeholder="現場（コード・名称）" title="現場（コード・名称）" autocomplete="off" data-filter style="width:200px"><datalist id="dl-fsite">${shipSiteOptions(q.customer, list)}</datalist><select name="kind" data-filter title="決済方法">${options(Object.entries(SHIP_KINDS).map(([code, x]) => ({ code, name: x.name })), kind, { blank: 'すべて', label: r => r.name })}</select>
      ${canWrite() ? '<button class="primary" data-act="new">＋ 出荷登録</button>' : ''}`,
-    `<section class="card glass" data-sub="slips">${table([{ label: '売上No', value: r => r.slipNo || r.orderNo } /* 赤黒は「元伝票No－枝番」だけ（内部の売上Noは出さない。指摘 No.6） */, { label: '出荷日', value: r => r.date }, { label: '得意先', value: r => r.customerName }, { label: '現場', value: r => r.siteName }, { label: '商品', value: r => r.itemName },
+    `<section class="card glass" data-sub="slips">${sortBar}${table([{ label: '売上No', value: r => r.slipNo || r.orderNo } /* 赤黒は「元伝票No－枝番」だけ（内部の売上Noは出さない。指摘 No.6） */, { label: '出荷日', value: r => r.date }, { label: '得意先', value: r => r.customerName }, { label: '現場', value: r => r.siteName }, { label: '商品', value: r => r.itemName },
       { label: '数量', num: 1, html: r => `${r.quantity < 0 ? `<span class="check-ng">${r.quantity}</span>` : r.quantity} ${esc(r.unit)}${r.cumulativeCount ? `<br><span class="small muted" title="同日・同現場・同商品・同納入区分の累計">累計 ${r.cumulativeQty}／${r.cumulativeCount}台</span>` : ''}` },
       { label: '担当・納入', html: r => `<span class="small">${esc(r.operatorName || r.operator)}<br>${esc(r.deliveryKbnName)}</span>` },
       { label: '単価', num: 1, value: r => yen(r.price) }, { label: '運賃', num: 1, value: r => (r.freight ? yen(r.freight) : '') }, { label: '金額', num: 1, value: r => yen(r.net) }, { label: '税', num: 1, value: r => `${r.taxRate}%` },
