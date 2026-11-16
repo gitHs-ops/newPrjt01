@@ -13,6 +13,8 @@ const addMonths = (m, n) => { const [y, mo] = m.split('-').map(Number); return n
 const uuid = () => (crypto.randomUUID ? crypto.randomUUID() : Date.now() + '-' + Math.random().toString(16).slice(2));
 let session, meta, masters = {}, actions = {}, route = { name: 'dashboard', q: {} }, renderSeq = 0;
 const canWrite = () => [1, 2, 3, 4].includes(session?.user.role), isAdmin = () => session?.user.role === 1;
+// user01 でログインしたときは出荷伝票一覧の［＋ 出荷登録］を出さない（2026-11-17 ユーザー指示。ほかの権限は reviewer と同じ）
+const hideShipEntry = () => session?.user.loginId === 'user01';
 
 // ---------- API ----------
 // DB の読込は検索系のボタン（検索・タブ切替など）と登録・更新の後だけ（2026-10-23）。画面の描画中の GET は apiMode で切り替える：
@@ -475,7 +477,7 @@ VIEWS.shipments = async q => {
   };
   return page('出荷・売上', '出荷伝票（shipment_slip）と売上（sales_trn）を同時に登録します。請求済みの伝票は「赤黒訂正」で、元伝票のマイナス（赤）と訂正後（黒）を起票します（NO11、10/14 打合せ）。',
     `<input type="date" name="from" value="${esc(from)}" data-filter title="売上日（から）"><span>〜</span><input type="date" name="to" value="${esc(to)}" data-filter title="売上日（まで）">${comboFilter('customer', 'customers', q.customer || '', '得意先（コード・名称）', 'ship-cust')}<input name="site" list="dl-fsite" value="${esc(q.site || '')}" placeholder="現場（コード・名称）" title="現場（コード・名称）" autocomplete="off" data-filter style="width:200px"><datalist id="dl-fsite">${shipSiteOptions(q.customer, list)}</datalist><select name="kind" data-filter title="決済方法">${options(Object.entries(SHIP_KINDS).map(([code, x]) => ({ code, name: x.name })), kind, { blank: 'すべて', label: r => r.name })}</select>
-     ${canWrite() ? '<button class="primary" data-act="new">＋ 出荷登録</button>' : ''}`,
+     ${canWrite() && !hideShipEntry() ? '<button class="primary" data-act="new">＋ 出荷登録</button>' : ''}`,
     `<section class="card glass" data-sub="slips">${sortBar}${table([{ label: '売上No', value: r => r.slipNo || r.orderNo } /* 赤黒は「元伝票No－枝番」だけ（内部の売上Noは出さない。指摘 No.6） */, { label: '出荷日', value: r => r.date }, { label: '得意先', value: r => r.customerName }, { label: '現場', value: r => r.siteName }, { label: '商品', value: r => r.itemName },
       { label: '数量', num: 1, html: r => `${r.quantity < 0 ? `<span class="check-ng">${r.quantity}</span>` : r.quantity} ${esc(r.unit)}${r.cumulativeCount ? `<br><span class="small muted" title="同日・同現場・同商品・同納入区分の累計">累計 ${r.cumulativeQty}／${r.cumulativeCount}台</span>` : ''}` },
       { label: '担当・納入', html: r => `<span class="small">${esc(r.operatorName || r.operator)}<br>${esc(r.deliveryKbnName)}</span>` },
