@@ -354,7 +354,7 @@ export async function miscBook(c, kind, q) {
     ];
     const parts = x => [x.opening, x.prev, x.purchase, x.used, x.end];
     for (const x of d.items.filter(x => parts(x).some(o => o && (o.qty || o.value)))) out.push([x.item, x.name, ...parts(x).flatMap(o => [Q(o?.qty), A(o?.value)]), { v: x.price || '', s: 'price1' }]);
-    const t = d.totals; out.push(['【合計】', '', Q(t.openingQty), A(t.opening), Q(t.prevQty), A(t.prev), Q(t.purchaseQty), A(t.purchase), Q(t.usedQty), A(t.used), Q(t.endQty), A(t.end)]);
+    const t = d.totals; out.push([{ v: '【合計】', s: 'sumBox' }, { v: '', s: 'sumBox' }, Q(t.openingQty), A(t.opening), Q(t.prevQty), A(t.prev), Q(t.purchaseQty), A(t.purchase), Q(t.usedQty), A(t.used), Q(t.endQty), A(t.end)]);
     const merges = ['A2:D2', 'E2:I2', 'C4:D4', 'E4:F4', 'G4:H4', 'I4:J4', 'K4:L4'];
     // 行の高さは一覧の様式（帳票イメージ_20261108）にそろえる（2026-11-17。以前は 18／24 の固定）
     return { name: `材料受払表_${d.month}.xlsx`, body: xlsx([{ name: '材料受払表', rows: out, merges, gridlines: false, printTitles: '4:5', header: '&RPAGE: &P', widths: [8, 24, 14, 13, 14, 13, 14, 13, 14, 13, 14, 13, 13] }]) };
