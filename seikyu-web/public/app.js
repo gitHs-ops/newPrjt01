@@ -1385,15 +1385,17 @@ function lrStep3() {
       <tbody id="lr-rows">${lrRows()}</tbody>
       <tfoot id="lr-foot">${lrPayFoot()}</tfoot></table></div>
     <p id="lr-addpay">${lrAddPayBtn()}</p>
-    ${canWrite() ? '' : '<p class="check-ng small">この利用者は登録できません</p>'}${lrKeys(canWrite() ? [['lrNext', lr.editId ? '更新' : '登録', 1]] : [])}</div>`;
+    ${canWrite() ? '' : '<p class="check-ng small">この利用者は登録できません</p>'}</div>`;   /* ［登録］［更新］はフッター（閉じるの前）。lrOpenPop */
 }
 const lrEditNote = () => (lr.editId ? `<p class="small lr-editnote">入金No <b>${esc(lr.editNo)}</b> を修正します。［更新］で元の入金を取り消し（逆仕訳）、この内容で登録し直します（入金No は新しい番号になります）。</p>` : '');
 const lrBodyHtml = () => lrEditNote() + lrStep1() + tekiyoList();
 const lrPopHtml = () => lrRange() + lrStep3();
 const lrDraw = () => { const b = $('#lr-body'); if (!b) return; b.innerHTML = lrBodyHtml(); const p = $('#lr-pop'); if (p && lr.step === 3) p.innerHTML = lrPopHtml(); };
 // 入金予定照会のポップアップ。閉じると借方の画面に戻る（Enter で閉じないようにフォームの送信は止める）
+// ［取消］（修正のときだけ）・［更新］／［登録］は［閉じる］の前（2026-11-17 ユーザー指示）
 const lrOpenPop = () => modal({ title: '入金予定照会', wide: true, body: `<div id="lr-pop">${lrPopHtml()}</div>`, onOpen: () => {
   $('#modal-form').onsubmit = e => e.preventDefault();
+  if (canWrite()) footFirst(`${lr.editId ? '<button type="button" class="danger" data-act="lrDel">取消</button>' : ''}<button type="button" class="primary" data-act="lrNext">${lr.editId ? '更新' : '登録'}</button>`);
   $('#dialog').addEventListener('close', () => { if (lr.step === 3) { lr.step = 2; lrDraw(); } }, { once: true });
 } });
 function lrCheckLines() {
@@ -1492,7 +1494,7 @@ function lrFromReceipt(r) {
 // 入金処理：最初は入金の一覧（他の画面と同じ）。［＋ 新規登録］・［修正］で入力画面（入金日・得意先 → 借方 → 今回入金額）を開く（2026-11-09 ユーザー指示）
 async function legacyReceiptView(q = {}) {
   const A = actions;
-  A.lrNext = () => lrRun(lrNext); A.lrSearch = () => lrRun(() => { lr.step = 1; return lrNext(); }); A.lrBack = lrBack; A.lrEnd = lrEnd; A.lrFind = lrFind;
+  A.lrNext = () => lrRun(lrNext); A.lrDel = () => lr.editId && confirmBox('入金の取消', `入金No ${lr.editNo} を取消します。消込が解除され、逆仕訳を計上します。`, async () => { await post('/api/receipts/reverse', { id: Number(lr.editId) }); toast('取消しました'); lrEnd(); }, '取消する'); A.lrSearch = () => lrRun(() => { lr.step = 1; return lrNext(); }); A.lrBack = lrBack; A.lrEnd = lrEnd; A.lrFind = lrFind;
   A.lrAddPay = () => { lrManual(); if (lr.pays.length >= lrShown().length) { lrPaintRows(); return toast('ほかに入金できる請求（入金日までに締めた残高のある請求）がありません', true); } lr.pays.push({ id: '', amount: '' }); lrPaintRows(); };
   A.lrDelPay = d => { lrManual(); lr.pays.splice(Number(d.i), 1); lrPaintRows(); };
   A.lrAddLine = () => { if (lr.lines.length < LR_MAX_LINES) { lr.lines.push(lrBlank()); lrDraw(); } };
