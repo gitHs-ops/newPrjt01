@@ -686,12 +686,12 @@ async function planView(q) {
   const A = actions, bd = (await api('/api/business-date')).date, from = q.from || bd, to = q.to || from;
   const list = await api('/api/plans?' + qs({ from, to, customer: q.customer, site: q.site }));
   A.newPlan = () => planForm(null, bd);
-  A.editPlan = d => planForm(list.find(r => r.orderNo === d.id));
+  A.editPlan = d => { const r = list.find(x => x.orderNo === d.id); if (!r) return; planForm(r); if (canWrite()) footFirst(`<button type="button" class="danger" data-act="delPlan" data-id="${esc(r.orderNo)}">削除</button>`); };   // ［削除］は修正画面へ（2026-11-17 UI 統一）
   A.copyPlan = d => { const r = list.find(x => x.orderNo === d.id); planForm({ ...r, orderNo: undefined, cumulativeCount: '', cumulativeQty: '', copyOf: r.orderNo }, bd); };
   A.slipFromPlan = d => { const r = list.find(x => x.orderNo === d.id), now = new Date(Date.now() + 9 * 3600e3).toISOString().slice(11, 16);
     shipmentForm({ customer: r.customer, site: r.site, siteName1: r.siteName1, siteName2: r.siteName2, item: r.item, quantity: r.quantity, deliveryKbn: r.deliveryKbn, vehicle: r.vehicle, shipKb: r.shipKb, otherCustomer: r.otherCustomer, method: r.method, remarks: r.remarks.slice(0, 20), startTime: now, fromPlan: r.orderNo, date: bd }, bd); };
   A.delPlan = d => confirmBox('出荷予定の削除', `予定 ${d.id} を削除します（現行と同じく物理削除）。`, () => post('/api/plans/delete', { orderNo: d.id }).then(() => { toast('削除しました'); render(); }), '削除する');
-  const acts = r => `<div class="actions">${canWrite() ? `<button class="mini primary" data-act="slipFromPlan" data-id="${esc(r.orderNo)}">伝票登録</button><button class="mini" data-act="editPlan" data-id="${esc(r.orderNo)}">修正</button><button class="mini danger" data-act="delPlan" data-id="${esc(r.orderNo)}">削除</button>` : ''}</div>`;
+  const acts = r => `<div class="actions">${canWrite() ? `<button class="mini primary" data-act="slipFromPlan" data-id="${esc(r.orderNo)}">伝票登録</button><button class="mini" data-act="editPlan" data-id="${esc(r.orderNo)}">修正</button>` : ''}</div>`;
   return page('出荷・売上', '出荷予定（shipment_plan）は1台＝1行の予定伝票です。出荷伝票の「予定数量・予定時間」は、同じ出荷日・得意先・納入場所名・商品・納入区分で累計台数が同じ予定の累計数量・出発時間です。予定から伝票登録もできます。',
     `<input type="date" name="from" value="${esc(from)}" data-filter><span>〜</span><input type="date" name="to" value="${esc(to)}" data-filter>${comboFilter('customer', 'customers', q.customer || '', '得意先（コード・名称）')}<input name="site" placeholder="納入場所名" value="${esc(q.site || '')}" data-filter>${canWrite() ? '<button class="primary" data-act="newPlan">＋ 出荷予定登録</button>' : ''}`,
     `<section class="card glass">${table([{ label: '予定No', html: r => esc(r.orderNo) + (r.shipKb !== 1 ? ` <span class="small muted">${esc(meta.shipKinds[r.shipKb] || '')}</span>` : '') }, { label: '出荷日', value: r => r.date }, { label: '出発', value: r => r.startTime },
@@ -1836,9 +1836,9 @@ function expenseView(kind) {
       { label: '支払先', value: r => (r.L.vendor ? `${r.L.vendor} ${r.L.payee}` : r.L.payee || r.payee || '') }, { label: '科目・内訳', value: r => `${r.L.account} ${r.L.accountName}${r.L.sub ? `／${r.L.sub} ${r.L.subName}` : ''}` },
       { label: '処税率', value: r => taxLabel(r.L.taxCode) }, { label: '支払額', num: 1, value: r => yen(r.L.amount) }, { label: '摘要コード', value: r => r.L.memoCode }, { label: '摘要', value: r => r.L.memo },
       { label: '状態', html: r => (r.status === 'POSTED' ? badge('支払済', 'green') : status(r.status)) },   // D-065：小口現金は登録＝支払済（取消済は一覧に出さない。2026-11-12 結合テスト IT-08）
-      { label: '', html: r => canWrite() && r.status === 'POSTED' ? `<button class="mini" data-act="lineEdit" data-id="${r.id}" data-ln="${r.L.no}">修正</button> <button class="mini danger" data-act="lineDel" data-id="${r.id}" data-ln="${r.L.no}">削除</button>` : '' }];
+      { label: '', html: r => canWrite() && r.status === 'POSTED' ? `<button class="mini" data-act="lineEdit" data-id="${r.id}" data-ln="${r.L.no}">修正</button>` : '' }];
     const lineOf = d => { const R = list.find(x => x.id === Number(d.id)); return [R, R?.lines.find(l => l.no === Number(d.ln))]; };
-    A.lineEdit = d => { const [R, L] = lineOf(d); if (!L) return toast('再表示してください', true); form({ ...R, no: `${R.no}-${String(L.no).padStart(2, '0')}`, lines: [L], lineNo: L.no }, true); };
+    A.lineEdit = d => { const [R, L] = lineOf(d); if (!L) return toast('再表示してください', true); form({ ...R, no: `${R.no}-${String(L.no).padStart(2, '0')}`, lines: [L], lineNo: L.no }, true); footFirst(`<button type="button" class="danger" data-act="lineDel" data-id="${R.id}" data-ln="${L.no}">削除</button>`); };   // ［削除］は修正画面へ（2026-11-17 UI 統一）
     A.lineDel = d => { const [R, L] = lineOf(d); if (!L) return toast('再表示してください', true);
       confirmBox('行の削除', `${R.no}-${String(L.no).padStart(2, '0')}（${L.payee || ''} ${yen(L.amount)}円）を削除します。${R.lines.length === 1 ? '伝票の最後の行のため伝票ごと削除します。' : '同じ支払日の他の行はそのままです。'}自動仕訳（E01）を作り直します。`,
         () => post('/api/expenses/line', { id: R.id, line: L.no, remove: true }).then(() => { toast('削除しました'); render(); })); };
