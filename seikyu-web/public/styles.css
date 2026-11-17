@@ -583,3 +583,6 @@ dialog.modal.wide:has(#jva) { width: min(1480px, calc(100vw - 24px)); }
 
 /* 赤黒訂正：赤・黒・差額は画面の下部、ボタンの前に表示（D-019、2026-11-09） */
 .corr-sum{align-self:center;margin-right:12px;font-size:15px;white-space:nowrap}
+
+/* 入金予定一覧：合計行の下に実線（2026-11-17 内部会議） */
+.plan-list tfoot td { border-bottom: 2px solid var(--text-primary, #1e293b); }
