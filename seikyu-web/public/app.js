@@ -544,7 +544,7 @@ const siteSelectRO = (customer, code, suffix) => { const cur = code ? `${code}|$
 const slipLock = r => (!canWrite() ? '参照権限のため変更できません' : r.billed ? '請求済みのため変更できません（「赤黒訂正」で訂正）' : r.shipKb === 5 ? '訂正伝票（赤・黒）は変更できません（取消して再登録）' : r.corrected ? '赤黒訂正済みのため変更できません' : '');
 function slipInquiry(r, why = '') {
   const n2 = v => Number(v || 0).toFixed(2), [sc = '', ss = ''] = r.site.split('|');
-  modal({ title: `出荷伝票の詳細（${r.slipNo || r.orderNo}）`, wide: true, body: `${why ? `<p class="note small" style="margin-bottom:10px">照会のみ：${esc(why)}</p>` : ''}<div class="slip-sheet">
+  modal({ title: `出荷伝票の詳細（${r.slipNo || r.orderNo}）`, wide: true, body: `${'' /* 「照会のみ：…」のメッセージは 2026-11-17 ユーザー指示で削除 */}<div class="slip-sheet">
     ${SL('伝票番号', RO(esc(r.slipNo || r.orderNo)))}${SL('伝票区分', RO(esc(r.shipKbName)))}<div class="span4c sv right muted small status-cell">${r.billed ? '請求済' : '未請求'}・伝票 ${r.printed ? (r.printed >= 2 ? '再発行済' : '発行済') : '未発行'}</div>
     ${SL('出荷日', RO(esc(r.date.replaceAll('-', '/')) + (r.correctionDate ? `<span class="muted small">（訂正日 ${esc(r.correctionDate.replaceAll('-', '/'))}）</span>` : '')))}${SL('天候', RO(esc(r.weatherName)))}${SEP}
     <div class="sl">得意先</div>${CODE_NAME(RO(esc(r.customer)), RO(esc(r.customerName)))}
