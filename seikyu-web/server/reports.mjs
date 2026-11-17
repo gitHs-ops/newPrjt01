@@ -58,7 +58,7 @@ export async function billingConfirmBook(c, q) {
 export async function receiptPlanBook(c, q) {
   const d = await receiptPlan(c, q), range = `${d.from || '過去すべて'} 〜 ${d.to || '指定なし'}`, t = d.totals;
   const out = [[T('入金予定一覧')], [`入金予定月 ${range}${d.overdueOnly ? '（予定日経過・未入金のみ）' : ''}${q.customer ? `　得意先 ${q.customer}` : ''}　基準日 ${d.today}　出力日 ${today()}`], [],
-    ['得意先CD', '得意先名', '請求年月（締日）', '請求金額', 'サイト', '入金予定日', '経過日数', '入金予定金額', '入金金額', '残高', '状態'].map(H)];
+    ['得意先CD', '得意先名', '請求年月（締日）', '請求金額', '回収サイト', '入金予定日', '経過日数', '入金予定金額', '入金金額', '残高', '状態'].map(H)];
   for (const r of d.rows) out.push([r.customer, r.name, r.closing, r.total, r.site, r.due, r.days || '', r.planned, r.paid, r.balance, r.overdue ? '予定日経過・未入金' : '']);
   out.push([S('合計'), `${d.rows.length}件`, '', '', '', '', '', S(t.planned), S(t.paid), S(t.balance), t.overdueCount ? `経過 ${t.overdueCount}件` : '']);
   return { name: `入金予定一覧_${d.from || '過去'}_${d.to || '指定なし'}.xlsx`, body: xlsx([{ name: '入金予定一覧', rows: out, widths: [10, 30, 13, 13, 16, 12, 9, 14, 13, 13, 18] }]) };

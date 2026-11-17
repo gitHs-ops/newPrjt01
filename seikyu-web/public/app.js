@@ -1101,7 +1101,7 @@ VIEWS.receipts = async q => {
     return page('入金・消込', '入金予定一覧：支払期日（得意先の回収サイト）が入金予定月の範囲に入る請求。入金予定日を過ぎても未入金の請求は赤で表示します。',
       `<label class="field">入金予定月（から）<input type="month" id="rp-from" value="${esc(from)}"></label><label class="field">（まで）<input type="month" id="rp-to" value="${esc(to)}"></label><input id="rp-cust" list="dl-pcust" autocomplete="off" placeholder="得意先（部分一致）" value="${esc(q.customer || '')}" style="width:200px">${custHints()}
        <label class="small"><input type="checkbox" id="rp-over" ${overdue ? 'checked' : ''}> 予定日経過・未入金のみ</label><button class="primary" data-act="search">検索</button><button data-act="thisMonth">今月</button><button data-act="late" title="入金予定月：過去すべて〜今月">予定日経過・未入金（過去〜現在）</button><button data-act="planXlsx" title="画面の検索条件のまま出力">⇩ Excel</button>`,
-      `<section class="card glass">${summary}${sortBarOf('plan', [['cust', '得意先'], ['closing', '請求年月（締日）'], ['due', '入金予定日']])}${table([{ label: '得意先', value: r => `${r.customer} ${r.name}` }, { label: '請求年月（締日）', value: r => r.closing }, { label: '請求金額', num: 1, value: r => yen(r.total) }, { label: 'サイト', value: r => r.site },
+      `<section class="card glass">${summary}${sortBarOf('plan', [['cust', '得意先'], ['closing', '請求年月（締日）'], ['due', '入金予定日']])}${table([{ label: '得意先', value: r => `${r.customer} ${r.name}` }, { label: '請求年月（締日）', value: r => r.closing }, { label: '請求金額', num: 1, value: r => yen(r.total) }, { label: '回収サイト', value: r => r.site },
         { label: '入金予定日', html: r => (r.overdue ? `<span class="check-ng">${esc(r.due)} 超過</span>` : esc(r.due)) }, { label: '経過日数', num: 1, html: r => (r.overdue ? `<span class="check-ng">${r.days}日</span>` : '') }, { label: '入金予定金額', num: 1, value: r => yen(r.planned) }, { label: '入金金額', num: 1, value: r => yen(r.paid) }, { label: '残高', num: 1, value: r => yen(r.balance) }],
         prow, { empty: 'この条件で入金予定の請求はありません', rowClass: r => (r.overdue ? 'overdue' : ''), foot: ['入金予定合計', '', '', '', '', '', yen(tt.planned), yen(tt.paid), yen(tt.balance)] })}</section>`);
   }
@@ -1422,6 +1422,20 @@ const lrBack = () => { if (lr.step > 1) { lr.step -= 1; lrDraw(); } };
 const lrEnd = () => { lr = { ...lrNew(), open: false }; render({ fresh: true }); };   // ［一覧］＝入金の一覧（2026-11-17 ［終了］から変更）
 const lrFind = () => { const i = $('#lr-cust'); if (!i) return; i.focus(); try { i.showPicker(); } catch {} };
 const lrRun = fn => Promise.resolve().then(fn).catch(e => toast(e.message, true));
+// 編集中の確認（2026-11-17 ユーザー指示）：［実行］の後に明細・今回入金額を入力し、登録しないまま画面の外のボタン・メニュー（［一覧］・F3 も）を押したら確認する。
+// 画面の中の操作（［実行］・［入金予定照会］・［登録］・行追加など）とダイアログの中は対象外。［移動する］で入力を捨てて、押した操作を続ける
+const lrDirty = () => !!(lr.open && lr.step >= 2 && lr.dirty && $('#lr-body'));
+const lrLeave = go => confirmBox('編集中の入金があります', '登録していない入金の入力があります。登録せずに移動すると、入力した内容は消えます。移動しますか？', () => { lr = { ...lrNew(), open: false }; setTimeout(go, 0); }, '移動する');
+window.addEventListener('click', e => {
+  if (!lrDirty()) return;
+  const el = e.target.closest?.('a[href], button, [data-act]'); if (!el || el.closest('#dialog, .flatpickr-calendar, #menu-toggle')) return;
+  // ［実行］も確認する（2026-11-17 ユーザー指示）。［実行する］で明細を捨て、入金日・得意先はそのままで実行し直す
+  const rerun = el.dataset.act === 'lrSearch';
+  if (el.closest('#lr-body') && el.dataset.act !== 'lrEnd' && !rerun) return;
+  e.preventDefault(); e.stopImmediatePropagation();
+  if (rerun) return confirmBox('編集中の入金があります', '登録していない入金の入力があります。［実行］すると、入力した明細は消えます。実行しますか？', () => { lr = { ...lrNew(), date: lr.date, customer: lr.customer }; setTimeout(() => el.click(), 0); }, '実行する');
+  lrLeave(() => el.click());
+}, true);
 // ［修正］：元の入金（借方の明細・口座・手形期日・処税率・消費税額・摘要2、今回入金額）を入れて入力画面を開く
 const LR_KIND_LINE = { BANK: ['bank', '1112'], CASH: ['cash', '1111'], NOTE: ['notes', '1120'], FEE: ['fee', '8330', '101'], COOP: ['coop', '8330', '107'], DEPOSIT: ['deposit', '4170'], DISCOUNT: ['discount', '8850', 'D'], LOSS: ['loss', '8850', 'L'] };
 function lrFromReceipt(r) {
@@ -1459,6 +1473,7 @@ async function legacyReceiptView(q = {}) {
 }
 document.addEventListener('input', e => {
   const t = e.target; if (!t.closest?.('#lr-body, #lr-pop')) return;
+  if (t.closest('#lr-detail, #lr-pop')) lr.dirty = true;
   if (t.id === 'lr-date') { lr.date = t.value; if (lr.toAuto) lr.to = t.value; }
   else if (t.id === 'lr-cust') { lr.customer = t.value.trim(); lr.billInput = ''; lr.billTo = ''; lr.invoices = []; $('#lr-cname').textContent = lrName(); }
   else if (t.id === 'lr-bill') {
@@ -1477,6 +1492,7 @@ document.addEventListener('input', e => {
 });
 document.addEventListener('change', e => {
   const t = e.target; if (!t.closest?.('#lr-body, #lr-pop')) return;
+  if (t.closest('#lr-detail, #lr-pop')) lr.dirty = true;
   if (t.dataset.lr === 'acc') { const l = lr.lines[t.dataset.i]; l.acc = t.value; l.sub = ''; l.due = ''; l.tax = ''; l.taxAmt = ''; l.memo2 = ''; if (!t.value) Object.assign(l, { amount: '', sub2: '', work: '' }); lrDraw(); }
   else if (t.dataset.lr === 'sub') { const l = lr.lines[t.dataset.i]; l.sub = t.value; l.tax = ''; l.taxAmt = ''; lrDraw(); }
   else if (t.dataset.lr === 'tax') { const l = lr.lines[t.dataset.i]; l.tax = t.value; l.taxAmt = ''; lrDraw(); }
@@ -1488,7 +1504,7 @@ document.addEventListener('keydown', e => {
   if (route.name !== 'receipts' || route.sub !== 'legacy' || !$('#lr-body') || $('dialog[open]')) return;
   const k = e.key;
   // F2 貸方：現行の F2 の画面は資料に無いため、当面は F10 と同じ請求ごとの今回入金額の画面を開く（2026-10-31 ユーザー指示）
-  const map = { F2: () => { if (lr.step === 2) lrRun(lrNext); }, F3: lrEnd, F9: () => { if (lr.step < 3) lrFind(); }, F10: () => { if (lr.step < 3 || canWrite()) lrRun(lrNext); }, F12: lrBack };
+  const map = { F2: () => { if (lr.step === 2) lrRun(lrNext); }, F3: () => (lrDirty() ? lrLeave(lrEnd) : lrEnd()), F9: () => { if (lr.step < 3) lrFind(); }, F10: () => { if (lr.step < 3 || canWrite()) lrRun(lrNext); }, F12: lrBack };
   if (!map[k]) return;
   e.preventDefault(); map[k]();
 });
