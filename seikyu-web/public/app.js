@@ -1338,13 +1338,14 @@ const lrRows = () => {
   const who = `${esc(lr.billTo)} ${esc(lrNameOf(lr.billTo))}`;
   if (lr.pays) return lrDepRow(who) + lr.pays.map((p, i) => { const r = lr.invoices.find(x => String(x.id) === String(p.id)), used = new Set(lr.pays.filter((_, k) => k !== i).map(x => String(x.id)));
     return `<tr><td>${who}</td><td>${esc(r?.closing || '')}</td><td><select data-lp="id" data-i="${i}" aria-label="請求No"><option value="">請求を選択</option>${lrShown().filter(x => !used.has(String(x.id))).map(x => `<option value="${x.id}" ${String(x.id) === String(p.id) ? 'selected' : ''}>${esc(x.closing)}（No.${x.id}）</option>`).join('')}</select></td><td>${esc(r?.due || '')}</td><td class="num">${r ? yen(r.balance) : ''}</td>`
-      + `<td class="num"><input class="num" data-lp="amount" data-i="${i}" value="${esc(p.amount)}" inputmode="numeric" aria-label="今回入金額" style="width:120px"> <button type="button" class="mini" data-act="lrDelPay" data-i="${i}" title="この行を削除">✕</button></td></tr>`; }).join('');
+      + `<td class="num"><input class="num" data-lp="amount" data-i="${i}" value="${esc(p.amount)}" inputmode="numeric" aria-label="今回入金額" style="width:120px">${isUser01() ? '' : ` <button type="button" class="mini" data-act="lrDelPay" data-i="${i}" title="この行を削除">✕</button>`}</td></tr>`; }).join('');
   return lrDepRow(who) + shown.map(({ r, n }) => `<tr><td>${who}</td><td>${esc(r.closing)}</td><td>${r.id}</td><td>${esc(r.due || '')}</td><td class="num">${yen(r.balance)}</td><td class="num">${n ? yen(n) : ''}</td></tr>`).join('');
 };
 const lrDepNote = () => (lrUsed().some(l => lrKind(l) === 'deposit') && lr.billTo ? `請求先の預り金残高 ${yen(lr.deposit)} 円` : '');
 // 請求日の範囲（任意の絞込）。初期値は 自＝空欄・至＝入金日（2026-11-07 変更：至が今日だと未来日付の入金で当月の請求が隠れる。至を手で変えるまで入金日に追随）
 const lrRange = () => `<div class="filters lr-range"><label class="field">請求日<input type="date" id="lr-from" value="${esc(lr.from)}"></label><span>〜</span><label class="field">　<input type="date" id="lr-to" value="${esc(lr.to)}" aria-label="請求日（至）"></label></div>`;
-const lrAddPayBtn = () => (canWrite() && lr.billTo && lrShown().length > (lr.pays ? lr.pays.length : 0) ? '<button type="button" class="mini" data-act="lrAddPay">＋ 行追加</button>' : '');
+// 入金予定照会：user01 は［＋ 行追加］と行の［✕］を出さない（2026-11-17 ユーザー指示）
+const lrAddPayBtn = () => (canWrite() && !isUser01() && lr.billTo && lrShown().length > (lr.pays ? lr.pays.length : 0) ? '<button type="button" class="mini" data-act="lrAddPay">＋ 行追加</button>' : '');
 function lrStep3() {
   return `<div class="lr-detail"><div class="lr-amount">入金額 <b>${yen(lrSum())}</b></div>
     <div class="inline-fields lr-bill">${field('請求先', `<input id="lr-bill" list="dl-pcust" autocomplete="off" value="${esc(lr.billInput)}" placeholder="請求先コード" style="width:140px" ${lr.editId ? 'readonly title="修正では請求先は変えられません"' : ''}><small id="lr-bname" class="muted">${esc(lrNameOf(lr.billInput))}</small><small id="lr-dep" class="muted">${esc(lrDepNote())}</small>`, { req: 1 })}</div>
