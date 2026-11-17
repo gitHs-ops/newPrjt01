@@ -427,14 +427,15 @@ const shipSiteOptions = (customer, rows = null) => { if (rows) shipNames = rows;
 document.addEventListener('change', e => { if (e.target.id !== 'ship-cust') return; const t = e.target.value.trim(), x = (masters.customers || []).find(r => `${r.code} ${r.name}` === t || r.code === t); $('#dl-fsite').innerHTML = shipSiteOptions(x ? x.code : ''); });
 // 売掛金計上（2026-11-17 ユーザー指示）：締日は毎月20日固定（前月21日〜当月20日）。次に会計連携する締日を出す。［実行］は確認・完了のメッセージを出さず、何度でもできる（漏れた伝票があれば押し直す）。
 // 売掛金計上自動仕訳リスト（Excel）はその締日で一度も実行していなければ押せない。会計連携データを作成すると元に戻せず、次は翌月20日の締日になる（11/20 → 12/20）
-async function arPostView() {
-  const A = actions, d = await api('/api/ar-post'), nx = d.next, run = d.run; // actions は await の前に受け取る
+// 締日は月だけ選べる（日は20日固定。2026-11-17 ユーザー指示）。初めは次に会計連携する締日。会計連携済みの月は［実行］できない
+async function arPostView(q = {}) {
+  const A = actions, d = await api('/api/ar-post?' + qs({ month: q.month || '' })), nx = d.sel, run = d.run; // actions は await の前に受け取る
   A.arRun = async (_, btn) => { if (btn) btn.disabled = true; try { await post('/api/ar-post/run', { month: nx.month }); render({ fresh: true }); } catch (e) { toast(e.message, true); if (btn) btn.disabled = false; } };
   A.arXlsx = () => run && saveXlsx('/api/reports/journal-list?' + qs({ pattern: 'A01', from: nx.to, to: nx.to, format: 'xlsx' })).catch(e => toast(e.message, true));
   return page('出荷・売上', '', '', `<section class="card glass" data-sub="sales"><div class="card-head"><h2>売掛金計上</h2></div>
-    <div class="filters"><label class="field">締日<input value="${esc(nx.to)}" readonly tabindex="-1" style="width:130px"></label><label class="field">対象期間<input value="${esc(nx.from)} 〜 ${esc(nx.to)}" readonly tabindex="-1" style="width:220px"></label>
-      ${canWrite() ? '<button class="primary" data-act="arRun">実行</button>' : ''}<button data-act="arXlsx" ${run ? '' : 'disabled title="実行すると出力できます"'}>⇩ 売掛金計上自動仕訳リスト（Excel）</button></div>
-    <p class="small muted" style="margin-top:8px">締日は毎月20日に固定です。［実行］は何度でもできます（漏れた伝票があれば押し直してください）。仕訳・会計連携 → 会計連携データ を作成すると元に戻せず、次回は翌月20日の締日になります。</p>
+    <div class="filters"><label class="field">締日<span style="display:flex;align-items:center;gap:4px"><input type="month" name="month" value="${esc(nx.month)}" data-filter style="width:140px">20日</span></label><label class="field">対象期間<input value="${esc(nx.from)} 〜 ${esc(nx.to)}" readonly tabindex="-1" style="width:220px"></label>
+      ${canWrite() ? `<button class="primary" data-act="arRun" ${nx.linked ? 'disabled title="会計連携済みの締日は実行できません"' : ''}>実行</button>` : ''}<button data-act="arXlsx" ${run ? '' : 'disabled title="実行すると出力できます"'}>⇩ 売掛金計上自動仕訳リスト（Excel）</button></div>
+    <p class="small muted" style="margin-top:8px">締日は毎月20日に固定です（年月だけ選べます）。［実行］は何度でもできます（漏れた伝票があれば押し直してください）。仕訳・会計連携 → 会計連携データ を作成すると元に戻せず、次回は翌月20日の締日になります。</p>
     <p class="small ${run ? '' : 'muted'}" id="ar-status">${run ? `実行：${esc(run.at)}（${esc(run.by)}）　${run.slips}伝票・合計 ${yen(run.total)} 円` : '未実行'}${d.linked ? `　／　会計連携済み：締日 ${esc(d.linked.to)} まで` : ''}</p></section>`);
 }
 let invSort = { k: '', dir: 1 }; // 請求一覧照会の並び（'' はサーバーの並び）
@@ -453,7 +454,7 @@ VIEWS.shipments = async q => {
   A.shipTab = d => go('shipments', d.tab === 'plans' ? { tab: 'plans' } : {});
   A.notes = () => deliveryNoteDialog(); A.notesIssue = () => issueDeliveryNotes({ date: $('#dn-date').value }).catch(e => toast(e.message, true));
   if (q.tab === 'plans' && SUBMENUS.shipments.some(x => x.k === 'plans' && !x.disabled)) return planView(q);
-  if (route.sub === 'sales') return arPostView();
+  if (route.sub === 'sales') return arPostView(q);
   // 10/23 打合せ：売上日 From〜To・得意先・現場で伝票を特定。既定は当月
   // 既定の期間は締日を毎月20日に固定：前月21日〜当月20日（2026-11-17 ユーザー指示）
   const month = q.month || thisMonth(), from = q.from || `${addMonths(month, -1)}-21`, to = q.to || `${month}-20`, kind = SHIP_KINDS[q.kind] ? q.kind : '', list = await api('/api/shipments?' + qs({ from, to, customer: q.customer, site: q.site, ...(SHIP_KINDS[kind]?.q || {}) }));
@@ -2214,7 +2215,7 @@ async function journalListsView(q) {
   }
   const kinds = Object.entries(meta.journalLists).map(([code, v]) => ({ code, name: v.title }));
   return page('仕訳・会計連携', '自動仕訳リストは現行帳票（⑥⑦⑨・資料ア〜エ）と同じ項目・2段の並びで表示・Excel出力します（削減案5：同一フォーマット）。',
-    `<select name="list" data-filter>${options(kinds, kind, { label: r => r.name })}</select>${closing ? `<label class="field">締日<input type="date" name="closing" value="${closing}" data-filter style="width:150px"></label><label class="field">対象期間<input value="${pFrom} 〜 ${to}" readonly tabindex="-1" style="width:230px"></label>`
+    `<select name="list" data-filter>${options(kinds, kind, { label: r => r.name })}</select>${closing ? `<label class="field">締日<span style="display:flex;align-items:center;gap:4px"><input type="month" name="closing" value="${closing.slice(0, 7)}" data-filter style="width:140px">20日</span></label><label class="field">対象期間<input value="${pFrom} 〜 ${to}" readonly tabindex="-1" style="width:230px"></label>`
        : `<input type="date" name="from" value="${from}" data-filter><input type="date" name="to" value="${to}" data-filter>`}<input type="hidden" name="tab" value="lists" data-filter>
      <a class="button" href="${url}&format=xlsx" download>⇩ Excel</a>`,
     `<section class="card glass"><div class="card-head"><h2>${esc(d.title)}</h2><span class="muted small">${closing ? `締日 ${closing}（${pFrom} 〜 ${to}）` : `${from} 〜 ${to}`}</span></div><div id="jl-body">${body}</div></section>`);

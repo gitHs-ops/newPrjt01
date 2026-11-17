@@ -137,20 +137,23 @@ export async function journalList(c, q) {
 // 一度も会計連携していなければ、業務日付以前で直近の20日（業務日付 11/17 → 10/20、11/20 → 11/20）。A01 の仕訳は従来どおり請求データ作成で起票する（実行では起票しない）
 const arRange = month => { const [y, m] = month.split('-').map(Number); return { month, from: new Date(Date.UTC(y, m - 2, 21)).toISOString().slice(0, 10), to: `${month}-20` }; };
 const jstNow = () => new Date(Date.now() + 9 * 3600e3).toISOString().slice(0, 16).replace('T', ' ');
-export async function arPostStatus(c) {
+// 締日の月は画面で選べる（日は20日固定。2026-11-17 ユーザー指示）。month 未指定は次の締日。会計連携済みの月は実行できない
+export async function arPostStatus(c, month) {
   const linked = await one(c, 'SELECT month, linked_by, linked_at FROM app_acct_link ORDER BY month DESC LIMIT 1'), bd = isoDate(String(await businessDate(c)).slice(0, 10));
   const next = linked ? addMonths(linked.month, 1) : Number(bd.slice(8)) >= 20 ? bd.slice(0, 7) : addMonths(bd.slice(0, 7), -1);
-  const r = await one(c, 'SELECT run_by, run_at, slips, total FROM app_ar_post_run WHERE month=?', [next]);
-  return { closing: 20, next: arRange(next), run: r ? { by: r.run_by, at: r.run_at, slips: Number(r.slips), total: Number(r.total) } : null,
+  const sel = /^\d{4}-(0[1-9]|1[0-2])$/.test(month || '') ? month : next;
+  const r = await one(c, 'SELECT run_by, run_at, slips, total FROM app_ar_post_run WHERE month=?', [sel]);
+  return { closing: 20, next: arRange(next), sel: { ...arRange(sel), linked: !!linked && sel <= linked.month }, run: r ? { by: r.run_by, at: r.run_at, slips: Number(r.slips), total: Number(r.total) } : null,
     linked: linked ? { ...arRange(linked.month), by: linked.linked_by, at: linked.linked_at } : null };
 }
 export async function runArPost(c, ctx, b) {
-  const st = await arPostStatus(c), { month, to } = st.next;
-  check(b?.month === month, `締日 ${b?.month ? b.month + '-20' : ''} は会計連携済みです。次の締日は ${to} です。画面を開き直してください`);
+  check(/^\d{4}-(0[1-9]|1[0-2])$/.test(b?.month || ''), '締日の年月を指定してください');
+  const st = await arPostStatus(c, b.month), { month, to } = st.sel;
+  check(!st.sel.linked, `締日 ${to} は会計連携済みのため実行できません。次の締日は ${st.next.to} です`);
   const d = await journalList(c, { pattern: 'A01', from: to, to });
   await c.query('INSERT INTO app_ar_post_run (month,run_by,run_at,slips,total) VALUES (?,?,?,?,?) ON DUPLICATE KEY UPDATE run_by=VALUES(run_by),run_at=VALUES(run_at),slips=VALUES(slips),total=VALUES(total)', [month, ctx.user.login_id, jstNow(), d.slips.length, d.total]);
   await audit(c, ctx, 'app_ar_post_run', month, 'arpost.run', { closing: to, slips: d.slips.length, total: d.total });
-  return arPostStatus(c);
+  return arPostStatus(c, month);
 }
 // 会計連携データを作成したとき：期間に入る締日（毎月20日）に会計連携済みの印を付ける（元に戻さない）
 export async function markAcctLinked(c, ctx, from, to) {
