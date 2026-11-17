@@ -105,11 +105,14 @@ const tekiyoFill = (codeEl, memoEl) => { if (!codeEl || !memoEl) return; const n
 const options = (list, value, { blank, label = r => `${r.code} ${r.name}`, val = r => r.code } = {}) =>
   (blank !== undefined ? `<option value="">${esc(blank)}</option>` : '') + list.map(r => `<option value="${esc(val(r))}" ${String(val(r)) === String(value ?? '') ? 'selected' : ''}>${esc(label(r))}</option>`).join('');
 const siteOptions = (customer, value, blank) => options((masters.sites || []).filter(s => s.customer === customer && (s.active || `${s.code}|${s.suffix}` === value)), value, { blank, val: s => `${s.code}|${s.suffix}`, label: s => `${s.code}-${s.suffix} ${s.name}` });
-// oneLine：各セルを 1 行表示。文字の項目は幅 20 文字程度で切り、カーソルを当てると全体を表示（2026-11-17 ユーザー指示）
+// oneLine：各セルを 1 行表示。文字の項目は幅 20 文字程度で切り、カーソルを当てると全体を表示（2026-11-17 ユーザー指示。同日「全一覧に適用」で既定を on）
+// 入力欄・ボタンのあるセルは切らない（1 行表示だけ）
 const clip = t => { t = String(t ?? ''); return `<span class="clip"${t.length > 20 ? ` title="${esc(t)}"` : ''}>${esc(t)}</span>`; };
-function table(cols, rows, { empty = 'データがありません', foot, rowClass, oneLine } = {}) {
+const clipHtml = h => (/<(input|select|textarea|button)|class="actions"/.test(h) ? h : `<span class="clip">${h}</span>`);
+document.addEventListener('mouseover', e => { const c = e.target.closest?.('.one-line .clip'); if (c && !c.title && c.scrollWidth > c.clientWidth) c.title = c.innerText; });
+function table(cols, rows, { empty = 'データがありません', foot, rowClass, oneLine = true } = {}) {
   if (!rows.length) return `<div class="empty">${esc(empty)}</div>`;
-  return `<div class="table-wrap"><table${oneLine ? ' class="one-line"' : ''}><thead><tr>${cols.map(c => `<th class="${c.num ? 'num' : ''}">${c.head ?? esc(c.label)}</th>`).join('')}</tr></thead><tbody>${rows.map(r => `<tr class="${rowClass ? rowClass(r) : ''}">${cols.map(c => `<td class="${c.num ? 'num' : ''} ${c.cls || ''}">${c.html ? c.html(r) : oneLine && !c.num ? clip(c.value(r)) : esc(c.value(r))}</td>`).join('')}</tr>`).join('')}</tbody>${foot ? `<tfoot><tr>${foot.map(f => `<td class="num">${f ?? ''}</td>`).join('')}</tr></tfoot>` : ''}</table></div>`;
+  return `<div class="table-wrap"><table${oneLine ? ' class="one-line"' : ''}><thead><tr>${cols.map(c => `<th class="${c.num ? 'num' : ''}">${c.head ?? esc(c.label)}</th>`).join('')}</tr></thead><tbody>${rows.map(r => `<tr class="${rowClass ? rowClass(r) : ''}">${cols.map(c => `<td class="${c.num ? 'num' : ''} ${c.cls || ''}">${c.html ? (oneLine && !c.num ? clipHtml(c.html(r)) : c.html(r)) : oneLine && !c.num ? clip(c.value(r)) : esc(c.value(r))}</td>`).join('')}</tr>`).join('')}</tbody>${foot ? `<tfoot><tr>${foot.map(f => `<td class="num">${f ?? ''}</td>`).join('')}</tr></tfoot>` : ''}</table></div>`;
 }
 const field = (label, input, { req, hint, wide } = {}) => `<label class="field ${req ? 'req' : ''} ${wide ? 'wide' : ''}"><span>${esc(label)}</span>${input}${hint ? `<small>${esc(hint)}</small>` : ''}</label>`;
 const monthInput = (name, value) => `<input type="month" name="${name}" value="${esc(value)}" data-filter>`;
@@ -497,7 +500,7 @@ VIEWS.shipments = async q => {
   const acts = r => {
     const b = [`<button class="mini" data-act="detail" data-id="${esc(r.orderNo)}">詳細</button>`];
     if (!canWrite()) return `<div class="actions">${b.join('')}</div>`;
-    if (!red(r) && !r.corrected) b.push(`<button class="mini" data-act="correct" data-id="${esc(r.orderNo)}">赤黒訂正</button>`);
+    // ［赤黒訂正］も 2026-11-17 ユーザー指示で詳細の画面へ移動（一覧は 詳細 だけ）
     // ［取消］は 2026-11-17 ユーザー指示で詳細の画面へ移動（一覧は 詳細・赤黒訂正 だけ）
     return `<div class="actions">${b.join('')}</div>`;
   };
@@ -511,7 +514,7 @@ VIEWS.shipments = async q => {
       { label: '決済', html: r => r.method === CREDIT ? esc(r.methodName) : badge(r.methodName, 'amber') },
       { label: '状態', html: r => (r.shipKb === 5 ? (red(r) ? badge('赤', 'red') + ' ' : '') : r.shipKb !== 1 ? badge(r.shipKbName, 'gray') + ' ' : '') + (r.corrected ? badge('訂正済', 'gray') + ' ' : '') + (r.billed ? badge('請求済', 'green') : r.method === CREDIT ? badge('未請求', 'gray') : badge('請求対象外', 'amber')) },
       { label: '', html: acts }],
-      shown, { oneLine: true, empty: 'この条件の出荷はありません', foot: ['合計', '', '', '', '', '', '', '', '', yen(net), '', `税 ${yen(tax)}`, ''] })}</section><div data-sub="reports">${shipmentReportsCard()}${shipDailyCard()}</div>
+      shown, { empty: 'この条件の出荷はありません', foot: ['合計', '', '', '', '', '', '', '', '', yen(net), '', `税 ${yen(tax)}`, ''] })}</section><div data-sub="reports">${shipmentReportsCard()}${shipDailyCard()}</div>
      <section class="card glass" data-sub="notes"><div class="card-head"><h2>納品書発行</h2></div>
        <div class="filters"><label class="field">出荷日<input type="date" id="dn-date" value="${esc(bd)}"></label>${canWrite() ? '<button class="primary" data-act="notesIssue">伝票発行</button>' : ''}</div>
        </section>`);
@@ -550,9 +553,10 @@ function slipInquiry(r, why = '') {
     ${SL('車両番号', RO(esc(r.vehicle), 1))}${SL('累計台数', RO(String(r.cumulativeCount), 1))}<div class="span4c fill"></div>
     ${SL('出発時間', RO(esc(r.startTime)))}${SL('予定時間', RO(esc(r.planTime)))}${SL('出発温度', RO(r.startTemp === '' ? '' : esc(r.startTemp) + ' ℃', 1))}${SL('担当者', RO(esc(r.operatorName || r.operator)))}
     ${SL('伝票備考', RO(esc(r.remarks)), { span: 4 })}</div>
-    ${(() => { const b = [canWrite() && !r.billed && !r.corrected ? '<button type="button" class="danger" id="slip-del">取消</button>' : '', canWrite() && !isUser01() && r.shipKb !== 5 ? '<button type="button" class="primary" id="dn-one">伝票発行</button>' : ''].join('');
+    ${(() => { const b = [canWrite() && !(r.shipKb === 5 && r.quantity < 0) && !r.corrected ? '<button type="button" id="slip-correct">赤黒訂正</button>' : '', canWrite() && !r.billed && !r.corrected ? '<button type="button" class="danger" id="slip-del">取消</button>' : '', canWrite() && !isUser01() && r.shipKb !== 5 ? '<button type="button" class="primary" id="dn-one">伝票発行</button>' : ''].join('');
       return b ? `<div class="filters right" style="margin-top:12px">${b}</div>` : ''; })()}`,
     onOpen: () => { $('#dn-one')?.addEventListener('click', () => issueDeliveryNotes({ orderNo: r.orderNo }).catch(e => toast(e.message, true)));
+      $('#slip-correct')?.addEventListener('click', () => correctionForm(r));   // ［赤黒訂正］（2026-11-17 一覧の行から移動）
       // ［取消］（2026-11-17 一覧の行から移動）：請求前の伝票のみ。赤黒は組で取消
       $('#slip-del')?.addEventListener('click', () => confirmBox('出荷の取消', `売上No ${r.slipNo || r.orderNo} を取消します。請求前の伝票のみ取消できます（赤黒は組で取消）。`, () => post('/api/shipments/delete', { orderNo: r.orderNo }).then(() => { toast('取消しました'); render(); }), '取消する')); } });
 }
@@ -681,7 +685,7 @@ async function planView(q) {
   const acts = r => `<div class="actions">${canWrite() ? `<button class="mini primary" data-act="slipFromPlan" data-id="${esc(r.orderNo)}">伝票登録</button><button class="mini" data-act="editPlan" data-id="${esc(r.orderNo)}">修正</button><button class="mini danger" data-act="delPlan" data-id="${esc(r.orderNo)}">削除</button>` : ''}</div>`;
   return page('出荷・売上', '出荷予定（shipment_plan）は1台＝1行の予定伝票です。出荷伝票の「予定数量・予定時間」は、同じ出荷日・得意先・納入場所名・商品・納入区分で累計台数が同じ予定の累計数量・出発時間です。予定から伝票登録もできます。',
     `<input type="date" name="from" value="${esc(from)}" data-filter><span>〜</span><input type="date" name="to" value="${esc(to)}" data-filter>${comboFilter('customer', 'customers', q.customer || '', '得意先（コード・名称）')}<input name="site" placeholder="納入場所名" value="${esc(q.site || '')}" data-filter>${canWrite() ? '<button class="primary" data-act="newPlan">＋ 出荷予定登録</button>' : ''}`,
-    `<section class="card glass">${table([{ label: '予定No', html: r => esc(r.orderNo) + (r.shipKb !== 1 ? `<br><span class="small muted">${esc(meta.shipKinds[r.shipKb] || '')}</span>` : '') }, { label: '出荷日', value: r => r.date }, { label: '出発', value: r => r.startTime },
+    `<section class="card glass">${table([{ label: '予定No', html: r => esc(r.orderNo) + (r.shipKb !== 1 ? ` <span class="small muted">${esc(meta.shipKinds[r.shipKb] || '')}</span>` : '') }, { label: '出荷日', value: r => r.date }, { label: '出発', value: r => r.startTime },
       { label: '得意先', value: r => r.customerName }, { label: '納入場所', value: r => r.siteName }, { label: '商品', value: r => r.itemName }, { label: '納入区分', value: r => r.deliveryKbnName },
       { label: '数量', num: 1, value: r => `${r.quantity} ${r.unit}` }, { label: '累計（台／数量）', num: 1, value: r => `${r.cumulativeCount}台／${r.cumulativeQty}` }, { label: '車番', value: r => r.vehicle }, { label: '担当', value: r => r.operatorName },
       { label: '実績', html: r => (r.shippedNo ? badge('出荷 ' + r.shippedNo, 'green') : badge('未出荷', 'gray')) }, { label: '', html: acts }], list, { empty: 'この条件の出荷予定はありません', foot: ['合計', '', '', '', '', '', '', list.reduce((n, r) => n + r.quantity, 0).toFixed(2), `${list.length}台`, '', '', '', ''] })}</section>`);
@@ -2483,7 +2487,7 @@ function questionsSection(req) {
     ...qs.filter(q => q.status !== '回答済' && !grouped.has(q.id)).map(q => ({ q, status: q.status, key: q.id }))];
   const lines = (ms, f) => ms.map(q => `<div><b>${esc(q.id)}</b> ${esc(f(q) || '—')}</div>`).join('');
   const askTable = table([
-    { label: 'No', html: r => (r.group ? `<b>${esc(r.group.id)}</b><br><span class="small muted">${r.ms.map(q => esc(q.id)).join('・')}</span>` : esc(r.q.id)) },
+    { label: 'No', html: r => (r.group ? `<b>${esc(r.group.id)}</b> <span class="small muted">${r.ms.map(q => esc(q.id)).join('・')}</span>` : esc(r.q.id)) },
     { label: '状態', html: r => stBadge(r.status) },
     { label: '確認事項', html: r => (r.group ? `<b>${esc(r.group.title)}</b>：${esc(r.group.point)}<div class="small" style="margin-top:4px">${lines(r.ms, q => q.question)}</div>` : esc(r.q.question)) },
     { label: '回答・根拠（現状）', html: r => (r.group ? `<div class="small">${lines(r.ms, q => q.answer)}</div>` : esc(r.q.answer || '')) },
