@@ -85,6 +85,31 @@ const QTY_S = new Set(['qty', 'rQty', 'iQty']), CENTER_S = new Set(['center', 'r
 const cellOf = c => (c !== null && typeof c === 'object' ? c : { v: c ?? '' }), filled = c => { const v = cellOf(c).v; return v !== '' && v !== null && v !== undefined; };
 const spaced = t => String(t).replace(/([぀-ヿ一-鿿々・])(?=[぀-ヿ一-鿿々・])/g, '$1 ');
 const colNo = c => { let n = 0; for (const ch of c) n = n * 26 + ch.charCodeAt(0) - 64; return n; };   // 'A' → 1
+// 列の幅を 帳票イメージ_20261108.xlsx の各帳票に合わせる（2026-11-17 ユーザー指示「글꼴 크기・열 너비・행 높이를 견본에 맞춰」）。表題（空白を除く）→ 列の幅（左の余白列を除く）。
+// 見本と同じ列は見本の幅。見本で 2 列（コードと名称など）を 1 列にしている列は合わせた幅、見本に無い列は見本の合計に近くなる幅（印刷の縮小率を見本とそろえる）。
+// 列の数が違うとき（得意先・業者の数で列が増える帳票など）は元の幅のまま
+const JNL_W = [9, 8, 6, 9, 5, 5, 11, 5, 7, 17, 13, 8, 6, 12, 5, 5, 11, 14];
+const SAMPLE_W = {
+  '請求一覧表（確認用）': [39, 5, 26, 13, 12, 10, 13],                                  // REP-INV-0010（得意先はコード＋名称で 1 列、2 列目は現場No）
+  '請求書発行確認表': [9, 13, 6, 8, 26, 8, 5, 9, 12, 7, 9, 20],                         // REP-INV-0030
+  '商品売上登録リスト': [10, 6, 13, 7, 24, 8, 5, 9, 11, 6, 8, 8, 12, 16, 10],           // REP-SLS-0010（現場 28 を 現場・納入先 の 2 列に）
+  '商品・製品別出荷集計表': [10, 10, 36, 12, 6, 14],                                    // REP-SLS-0020
+  '得意先別商品別出荷累計表': [10, 34, 9, 30, 6, 12, 14],                               // REP-SLS-0030
+  '現金売上明細表': [8, 20, 26, 10, 11, 7, 20, 7, 5, 9, 11, 6, 8, 12],                   // REP-SLS-0040
+  '商品仕入登録リスト': [9, 8, 14, 31, 8, 5, 9, 11, 8, 12, 17],                          // REP-PUR-0010（商品はコード＋名称で 1 列。摘要の列は無いので処税率に）
+  '在庫登録リスト': [14, 50, 16, 10],                                                   // REP-STK-0010
+  '材料受払表': [8, 24, 9, 13, 9, 13, 9, 13, 9, 13, 9, 13, 11],                         // REP-STK-0020
+  '定時請求データ入力明細表（組織別）': [6, 8, 7, 6, 13, 13, 11, 12, 11, 24, 7, 16],     // REP-PAY-0010（左の業者CD の列は見本に無い）
+  '定時請求データ入力明細表（工事別）': [6, 8, 7, 6, 13, 13, 11, 12, 11, 24, 7, 16],
+  '小口現金出納簿': [10, 30, 14, 10, 12, 6, 11, 11, 11, 11],                            // REP-CSH-0010
+  '出資金請求明細表（定時請求分）': [10, 16, 18, 12, 11, 11, 11, 10, 11, 11, 11, 10, 10, 10],   // REP-RPT-0010／0020（明細と合計表が 1 枚。数字の列は合計表の幅以上）
+  '入金明細及び配分表': [10, 24, 30, 12, 12, 12, 12, 10, 10],                           // REP-RPT-0030
+  '業者別支払内訳表': [10, 34, 13, 12, 12, 13, 12, 11],                                 // REP-PMT-0010
+  '振込依頼書': [20, 16, 7, 12, 36, 14, 10],                                           // REP-PMT-0020
+  '支払繰越一覧表': [10, 28, 11, 11, 11, 11, 11, 11, 11, 11, 11],                       // REP-PMT-0030
+  '銀行別随時支払一覧表': [8, 32, 12, 9, 11, 9, 9, 8, 11, 11, 10, 18, 13],               // REP-PMT-0050
+};
+const sampleWidths = (title, widths = []) => { const k = String(title || '').replace(/[\s　]/g, ''), w = SAMPLE_W[k] || (/自動仕訳リスト$/.test(k) ? JNL_W : null); return w && w.length === widths.length ? w : widths; };
 function listify(sh) {
   const rows0 = evenBands(sh.rows || []);
   const kind = r => {
@@ -154,7 +179,7 @@ function listify(sh) {
   // 元の結合（材料受払表の見出しなど）は新しい位置へ。表題の行の結合は表題の結合と重なるので外す
   const merges = (sh.merges || []).filter(m => !(t >= 0 && m.match(/\d+/g).some(x => Number(x) === t + 1)))
     .map(m => m.replace(/([A-Z]+)(\d+)/g, (_, c, r) => col(colNo(c)) + (map[r - 1] + 1)));
-  return { ...sh, listed: true, rows: shifted, widths: [1.5, ...(sh.widths || [])], heights, merges, gridlines: false, header: undefined, footer: '&C&P / &N 頁', margins: [0.4, 0.6],
+  return { ...sh, listed: true, rows: shifted, widths: [1.5, ...sampleWidths(t >= 0 ? cellOf(rows0[t].find(c => TITLE_S.has(cellOf(c).s))).v : '', sh.widths || [])], heights, merges, gridlines: false, header: undefined, footer: '&C&P / &N 頁', margins: [0.4, 0.6],
     printTitles: lastHead >= 0 ? `1:${lastHead + 1}` : undefined };
 }
 export function xlsx(sheets0) {
