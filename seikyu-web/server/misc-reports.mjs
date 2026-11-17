@@ -134,7 +134,7 @@ export async function mixCalc(c, q) {
   const cr = closingRange(month, q.closing);
   const pur = Object.fromEntries((await rows(c, "SELECT item_cd, SUM(quantity) q, SUM(net_amount) v FROM purchase WHERE purchase_date BETWEEN ? AND ? AND COALESCE(purchase_kb,'1')<>'2' GROUP BY item_cd", [cr.from, cr.to])).map(r => [r.item_cd, { qty: num(r.q), value: num(r.v) }]));
   const names = Object.fromEntries((await rows(c, 'SELECT item_cd, item_nam, unit_name(unit) unit FROM item_m')).map(r => [r.item_cd, r]));
-  // 手入力の材料単価（マスタ管理 → 材料単価）。登録があれば最優先
+  // 手入力の材料単価（マスタ管理 → 材料単価（配合計算用・手入力））。登録があれば最優先
   const manual = Object.fromEntries((await rows(c, "SELECT category2, code_dtl_nam FROM code_m WHERE code_key='MATPR' AND category1=? AND code_dtl_abr<>'0'", [month.replace('-', '')])).map(r => [r.category2, num(r.code_dtl_nam)]));
   // Material unit price: 手入力 → moving average of 前月末在庫＋当月仕入 → 当月末評価単価.
   const price = code => {
@@ -171,7 +171,7 @@ export async function mixCalc(c, q) {
     const e = end[m], actual = e ? r2((prev[m]?.qty || 0) + (pur[m]?.qty || 0) - e.qty) : null;
     return { material: m, name: names[m]?.item_nam || m, theoretical, actual, diff: actual === null ? null : r2(actual - theoretical) };
   });
-  return { title: '配合計算', ref: 'NO25（推定）', month, products, suggest, usage, production: prodQty, note: '配合表・経費配賦基準の資料が未提供のため推定。配合率は「マスタ管理 → 配合」、材料単価は「マスタ管理 → 材料単価」の手入力を優先し、無ければ移動平均（前月末在庫＋当月仕入）。経費単価は当月の経費÷製品出荷数量で自動算出（推定値・手修正可）。結果は原価（genka_m）に保存し、「マスタ管理 → 原価」で照会できます。' };
+  return { title: '配合計算', ref: 'NO25（推定）', month, products, suggest, usage, production: prodQty, note: '配合表・経費配賦基準の資料が未提供のため推定。配合率は「マスタ管理 → 配合（製品の材料構成）」、材料単価は「マスタ管理 → 材料単価（配合計算用・手入力）」の手入力を優先し、無ければ移動平均（前月末在庫＋当月仕入）。経費単価は当月の経費÷製品出荷数量で自動算出（推定値・手修正可）。結果は原価（genka_m）に保存し、「マスタ管理 → 原価（配合計算の結果・照会のみ）」で照会できます。' };
 }
 export async function saveMix(c, ctx, p) {
   // 配合計算の実行：材料受払の計算結果を保存し、配合マスタがあれば原価（genka_m）も保存する（2026-11-12 保存を戻す。配合マスタが無ければ材料受払だけ）
