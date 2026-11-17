@@ -525,8 +525,9 @@ export async function billingConfirm(c, { month, closing, unissued, customer }) 
   for (const h of heads) {
     const s = await statement(c, h.customers_cd, month, closing);
     const last = s.invoiceIds.length ? await one(c, `SELECT i.issue_no, i.issued_at, i.issued_by FROM invoice_issue i WHERE i.invoice_id IN (${s.invoiceIds.map(() => '?').join(',')}) ORDER BY i.issued_at DESC LIMIT 1`, s.invoiceIds) : null;
-    // 請求書番号（10/27 内部会議 No.6：発行確認表のヘッダーに請求書番号を持たせる。2026-11-09）。未発行は（未発行）を付ける
-    const nos = await invoiceNos(c, s.invoices), invoiceNo = s.invoices.map(i => nos.get(Number(i.id)) + (i.issues ? '' : '（未発行）')).join('・');
+    // 請求書番号（10/27 内部会議 No.6：発行確認表のヘッダーに請求書番号を持たせる。2026-11-09）。
+    // 未発行の請求の番号（「C202600054（未発行）」）は出さない（2026-11-17 ユーザー指示）。発行済みの番号だけ
+    const nos = await invoiceNos(c, s.invoices), invoiceNo = s.invoices.filter(i => i.issues).map(i => nos.get(Number(i.id))).join('・');
     out.push({ ...s, invoiceNo, lines: await summaryLines(c, s.invoiceIds, s.lines), name: h.customers_name, lastIssue: last ? { no: last.issue_no, at: last.issued_at, by: last.issued_by } : null });
   }
   // 税率別（現行 HAR430 の合計下段「10 %  売上額  消費税額」）
