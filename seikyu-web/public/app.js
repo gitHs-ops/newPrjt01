@@ -500,7 +500,7 @@ VIEWS.shipments = async q => {
   A.copy = d => { const r = list.find(x => x.orderNo === d.id); shipmentForm({ ...r, orderNo: undefined, date: bd, copyOf: r.orderNo }, bd); };
   // 2026-11-17 ユーザー指示：「詳細」は照会だけ（［更新する］を削除、［キャンセル］→［閉じる］）。変更は 赤黒訂正・取消 で行う
   // 2026-11-18 ユーザー指示：［赤黒訂正］［取消］が詳細の画面に入ったので、変更できる伝票（請求前・訂正伝票でない・訂正済でない）は詳細の画面で入力項目を修正できる（［更新する］）。変更できない伝票は照会だけ
-  A.detail = d => { const r = list.find(x => x.orderNo === d.id), why = slipLock(r); if (why) return slipInquiry(r, why); shipmentForm(r, bd); slipFootActs(r); }; A.correct = d => correctionForm(list.find(r => r.orderNo === d.id));
+  A.detail = d => { const r = list.find(x => x.orderNo === d.id), why = canWrite() && isUser01() ? '' : slipLock(r);   /* 2026-11-18 ユーザー指示：user01 は請求済・訂正伝票・訂正済も詳細画面で修正できる */ if (why) return slipInquiry(r, why); shipmentForm(r, bd); slipFootActs(r); }; A.correct = d => correctionForm(list.find(r => r.orderNo === d.id));
   A.del = d => confirmBox('出荷の取消', `売上No ${d.id} を取消します。請求前の伝票のみ取消できます（赤黒は組で取消）。`, () => post('/api/shipments/delete', { orderNo: d.id }).then(() => { toast('取消しました'); render(); }), '取消する');
   const red = r => r.shipKb === 5 && r.quantity < 0;
   // 赤黒訂正のある伝票：元伝票・赤・黒を常に並べて出す（10/26 打合せ「元のがあって、打ち消された赤伝があって、黒伝がある」）。
@@ -616,7 +616,7 @@ function shipmentForm(r, bizDate) {
   const dl = (id, list) => `<datalist id="${id}">${list.map(x => `<option value="${esc(x.code)}">${esc(x.name)}</option>`).join('')}</datalist>`;
   const methodOpts = options(Object.entries(meta.methods).map(([code, name]) => ({ code, name })), r?.method || CREDIT, { label: x => `${x.code} ${x.name}` });
   // 伝票区分 5 訂正は新規登録のみ（元伝票No を指定して赤伝票を起票、2026-10-23）
-  const co = r?.correctOf, kbOpts = (co ? [5] : [1, 2, 3, 4, ...(r?.orderNo ? [] : [5])]).map(k => `<option value="${k}" ${Number(r?.shipKb || 1) === k ? 'selected' : ''}>${esc(meta.shipKinds[k])}</option>`).join('');
+  const co = r?.correctOf, kbOpts = (co ? [5] : [1, 2, 3, 4, ...(r?.orderNo && r.shipKb !== 5 ? [] : [5])]).map(k => `<option value="${k}" ${Number(r?.shipKb || 1) === k ? 'selected' : ''}>${esc(meta.shipKinds[k])}</option>`).join('');
   const kbnOpts = options(active('deliveryKinds'), r?.deliveryKbn || active('deliveryKinds')[0]?.code, { blank: '選択', label: x => x.name + (x.pickup ? '（運賃なし）' : '') });
   modal({ title: co ? `出荷伝票の赤黒訂正（元 ${co.orderNo}）` : r?.orderNo ? `出荷伝票の詳細（${r.slipNo || r.orderNo}）` : r?.fromPlan ? `出荷伝票登録（出荷予定 ${r.fromPlan} から）` : r?.copyOf ? `出荷伝票登録（類似登録：元 ${r.copyOf}）` : '出荷伝票登録', submit: co ? '赤黒伝票を登録' : r?.orderNo ? '更新する' : '登録する', wide: true, body: `${co ? `<div class="note" style="margin-bottom:10px">元伝票：${esc(co.date)} ${esc(co.customerName)} ／ ${esc(co.siteName)} ／ ${esc(co.itemName)} ${co.quantity} ${esc(co.unit)} × ${yen(co.price)}${co.freight ? '＋運賃' + yen(co.freight) : ''} ＝ ${yen(co.net)} 円（${esc(co.methodName)}）</div>
       <div class="corr-fixed"><div class="corr-fixed-h">変更できない項目（元伝票のまま）</div><table><tr><th>得意先</th><td>${esc(co.customer)}</td><td colspan="2">${esc(co.customerName || '')}</td></tr><tr><th>現場</th><td>${esc((co.site || '').replace('|', '-'))}</td><td>${esc(co.siteName1 || '')}</td><td>${esc(co.siteName2 || '')}</td></tr></table></div>` : sampleButton}<div class="slip-sheet">

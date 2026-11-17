@@ -149,10 +149,12 @@ export async function saveShipment(c, ctx, p) {
   if (orderNo) {
     const old = await one(c, 'SELECT * FROM sales_trn WHERE order_no=? AND order_suffix=1 FOR UPDATE', [orderNo]);
     if (!old) throw new Conflict('出荷伝票が見つかりません。再読込してください');
-    check(old.process_status === '0', '請求済みの出荷は変更できません（「訂正」で赤黒訂正してください）');
-    check(old.ship_kb !== CORRECTION, '訂正伝票は変更できません。取消して再登録してください');
-    check(v.shipKb !== CORRECTION, '登録済みの伝票を訂正（区分 5）に変えることはできません。元伝票No を指定して赤伝票を新規登録してください');
-    check(!(await one(c, 'SELECT 1 x FROM sales_trn WHERE sales_no=? AND order_no<>? LIMIT 1', [orderNo, orderNo])), '訂正済みの伝票は変更できません');
+    // 2026-11-18 ユーザー指示：user01 は請求済・訂正伝票・訂正済の伝票も詳細画面で修正できる（発行済み請求書の金額は変わらない）
+    const u1 = ctx?.user?.login_id === 'user01';
+    if (!u1) check(old.process_status === '0', '請求済みの出荷は変更できません（「訂正」で赤黒訂正してください）');
+    if (!u1) check(old.ship_kb !== CORRECTION, '訂正伝票は変更できません。取消して再登録してください');
+    check(v.shipKb !== CORRECTION || (u1 && old.ship_kb === CORRECTION), '登録済みの伝票を訂正（区分 5）に変えることはできません。元伝票No を指定して赤伝票を新規登録してください');
+    if (!u1) check(!(await one(c, 'SELECT 1 x FROM sales_trn WHERE sales_no=? AND order_no<>? LIMIT 1', [orderNo, orderNo])), '訂正済みの伝票は変更できません');
     await assertOpen(c, fromNum(old.sales_date));
     await c.query(`UPDATE sales_trn SET sales_date=?,customers_cd=?,field_cd=?,field_suffix=?,field_name1=?,field_name2=?,item_cd=?,item_name=?,quantity=?,unit_price=?,money=?,tax_rate=?,consumption_tax=?,remarks=?,payment_method_cd=?,payment_money=?,update_day=?,update_time=?,update_pgm=?,update_ws=? WHERE order_no=? AND order_suffix=1`,
       [toNum(v.date), v.cust.customers_cd, v.f.field_cd, v.f.field_suffix, v.f.field_name1, v.f.field_name2, v.it.item_cd, v.it.item_nam.slice(0, 20), v.q.text, v.price + v.freight, v.net, v.rate, v.tax, v.remarks, v.method, v.net + v.tax, st.update_day, st.update_time, st.update_pgm, st.update_ws, orderNo]);
