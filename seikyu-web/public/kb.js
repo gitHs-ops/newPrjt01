@@ -171,10 +171,10 @@ export function installKb(h) {
       for (const row of $$('#kb-rows .kb-row')) { const v = (1 + Math.floor(Math.random() * 99)) * 1000; $$('[data-kb=amount]', row).forEach(x => { x.value = v; x.dispatchEvent(new Event('input', { bubbles: true })); }); }
       slipTotals(); toast(`サンプル：定型仕訳「${TEMPLATES[k][0]}」を入れました（登録はまだです）`);
     };
-    A.del = () => confirmBox('伝票の削除', `伝票No ${s.no}（${s.date}）を削除します。操作履歴には残ります。`, () => post('/api/kb/slips/delete', { id: s.id, version: s.version }).then(() => { toast('削除しました'); go('kb-journal', {}); }), '削除する');
+    A.del = () => confirmBox('伝票の取消', `伝票No ${s.no}（${s.date}）を取消します（削除。操作履歴には残ります）。`, () => post('/api/kb/slips/delete', { id: s.id, version: s.version }).then(() => { toast('取消しました'); go('kb-journal', {}); }), '取消する');
     A.back = () => history.back();
     const head = s ? `伝票No <b>${s.no}</b> ／ ${badge(s.sourceName, s.source === 'MANUAL' ? '' : 'amber')} ${s.sourceRef ? `<span class="muted small">元仕訳 #${esc(s.sourceRef)}</span>` : ''} <span class="muted small">更新 ${esc(s.updatedBy)}</span>` : '<span class="muted">新規伝票（伝票No は登録時に年度内連番で採番）</span>';
-    return page(s ? '仕訳入力（伝票修正）' : '仕訳入力（振替伝票）', '借方・貸方を同じ行に入力します。科目を選ぶと補助・既定税区分が切り替わり、消費税額は税込金額から自動計算します（手入力で上書き可）。',
+    return page(s ? '仕訳入力（伝票の詳細）' : '仕訳入力（振替伝票）', '借方・貸方を同じ行に入力します。科目を選ぶと補助・既定税区分が切り替わり、消費税額は税込金額から自動計算します（手入力で上書き可）。',
       `${s ? '<button data-act="back">閉じる</button>' : `<button type="button" class="sample-btn" data-act="sample" title="サンプル入力" aria-label="サンプル入力">${SAMPLE_ICON}</button>`}<a class="button" href="#kb-journal">仕訳帳へ</a>`,
       `<section class="card glass"><form id="kb-slip" data-id="${s?.id || ''}" data-version="${s?.version || ''}">
         <div class="kb-slip-head"><label class="field req"><span>伝票日付</span><input type="date" name="date" value="${esc(date)}" required></label>
@@ -185,7 +185,7 @@ export function installKb(h) {
         <div class="kb-foot"><div class="filters"><button type="button" data-kbrow="add">＋ 行追加</button><button type="button" data-kbrow="balance" title="借方・貸方の差額を空欄側に入れます">貸借差額を補完</button></div>
           <div class="kb-totals"><span>借方合計 <b id="kb-dr">0</b></span><span>貸方合計 <b id="kb-cr">0</b></span><span>差額 <b id="kb-diff" class="check-ok">0</b></span></div></div>
         <p class="form-error" id="kb-err"></p>
-        <div class="filters right">${locked ? '<span class="check-ng">入力制限日以前の伝票のため変更できません</span>' : canWrite() ? `${s ? '<button type="button" class="danger" data-act="del">削除</button>' : '<button type="button" data-act="clear">クリア</button>'}<button type="button" class="primary" data-act="save">${s ? '修正を保存' : '登録'}</button>` : '<span class="muted">参照者は登録できません</span>'}</div>
+        <div class="filters right">${locked ? '<span class="check-ng">入力制限日以前の伝票のため変更できません</span>' : canWrite() ? `${s ? '<button type="button" class="danger" data-act="del">取消</button>' : '<button type="button" data-act="clear">クリア</button>'}<button type="button" class="primary" data-act="save">${s ? '更新' : '登録'}</button>` : '<span class="muted">参照者は登録できません</span>'}</div>
       </form></section>
       <div class="note">入力制限日：${esc(K.fiscal.lockDate || '設定なし')} ／ 導入期首：${esc(K.fiscal.startDate)} ／ 合計額が一致しない伝票は登録できません。</div>`);
   };
@@ -200,7 +200,7 @@ export function installKb(h) {
     return `<div class="table-wrap"><table class="kb-journal"><thead><tr><th>日付／No</th><th>借方科目</th><th class="num">借方金額</th><th>摘要</th><th>貸方科目</th><th class="num">貸方金額</th><th></th></tr></thead><tbody>${d.slips.map(s => s.rows.map((r, i) => `<tr class="${i ? '' : 'kb-slip-first'}">
       ${i ? '' : `<td rowspan="${s.rows.length}" class="kb-slipno"><b>${esc(s.date)}</b><br>No ${s.no} ${s.source !== 'MANUAL' ? badge(s.sourceName, 'amber') : ''}${s.memo ? `<div class="small muted">${esc(s.memo)}</div>` : ''}</td>`}
       <td>${sideCell(r.dr)}</td><td class="num">${r.dr ? yen(r.dr.amount) : ''}</td><td class="small">${esc(r.memo)}</td><td>${sideCell(r.cr)}</td><td class="num">${r.cr ? yen(r.cr.amount) : ''}</td>
-      ${i ? '' : `<td rowspan="${s.rows.length}" class="kb-ops">${edit && canWrite() && !(lock && s.date <= lock) ? `<button class="mini" data-act="edit" data-id="${s.id}">修正</button><button class="mini danger" data-act="del" data-id="${s.id}" data-version="${s.version}" data-no="${s.no}" data-date="${esc(s.date)}">削除</button>` : `<button class="mini" data-act="edit" data-id="${s.id}">表示</button>`}</td>`}</tr>`).join('')).join('')}</tbody>
+      ${i ? '' : `<td rowspan="${s.rows.length}" class="kb-ops">${edit && canWrite() && !(lock && s.date <= lock) ? `<button class="mini" data-act="edit" data-id="${s.id}">詳細</button>` : `<button class="mini" data-act="edit" data-id="${s.id}">詳細</button>`}</td>`}</tr>`).join('')).join('')}</tbody>
       <tfoot><tr><td>${d.slips.length} 伝票</td><td class="right">合計</td><td class="num">${yen(d.total)}</td><td></td><td></td><td class="num">${yen(d.total)}</td><td></td></tr></tfoot></table></div>${d.truncated ? '<p class="check-ng small">表示は1,000伝票までです。期間を絞ってください。</p>' : ''}`;
   }
   VIEWS['kb-journal'] = async q => {
