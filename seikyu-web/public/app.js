@@ -1248,7 +1248,7 @@ const lrBlank = () => ({ acc: '', sub: '', amount: '', due: '', tax: '', sub2: '
 // 1 行目の科目の初期値は当座預金（D-071。2026-11-12 結合テスト IT-04）
 // 入金日の初期値は当月 20 日（変更可。2026-11-17 ユーザー指示）。メニューから開くと入力画面（open: true）、［一覧］で入金の一覧
 const lr20 = () => `${today().slice(0, 7)}-20`;
-const lrNew = () => ({ step: 1, date: lr20(), customer: '', lines: [{ ...lrBlank(), acc: '1112' }, lrBlank(), lrBlank()], billTo: '', billInput: '', invoices: [], deposit: 0, from: '', fromAuto: true, to: lr20(), toAuto: true, key: uuid(), open: true, editId: 0, editNo: '', editPays: null });
+const lrNew = () => ({ step: 1, date: lr20(), customer: '', lines: [{ ...lrBlank(), acc: '1112' }, lrBlank(), lrBlank()], billTo: '', billInput: '', invoices: [], deposit: 0, from: lr20(), fromAuto: true, to: lr20(), toAuto: true, key: uuid(), open: true, editId: 0, editNo: '', editPays: null });
 let lr = lrNew();
 const lrNum = v => { const n = Number(String(v ?? '').replace(/,/g, '').trim()); return Number.isFinite(n) ? n : NaN; };
 const lrSub = l => LR_ACC[l.acc]?.subs?.find(s => s[0] === l.sub);
@@ -1296,7 +1296,7 @@ const lrTotals = () => { const used = lrUsed(), fund = used.filter(l => ['bank',
 function lrStep2() {
   return `<div class="table-wrap lr-detail"><table class="lr-grid"><thead><tr><th>行</th><th>部門</th><th>科目</th><th>内訳1</th><th>内訳2</th><th class="num">入金額</th><th>処税率</th><th class="num">消費税額</th></tr></thead>${lr.lines.map(lrLine).join('')}</table></div>
     <p>${lr.lines.length < LR_MAX_LINES ? '<button type="button" class="mini" data-act="lrAddLine">＋ 行追加</button>' : ''}</p><div id="lr-totals">${lrTotals()}</div>
-    ${lrKeys([['lrNext', '入金予定照会', 1], ...(canWrite() ? [['lrReg', lr.editId ? '更新' : '登録', 1]] : [])])}`;
+    ${lrKeys([['lrNext', '入金予定照会', 1]])}`;   // 登録は入金予定照会の画面だけ（借方の画面の［登録］は 2026-11-17 お客様の要望で削除）
 }
 // 今回入金額は表示のみ（2026-10-31 ユーザー指示：現場別の入力を決めるまで）。入金額を表示中の請求へ請求No の古い順に配分する（入金消込の自動配分と同じ）
 const lrShown = () => lr.invoices.filter(r => (!lr.from || r.closing >= lr.from) && (!lr.to || r.closing <= lr.to)).sort((a, b) => a.id - b.id);
@@ -1392,7 +1392,7 @@ async function lrLoadBill(code) {
   const seq = ++lrLoadSeq, ctx = await api('/api/receipt-context?' + qs({ customer: code, exclude: lr.editId || '' }));   // 修正は元の入金を除いた残高
   if (seq !== lrLoadSeq) return false;
   lr.billTo = code; lr.invoices = ctx.invoices.filter(r => r.closing <= lr.date); lr.deposit = ctx.deposit;
-  if (lr.fromAuto) lr.from = lr.invoices.map(r => r.closing).sort()[0] || '';   // 請求日（自）の初期値は残高のある最も古い請求日（自・至とも日付で表示。2026-11-17）
+  if (lr.fromAuto) lr.from = lr.invoices.map(r => r.closing).sort()[0] || lr.to || lr.date;   // 請求日（自）の初期値は残高のある最も古い請求日（無ければ請求日（至）と同じ日。空欄にしない 2026-11-17）（自・至とも日付で表示。2026-11-17）
   return true;
 }
 const lrPaintRows = () => { const b = $('#lr-rows'); if (!b) return; b.innerHTML = lrRows(); $('#lr-foot').innerHTML = lrPayFoot(); $('#lr-dep').textContent = lrDepNote(); const ap = $('#lr-addpay'); if (ap) ap.innerHTML = lrAddPayBtn(); };
@@ -1412,19 +1412,15 @@ async function lrNext() {
   }
   await lrRegister();
 }
-// ［登録］（入金予定照会の右。2026-11-17 ユーザー指示）：入金予定照会を開かずに登録する。今回入金額は古い請求から自動で割り当て（修正は元の入金の今回入金額）
-async function lrRegDirect() {
-  if (!lr.billInput) lr.billInput = lr.customer;
-  if (lr.billTo || masters.customers.some(c => c.code === lr.billInput)) await lrLoadBill(lr.billTo || lr.billInput);
-  lr.pays = lr.editPays; await lrRegister();
-}
 const lrBack = () => { if (lr.step > 1) { lr.step -= 1; lrDraw(); } };
 const lrEnd = () => { lr = { ...lrNew(), open: false }; render({ fresh: true }); };   // ［一覧］＝入金の一覧（2026-11-17 ［終了］から変更）
 const lrFind = () => { const i = $('#lr-cust'); if (!i) return; i.focus(); try { i.showPicker(); } catch {} };
 const lrRun = fn => Promise.resolve().then(fn).catch(e => toast(e.message, true));
-// 編集中の確認（2026-11-17 ユーザー指示）：［実行］の後に明細・今回入金額を入力し、登録しないまま画面の外のボタン・メニュー（［一覧］・F3 も）を押したら確認する。
+// 編集中の確認（2026-11-17 ユーザー指示）：［実行］の後に明細・今回入金額を入力し、登録しないまま画面の外のボタン・メニュー（［一覧］も）を押したら確認する。
 // 画面の中の操作（［実行］・［入金予定照会］・［登録］・行追加など）とダイアログの中は対象外。［移動する］で入力を捨てて、押した操作を続ける
 const lrDirty = () => !!(lr.open && lr.step >= 2 && lr.dirty && $('#lr-body'));
+// 明細を捨てる（入金日・得意先と、修正なら元の入金はそのまま）
+const lrDiscard = (o = {}) => { const date = o.date ?? lr.date; lr = { ...lrNew(), editId: lr.editId, editNo: lr.editNo, editPays: lr.editPays, date, to: lr.toAuto ? date : lr.to, toAuto: lr.toAuto, customer: lr.customer, billInput: lr.editId ? lr.customer : '', ...o }; };
 const lrLeave = go => confirmBox('編集中の入金があります', '登録していない入金の入力があります。登録せずに移動すると、入力した内容は消えます。移動しますか？', () => { lr = { ...lrNew(), open: false }; setTimeout(go, 0); }, '移動する');
 window.addEventListener('click', e => {
   if (!lrDirty()) return;
@@ -1433,7 +1429,7 @@ window.addEventListener('click', e => {
   const rerun = el.dataset.act === 'lrSearch';
   if (el.closest('#lr-body') && el.dataset.act !== 'lrEnd' && !rerun) return;
   e.preventDefault(); e.stopImmediatePropagation();
-  if (rerun) return confirmBox('編集中の入金があります', '登録していない入金の入力があります。［実行］すると、入力した明細は消えます。実行しますか？', () => { lr = { ...lrNew(), date: lr.date, customer: lr.customer }; setTimeout(() => el.click(), 0); }, '実行する');
+  if (rerun) return confirmBox('編集中の入金があります', '登録していない入金の入力があります。［実行］すると、入力した明細は消えます。実行しますか？', () => { lrDiscard(); setTimeout(() => el.click(), 0); }, '実行する');
   lrLeave(() => el.click());
 }, true);
 // ［修正］：元の入金（借方の明細・口座・手形期日・処税率・消費税額・摘要2、今回入金額）を入れて入力画面を開く
@@ -1451,7 +1447,7 @@ function lrFromReceipt(r) {
 // 入金処理：最初は入金の一覧（他の画面と同じ）。［＋ 新規登録］・［修正］で入力画面（入金日・得意先 → 借方 → 今回入金額）を開く（2026-11-09 ユーザー指示）
 async function legacyReceiptView(q = {}) {
   const A = actions;
-  A.lrNext = () => lrRun(lrNext); A.lrReg = () => lrRun(lrRegDirect); A.lrSearch = () => lrRun(() => { lr.step = 1; return lrNext(); }); A.lrBack = lrBack; A.lrEnd = lrEnd; A.lrFind = lrFind;
+  A.lrNext = () => lrRun(lrNext); A.lrSearch = () => lrRun(() => { lr.step = 1; return lrNext(); }); A.lrBack = lrBack; A.lrEnd = lrEnd; A.lrFind = lrFind;
   A.lrAddPay = () => { lrManual(); if (lr.pays.length >= lrShown().length) { lrPaintRows(); return toast('ほかに入金できる請求（入金日までに締めた残高のある請求）がありません', true); } lr.pays.push({ id: '', amount: '' }); lrPaintRows(); };
   A.lrDelPay = d => { lrManual(); lr.pays.splice(Number(d.i), 1); lrPaintRows(); };
   A.lrAddLine = () => { if (lr.lines.length < LR_MAX_LINES) { lr.lines.push(lrBlank()); lrDraw(); } };
@@ -1473,6 +1469,13 @@ async function legacyReceiptView(q = {}) {
 }
 document.addEventListener('input', e => {
   const t = e.target; if (!t.closest?.('#lr-body, #lr-pop')) return;
+  // 入金日・得意先を変えたときも確認（2026-11-17 ユーザー指示）。［キャンセル］で元の値に戻し、［変更する］で明細を捨てて入金日・得意先の入力に戻る（［実行］で明細を出し直す）
+  if ((t.id === 'lr-date' || t.id === 'lr-cust') && lrDirty()) {
+    const key = t.id === 'lr-date' ? 'date' : 'customer', v = key === 'date' ? t.value : t.value.trim();
+    t._flatpickr ? (t._flatpickr.close(), t._flatpickr.setDate(lr[key], false)) : (t.value = lr[key]); t.blur();
+    return confirmBox('編集中の入金があります', '登録していない入金の入力があります。入金日・得意先を変えると、入力した明細は消えます。変更しますか？',
+      () => { lrDiscard({ [key]: v }); setTimeout(() => { lrDraw(); const i = $('#' + t.id); if (i) { i.focus(); if (key === 'customer') i.setSelectionRange(i.value.length, i.value.length); } }, 0); }, '変更する');
+  }
   if (t.closest('#lr-detail, #lr-pop')) lr.dirty = true;
   if (t.id === 'lr-date') { lr.date = t.value; if (lr.toAuto) lr.to = t.value; }
   else if (t.id === 'lr-cust') { lr.customer = t.value.trim(); lr.billInput = ''; lr.billTo = ''; lr.invoices = []; $('#lr-cname').textContent = lrName(); }
@@ -1504,7 +1507,7 @@ document.addEventListener('keydown', e => {
   if (route.name !== 'receipts' || route.sub !== 'legacy' || !$('#lr-body') || $('dialog[open]')) return;
   const k = e.key;
   // F2 貸方：現行の F2 の画面は資料に無いため、当面は F10 と同じ請求ごとの今回入金額の画面を開く（2026-10-31 ユーザー指示）
-  const map = { F2: () => { if (lr.step === 2) lrRun(lrNext); }, F3: () => (lrDirty() ? lrLeave(lrEnd) : lrEnd()), F9: () => { if (lr.step < 3) lrFind(); }, F10: () => { if (lr.step < 3 || canWrite()) lrRun(lrNext); }, F12: lrBack };
+  const map = { F2: () => { if (lr.step === 2) lrRun(lrNext); }, F9: () => { if (lr.step < 3) lrFind(); }, F10: () => { if (lr.step < 3 || canWrite()) lrRun(lrNext); }, F12: lrBack };
   if (!map[k]) return;
   e.preventDefault(); map[k]();
 });
