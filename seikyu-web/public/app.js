@@ -820,8 +820,9 @@ VIEWS.invoices = async q => {
   const INV_SORTS = { closing: (a, b) => String(a.closing).localeCompare(String(b.closing)) || String(a.customer).localeCompare(String(b.customer), 'ja', { numeric: true }),
     cust: (a, b) => String(a.customer).localeCompare(String(b.customer), 'ja', { numeric: true }) || String(a.closing).localeCompare(String(b.closing)) };
   A.invSort = d => { invSort = invSort.k === d.k ? { k: d.k, dir: -invSort.dir } : { k: d.k, dir: 1 }; render(); };
+  if (invSort.k === 'closing') invSort = { k: '', dir: 1 };   // ソート順「締日」は 2026-11-17 ユーザー指示で削除
   const lines = invoiceLines(invSort.k ? list.slice().sort((a, b) => INV_SORTS[invSort.k](a, b) * invSort.dir) : list);
-  const invSortBar = `<div class="sort-bar small" style="display:flex;gap:6px;align-items:center;margin-bottom:8px"><span class="muted">ソート順</span>${[['closing', '締日'], ['cust', '得意先']].map(([k, l]) => `<button type="button" class="mini${invSort.k === k ? ' primary' : ''}" data-act="invSort" data-k="${k}">${l}${invSort.k === k ? (invSort.dir > 0 ? ' ▲' : ' ▼') : ''}</button>`).join('')}</div>`;
+  const invSortBar = `<div class="sort-bar small" style="display:flex;gap:6px;align-items:center;margin-bottom:8px"><span class="muted">ソート順</span>${[['cust', '得意先']].map(([k, l]) => `<button type="button" class="mini${invSort.k === k ? ' primary' : ''}" data-act="invSort" data-k="${k}">${l}${invSort.k === k ? (invSort.dir > 0 ? ' ▲' : ' ▼') : ''}</button>`).join('')}</div>`;
   const sum = k => lines.reduce((n, r) => n + r[k], 0);
   const closeSel = id => `<select id="${id}">${closings.map(c => `<option value="${c}"${String(c) === '20' ? ' selected' : ''}>${closingName(c)}</option>`).join('')}</select>`; // 締日の既定は20日（2026-11-17 ユーザー指示）
   return page('請求締め・発行', '得意先単位・締日ごとの請求を、得意先×現場の行で照会します。請求書の発行は「請求書発行」で行います。',
