@@ -1255,10 +1255,9 @@ function lrStep1() {
   // 「実行」の後は現行 HAW110 と同じく入金日・得意先は表示だけ（直すときは F12 前画面）
   // 3画面目は 請求日（絞込）を入金日・得意先の行の後ろに置く（2026-11-01）
   // 入金予定照会（3 画面目）はポップアップ（2026-11-17）。この画面は借方の明細のまま
-  if (lr.step > 1) return `<div class="inline-fields lr-step1 lr-fixed"><span>入金日：<b>${esc(lr.date)}</b></span><span>得意先：<b>${esc(lr.customer)} ${esc(lrName())}</b></span>${custHints()}<button type="button" data-act="lrEnd">一覧</button></div>
-    <div id="lr-detail">${lrStep2()}</div>`;
+  // 2026-11-17 ユーザー指示：［実行］の後も入金日・得意先は入力できるまま、借方の明細はこの下に出す（表示だけの行にしない）
   return `<div class="inline-fields lr-step1">${field('入金日', `<input type="date" id="lr-date" value="${esc(lr.date)}">`, { req: 1 })}${field('得意先', `<input id="lr-cust" list="dl-pcust" autocomplete="off" value="${esc(lr.customer)}" placeholder="得意先コード" style="width:140px" ${lr.editId ? 'readonly title="修正では得意先は変えられません"' : ''}>${custHints()}<b id="lr-cname" class="lr-cname">${esc(lrName())}</b>`, { req: 1 })}<button type="button" data-act="lrSearch">実行</button><button type="button" data-act="lrEnd">一覧</button></div>
-    <div id="lr-detail"></div>`;
+    <div id="lr-detail">${lr.step > 1 ? lrStep2() : ''}</div>`;
 }
 // 得意先はコードのほか「コード＋名称」・名称の一部（1件に決まるとき）でも受け付ける
 const lrResolve = t => { t = String(t || '').trim(); if (!t) return ''; const cs = masters.customers;
@@ -1275,7 +1274,7 @@ function lrLine(l, i) {
     <tr><th>摘要1</th><td colspan="6">${l.acc ? `<input data-lr="memo1" data-i="${i}" value="${esc(l.memo1 || lrName())}" maxlength="100" aria-label="摘要1" style="width:100%">` : ''}</td></tr>
     <tr><th>摘要2</th><td colspan="6">${l.acc ? `<div style="display:flex;gap:6px"><select data-lr="tcode" data-i="${i}" aria-label="適用コード" style="width:220px;flex:none" title="適用コード（摘要）マスタから選ぶと摘要2に名称が入ります"><option value="">${active('tekiyo').length ? '適用コードを選択' : '適用コード未登録（マスタ管理）'}</option>${active('tekiyo').map(x => `<option value="${esc(x.code)}" ${x.code === l.tcode ? 'selected' : ''}>${esc(x.code)} ${esc(x.name)}</option>`).join('')}</select><input data-lr="memo2" data-i="${i}" value="${esc(l.memo2 || lrSub(l)?.[3] || '')}" data-auto="${esc(l.memo2Auto ?? (l.memo2 ? '' : lrSub(l)?.[3] || ''))}" maxlength="100" placeholder="${kind === 'notes' ? '空欄なら「手形 期日…」' : ''}" aria-label="摘要2" style="width:100%"></div>` : ''}</td></tr></tbody>`;
 }
-const lrTotals = () => { const used = lrUsed(), fund = used.filter(l => ['bank', 'cash'].includes(lrKind(l))).reduce((n, l) => n + (lrNum(l.amount) || 0), 0), tax = used.reduce((n, l) => n + lrTax(l), 0); return `<div class="lr-totals"><span>借方合計 <b>${yen(lrSum())}</b></span><span>仮払消費税 <b>${yen(tax)}</b></span><span>仮受消費税 <b>0</b></span><span>資金残高 <b>${yen(fund)}</b></span></div>`; };
+const lrTotals = () => { const used = lrUsed(), fund = used.filter(l => ['bank', 'cash'].includes(lrKind(l))).reduce((n, l) => n + (lrNum(l.amount) || 0), 0), tax = used.reduce((n, l) => n + lrTax(l), 0); return `<div class="lr-totals"><span>借方合計 <b>${yen(lrSum())}</b></span><span>仮払消費税 <b>${yen(tax)}</b></span><span>資金残高 <b>${yen(fund)}</b></span></div>`; };
 function lrStep2() {
   return `<div class="table-wrap lr-detail"><table class="lr-grid"><thead><tr><th>行</th><th>部門</th><th>科目</th><th>内訳1</th><th>内訳2</th><th class="num">入金額</th><th>処税率</th><th class="num">消費税額</th></tr></thead>${lr.lines.map(lrLine).join('')}</table></div>
     <p>${lr.lines.length < LR_MAX_LINES ? '<button type="button" class="mini" data-act="lrAddLine">＋ 行追加</button>' : ''}</p><div id="lr-totals">${lrTotals()}</div>
@@ -1349,6 +1348,7 @@ function lrCheckLines() {
   }
 }
 async function lrRegister() {
+  lrCheckLines();
   if (!lr.billTo) throw Error('請求先を選択してください');
   if (lr.pays) lr.pays.forEach((p, i) => { const x = lrPays()[i]; if (!p.id && !String(p.amount).trim()) return; if (!x.r) throw Error(`${i + 1}行目の請求を選択してください`); if (!Number.isInteger(x.n) || x.n <= 0) throw Error(`${i + 1}行目の今回入金額を正しく入力してください`); if (x.n > x.r.balance) throw Error(`請求No ${x.r.id} の今回入金額が入金予定額（${yen(x.r.balance)}円）を超えています`); });
   const pays = lrPays().filter(x => x.r && x.n > 0);
@@ -1386,7 +1386,7 @@ async function lrNext() {
     lr.step = 2; lrDraw(); return $('#lr-detail [data-lr=acc]')?.focus();
   }
   if (lr.step === 2) {
-    lrCheckLines();
+    // 入金予定照会は借方の入力が途中でも開く（確認の画面は出さない。借方の確認は［登録］のとき。2026-11-17 ユーザー指示）
     // 請求先の初期値は得意先。前画面から戻ったときは選んだ請求先のまま
     if (!lr.billInput) lr.billInput = lr.customer;
     if (lr.billTo || masters.customers.some(c => c.code === lr.billInput)) await lrLoadBill(lr.billTo || lr.billInput);
