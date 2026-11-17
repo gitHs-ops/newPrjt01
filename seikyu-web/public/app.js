@@ -444,9 +444,9 @@ async function arPostView(q = {}) {
   A.arRun = async (_, btn) => { if (btn) btn.disabled = true; try { await post('/api/ar-post/run', { month: nx.month }); render({ fresh: true }); } catch (e) { toast(e.message, true); if (btn) btn.disabled = false; } };
   A.arXlsx = () => run && saveXlsx('/api/reports/journal-list?' + qs({ pattern: 'A01', from: nx.from, to: nx.to, format: 'xlsx' })).catch(e => toast(e.message, true));
   return page('出荷・売上', '', '', `<section class="card glass" data-sub="sales"><div class="card-head"><h2>売掛金計上</h2></div>
-    <div class="filters"><label class="field">締日<span style="display:flex;align-items:center;gap:4px"><input type="month" id="ar-month" value="${esc(nx.month)}" style="width:140px">20日</span></label><label class="field">対象期間<input value="${esc(nx.from)} 〜 ${esc(nx.to)}" readonly tabindex="-1" style="width:220px"></label>
+    <div class="filters"><label class="field">年月<input type="month" id="ar-month" value="${esc(nx.month)}" style="width:140px"></label><label class="field">対象期間<input value="${esc(nx.from)} 〜 ${esc(nx.to)}" readonly tabindex="-1" style="width:220px"></label>
       ${canWrite() ? `<button class="primary" data-act="arRun" ${nx.linked ? 'disabled title="会計連携済みの締日は実行できません"' : ''}>実行</button>` : ''}<button data-act="arXlsx" ${run ? '' : 'disabled title="実行すると出力できます"'}>⇩ 売掛金計上自動仕訳リスト（Excel）</button></div>
-    <p class="small muted" style="margin-top:8px">締日は毎月20日に固定です（年月だけ選べます）。［実行］は何度でもできます（漏れた伝票があれば押し直してください）。仕訳・会計連携 → 会計連携データ を作成すると元に戻せず、次回は翌月20日の締日になります。</p>
+    <p class="small muted" style="margin-top:8px">年月を選ぶと対象期間（前月21日〜当月20日）が変わります。［実行］は何度でもできます（漏れた伝票があれば押し直してください）。仕訳・会計連携 → 会計連携データ を作成すると元に戻せず、次回は翌月20日の締日になります。</p>
     <p class="small ${run ? '' : 'muted'}" id="ar-status">${run ? `実行：${esc(run.at)}（${esc(run.by)}）　${run.slips}伝票・合計 ${yen(run.total)} 円` : '未実行'}${d.linked ? `　／　会計連携済み：締日 ${esc(d.linked.to)} まで` : ''}</p></section>`);
 }
 let invSort = { k: '', dir: 1 }; // 請求一覧照会の並び（'' はサーバーの並び）
