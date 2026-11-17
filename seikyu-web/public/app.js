@@ -455,7 +455,7 @@ let invSort = { k: '', dir: 1 }; // 請求一覧照会の並び（'' はサー�
 const listSort = {};
 const jaCmp = (a, b) => String(a ?? '').localeCompare(String(b ?? ''), 'ja', { numeric: true });
 const sortedBy = (key, rows, fns) => { const st = listSort[key]; return st && fns[st.k] ? rows.slice().sort((a, b) => fns[st.k](a, b) * st.dir) : rows; };
-const sortBarOf = (key, items) => { const st = listSort[key] || {}; return `<div class="sort-bar small" style="display:flex;gap:6px;align-items:center;margin-bottom:8px"><span class="muted">並べ替え</span>${items.map(([k, l]) => `<button type="button" class="mini${st.k === k ? ' primary' : ''}" data-act="listSort" data-key="${key}" data-k="${k}">${l}${st.k === k ? (st.dir > 0 ? ' ▲' : ' ▼') : ''}</button>`).join('')}</div>`; };
+const sortBarOf = (key, items) => { const st = listSort[key] || {}; return `<div class="sort-bar small" style="display:flex;gap:6px;align-items:center;margin-bottom:8px"><span class="muted">ソート順</span>${items.map(([k, l]) => `<button type="button" class="mini${st.k === k ? ' primary' : ''}" data-act="listSort" data-key="${key}" data-k="${k}">${l}${st.k === k ? (st.dir > 0 ? ' ▲' : ' ▼') : ''}</button>`).join('')}</div>`; };
 const listSortAct = d => { const st = listSort[d.key]; listSort[d.key] = st?.k === d.k ? { k: d.k, dir: -st.dir } : { k: d.k, dir: 1 }; render(); };
 // 請求（得意先単位）：締日順（同じ締日は得意先コード順）・得意先順（同じ得意先は締日順）
 const INV_SORT_FNS = { closing: (a, b) => jaCmp(a.closing, b.closing) || jaCmp(a.customer, b.customer), cust: (a, b) => jaCmp(a.customer, b.customer) || jaCmp(a.closing, b.closing) };
@@ -490,7 +490,7 @@ VIEWS.shipments = async q => {
   const SORTS = { no: byNo, date: byDate, cust: (a, b) => String(a.customer).localeCompare(String(b.customer), 'ja', { numeric: true }) || byDate(a, b) };
   A.shipSort = d => { shipSort = shipSort.k === d.k ? { k: d.k, dir: -shipSort.dir } : { k: d.k, dir: 1 }; render(); };
   const shown = list.filter(r => !linked(r)).sort((a, b) => SORTS[shipSort.k](a, b) * shipSort.dir).flatMap(tree);
-  const sortBar = `<div class="sort-bar small" style="display:flex;gap:6px;align-items:center;margin-bottom:8px"><span class="muted">並べ替え</span>${[['no', '売上No'], ['date', '出荷日'], ['cust', '得意先']].map(([k, l]) => `<button type="button" class="mini${shipSort.k === k ? ' primary' : ''}" data-act="shipSort" data-k="${k}">${l}${shipSort.k === k ? (shipSort.dir > 0 ? ' ▲' : ' ▼') : ''}</button>`).join('')}</div>`;
+  const sortBar = `<div class="sort-bar small" style="display:flex;gap:6px;align-items:center;margin-bottom:8px"><span class="muted">ソート順</span>${[['no', '売上No'], ['date', '出荷日'], ['cust', '得意先']].map(([k, l]) => `<button type="button" class="mini${shipSort.k === k ? ' primary' : ''}" data-act="shipSort" data-k="${k}">${l}${shipSort.k === k ? (shipSort.dir > 0 ? ' ▲' : ' ▼') : ''}</button>`).join('')}</div>`;
   const net = shown.reduce((n, r) => n + r.net, 0), tax = shown.reduce((n, r) => n + r.tax, 0);
   const acts = r => {
     const b = [`<button class="mini" data-act="detail" data-id="${esc(r.orderNo)}">詳細</button>`];
@@ -792,7 +792,7 @@ VIEWS.invoices = async q => {
     cust: (a, b) => String(a.customer).localeCompare(String(b.customer), 'ja', { numeric: true }) || String(a.closing).localeCompare(String(b.closing)) };
   A.invSort = d => { invSort = invSort.k === d.k ? { k: d.k, dir: -invSort.dir } : { k: d.k, dir: 1 }; render(); };
   const lines = invoiceLines(invSort.k ? list.slice().sort((a, b) => INV_SORTS[invSort.k](a, b) * invSort.dir) : list);
-  const invSortBar = `<div class="sort-bar small" style="display:flex;gap:6px;align-items:center;margin-bottom:8px"><span class="muted">並べ替え</span>${[['closing', '締日'], ['cust', '得意先']].map(([k, l]) => `<button type="button" class="mini${invSort.k === k ? ' primary' : ''}" data-act="invSort" data-k="${k}">${l}${invSort.k === k ? (invSort.dir > 0 ? ' ▲' : ' ▼') : ''}</button>`).join('')}</div>`;
+  const invSortBar = `<div class="sort-bar small" style="display:flex;gap:6px;align-items:center;margin-bottom:8px"><span class="muted">ソート順</span>${[['closing', '締日'], ['cust', '得意先']].map(([k, l]) => `<button type="button" class="mini${invSort.k === k ? ' primary' : ''}" data-act="invSort" data-k="${k}">${l}${invSort.k === k ? (invSort.dir > 0 ? ' ▲' : ' ▼') : ''}</button>`).join('')}</div>`;
   const sum = k => lines.reduce((n, r) => n + r[k], 0);
   const closeSel = id => `<select id="${id}">${closings.map(c => `<option value="${c}"${String(c) === '20' ? ' selected' : ''}>${closingName(c)}</option>`).join('')}</select>`; // 締日の既定は20日（2026-11-17 ユーザー指示）
   return page('請求締め・発行', '得意先単位・締日ごとの請求を、得意先×現場の行で照会します。請求書の発行は「請求書発行」で行います。',
