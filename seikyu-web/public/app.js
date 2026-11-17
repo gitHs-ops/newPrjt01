@@ -16,6 +16,8 @@ let session, meta, masters = {}, actions = {}, route = { name: 'dashboard', q: {
 const canWrite = () => [1, 2, 3, 4].includes(session?.user.role), isAdmin = () => session?.user.role === 1;
 // user01 でログインしたとき（2026-11-17 ユーザー指示。ほかの権限は reviewer と同じ）：出荷伝票一覧の［＋ 出荷登録］・出荷伝票の詳細／修正の［伝票発行］を出さない・請求データ作成の「発行済みのため次回締めで請求する得意先」の確認を出さない・請求詳細照会の［発行して Excel］［再発行して Excel］を出さない
 const isUser01 = () => session?.user.loginId === 'user01';
+// 一覧の［取消］は詳細／修正画面のフッター（［閉じる］［キャンセル］の前）に置く（2026-11-17 ユーザー指示：UI 統一）
+const footFirst = html => html && $('#modal-foot').insertAdjacentHTML('afterbegin', html);
 
 // ---------- API ----------
 // DB の読込は検索系のボタン（検索・タブ切替など）と登録・更新の後だけ（2026-10-23）。画面の描画中の GET は apiMode で切り替える：
@@ -1619,13 +1621,13 @@ VIEWS.purchases = async q => {
       const body = { date: v.date, vendor: v.vendor, kind: v.kind, memo: v.memo, lines }, r = await post(old ? '/api/purchases/update' : '/api/purchases', old ? { ...body, id: old.id } : body);
       toast(`仕入 ${pNo(r.no)}（${r.lines}行・${yen(r.net)}円）を${old ? '修正' : '登録'}しました`); render(); } });
   A.new = () => puForm(null);
-  A.edit = d => { const ls = list.filter(r => r.no === d.no).sort((a, b) => a.line - b.line); if (ls.length) puForm({ id: ls[0].id, no: ls[0].no, date: ls[0].date, vendor: ls[0].vendor, kind: ls[0].kind, lines: ls }); };
+  A.edit = d => { const ls = list.filter(r => r.no === d.no).sort((a, b) => a.line - b.line); if (ls.length) { puForm({ id: ls[0].id, no: ls[0].no, date: ls[0].date, vendor: ls[0].vendor, kind: ls[0].kind, lines: ls }); footFirst(`<button type="button" class="danger" data-act="del" data-id="${ls[0].id}" data-no="${esc(ls[0].no)}">取消</button>`); } };
   A.del = d => confirmBox('仕入の取消', `仕入伝票 ${pNo(d.no)} の全明細を削除します。`, () => post('/api/purchases/delete', { id: Number(d.id) }).then(() => { toast('取消しました'); render(); }), '取消する');
   return page('商品仕入', '業者からの商品仕入を伝票（複数明細）で記録します（purchase）。区分 1=仕入／2=他社納入、運賃行あり。', `${monthInput('month', month)}${filterSelect('vendor', masters.vendors, q.vendor, 'すべての業者')}${csvLink('purchases', { month })}${canWrite() ? '<button class="primary" data-act="new">＋ 仕入登録</button>' : ''}`,
     `<section class="card glass" data-sub="list">${table([{ label: '伝票No.', value: r => pNo(r.no, r.line) }, { label: '仕入日', value: r => r.date }, { label: '区分', value: r => r.kindName }, { label: '業者', value: r => r.vendorName },
       { label: '商品', value: r => `${r.itemName || r.item}${r.lineKind === '2' && !/運賃/.test(r.itemName || '') ? '（金額のみ）' : ''}` }, { label: '数量', num: 1, value: r => (r.lineKind === '2' ? '' : `${r.quantity} ${r.unit || ''}`) },
       { label: '単価', num: 1, value: r => (r.lineKind === '2' ? '' : Number(r.price).toLocaleString('ja-JP', { minimumFractionDigits: 2, maximumFractionDigits: 2 })) }, { label: '金額', num: 1, value: r => yen(r.net) }, { label: '処税率', value: r => r.taxCode },
-      { label: '', html: r => canWrite() && r.line === 1 ? `<button class="mini" data-act="edit" data-no="${esc(r.no)}">修正</button> <button class="mini danger" data-act="del" data-id="${r.id}" data-no="${esc(r.no)}">取消</button>` : '' }], list, { foot: ['合計', '', '', '', '', '', '', yen(list.reduce((n, r) => n + r.net, 0)), '', ''] })}</section>
+      { label: '', html: r => canWrite() && r.line === 1 ? `<button class="mini" data-act="edit" data-no="${esc(r.no)}">修正</button>` : '' }], list, { foot: ['合計', '', '', '', '', '', '', yen(list.reduce((n, r) => n + r.net, 0)), '', ''] })}</section>
     <div data-sub="reports">${miscCard('商品仕入登録リスト', '仕入先別・仕入日ごと', `<label class="field">対象月（前月21日〜当月20日）<input type="month" id="pl-month" value="${thisMonth()}"></label>`, '<button data-act="misc" data-kind="purchase-register" data-src="pl">⇩ Excel</button>')}${dailyCard('商品別仕入日報', 'pd', '<button data-act="misc" data-kind="item-purchase-daily" data-src="pd">商品別仕入日報</button>')}</div>`);
 };
 
@@ -1801,8 +1803,9 @@ function expenseView(kind) {
         const r = await post('/api/expenses', body);
         toast(`${r.no}${r.docs > 1 ? `（支払先ごとに ${r.docs} 伝票）` : ''} を登録しました${r.due ? '・支払予定日 ' + r.due : ''}（仕訳 ${payable ? 'D01' : 'E01'}）`); render(); } });
     A.new = () => form();
-    A.detail = d => form(list.find(x => x.id === Number(d.id)));
-    A.edit = d => form(list.find(x => x.id === Number(d.id)), true);
+    const revBtn = r => (r && canWrite() && r.status === 'POSTED' && !r.paid ? `<button type="button" class="danger" data-act="rev" data-id="${r.id}" data-no="${esc(r.no)}">${payable ? '削除' : '取消'}</button>` : '');
+    A.detail = d => { const r = list.find(x => x.id === Number(d.id)); form(r); footFirst(revBtn(r)); };
+    A.edit = d => { const r = list.find(x => x.id === Number(d.id)); form(r, true); footFirst(revBtn(r)); };
     const showDoc = (R, f, edit) => {
       const set = (el, v, ev = 'change') => { if (!el) return; if (el._flatpickr) el._flatpickr.setDate(v || '', false); el.value = v ?? ''; el.dispatchEvent(new Event(ev, { bubbles: true })); };
       const q = n => f.querySelector(`[name=${n}]`);
@@ -1826,7 +1829,6 @@ function expenseView(kind) {
     const cols2 = [{ label: '伝票No', value: r => r.no }, { label: payable ? '締切日' : '支払日', value: r => r.date }, ...(payable ? [{ label: '業者', value: r => r.vendorName }, { label: '支払予定日', value: r => r.due }] : [{ label: '支払先', value: r => r.payee }]),
       { label: '科目', html: r => `${esc(r.account)} ${esc(r.accountName || '')}${r.lines.length > 1 ? ` <button class="mini quiet" data-act="lines" data-id="${r.id}">他${r.lines.length - 1}行</button>` : ''}` }, { label: '処税率', value: r => payable ? taxLabel(r.taxCode) : r.taxRate == null ? r.taxCode : `${r.taxRate}%` }, { label: payable ? '金額' : '支払額', num: 1, value: r => yen(r.amount) }, // 小口現金は「支払額」（2026-11-03）
       ...(payable ? [{ label: '支払済', num: 1, value: r => yen(r.paid) }, { label: '未払残高', num: 1, value: r => yen(r.balance) }] : []), { label: '摘要', value: r => r.memo }, { label: '状態', html: r => (!payable && r.status === 'POSTED' ? badge('支払済', 'green') : status(r.status)) }, // 小口現金は登録＝現金で支払済み（2026-11-03 計上済→支払済）
-      { label: '', html: r => canWrite() && r.status === 'POSTED' && !r.paid ? `<button class="mini danger" data-act="rev" data-id="${r.id}" data-no="${esc(r.no)}">${payable ? '削除' : '取消'}</button>` : '' },
       { label: '', html: r => payable && canWrite() && r.status === 'POSTED' && !r.paid ? `<button class="mini" data-act="edit" data-id="${r.id}">修正</button>` : `<button class="mini" data-act="detail" data-id="${r.id}">詳細</button>` }];
     // 小口現金一覧（11/04 打合せ No.14）：入力した行ごとに 1 行で表示し、行ごとに［修正］［削除］（行どうしは独立。伝票No は 伝票No－行番号）
     const pettyRows = payable ? [] : list.filter(r => r.status !== 'REVERSED').flatMap(r => r.lines.map(L => ({ ...r, L })));
@@ -1916,13 +1918,13 @@ VIEWS.payments = async q => {
       if (old) { const r = await post('/api/payments/update', { ...v, id: old.id, force: !!old.exported, allocations, idempotencyKey: key }); toast(`支払 ${old.no} を取り消し、${r.no} で登録し直しました（仕訳 F01）`); return render(); }
       const r = await post('/api/payments', { ...v, allocations, idempotencyKey: key }); toast(`支払 ${r.no} を登録しました（仕訳 F01）`); render(); } }); };
   A.new = () => pyForm(null);
-  A.edit = d => { const p = list.find(r => String(r.id) === String(d.id)); if (p) pyForm(p); };
+  A.edit = d => { const p = list.find(r => String(r.id) === String(d.id)); if (p) { pyForm(p); footFirst(`<button type="button" class="danger" data-act="rev" data-id="${p.id}" data-no="${esc(p.no)}" data-exported="${esc(p.exported || '')}">取消</button>`); } };
   A.rev = d => confirmBox('支払の取消', d.exported ? `⚠ 支払 ${d.no} は全銀データ作成済みです（${d.exported.slice(0, 16)}）。銀行へ送信済みなら振込の組戻しが必要です。それでも取消し、逆仕訳を計上しますか？` : `支払 ${d.no} を取消し、逆仕訳を計上します。`, () => post('/api/payments/reverse', { id: Number(d.id), force: !!d.exported }).then(() => { toast('取消しました'); render(); }), '取消する');
   A.prep = d => paymentReport(d.kind).catch(e => toast(e.message, true)); A.zengin = () => zenginDialog().catch(e => toast(e.message, true));
   return page('支払', '定時請求（買掛金）に対する振込支払を登録します（payment / payment_allocation）。', `${monthInput('month', month)}${csvLink('payments', { month })}${canWrite() ? '<button class="primary" data-act="new">＋ 支払登録</button>' : ''}`,
     `<section class="card glass" data-sub="list">${table([{ label: '支払No', value: r => r.no }, { label: '支払日', value: r => r.date }, { label: '業者', value: r => r.vendorName }, { label: '支払額', num: 1, value: r => yen(r.amount) }, { label: '支払元', value: r => nameOf('banks', r.fromBank) }, { label: '振込方法', value: r => (r.transferMethod === '1' ? '1 文書' : '0 電信') },
       { label: '振込先', value: r => r.payee ? `${r.payee.bank}-${r.payee.branch} ${r.payee.account}` : '未登録' }, { label: '対象伝票', value: r => r.allocations.map(a => a.no).join(', ') }, { label: '状態', html: r => status(r.status) },
-      { label: '', html: r => canWrite() && r.status === 'POSTED' ? `<button class="mini" data-act="edit" data-id="${r.id}">修正</button> <button class="mini danger" data-act="rev" data-id="${r.id}" data-no="${esc(r.no)}" data-exported="${esc(r.exported || '')}">取消</button>` : '' }], list, { rowClass: r => r.status === 'REVERSED' ? 'reversed' : '' })}</section><div data-sub="reports">${paymentReportsCard()}</div><div data-sub="bank">${miscCard('銀行別随時支払一覧表', '支払日→支払元口座（銀行）別に、業者・振込先銀行・支店を一覧', rangeInputs('bp', '支払日'),
+      { label: '', html: r => canWrite() && r.status === 'POSTED' ? `<button class="mini" data-act="edit" data-id="${r.id}">修正</button>` : '' }], list, { rowClass: r => r.status === 'REVERSED' ? 'reversed' : '' })}</section><div data-sub="reports">${paymentReportsCard()}</div><div data-sub="bank">${miscCard('銀行別随時支払一覧表', '支払日→支払元口座（銀行）別に、業者・振込先銀行・支店を一覧', rangeInputs('bp', '支払日'),
       '<button data-act="bankList">表示・Excel</button>', '「仕訳・会計連携 › 自動仕訳リスト」の「銀行別随時支払一覧表」と同じ帳票です。')}</div><div data-sub="transfer">${miscCard('振込先一覧', '業者マスタの振込サイクル（15日／月末）・振込元口座・振込先口座（10/19 打合せ）', `<label class="field">支払予定日（まで）<input type="date" id="tl-to" value="${today()}"></label>`, '<button data-act="misc" data-kind="transfer-list" data-src="tl">表示・Excel</button>')}</div>`);
 };
 
