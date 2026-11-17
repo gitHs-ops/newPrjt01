@@ -1248,7 +1248,7 @@ const lrBlank = () => ({ acc: '', sub: '', amount: '', due: '', tax: '', sub2: '
 // 1 行目の科目の初期値は当座預金（D-071。2026-11-12 結合テスト IT-04）
 // 入金日の初期値は当月 20 日（変更可。2026-11-17 ユーザー指示）。メニューから開くと入力画面（open: true）、［一覧］で入金の一覧
 const lr20 = () => `${today().slice(0, 7)}-20`;
-const lrNew = () => ({ step: 1, date: lr20(), customer: '', lines: [{ ...lrBlank(), acc: '1112' }, lrBlank(), lrBlank()], billTo: '', billInput: '', invoices: [], deposit: 0, from: lr20(), fromAuto: true, to: lr20(), toAuto: true, key: uuid(), open: true, editId: 0, editNo: '', editPays: null });
+const lrNew = () => ({ step: 1, date: lr20(), customer: '', lines: [{ ...lrBlank(), acc: '1112' }, lrBlank(), lrBlank()], billTo: '', billInput: '', invoices: [], deposit: 0, from: '', to: '', key: uuid(), open: true, editId: 0, editNo: '', editPays: null });
 let lr = lrNew();
 const lrNum = v => { const n = Number(String(v ?? '').replace(/,/g, '').trim()); return Number.isFinite(n) ? n : NaN; };
 const lrSub = l => LR_ACC[l.acc]?.subs?.find(s => s[0] === l.sub);
@@ -1392,7 +1392,7 @@ async function lrLoadBill(code) {
   const seq = ++lrLoadSeq, ctx = await api('/api/receipt-context?' + qs({ customer: code, exclude: lr.editId || '' }));   // 修正は元の入金を除いた残高
   if (seq !== lrLoadSeq) return false;
   lr.billTo = code; lr.invoices = ctx.invoices.filter(r => r.closing <= lr.date); lr.deposit = ctx.deposit;
-  if (lr.fromAuto) lr.from = lr.invoices.map(r => r.closing).sort()[0] || lr.to || lr.date;   // 請求日（自）の初期値は残高のある最も古い請求日（無ければ請求日（至）と同じ日。空欄にしない 2026-11-17）（自・至とも日付で表示。2026-11-17）
+  // 入金予定照会の請求日（自）・（至）は空欄（年-月-日）で開く。空欄なら絞り込まない（2026-11-17 ユーザー指示）
   return true;
 }
 const lrPaintRows = () => { const b = $('#lr-rows'); if (!b) return; b.innerHTML = lrRows(); $('#lr-foot').innerHTML = lrPayFoot(); $('#lr-dep').textContent = lrDepNote(); const ap = $('#lr-addpay'); if (ap) ap.innerHTML = lrAddPayBtn(); };
@@ -1420,7 +1420,7 @@ const lrRun = fn => Promise.resolve().then(fn).catch(e => toast(e.message, true)
 // 画面の中の操作（［実行］・［入金予定照会］・［登録］・行追加など）とダイアログの中は対象外。［移動する］で入力を捨てて、押した操作を続ける
 const lrDirty = () => !!(lr.open && lr.step >= 2 && lr.dirty && $('#lr-body'));
 // 明細を捨てる（入金日・得意先と、修正なら元の入金はそのまま）
-const lrDiscard = (o = {}) => { const date = o.date ?? lr.date; lr = { ...lrNew(), editId: lr.editId, editNo: lr.editNo, editPays: lr.editPays, date, to: lr.toAuto ? date : lr.to, toAuto: lr.toAuto, customer: lr.customer, billInput: lr.editId ? lr.customer : '', ...o }; };
+const lrDiscard = (o = {}) => { const date = o.date ?? lr.date; lr = { ...lrNew(), editId: lr.editId, editNo: lr.editNo, editPays: lr.editPays, date, customer: lr.customer, billInput: lr.editId ? lr.customer : '', ...o }; };
 const lrLeave = go => confirmBox('編集中の入金があります', '登録していない入金の入力があります。登録せずに移動すると、入力した内容は消えます。移動しますか？', () => { lr = { ...lrNew(), open: false }; setTimeout(go, 0); }, '移動する');
 window.addEventListener('click', e => {
   if (!lrDirty()) return;
@@ -1442,7 +1442,7 @@ function lrFromReceipt(r) {
     return l; });
   while (lines.length < 3) lines.push(lrBlank());
   const date = String(r.date).slice(0, 10);
-  return { ...lrNew(), open: true, editId: r.id, editNo: r.no, date, to: date, customer: r.customer, billInput: r.customer, lines, editPays: r.allocations.map(a => ({ id: String(a.invoiceId), amount: String(a.amount) })) };
+  return { ...lrNew(), open: true, editId: r.id, editNo: r.no, date, customer: r.customer, billInput: r.customer, lines, editPays: r.allocations.map(a => ({ id: String(a.invoiceId), amount: String(a.amount) })) };
 }
 // 入金処理：最初は入金の一覧（他の画面と同じ）。［＋ 新規登録］・［修正］で入力画面（入金日・得意先 → 借方 → 今回入金額）を開く（2026-11-09 ユーザー指示）
 async function legacyReceiptView(q = {}) {
@@ -1477,7 +1477,7 @@ document.addEventListener('input', e => {
       () => { lrDiscard({ [key]: v }); setTimeout(() => { lrDraw(); const i = $('#' + t.id); if (i) { i.focus(); if (key === 'customer') i.setSelectionRange(i.value.length, i.value.length); } }, 0); }, '変更する');
   }
   if (t.closest('#lr-detail, #lr-pop')) lr.dirty = true;
-  if (t.id === 'lr-date') { lr.date = t.value; if (lr.toAuto) lr.to = t.value; }
+  if (t.id === 'lr-date') lr.date = t.value;
   else if (t.id === 'lr-cust') { lr.customer = t.value.trim(); lr.billInput = ''; lr.billTo = ''; lr.invoices = []; $('#lr-cname').textContent = lrName(); }
   else if (t.id === 'lr-bill') {
     // 1 回の登録で請求先は 1 つ
@@ -1499,7 +1499,7 @@ document.addEventListener('change', e => {
   if (t.dataset.lr === 'acc') { const l = lr.lines[t.dataset.i]; l.acc = t.value; l.sub = ''; l.due = ''; l.tax = ''; l.taxAmt = ''; l.memo2 = ''; if (!t.value) Object.assign(l, { amount: '', sub2: '', work: '' }); lrDraw(); }
   else if (t.dataset.lr === 'sub') { const l = lr.lines[t.dataset.i]; l.sub = t.value; l.tax = ''; l.taxAmt = ''; lrDraw(); }
   else if (t.dataset.lr === 'tax') { const l = lr.lines[t.dataset.i]; l.tax = t.value; l.taxAmt = ''; lrDraw(); }
-  else if (t.id === 'lr-from' || t.id === 'lr-to') { lr[t.id === 'lr-from' ? 'from' : 'to'] = t.value; if (t.id === 'lr-to') lr.toAuto = false; else lr.fromAuto = false; lr.pays = null; lrDraw(); }
+  else if (t.id === 'lr-from' || t.id === 'lr-to') { lr[t.id === 'lr-from' ? 'from' : 'to'] = t.value; lr.pays = null; lrDraw(); }
   else if (t.dataset.lp === 'id') { lrManual(); lr.pays[t.dataset.i].id = t.value; lrPaintRows(); }
 });
 // ファンクションキーはこの画面だけ
