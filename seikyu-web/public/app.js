@@ -442,7 +442,7 @@ document.addEventListener('change', e => { if (e.target.id === 'ar-month' && /^\
 async function arPostView(q = {}) {
   const A = actions, d = await api('/api/ar-post?' + qs({ month: q.month || '' })), nx = d.sel, run = d.run; // actions は await の前に受け取る
   A.arRun = async (_, btn) => { if (btn) btn.disabled = true; try { await post('/api/ar-post/run', { month: nx.month }); render({ fresh: true }); } catch (e) { toast(e.message, true); if (btn) btn.disabled = false; } };
-  A.arXlsx = () => run && saveXlsx('/api/reports/journal-list?' + qs({ pattern: 'A01', from: nx.to, to: nx.to, format: 'xlsx' })).catch(e => toast(e.message, true));
+  A.arXlsx = () => run && saveXlsx('/api/reports/journal-list?' + qs({ pattern: 'A01', from: nx.from, to: nx.to, format: 'xlsx' })).catch(e => toast(e.message, true));
   return page('出荷・売上', '', '', `<section class="card glass" data-sub="sales"><div class="card-head"><h2>売掛金計上</h2></div>
     <div class="filters"><label class="field">締日<span style="display:flex;align-items:center;gap:4px"><input type="month" id="ar-month" value="${esc(nx.month)}" style="width:140px">20日</span></label><label class="field">対象期間<input value="${esc(nx.from)} 〜 ${esc(nx.to)}" readonly tabindex="-1" style="width:220px"></label>
       ${canWrite() ? `<button class="primary" data-act="arRun" ${nx.linked ? 'disabled title="会計連携済みの締日は実行できません"' : ''}>実行</button>` : ''}<button data-act="arXlsx" ${run ? '' : 'disabled title="実行すると出力できます"'}>⇩ 売掛金計上自動仕訳リスト（Excel）</button></div>
@@ -2190,11 +2190,11 @@ VIEWS.journals = async q => {
 // ② 自動仕訳リスト 7種（帳票形式：借方・貸方併記、伝票合計・日付合計）
 const monthStart = () => thisMonth() + '-01';
 // 売掛金計上自動仕訳リスト（A01）は 売掛金計上 の画面と同じく 締日・対象期間（前月21日〜当月20日）で出す（2026-11-17 ユーザー指示）。
-// 締日は毎月20日（選んだ日の月の20日にそろえる）、初めは 売掛金計上 の次の締日。A01 の仕訳は締日の日付なので、締日の 1 日で検索する
+// 締日は毎月20日（選んだ日の月の20日にそろえる）、初めは 売掛金計上 の次の締日。対象期間（前月21日〜当月20日）の A01 をすべて出す（20日締め以外の請求も含む。2026-11-17 ユーザー指示）
 async function journalListsView(q) {
   const A = actions, kind = meta.journalLists[q.list] ? q.list : 'A01';
   const closing = kind !== 'A01' ? '' : /^\d{4}-\d{2}/.test(q.closing || '') ? q.closing.slice(0, 7) + '-20' : (await api('/api/ar-post')).next.to;
-  const from = closing || q.from || monthStart(), to = closing || q.to || today(), pFrom = closing ? addMonths(closing.slice(0, 7), -1) + '-21' : from;
+  const pFrom = closing ? addMonths(closing.slice(0, 7), -1) + '-21' : '', from = pFrom || q.from || monthStart(), to = closing || q.to || today();
   A.tab = d => go('journals', { tab: d.tab });
   A.print = () => { $('#print-area').innerHTML = `<section class="invoice-doc report-doc journal-doc"><h2>${esc(meta.journalLists[kind].title)}</h2><p>${closing ? `締日 ${closing} ／ 対象期間 ${pFrom} 〜 ${to}` : `期間 ${from} 〜 ${to}`} ／ 出力日 ${today()}</p>${$('#jl-body').innerHTML}</section>`; setTimeout(() => window.print(), 200); };
   const url = kind === 'BANK' ? '/api/reports/bank-payments?' + qs({ from, to }) : '/api/reports/journal-list?' + qs({ pattern: kind, from, to });

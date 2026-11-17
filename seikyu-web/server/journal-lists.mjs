@@ -135,6 +135,7 @@ export async function journalList(c, q) {
 // （確認・完了のメッセージは出さない。漏れた伝票があれば押し直す）。実行した締日は売掛金計上自動仕訳リスト（Excel）を出せる（一度も実行していなければ押せない）。
 // 会計連携データ（仕訳 → 会計連携データ）を作成すると、期間に入る締日に会計連携済みの印が付き、元に戻せない。売掛金計上は次の締日（翌月20日）に進む（11/20 → 12/20）。
 // 一度も会計連携していなければ、業務日付以前で直近の20日（業務日付 11/17 → 10/20、11/20 → 11/20）。A01 の仕訳は従来どおり請求データ作成で起票する（実行では起票しない）
+// 対象は締日20日の請求だけでなく、対象期間（前月21日〜当月20日）に計上したすべての売掛金計上（5・10・15・月末締めを含む。2026-11-17 ユーザー指示）
 const arRange = month => { const [y, m] = month.split('-').map(Number); return { month, from: new Date(Date.UTC(y, m - 2, 21)).toISOString().slice(0, 10), to: `${month}-20` }; };
 const jstNow = () => new Date(Date.now() + 9 * 3600e3).toISOString().slice(0, 16).replace('T', ' ');
 // 締日の月は画面で選べる（日は20日固定。2026-11-17 ユーザー指示）。month 未指定は次の締日。会計連携済みの月は実行できない
@@ -148,9 +149,9 @@ export async function arPostStatus(c, month) {
 }
 export async function runArPost(c, ctx, b) {
   check(/^\d{4}-(0[1-9]|1[0-2])$/.test(b?.month || ''), '締日の年月を指定してください');
-  const st = await arPostStatus(c, b.month), { month, to } = st.sel;
+  const st = await arPostStatus(c, b.month), { month, from, to } = st.sel;
   check(!st.sel.linked, `締日 ${to} は会計連携済みのため実行できません。次の締日は ${st.next.to} です`);
-  const d = await journalList(c, { pattern: 'A01', from: to, to });
+  const d = await journalList(c, { pattern: 'A01', from, to }); // 締日20日の請求だけでなく、対象期間（前月21日〜当月20日）の売掛金計上をすべて対象（2026-11-17 ユーザー指示）
   await c.query('INSERT INTO app_ar_post_run (month,run_by,run_at,slips,total) VALUES (?,?,?,?,?) ON DUPLICATE KEY UPDATE run_by=VALUES(run_by),run_at=VALUES(run_at),slips=VALUES(slips),total=VALUES(total)', [month, ctx.user.login_id, jstNow(), d.slips.length, d.total]);
   await audit(c, ctx, 'app_ar_post_run', month, 'arpost.run', { closing: to, slips: d.slips.length, total: d.total });
   return arPostStatus(c, month);
@@ -213,7 +214,7 @@ const pairRows = (p, first, s) => {
 const totalRow = (label, amount) => jrow({ 9: label, 6: amount, 16: amount }, 'dashTop');
 export async function journalListBook(c, q) {
   const d = await journalList(c, q), now = new Date(Date.now() + 9 * 36e5).toISOString();
-  const out = [jrow({ 0: `出力 ${yymmdd(now.slice(0, 10))} ${now.slice(11, 19)}`, 7: T(d.title) }), [d.pattern === 'A01' && d.from === d.to && d.to.endsWith('-20') ? `締日 ${d.to}　対象期間 ${arRange(d.to.slice(0, 7)).from} 〜 ${d.to}` : `期間 ${d.from} 〜 ${d.to}`], [], ...JOURNAL_HEAD];   // 売掛金計上は締日・対象期間（2026-11-17 ユーザー指示）
+  const out = [jrow({ 0: `出力 ${yymmdd(now.slice(0, 10))} ${now.slice(11, 19)}`, 7: T(d.title) }), [d.pattern === 'A01' && d.to.endsWith('-20') && d.from === arRange(d.to.slice(0, 7)).from ? `締日 ${d.to}　対象期間 ${arRange(d.to.slice(0, 7)).from} 〜 ${d.to}` : `期間 ${d.from} 〜 ${d.to}`], [], ...JOURNAL_HEAD];   // 売掛金計上は締日・対象期間（2026-11-17 ユーザー指示）
   let lastDate = null;
   for (const s of d.slips) {
     if (lastDate && s.date !== lastDate) out.push(totalRow('日　付　合　計', d.dates.find(x => x.date === lastDate).total));
