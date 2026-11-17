@@ -587,3 +587,7 @@ dialog.modal.wide:has(#jva) { width: min(1480px, calc(100vw - 24px)); }
 
 /* 入金予定一覧：合計行の下に実線（2026-11-17 内部会議） */
 .plan-list tfoot td { border-bottom: 2px solid var(--text-primary, #1e293b); }
+/* 一覧（1 行表示の表）は表の中で縦にもスクロールし、横スクロールバーを常に画面内に出す（2026-11-17 ユーザー指示「가로 화면이 넘치는데도 가로 스크롤이 안 생김」。
+   以前は横スクロールバーが表の最下部にあり、行が多いと画面の外で見えなかった）。見出し（sticky）は表の上に固定される */
+.table-wrap:has(> table.one-line) { max-height: calc(100vh - 170px); overflow: auto; }
+dialog .table-wrap:has(> table.one-line) { max-height: calc(100vh - 260px); }

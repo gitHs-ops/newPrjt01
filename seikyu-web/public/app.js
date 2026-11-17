@@ -327,6 +327,16 @@ function resolveSub(r) {
 let freshNext = false;
 const takeFresh = () => { const f = freshNext; freshNext = false; return f; };
 const go = (name, q = {}) => { freshNext = true; const path = name === route.name && route.sub ? `${name}/${route.sub}` : name, h = '#' + path + (Object.keys(q).length ? '?' + qs(q) : ''); if (location.hash === h) render({ fresh: takeFresh() }); else location.hash = h; };
+// 一覧（1 行表示の表）の高さを「画面の下端まで」にする（2026-11-17 ユーザー指示：横にあふれても横スクロールバーが見えない → 表の最下部にあったため）。
+// 表の上端が画面の下の方にある（ほかの表の下など）ときは画面の高さ−100px（ページを少し送れば表全体とスクロールバーが入る）
+function fitTables() {
+  for (const t of $$('#content .table-wrap')) {
+    if (!t.querySelector(':scope > table.one-line') || !t.offsetParent) continue;
+    const top = t.getBoundingClientRect().top + scrollY, room = innerHeight - top - 20;
+    t.style.maxHeight = Math.max(room >= 260 ? room : innerHeight - 100, 200) + 'px';
+  }
+}
+addEventListener('resize', () => requestAnimationFrame(fitTables));
 async function render({ fresh = false } = {}) {
   route = parseHash();
   if (!TITLES[route.name] || !VIEWS[route.name]) route = { name: home(), sub: '', q: {} };
@@ -347,6 +357,7 @@ async function render({ fresh = false } = {}) {
   try {
     const content = $('#content');
     actions = own; content.innerHTML = html; content.dataset.view = route.name; content.classList.remove('busy');
+    requestAnimationFrame(fitTables);   // 一覧の高さを画面に合わせ、横スクロールバーを画面内に出す
     // 小メニュー：該当する区画だけ表示（data-sub はスペース区切りで複数可）。先頭以外では上部の検索・登録を隠す
     if (route.sub) { content.querySelectorAll('[data-sub]').forEach(el => (el.hidden = !el.dataset.sub.split(' ').includes(route.sub))); const tools = content.querySelector('.page-head > .filters'); if (tools) tools.hidden = !route.subTools; }
     // 画面の見出しは開いている小メニュー名（大メニュー名はパンくずに表示）
@@ -1663,7 +1674,7 @@ VIEWS.inventory = async q => {
     </tbody></table></div>
     <div class="filters" style="margin-top:10px"><span class="muted small">空欄は未登録。登録済みの数量を消して登録すると、その品目の実在庫を取り消します。数量は小数2桁まで。</span></div></section>`;
   const postCard = `<section class="card glass" data-sub="post"><div class="card-head"><h2>在庫計上（月次1回）</h2></div>
-    <div class="filters"><label class="field">計上月度<input type="month" id="ip-month" value="${esc(cnt.month)}"></label>${canWrite() ? '<button class="primary" data-act="post">在庫計上</button>' : ''}${isAdmin() ? '<button class="danger" data-act="unpost" title="テスト用：管理者だけに表示。計上済みの月度を取り消します（実在庫の数量は残ります）">［テスト用］在庫計上の取消</button>' : ''}</div>
+    <div class="filters"><label class="field">計上月度<input type="month" id="ip-month" value="${esc(cnt.month)}"></label>${canWrite() ? '<button class="primary" data-act="post">在庫計上</button>' : ''}${isAdmin() && !isUser01() ? '<button class="danger" data-act="unpost" title="テスト用：管理者だけに表示。計上済みの月度を取り消します（実在庫の数量は残ります）">［テスト用］在庫計上の取消</button>' : ''}</div>
     </section>`;
   return page('在庫', '実在庫登録 → 配合計算 → 材料受払表 → 在庫計上（月次1回）の順に処理します（10/21 打合せ）。', `${monthInput('month', q.month || thisMonth())}${csvLink('inventory', { month: q.month || thisMonth() })}`,
     `${countCard}${postCard}<section class="card glass" data-sub="list"><h2>在庫一覧</h2>${table([{ label: '月度', value: r => r.month }, { label: '調査日', value: r => String(r.countedOn || '').slice(0, 10) }, { label: '商品', value: r => `${r.item} ${r.itemName}` }, { label: '数量', num: 1, value: r => `${r.quantity} ${r.unit || ''}` },
@@ -1826,8 +1837,8 @@ function expenseView(kind) {
     A.rev = d => confirmBox(payable ? '伝票の削除' : '伝票の取消', `${d.no} を削除します。自動仕訳（${payable ? 'D01' : 'E01'}）も削除し、逆仕訳は計上しません。`, () => post('/api/expenses/reverse', { id: Number(d.id) }).then(() => { toast('削除しました'); render(); }), '削除する');
     A.lines = d => { const r = list.find(x => x.id === Number(d.id)); modal({ title: `${r.no} の明細`, wide: true, body: table([{ label: '行', value: l => l.no }, { label: '科目', value: l => `${l.account} ${l.accountName}` }, { label: '内訳', value: l => (l.sub ? `${l.sub} ${l.subName}` : '') },
       ...(payable ? [] : [{ label: '支払先', value: l => l.payee }]), { label: '処税率', value: l => taxLabel(l.taxCode) }, { label: payable ? '金額' : '支払額', num: 1, value: l => yen(l.amount) }, { label: 'うち消費税', num: 1, value: l => yen(l.tax) }, { label: '摘要コード', value: l => l.memoCode }, { label: '摘要名', value: l => l.memo }], r.lines) }); };
-    const cols2 = [{ label: '伝票No', value: r => r.no }, { label: payable ? '締切日' : '支払日', value: r => r.date }, ...(payable ? [{ label: '業者', value: r => r.vendorName }, { label: '支払予定日', value: r => r.due }] : [{ label: '支払先', value: r => r.payee }]),
-      { label: '科目', html: r => `${esc(r.account)} ${esc(r.accountName || '')}${r.lines.length > 1 ? ` <button class="mini quiet" data-act="lines" data-id="${r.id}">他${r.lines.length - 1}行</button>` : ''}` }, { label: '処税率', value: r => payable ? taxLabel(r.taxCode) : r.taxRate == null ? r.taxCode : `${r.taxRate}%` }, { label: payable ? '金額' : '支払額', num: 1, value: r => yen(r.amount) }, // 小口現金は「支払額」（2026-11-03）
+    const cols2 = [{ label: '伝票No', value: r => r.no }, { label: payable ? '締切日' : '支払日', value: r => r.date }, ...(payable ? [{ label: '業者', clipW: 10, value: r => r.vendorName }, { label: '支払予定日', value: r => r.due }] : [{ label: '支払先', value: r => r.payee }]),
+      { label: '科目', html: r => `${esc(r.account)} ${esc(r.accountName || '')}${r.lines.length > 1 ? ` <button class="mini quiet" data-act="lines" data-id="${r.id}">他${r.lines.length - 1}行</button>` : ''}` }, { label: '処税率', clipW: 8, value: r => payable ? taxLabel(r.taxCode) : r.taxRate == null ? r.taxCode : `${r.taxRate}%` }, { label: payable ? '金額' : '支払額', num: 1, value: r => yen(r.amount) }, // 小口現金は「支払額」（2026-11-03）
       ...(payable ? [{ label: '支払済', num: 1, value: r => yen(r.paid) }, { label: '未払残高', num: 1, value: r => yen(r.balance) }] : []), { label: '摘要', value: r => r.memo }, { label: '状態', html: r => (!payable && r.status === 'POSTED' ? badge('支払済', 'green') : status(r.status)) }, // 小口現金は登録＝現金で支払済み（2026-11-03 計上済→支払済）
       { label: '', html: r => payable && canWrite() && r.status === 'POSTED' && !r.paid ? `<button class="mini" data-act="edit" data-id="${r.id}">修正</button>` : `<button class="mini" data-act="detail" data-id="${r.id}">詳細</button>` }];
     // 小口現金一覧（11/04 打合せ No.14）：入力した行ごとに 1 行で表示し、行ごとに［修正］［削除］（行どうしは独立。伝票No は 伝票No－行番号）
