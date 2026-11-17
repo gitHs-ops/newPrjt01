@@ -1436,7 +1436,7 @@ const lrDiscard = (o = {}) => { const date = o.date ?? lr.date; lr = { ...lrNew(
 const lrLeave = go => confirmBox('編集中の入金があります', '登録していない入金の入力があります。登録せずに移動すると、入力した内容は消えます。移動しますか？', () => { lr = { ...lrNew(), open: false }; setTimeout(go, 0); }, '移動する');
 window.addEventListener('click', e => {
   if (!lrDirty()) return;
-  const el = e.target.closest?.('a[href], button, [data-act]'); if (!el || el.closest('#dialog, .flatpickr-calendar, #menu-toggle')) return;
+  const el = e.target.closest?.('a[href], button, [data-act]'); if (!el || el.closest('#dialog, #alert-dialog, #toast, .flatpickr-calendar, #menu-toggle')) return; // 確認メッセージ（#alert-dialog）の［確認］・×も対象外（2026-11-17 押しても閉じられなかった）
   // ［実行］も確認する（2026-11-17 ユーザー指示）。［実行する］で明細を捨て、入金日・得意先はそのままで実行し直す
   const rerun = el.dataset.act === 'lrSearch';
   if (el.closest('#lr-body') && el.dataset.act !== 'lrEnd' && !rerun) return;

@@ -36,14 +36,18 @@ Object.assign(STYLE, { tTitle: 59, tCond: 60, tInfo: 61, tHead: 62, tText: 63, t
 Object.assign(STYLE, { iTitle: 44, iText: 45, iTextR: 46, iBold: 47, iCust: 48, iBoxHi: 49, iBoxH: 50, iBoxBig: 51, iBoxNum: 52, iHead: 53, iCellC: 54, iCell: 55, iNum: 56, iQty: 57, iTextFit: 58 });   // iTextFit：長い文字は縮小して枠に収める（共同企業体名）
 // 印刷は横1ページに収める（pageSetUpPr fitToPage が無いと fitToWidth が効かず、右の列が次のページに分かれる）
 // header：印刷時のページヘッダー（例 '&R&P 頁'）。printTitles：各ページに繰り返す見出し行（例 '4:5'。xlsx() で定義名にする）
-function sheetXml({ rows: given0, widths = [], header, footer, heights = {}, merges: given = [], gridlines = true, portrait = false, margins = [0.5, 0.6], listed = false }) {
+// 数量・金額がマイナスのセルは赤字（2026-11-17 ユーザー指示：画面と同じく Excel も）。数値の負、または「-」＋数字の文字列のセルは、
+// 同じ書式で文字だけ赤のスタイル（styles の後半に複製：番号＋redAt）にする
+const NEG_TEXT = /^[-−]\s*[\d.,]*\d/;
+const isNeg = v => (typeof v === 'number' ? Number.isFinite(v) && v < 0 : typeof v === 'string' && NEG_TEXT.test(v.trim()));
+function sheetXml({ rows: given0, widths = [], header, footer, heights = {}, merges: given = [], gridlines = true, portrait = false, margins = [0.5, 0.6], listed = false, redAt = 0 }) {
   const rows = listed ? given0 : evenBands(given0);   // listify 済みはグループ名の結合も決まっている
   const merges = [...given, ...rows.flatMap((r, ri) => (r?.span > 1 ? [`${col(r.start || 0)}${ri + 1}:${col((r.start || 0) + r.span - 1)}${ri + 1}`] : []))];
   const cols = widths.length ? `<cols>${widths.map((w, i) => `<col min="${i + 1}" max="${i + 1}" width="${w}" customWidth="1"/>`).join('')}</cols>` : '';
   const body = rows.map((r, ri) => `<row r="${ri + 1}"${heights[ri] ? ` ht="${heights[ri]}" customHeight="1"` : ''}>${(r || []).map((cell, ci) => {
     if (cell === null || cell === undefined || cell === '') return '';
     const o = typeof cell === 'object' ? cell : { v: cell }, ref = col(ci) + (ri + 1);
-    const s = STYLE[o.s] ?? (typeof o.v === 'number' ? 2 : 0);
+    const s = (STYLE[o.s] ?? (typeof o.v === 'number' ? 2 : 0)) + (redAt && isNeg(o.v) ? redAt : 0);
     if (o.v === '' || o.v === null || o.v === undefined) return `<c r="${ref}" s="${s}"/>`;
     return typeof o.v === 'number' && Number.isFinite(o.v) ? `<c r="${ref}" s="${s}"><v>${o.v}</v></c>` : `<c r="${ref}" s="${s}" t="inlineStr"><is><t xml:space="preserve">${x(o.v)}</t></is></c>`;
   }).join('')}</row>`).join('');
@@ -190,6 +194,15 @@ function listify(sh) {
   return { ...sh, listed: true, rows: shifted, widths: [1.5, ...fw], heights, merges, gridlines: false, header: undefined, footer: '&C&P / &N 頁', margins: [0.4, 0.6],
     printTitles: lastHead >= 0 ? `1:${lastHead + 1}` : undefined };
 }
+// styles.xml の font を赤にした複製を後ろに足し、cellXfs も全部複製して赤の font を指す（n 番の赤は n＋redAt）
+function redTwins(xml) {
+  const fontsM = xml.match(/<fonts count="(\d+)">([\s\S]*?)<\/fonts>/), xfsM = xml.match(/<cellXfs count="(\d+)">([\s\S]*?)<\/cellXfs>/);
+  const fonts = fontsM[2].match(/<font>[\s\S]*?<\/font>/g), xfs = xfsM[2].match(/<xf [^>]*?(?:\/>|>[\s\S]*?<\/xf>)/g), nf = fonts.length, nx = xfs.length;
+  const redFont = f => (f.includes('<color ') ? f.replace(/<color [^>]*\/>/, '<color rgb="FFFF0000"/>') : f.replace('<name ', '<color rgb="FFFF0000"/><name '));
+  const redXf = x => x.replace(/fontId="(\d+)"/, (_, n) => `fontId="${Number(n) + nf}"`).replace(/applyFont="1"/, '').replace('<xf ', '<xf applyFont="1" ');
+  return { redAt: nx, xml: xml.replace(fontsM[0], `<fonts count="${nf * 2}">${fonts.join('')}${fonts.map(redFont).join('')}</fonts>`)
+    .replace(xfsM[0], `<cellXfs count="${nx * 2}">${xfs.join('')}${xfs.map(redXf).join('')}</cellXfs>`) };
+}
 export function xlsx(sheets0) {
   const sheets = sheets0.map(s => (s.doc ? s : listify(s)));
   const NS = 'http://schemas.openxmlformats.org/spreadsheetml/2006/main', R = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships';
@@ -216,7 +229,8 @@ export function xlsx(sheets0) {
       // 94 見出し（1 行に収める。入らないときは縮小）
       [0, 16, 9, 12, 'center" shrinkToFit="1'],
     ].map(([n, f, fill, b, h]) => `<xf numFmtId="${n}" fontId="${f}" fillId="${fill}" borderId="${b}" xfId="0" applyNumberFormat="1" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="${h}" vertical="center"/></xf>`).join('')}</cellXfs><cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>`],
-    ...sheets.map((s, i) => [`xl/worksheets/sheet${i + 1}.xml`, sheetXml(s)]),
   ];
+  const st = files.find(f => f[0] === 'xl/styles.xml'), red = redTwins(st[1]); st[1] = red.xml;
+  files.push(...sheets.map((s, i) => [`xl/worksheets/sheet${i + 1}.xml`, sheetXml({ ...s, redAt: red.redAt })]));
   return zip(files);
 }
