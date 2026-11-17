@@ -4,8 +4,6 @@ import { issuedDocument, siteLabel } from './sales.mjs';
 import { xlsx } from './xlsx.mjs';
 
 const H = v => ({ v, s: 'bold' }), S = v => ({ v, s: 'sum' }), T = v => ({ v, s: 'title' });
-// 現場ごとの発行回数（現場別発行より前の発行分は請求の発行回数）
-const siteNo = s => s.pageIssueNo ?? s.siteIssueNo?.[siteLabel(s.siteName)] ?? s.issueNo;
 const jp = d => (d ? `${d.slice(0, 4)}年${d.slice(5, 7)}月${d.slice(8, 10)}日` : '');
 // 請求書を現場ごとに分ける（画面の印刷 splitBySite と同じ）：前回残高・入金・繰越は載せない（2026-10-27 大西さん回答 A）。消費税は税率ごとに得意先の税額を現場の金額で按分（端数は金額の大きい現場）
 function splitBySite(s) {
@@ -44,7 +42,7 @@ function legacySheet(s) {
   const ref = (r, c0, c1) => `${String.fromCharCode(65 + c0)}${r}:${String.fromCharCode(65 + c1)}${r}`;
   const push = (cells, h) => { rows.push(cells); if (h) heights[rows.length - 1] = h; return rows.length; };
   merges.push(ref(push([st('請　求　書', 'rTitleC')], 30), 0, 7));
-  if (siteNo(s) > 1) push(['', '', '', '', '', '', '', st(`${s.company.saisyutsu || '再発行'}（${siteNo(s)}回目）`, 'rSubR')]);
+  // 「再発行（N回目）」は出さない（2026-11-17 ユーザー指示）
   const left = [[zipOf(u.postcode), 'rText'], ...(u.postcode === undefined ? [[u.address || '', 'rText']] : [[[u.pref, u.addr1].filter(Boolean).join('　'), 'rText'], [u.addr2 || '', 'rText']]), ['', 'rText'], [`${u.name}　　御中`, 'rCust']];
   const right = [[zipOf(c.postcode), 'rText'], [[c.pref, c.addr1].filter(Boolean).join('') + (c.addr2 ? ' ' + c.addr2 : '') || c.address || '', 'rText'], [c.name1 || c.name, 'rText'], ...(c.invoiceNo ? [[c.invoiceNo, 'rText']] : []), [`${c.name2 ? c.name2 + '　　' : ''}TEL. ${c.tel}`, 'rText'], ['', 'rText'], ...banks.map(b => [b, 'rSubR']), ...(banks.length ? [[c.name1 || c.name, 'rSubR']] : [])];
   for (let k = 0; k < Math.max(left.length, right.length); k++) { const [lv, ls] = left[k] || ['', 'rText'], [rv, rs] = right[k] || ['', 'rText'], r = push([st(lv, ls), '', '', '', st(rv, rs)], 17); merges.push(ref(r, 0, 3), ref(r, 4, 7)); }
@@ -78,7 +76,7 @@ function proposalSheet(s) {
   const row = (cells, h = H) => { const r = Array(W).fill(''); for (const [a, b, v, sk] of cells) { for (let k = a; k <= b; k++) r[k] = st(k === a ? v : '', sk); if (b > a) merges.push(ref(rows.length + 1, a, b)); } rows.push(r); heights[rows.length - 1] = h; };
   const custAddr = u.postcode === undefined ? u.address || '' : [u.pref, u.addr1, u.addr2].filter(Boolean).join('') || u.address || '';
   const coAddr = [zipOf(c.postcode), [c.pref, c.addr1].filter(Boolean).join('') + (c.addr2 ? ' ' + c.addr2 : '')].filter(Boolean).join('　') || c.address || '';
-  row([[3, 4, '請　求　書', 'vTitle'], ...(siteNo(s) > 1 ? [[8, 9, `${c.saisyutsu || '再発行'}（${siteNo(s)}回目）`, 'vTextR']] : [])], 28);
+  row([[3, 4, '請　求　書', 'vTitle']], 28); // 「再発行（N回目）」は出さない（2026-11-17 ユーザー指示）
   row([[6, 7, '請求書番号：', 'vTextR'], [8, 9, no, 'vText']]);
   row([[8, 9, jp(s.issuedOn || today()), 'vText']]);
   // 会社名1（太字）の下に会社名2（共同企業体名。長いので別の行）

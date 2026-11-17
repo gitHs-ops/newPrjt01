@@ -464,7 +464,8 @@ const sortedBy = (key, rows, fns) => { const st = listSort[key]; return st && fn
 const sortBarOf = (key, items) => { const st = listSort[key] || {}; return `<div class="sort-bar small" style="display:flex;gap:6px;align-items:center;margin-bottom:8px"><span class="muted">ソート順</span>${items.map(([k, l]) => `<button type="button" class="mini${st.k === k ? ' primary' : ''}" data-act="listSort" data-key="${key}" data-k="${k}">${l}${st.k === k ? (st.dir > 0 ? ' ▲' : ' ▼') : ''}</button>`).join('')}</div>`; };
 const listSortAct = d => { const st = listSort[d.key]; listSort[d.key] = st?.k === d.k ? { k: d.k, dir: -st.dir } : { k: d.k, dir: 1 }; render(); };
 // 請求（得意先単位）：締日順（同じ締日は得意先コード順）・得意先順（同じ得意先は締日順）
-const INV_SORT_FNS = { closing: (a, b) => jaCmp(a.closing, b.closing) || jaCmp(a.customer, b.customer), cust: (a, b) => jaCmp(a.customer, b.customer) || jaCmp(a.closing, b.closing) };
+// 請求書発行のソート順は 得意先コード・得意先名 の 2 つ（2026-11-17 ユーザー指示。締日は外した）
+const INV_SORT_FNS = { cust: (a, b) => jaCmp(a.customer, b.customer) || jaCmp(a.closing, b.closing), name: (a, b) => jaCmp(a.customerName, b.customerName) || jaCmp(a.customer, b.customer) || jaCmp(a.closing, b.closing) };
 let shipSort = { k: 'date', dir: -1 }; // 出荷伝票一覧の並び（既定はサーバーの並び：出荷日の新しい順）
 VIEWS.shipments = async q => {
   const A = actions;
@@ -870,7 +871,7 @@ async function invoiceIssueView(q) {
   // ［⇩ 一括ダウンロード］は 2026-10-27 削除（10/27 打合せ：［請求書発行］で Excel が出るためボタンは1つ。再出力は再発行）
   return page('請求締め・発行', '請求年月・締日・得意先（任意）で検索し、請求書を発行します。請求書は現場ごとに1枚で、見出しのチェックで全件、行のチェックで選択した現場だけを発行します（訂正後の再発行）。発行すると Excel（1現場＝1シート）をダウンロードします。',
     `${invoiceSearch({ ...q, month })}<select id="inv-state" title="発行状況">${options([{ code: 'all', name: 'すべて' }, ...Object.entries(ISSUE_STATES).map(([code, name]) => ({ code, name }))], ist || 'all', { label: x => x.name })}</select>${canWrite() ? '<button class="primary" data-act="issue">請求書発行</button>' : ''}`,
-    `<section class="card glass" data-sub="issue">${sortBarOf('issue', [['closing', '締日'], ['cust', '得意先']])}
+    `<section class="card glass" data-sub="issue">${sortBarOf('issue', [['cust', '得意先コード'], ['name', '得意先名']])}
     ${table([{ label: '', head: '<input type="checkbox" data-pick-all="inv-pick" title="すべて選択／解除">', html: r => `<input type="checkbox" class="inv-pick" value="${r.k}">` }, /* 締日の列は 2026-11-17 ユーザー指示で削除 */ { label: '得意先コード', value: r => (r.first ? r.inv.customer : '') }, { label: '得意先名', value: r => (r.first ? r.inv.customerName : '') },
       { label: '現場名', html: siteCell }, { label: '売上額', num: 1, value: r => yen(r.net) }, { label: '消費税', num: 1, value: r => yen(r.tax) }, { label: '今回請求額', num: 1, value: r => yen(r.total) },
       { label: '発行状況', html: issueCell }],
@@ -1012,7 +1013,7 @@ function proposalInvoice(s) {
   const no = s.invoiceNo || 'K' + String(s.closing).slice(0, 7).replace('-', '') + String(s.invoiceId).padStart(5, '0');
   const banks = s.company.banks || (s.company.bankText ? [s.company.bankText] : []);
   return `<section class="invoice-doc prop-inv">
-    <div class="inv-top"><div style="flex:1"></div><h1 style="flex:0 0 auto">請 求 書</h1><div style="flex:1;text-align:right"><p>請求書番号: ${esc(no)}${s.copy ? `<br><span class="reissue">控え（${siteNo(s)}回目の発行分）</span>` : siteNo(s) > 1 ? `<br><span class="reissue">${esc(s.company.saisyutsu || '再発行')}（${siteNo(s)}回目）</span>` : ''}</p><p>${esc(jpDate(s.issuedOn || today()))}</p></div></div>
+    <div class="inv-top"><div style="flex:1"></div><h1 style="flex:0 0 auto">請 求 書</h1><div style="flex:1;text-align:right"><p>請求書番号: ${esc(no)}${s.copy ? `<br><span class="reissue">控え（${siteNo(s)}回目の発行分）</span>` : ''}</p><p>${esc(jpDate(s.issuedOn || today()))}</p></div></div>
     <div class="inv-top"><div><p>${esc(s.customer.address)}</p><p class="to">${esc(s.customer.name)} 御中</p>
         <p>毎度ありがとうございます。<br>下記のとおり御請求申し上げます。</p><p>${esc(jpDate(s.periodStart))} 〜 ${esc(jpDate(s.closing))}</p>${s.siteName ? `<p class="site-name">現場：<b>${esc(s.siteName)}</b>${s.pages > 1 ? `（${s.page}/${s.pages}）` : ''}</p>` : ''}</div>
       <div><p><b>${esc(s.company.name)}</b><br>${esc(s.company.address)}<br>TEL ${esc(s.company.tel)}${s.company.fax ? ' FAX ' + esc(s.company.fax) : ''}${s.company.invoiceNo ? `<br>登録番号: ${esc(s.company.invoiceNo)}` : ''}</p>
@@ -1032,7 +1033,7 @@ function legacyInvoice(s) {
   const c = s.company, u = s.customer, ymd = d => String(d || '').slice(2).replaceAll('-', '/'), day = Number(String(s.closing).slice(8)), banks = c.banks || (c.bankText ? [c.bankText] : []);
   const uAddr = [[u.pref, u.addr1].filter(Boolean).join('　'), u.addr2].filter(x => x !== undefined), cAddr = [c.pref, c.addr1].filter(Boolean).join('') + (c.addr2 ? ' ' + c.addr2 : '');
   return `<section class="invoice-doc legacy-inv">
-    <h1>請　求　書</h1>${s.copy || siteNo(s) > 1 ? `<p style="text-align:right"><span class="reissue">${s.copy ? `控え（${siteNo(s)}回目の発行分）` : `${esc(c.saisyutsu || '再発行')}（${siteNo(s)}回目）`}</span></p>` : ''}
+    <h1>請　求　書</h1>${s.copy ? `<p style="text-align:right"><span class="reissue">控え（${siteNo(s)}回目の発行分）</span></p>` : ''}
     <div class="inv-top"><div class="lg-to"><p>${esc(zipOf(u.postcode))}</p>${u.postcode === undefined ? `<p>${esc(u.address || '')}</p>` : uAddr.map(x => `<p>${esc(x)}</p>`).join('')}<p class="lg-name">${esc(u.name)}<span>御中</span></p></div>
       <div class="lg-from"><p>${esc(zipOf(c.postcode))}</p><p>${esc(cAddr || c.address || '')}</p><p>${esc(c.name1 || c.name)}</p>${c.invoiceNo ? `<p>${esc(c.invoiceNo)}</p>` : ''}${c.name2 ? `<p class="lg-jv"><span>${esc(c.name2)}</span><span>TEL. ${esc(c.tel)}</span></p>` : `<p>TEL. ${esc(c.tel)}</p>`}
         ${banks.length ? `<p class="lg-bank">${banks.map(esc).join('<br>')}</p><p class="lg-holder">${esc(c.name1 || c.name)}</p>` : ''}</div></div>
