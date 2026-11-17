@@ -14,7 +14,7 @@ const addMonths = (m, n) => { const [y, mo] = m.split('-').map(Number); return n
 const uuid = () => (crypto.randomUUID ? crypto.randomUUID() : Date.now() + '-' + Math.random().toString(16).slice(2));
 let session, meta, masters = {}, actions = {}, route = { name: 'dashboard', q: {} }, renderSeq = 0;
 const canWrite = () => [1, 2, 3, 4].includes(session?.user.role), isAdmin = () => session?.user.role === 1;
-// user01 でログインしたとき（2026-11-17 ユーザー指示。ほかの権限は reviewer と同じ）：出荷伝票一覧の［＋ 出荷登録］・出荷伝票の詳細／修正の［伝票発行］を出さない・請求データ作成の「発行済みのため次回締めで請求する得意先」の確認を出さない
+// user01 でログインしたとき（2026-11-17 ユーザー指示。ほかの権限は reviewer と同じ）：出荷伝票一覧の［＋ 出荷登録］・出荷伝票の詳細／修正の［伝票発行］を出さない・請求データ作成の「発行済みのため次回締めで請求する得意先」の確認を出さない・請求詳細照会の［発行して Excel］［再発行して Excel］を出さない
 const isUser01 = () => session?.user.loginId === 'user01';
 
 // ---------- API ----------
@@ -967,7 +967,7 @@ async function invoiceDetail(id, site = null) {
     <div class="grid3" style="margin:12px 0"><div class="sum-line"><span>税抜金額</span><b>${yen(site ? site.net : inv.net)}</b></div><div class="sum-line"><span>消費税</span><b>${yen(site ? site.tax : inv.tax)}</b></div>${site ? `<div class="sum-line"><span>今回請求額</span><b>${yen(site.total)}</b></div>` : `<div class="sum-line"><span>請求額 / 残高</span><b>${yen(inv.total)} / ${yen(inv.balance)}</b></div>`}</div>
     <h3>明細</h3><div id="inv-lines">${lineTable()}</div>
     ${/* 発行履歴・入金消込の表は 2026-10-27 に削除（10/27 打合せ：詳細は請求書発行確認表と同じ明細だけ） */ ''}
-    <div class="filters" style="margin-top:14px">${(site ? site.issues : inv.issues) ? '<button type="button" id="inv-copy">⇩ 最新発行分の Excel（控え）</button>' : ''}${canWrite() && !site ? `<button type="button" class="primary" id="inv-issue">${inv.issues ? '再発行して Excel' : '発行して Excel'}</button>` : ''}</div>`, /* ［請求取消］は 2026-11-17 ユーザー指示で詳細画面から削除（API・下の処理は残す） */
+    <div class="filters" style="margin-top:14px">${(site ? site.issues : inv.issues) ? '<button type="button" id="inv-copy">⇩ 最新発行分の Excel（控え）</button>' : ''}${canWrite() && !site && !isUser01() ? `<button type="button" class="primary" id="inv-issue">${inv.issues ? '再発行して Excel' : '発行して Excel'}</button>` : ''}</div>`, /* ［請求取消］は 2026-11-17 ユーザー指示で詳細画面から削除（API・下の処理は残す） */
     onOpen: () => {
       // 控え・発行は印刷せず Excel（現場ごとに最新の発行分を1シート）をダウンロード（2026-10-27 Excel に統一）
       const book = () => saveXlsx('/api/invoices/book', { ids: [inv.id], sites: site ? { [inv.id]: [siteLabel(site.siteName)] } : {} });

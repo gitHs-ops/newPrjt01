@@ -467,8 +467,10 @@ export async function billingList(c, { month, closing }) {
   for (const cu of custs) {
     const s = await statement(c, cu.customers_cd, month, closing);
     if (!s.lines.length && !s.prevBalance && !s.received) continue;
-    const sites = [...new Set(s.lines.map(l => l.site))].map(k => { const ls = s.lines.filter(l => l.site === k), net = ls.reduce((n, l) => n + l.net, 0);
-      const tax = RATES.reduce((n, r) => n + bucketTax(ls.filter(l => l.taxRate === r).reduce((a, l) => a + l.net, 0), r), 0); return { site: k, siteName: ls[0]?.siteName || '', net, tax, discount: 0, total: net + tax }; });
+    // 現場は請求一覧照会と同じく コード＋名称 で分ける（現場コードの無い自由入力の現場名も別の行。2026-11-17）
+    const siteKey = l => `${l.site}|${l.siteName}`;
+    const sites = [...new Set(s.lines.map(siteKey))].map(k => { const ls = s.lines.filter(l => siteKey(l) === k), net = ls.reduce((n, l) => n + l.net, 0);
+      const tax = RATES.reduce((n, r) => n + bucketTax(ls.filter(l => l.taxRate === r).reduce((a, l) => a + l.net, 0), r), 0); return { site: ls[0].site, siteName: ls[0]?.siteName || '', net, tax, discount: 0, total: net + tax }; });
     // 請求一覧表（HAR431）の行：得意先×現場ごとに 1 行（現場名を出す。2026-11-17 ユーザー指示。以前は 2026-11-03 から現場別発行の得意先以外は得意先 1 行・現場名空欄）。
     // 現場が 2 つ以上の得意先は帳票側で「得意先合計」の行を付ける
     const bookRows = sites;
