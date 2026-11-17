@@ -13,7 +13,7 @@ const addMonths = (m, n) => { const [y, mo] = m.split('-').map(Number); return n
 const uuid = () => (crypto.randomUUID ? crypto.randomUUID() : Date.now() + '-' + Math.random().toString(16).slice(2));
 let session, meta, masters = {}, actions = {}, route = { name: 'dashboard', q: {} }, renderSeq = 0;
 const canWrite = () => [1, 2, 3, 4].includes(session?.user.role), isAdmin = () => session?.user.role === 1;
-// user01 でログインしたとき（2026-11-17 ユーザー指示。ほかの権限は reviewer と同じ）：出荷伝票一覧の［＋ 出荷登録］を出さない・請求データ作成の「発行済みのため次回締めで請求する得意先」の確認を出さない
+// user01 でログインしたとき（2026-11-17 ユーザー指示。ほかの権限は reviewer と同じ）：出荷伝票一覧の［＋ 出荷登録］・出荷伝票の詳細／修正の［伝票発行］を出さない・請求データ作成の「発行済みのため次回締めで請求する得意先」の確認を出さない
 const isUser01 = () => session?.user.loginId === 'user01';
 
 // ---------- API ----------
@@ -536,7 +536,7 @@ function slipInquiry(r, why = '') {
     ${SL('車両番号', RO(esc(r.vehicle), 1))}${SL('累計台数', RO(String(r.cumulativeCount), 1))}<div class="span4c fill"></div>
     ${SL('出発時間', RO(esc(r.startTime)))}${SL('予定時間', RO(esc(r.planTime)))}${SL('出発温度', RO(r.startTemp === '' ? '' : esc(r.startTemp) + ' ℃', 1))}${SL('担当者', RO(esc(r.operatorName || r.operator)))}
     ${SL('伝票備考', RO(esc(r.remarks)), { span: 4 })}</div>
-    ${canWrite() && r.shipKb !== 5 ? '<div class="filters right" style="margin-top:12px"><button type="button" class="primary" id="dn-one">伝票発行</button></div>' : ''}`,
+    ${canWrite() && !isUser01() && r.shipKb !== 5 ? '<div class="filters right" style="margin-top:12px"><button type="button" class="primary" id="dn-one">伝票発行</button></div>' : ''}`,
     onOpen: () => { $('#dn-one')?.addEventListener('click', () => issueDeliveryNotes({ orderNo: r.orderNo }).catch(e => toast(e.message, true))); } });
 }
 const siteFields = (cust, r) => `${field('現場', `<select name="site">${siteOptions(cust, r?.site, '（マスタ外・自由入力）')}</select>`)}
@@ -585,7 +585,7 @@ function shipmentForm(r, bizDate) {
     ${SL('車両番号', `<input name="vehicle" maxlength="15" class="num" value="${esc(r?.vehicle || '')}">`)}${SL('累計台数', '<div class="ro num" id="sf-cn">0</div>')}<div class="span4c fill"></div>
     ${SL('出発時間', `<input type="time" name="startTime" value="${esc(r?.startTime || '')}">`)}${SL('予定時間', '<div class="ro" id="sf-pt">&nbsp;</div>')}${SL('出発温度', `<input name="startTemp" class="num" inputmode="numeric" maxlength="3" value="${esc(r?.startTemp ?? '')}">`)}${SL('担当者', `<select name="operator">${opt(active('operators'), r?.operator || myOperator(), '選択')}</select>`, { req: 1 })}
     ${SL('伝票備考', `<input name="remarks" maxlength="20" value="${esc(r?.remarks || '')}">`, { span: 4 })}</div>
-    ${co ? '<div class="corr-sum" id="corr-preview"></div>' : ''}${r?.orderNo && !co && r.shipKb !== 5 ? '<div class="filters right" style="margin-top:12px"><button type="button" id="dn-one">伝票発行</button></div>' : ''}
+    ${co ? '<div class="corr-sum" id="corr-preview"></div>' : ''}${r?.orderNo && !co && r.shipKb !== 5 && !isUser01() ? '<div class="filters right" style="margin-top:12px"><button type="button" id="dn-one">伝票発行</button></div>' : ''}
     ${dl('dl-cust', active('customers'))}${dl('dl-item', active('items'))}
     `,
     onOpen: f => {
