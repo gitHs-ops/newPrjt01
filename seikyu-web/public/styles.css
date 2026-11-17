@@ -600,3 +600,5 @@ dialog .table-wrap:has(> table.one-line) { max-height: calc(100vh - 260px); }
 /* 出荷伝票一覧の状態：バッジを詰めて表示（2026-11-17 ユーザー指示：横スクロールを減らす） */
 .one-line td.narrow .badge { padding: 1px 5px; margin-right: -2px; }
 #modal-foot > [hidden] { display: none !important; }
+.lr-ro { display: inline-flex; align-items: center; min-height: 36px; min-width: 120px; padding: 7px 10px; background: var(--field-bg); border: 1px solid var(--field-border); border-radius: 8px; box-sizing: border-box; }
+.lr-ro.num { justify-content: flex-end; }
