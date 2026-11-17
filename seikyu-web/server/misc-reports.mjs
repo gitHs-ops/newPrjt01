@@ -409,11 +409,13 @@ export async function miscBook(c, kind, q) {
       // 現行 HJR031 の見出し：入金日・入金科目・入金先・入金額、構成員は2段（構成員名／配分額）。入金科目は科目＋摘要（2026-11-02）
       // 現行 HJR031：構成員の欄は 5 つ固定（空きは見出し「配分額」だけ）。末尾は ＊配分する入金額＊・＊配分しない入金額＊・＊入金額　合計＊（2026-11-04）
       const pad = Math.max(0, 5 - d.members.length), blank = Array(pad).fill('');
-      out.push(['', '', '', '', ...d.members.map(m => m.name), ...blank].map(H));
-      out.push(['入金日', '入金科目', '入金先', '入金額', ...d.members.map(() => '配分額'), ...blank.map(() => '配分額')].map(H));
+      // 入金日・入金科目・入金先・入金額は見出し 2 段を縦に結合（上段が空の灰色にならないように。2026-11-18 ユーザー指示）
+      const h0 = out.length + 1, merges = ['A', 'B', 'C', 'D'].map(c => `${c}${h0}:${c}${h0 + 1}`);
+      out.push(['入金日', '入金科目', '入金先', '入金額', ...d.members.map(m => m.name), ...blank].map(H));
+      out.push(['', '', '', '', ...d.members.map(() => '配分額'), ...blank.map(() => '配分額')].map(H));
       for (const l of d.lines) out.push([l.date, jvAccount(l), l.customer, l.amount, ...l.parts]);
       for (const [label, t] of [['＊配分する入金額＊', d.alloc], ['＊配分しない入金額＊', d.noAlloc], ['＊入金額　合計＊', d.totals]]) out.push([], ['', '', S(label), S(t.amount), ...t.parts.map(S)]);
-      return { name: `${d.title}_${d.from}_${d.to}.xlsx`, body: xlsx([{ name: d.title.slice(0, 28), rows: out, widths: [11, 26, 34, 13, ...d.members.map(() => 14), ...blank.map(() => 10)] }]) };
+      return { name: `${d.title}_${d.from}_${d.to}.xlsx`, body: xlsx([{ name: d.title.slice(0, 28), rows: out, merges, widths: [11, 26, 34, 13, ...d.members.map(() => 14), ...blank.map(() => 10)] }]) };
     }
     // 明細表の下に合計表を続けて出す（1 シート。2026-11-07 ユーザー指示で 2 シート → 1 シート。合計表のボタンは 2026-11-03 に画面から削除）
     const ds = await jvExpenses(c, { ...q, layout: 'summary' });
