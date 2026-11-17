@@ -105,9 +105,11 @@ const tekiyoFill = (codeEl, memoEl) => { if (!codeEl || !memoEl) return; const n
 const options = (list, value, { blank, label = r => `${r.code} ${r.name}`, val = r => r.code } = {}) =>
   (blank !== undefined ? `<option value="">${esc(blank)}</option>` : '') + list.map(r => `<option value="${esc(val(r))}" ${String(val(r)) === String(value ?? '') ? 'selected' : ''}>${esc(label(r))}</option>`).join('');
 const siteOptions = (customer, value, blank) => options((masters.sites || []).filter(s => s.customer === customer && (s.active || `${s.code}|${s.suffix}` === value)), value, { blank, val: s => `${s.code}|${s.suffix}`, label: s => `${s.code}-${s.suffix} ${s.name}` });
-function table(cols, rows, { empty = 'データがありません', foot, rowClass } = {}) {
+// oneLine：各セルを 1 行表示。文字の項目は幅 20 文字程度で切り、カーソルを当てると全体を表示（2026-11-17 ユーザー指示）
+const clip = t => { t = String(t ?? ''); return `<span class="clip"${t.length > 20 ? ` title="${esc(t)}"` : ''}>${esc(t)}</span>`; };
+function table(cols, rows, { empty = 'データがありません', foot, rowClass, oneLine } = {}) {
   if (!rows.length) return `<div class="empty">${esc(empty)}</div>`;
-  return `<div class="table-wrap"><table><thead><tr>${cols.map(c => `<th class="${c.num ? 'num' : ''}">${c.head ?? esc(c.label)}</th>`).join('')}</tr></thead><tbody>${rows.map(r => `<tr class="${rowClass ? rowClass(r) : ''}">${cols.map(c => `<td class="${c.num ? 'num' : ''} ${c.cls || ''}">${c.html ? c.html(r) : esc(c.value(r))}</td>`).join('')}</tr>`).join('')}</tbody>${foot ? `<tfoot><tr>${foot.map(f => `<td class="num">${f ?? ''}</td>`).join('')}</tr></tfoot>` : ''}</table></div>`;
+  return `<div class="table-wrap"><table${oneLine ? ' class="one-line"' : ''}><thead><tr>${cols.map(c => `<th class="${c.num ? 'num' : ''}">${c.head ?? esc(c.label)}</th>`).join('')}</tr></thead><tbody>${rows.map(r => `<tr class="${rowClass ? rowClass(r) : ''}">${cols.map(c => `<td class="${c.num ? 'num' : ''} ${c.cls || ''}">${c.html ? c.html(r) : oneLine && !c.num ? clip(c.value(r)) : esc(c.value(r))}</td>`).join('')}</tr>`).join('')}</tbody>${foot ? `<tfoot><tr>${foot.map(f => `<td class="num">${f ?? ''}</td>`).join('')}</tr></tfoot>` : ''}</table></div>`;
 }
 const field = (label, input, { req, hint, wide } = {}) => `<label class="field ${req ? 'req' : ''} ${wide ? 'wide' : ''}"><span>${esc(label)}</span>${input}${hint ? `<small>${esc(hint)}</small>` : ''}</label>`;
 const monthInput = (name, value) => `<input type="month" name="${name}" value="${esc(value)}" data-filter>`;
@@ -496,20 +498,20 @@ VIEWS.shipments = async q => {
     const b = [`<button class="mini" data-act="detail" data-id="${esc(r.orderNo)}">詳細</button>`];
     if (!canWrite()) return `<div class="actions">${b.join('')}</div>`;
     if (!red(r) && !r.corrected) b.push(`<button class="mini" data-act="correct" data-id="${esc(r.orderNo)}">赤黒訂正</button>`);
-    if (!r.billed && !r.corrected) b.push(`<button class="mini danger" data-act="del" data-id="${esc(r.orderNo)}">取消</button>`);
+    // ［取消］は 2026-11-17 ユーザー指示で詳細の画面へ移動（一覧は 詳細・赤黒訂正 だけ）
     return `<div class="actions">${b.join('')}</div>`;
   };
   return page('出荷・売上', '出荷伝票（shipment_slip）と売上（sales_trn）を同時に登録します。請求済みの伝票は「赤黒訂正」で、元伝票のマイナス（赤）と訂正後（黒）を起票します（NO11、10/14 打合せ）。',
     `<input type="date" name="from" value="${esc(from)}" data-filter title="売上日（から）"><span>〜</span><input type="date" name="to" value="${esc(to)}" data-filter title="売上日（まで）">${comboFilter('customer', 'customers', q.customer || '', '得意先（コード・名称）', 'ship-cust')}<input name="site" list="dl-fsite" value="${esc(q.site || '')}" placeholder="現場（コード・名称）" title="現場（コード・名称）" autocomplete="off" data-filter style="width:200px"><datalist id="dl-fsite">${shipSiteOptions(q.customer, list)}</datalist><select name="kind" data-filter title="決済方法">${options(Object.entries(SHIP_KINDS).map(([code, x]) => ({ code, name: x.name })), kind, { blank: 'すべて', label: r => r.name })}</select>
      ${canWrite() && !isUser01() ? '<button class="primary" data-act="new">＋ 出荷登録</button>' : ''}`,
     `<section class="card glass" data-sub="slips">${sortBar}${table([{ label: '売上No', value: r => r.slipNo || r.orderNo } /* 赤黒は「元伝票No－枝番」だけ（内部の売上Noは出さない。指摘 No.6） */, { label: '出荷日', value: r => r.date }, { label: '得意先', value: r => r.customerName }, { label: '現場', value: r => r.siteName }, { label: '商品', value: r => r.itemName },
-      { label: '数量', num: 1, html: r => `${r.quantity < 0 ? `<span class="check-ng">${r.quantity}</span>` : r.quantity} ${esc(r.unit)}${r.cumulativeCount ? `<br><span class="small muted" title="同日・同現場・同商品・同納入区分の累計">累計 ${r.cumulativeQty}／${r.cumulativeCount}台</span>` : ''}` },
-      { label: '担当・納入', html: r => `<span class="small">${esc(r.operatorName || r.operator)}<br>${esc(r.deliveryKbnName)}</span>` },
-      { label: '単価', num: 1, value: r => yen(r.price) }, { label: '運賃', num: 1, value: r => (r.freight ? yen(r.freight) : '') }, { label: '金額', num: 1, value: r => yen(r.net) }, { label: '税', num: 1, value: r => `${r.taxRate}%` },
+      { label: '数量', num: 1, html: r => `${Math.abs(r.quantity)} ${esc(r.unit)}${r.cumulativeCount ? ` <span class="small muted" title="同日・同現場・同商品・同納入区分の累計">累計 ${r.cumulativeQty}／${r.cumulativeCount}台</span>` : ''}` },
+      { label: '担当・納入', html: r => `<span class="small">${clip([r.operatorName || r.operator, r.deliveryKbnName].filter(Boolean).join(' ／ '))}</span>` },
+      { label: '単価', num: 1, value: r => yen(r.price) }, { label: '運賃', num: 1, value: r => (r.freight ? yen(r.freight) : '') }, { label: '金額', num: 1, html: r => (r.net < 0 ? `<span class="check-ng">${yen(r.net)}</span>` : yen(r.net)) }, { label: '税', num: 1, value: r => `${r.taxRate}%` },   // 数量は黒のまま、金額だけマイナス表示（2026-11-17 ユーザー指示）
       { label: '決済', html: r => r.method === CREDIT ? esc(r.methodName) : badge(r.methodName, 'amber') },
-      { label: '状態', html: r => (r.shipKb === 5 ? (red(r) ? badge('赤', 'red') : badge('赤黒あり', 'amber')) + ' ' : r.shipKb !== 1 ? badge(r.shipKbName, 'gray') + ' ' : '') + (r.corrected ? badge('訂正済', 'gray') + ' ' : '') + (r.billed ? badge('請求済', 'green') : r.method === CREDIT ? badge('未請求', 'gray') : badge('請求対象外', 'amber')) },
+      { label: '状態', html: r => (r.shipKb === 5 ? (red(r) ? badge('赤', 'red') + ' ' : '') : r.shipKb !== 1 ? badge(r.shipKbName, 'gray') + ' ' : '') + (r.corrected ? badge('訂正済', 'gray') + ' ' : '') + (r.billed ? badge('請求済', 'green') : r.method === CREDIT ? badge('未請求', 'gray') : badge('請求対象外', 'amber')) },
       { label: '', html: acts }],
-      shown, { empty: 'この条件の出荷はありません', foot: ['合計', '', '', '', '', '', '', '', '', yen(net), '', `税 ${yen(tax)}`, ''] })}</section><div data-sub="reports">${shipmentReportsCard()}${shipDailyCard()}</div>
+      shown, { oneLine: true, empty: 'この条件の出荷はありません', foot: ['合計', '', '', '', '', '', '', '', '', yen(net), '', `税 ${yen(tax)}`, ''] })}</section><div data-sub="reports">${shipmentReportsCard()}${shipDailyCard()}</div>
      <section class="card glass" data-sub="notes"><div class="card-head"><h2>納品書発行</h2></div>
        <div class="filters"><label class="field">出荷日<input type="date" id="dn-date" value="${esc(bd)}"></label>${canWrite() ? '<button class="primary" data-act="notesIssue">伝票発行</button>' : ''}</div>
        </section>`);
@@ -548,8 +550,11 @@ function slipInquiry(r, why = '') {
     ${SL('車両番号', RO(esc(r.vehicle), 1))}${SL('累計台数', RO(String(r.cumulativeCount), 1))}<div class="span4c fill"></div>
     ${SL('出発時間', RO(esc(r.startTime)))}${SL('予定時間', RO(esc(r.planTime)))}${SL('出発温度', RO(r.startTemp === '' ? '' : esc(r.startTemp) + ' ℃', 1))}${SL('担当者', RO(esc(r.operatorName || r.operator)))}
     ${SL('伝票備考', RO(esc(r.remarks)), { span: 4 })}</div>
-    ${canWrite() && !isUser01() && r.shipKb !== 5 ? '<div class="filters right" style="margin-top:12px"><button type="button" class="primary" id="dn-one">伝票発行</button></div>' : ''}`,
-    onOpen: () => { $('#dn-one')?.addEventListener('click', () => issueDeliveryNotes({ orderNo: r.orderNo }).catch(e => toast(e.message, true))); } });
+    ${(() => { const b = [canWrite() && !r.billed && !r.corrected ? '<button type="button" class="danger" id="slip-del">取消</button>' : '', canWrite() && !isUser01() && r.shipKb !== 5 ? '<button type="button" class="primary" id="dn-one">伝票発行</button>' : ''].join('');
+      return b ? `<div class="filters right" style="margin-top:12px">${b}</div>` : ''; })()}`,
+    onOpen: () => { $('#dn-one')?.addEventListener('click', () => issueDeliveryNotes({ orderNo: r.orderNo }).catch(e => toast(e.message, true)));
+      // ［取消］（2026-11-17 一覧の行から移動）：請求前の伝票のみ。赤黒は組で取消
+      $('#slip-del')?.addEventListener('click', () => confirmBox('出荷の取消', `売上No ${r.slipNo || r.orderNo} を取消します。請求前の伝票のみ取消できます（赤黒は組で取消）。`, () => post('/api/shipments/delete', { orderNo: r.orderNo }).then(() => { toast('取消しました'); render(); }), '取消する')); } });
 }
 const siteFields = (cust, r) => `${field('現場', `<select name="site">${siteOptions(cust, r?.site, '（マスタ外・自由入力）')}</select>`)}
     ${field('現場名1', `<input name="siteName1" maxlength="20" value="${esc(r?.siteName1 || '')}">`)}${field('現場名2', `<input name="siteName2" maxlength="20" value="${esc(r?.siteName2 || '')}">`)}`;

@@ -179,6 +179,8 @@ tfoot td { font-weight: 700; background: rgba(255,255,255,.4); }
 .badge.red { background: rgba(220,38,38,.1); color: var(--danger); }
 .badge.gray { background: rgba(100,116,139,.12); color: var(--text-secondary); }
 .actions { display: flex; gap: 4px; justify-content: flex-end; }
+.one-line td { white-space: nowrap; } .one-line .actions { flex-wrap: nowrap; } .page > .card:has(table.one-line) { min-width: 0; }
+.clip { display: inline-block; max-width: 20em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: bottom; }
 .note { padding: 10px 14px; border-radius: 12px; background: rgba(238,242,255,.7); border: 1px solid rgba(99,102,241,.18); font-size: 12.5px; color: #3730a3; }
 .note.warn { background: rgba(255,251,235,.8); border-color: rgba(245,158,11,.25); color: #92400e; }
 .list { margin: 0; padding-left: 18px; } .list li { margin: 3px 0; }
