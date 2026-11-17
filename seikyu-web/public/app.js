@@ -1324,7 +1324,7 @@ const lrBlank = () => ({ acc: '', sub: '', amount: '', due: '', tax: '', sub2: '
 // 1 行目の科目の初期値は当座預金（D-071。2026-11-12 結合テスト IT-04）
 // 入金日の初期値は当月 20 日（変更可。2026-11-17 ユーザー指示）。メニューから開くと入力画面（open: true）、［一覧］で入金の一覧
 const lr20 = () => `${today().slice(0, 7)}-20`;
-const lrNew = () => ({ step: 1, date: lr20(), customer: '', lines: [{ ...lrBlank(), acc: '1112' }, lrBlank(), lrBlank()], billTo: '', billInput: '', invoices: [], deposit: 0, from: '', to: '', key: uuid(), open: true, editId: 0, editNo: '', editPays: null });
+const lrNew = () => ({ step: 1, date: lr20(), customer: '', lines: [{ ...lrBlank(), acc: '1112' }, lrBlank()],   /* 初期表示は 2 行（2026-11-18 ユーザー指示。足りなければ［＋ 行追加］） */ billTo: '', billInput: '', invoices: [], deposit: 0, from: '', to: '', key: uuid(), open: true, editId: 0, editNo: '', editPays: null });
 let lr = lrNew();
 const lrNum = v => { const n = Number(String(v ?? '').replace(/,/g, '').trim()); return Number.isFinite(n) ? n : NaN; };
 const lrSub = l => LR_ACC[l.acc]?.subs?.find(s => s[0] === l.sub);
@@ -1519,7 +1519,7 @@ function lrFromReceipt(r) {
     if (d.tax && ![lrTaxCode(l), lrTaxDef(l)].includes(d.tax)) l.tax = d.tax;
     if (d.taxAmt !== null && d.taxAmt !== undefined && lrTaxable(l) && d.taxAmt !== lrTaxAuto(l)) l.taxAmt = String(d.taxAmt);
     return l; });
-  while (lines.length < 3) lines.push(lrBlank());
+  while (lines.length < 2) lines.push(lrBlank());
   const date = String(r.date).slice(0, 10);
   return { ...lrNew(), open: true, editId: r.id, editNo: r.no, date, customer: r.customer, billInput: r.customer, lines, editPays: r.allocations.map(a => ({ id: String(a.invoiceId), amount: String(a.amount) })) };
 }
