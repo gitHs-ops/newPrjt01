@@ -437,6 +437,16 @@ async function arPostView() {
     <p class="small muted" style="margin-top:8px">締日は毎月20日に固定です。［実行］は何度でもできます（漏れた伝票があれば押し直してください）。仕訳・会計連携 → 会計連携データ を作成すると元に戻せず、次回は翌月20日の締日になります。</p>
     <p class="small ${run ? '' : 'muted'}" id="ar-status">${run ? `実行：${esc(run.at)}（${esc(run.by)}）　${run.slips}伝票・合計 ${yen(run.total)} 円` : '未実行'}${d.linked ? `　／　会計連携済み：締日 ${esc(d.linked.to)} まで` : ''}</p></section>`);
 }
+let invSort = { k: '', dir: 1 }; // 請求一覧照会の並び（'' はサーバーの並び）
+// 一覧の並べ替え（2026-11-17 ユーザー指示：請求書発行・入金処理・入金予定一覧）。key＝画面、k＝項目、dir＝1 昇順／-1 降順（同じボタンをもう一度で逆順）。
+// 検索済みの結果を並べるだけで DB は読まない。最初はサーバーの並び
+const listSort = {};
+const jaCmp = (a, b) => String(a ?? '').localeCompare(String(b ?? ''), 'ja', { numeric: true });
+const sortedBy = (key, rows, fns) => { const st = listSort[key]; return st && fns[st.k] ? rows.slice().sort((a, b) => fns[st.k](a, b) * st.dir) : rows; };
+const sortBarOf = (key, items) => { const st = listSort[key] || {}; return `<div class="sort-bar small" style="display:flex;gap:6px;align-items:center;margin-bottom:8px"><span class="muted">並べ替え</span>${items.map(([k, l]) => `<button type="button" class="mini${st.k === k ? ' primary' : ''}" data-act="listSort" data-key="${key}" data-k="${k}">${l}${st.k === k ? (st.dir > 0 ? ' ▲' : ' ▼') : ''}</button>`).join('')}</div>`; };
+const listSortAct = d => { const st = listSort[d.key]; listSort[d.key] = st?.k === d.k ? { k: d.k, dir: -st.dir } : { k: d.k, dir: 1 }; render(); };
+// 請求（得意先単位）：締日順（同じ締日は得意先コード順）・得意先順（同じ得意先は締日順）
+const INV_SORT_FNS = { closing: (a, b) => jaCmp(a.closing, b.closing) || jaCmp(a.customer, b.customer), cust: (a, b) => jaCmp(a.customer, b.customer) || jaCmp(a.closing, b.closing) };
 let shipSort = { k: 'date', dir: -1 }; // 出荷伝票一覧の並び（既定はサーバーの並び：出荷日の新しい順）
 VIEWS.shipments = async q => {
   const A = actions;
@@ -764,7 +774,12 @@ VIEWS.invoices = async q => {
   };
   A.report = async (d, btn) => { btn.disabled = true; try { await billingReport(d.kind, $('#rep-month').value, $('#rep-closing').value, $('#rep-unissued')?.checked); } catch (e) { toast(e.message, true); } finally { btn.disabled = false; } };
   // 請求一覧照会（10/23 打合せ：提案書 P11＋現場名）：行は 得意先×現場。発行状況は表示だけ（発行・一括ダウンロードは請求書発行。10/26 打合せ）
-  const lines = invoiceLines(list);
+  // 並べ替え（2026-11-17 ユーザー指示：締日順・得意先順。もう一度押すと逆順）。検索済みの結果を並べ替えるだけ（DB は読まない）
+  const INV_SORTS = { closing: (a, b) => String(a.closing).localeCompare(String(b.closing)) || String(a.customer).localeCompare(String(b.customer), 'ja', { numeric: true }),
+    cust: (a, b) => String(a.customer).localeCompare(String(b.customer), 'ja', { numeric: true }) || String(a.closing).localeCompare(String(b.closing)) };
+  A.invSort = d => { invSort = invSort.k === d.k ? { k: d.k, dir: -invSort.dir } : { k: d.k, dir: 1 }; render(); };
+  const lines = invoiceLines(invSort.k ? list.slice().sort((a, b) => INV_SORTS[invSort.k](a, b) * invSort.dir) : list);
+  const invSortBar = `<div class="sort-bar small" style="display:flex;gap:6px;align-items:center;margin-bottom:8px"><span class="muted">並べ替え</span>${[['closing', '締日'], ['cust', '得意先']].map(([k, l]) => `<button type="button" class="mini${invSort.k === k ? ' primary' : ''}" data-act="invSort" data-k="${k}">${l}${invSort.k === k ? (invSort.dir > 0 ? ' ▲' : ' ▼') : ''}</button>`).join('')}</div>`;
   const sum = k => lines.reduce((n, r) => n + r[k], 0);
   const closeSel = id => `<select id="${id}">${closings.map(c => `<option value="${c}"${String(c) === '20' ? ' selected' : ''}>${closingName(c)}</option>`).join('')}</select>`; // 締日の既定は20日（2026-11-17 ユーザー指示）
   return page('請求締め・発行', '得意先単位・締日ごとの請求を、得意先×現場の行で照会します。請求書の発行は「請求書発行」で行います。',
@@ -776,7 +791,7 @@ VIEWS.invoices = async q => {
       <label class="small" title="発行前に全得意先の明細を確認するときに使う（現行 HAR430 は請求書発行の前に出力）"><input type="checkbox" id="rep-unissued" checked> 未発行を含む</label>
       <button data-act="report" data-kind="confirm">請求書発行確認表</button></div>
       </section></div>
-    <section class="card glass" data-sub="list">
+    <section class="card glass" data-sub="list">${invSortBar}
     ${table([{ label: '締日', value: r => (r.first ? r.inv.closing : '') }, { label: '得意先コード', value: r => (r.first ? r.inv.customer : '') }, { label: '得意先名', value: r => (r.first ? r.inv.customerName : '') },
       { label: '現場名', html: siteCell }, { label: '決済区分', value: r => r.method || '' },
       { label: '売上額', num: 1, value: r => yen(r.net) }, { label: '消費税', num: 1, value: r => yen(r.tax) }, { label: '今回請求額', num: 1, value: r => yen(r.total) },
@@ -805,7 +820,8 @@ async function invoiceIssueView(q) {
   const ist = ISSUE_STATES[q.istate] ? q.istate : '', month = q.month || thisMonth(); // 請求年月の既定は当月（2026-10-27）
   const list = await api('/api/invoices?' + qs({ month, closing: q.closing, customer: q.customer }));
   // 行＝得意先×現場。発行状況・チェックは現場の行ごと（請求書は現場ごとに1枚。訂正した現場だけを再発行できる。2026-10-27）
-  const lines = invoiceLines(list).filter(r => !ist || issueState(r) === ist).map((x, k, a) => ({ ...x, k, first: k === 0 || a[k - 1].inv.id !== x.inv.id }));
+  A.listSort = listSortAct;
+  const lines = invoiceLines(sortedBy('issue', list, INV_SORT_FNS)).filter(r => !ist || issueState(r) === ist).map((x, k, a) => ({ ...x, k, first: k === 0 || a[k - 1].inv.id !== x.inv.id }));
   const sum = k => lines.reduce((n, r) => n + r[k], 0);
   const picks = rows => { const m = {}; for (const r of rows) (m[r.inv.id] ||= []).push(siteLabel(r.siteName)); return m; };
   const checked = () => $$('.inv-pick:checked').map(x => lines[Number(x.value)]).filter(Boolean);
@@ -830,7 +846,7 @@ async function invoiceIssueView(q) {
   // ［⇩ 一括ダウンロード］は 2026-10-27 削除（10/27 打合せ：［請求書発行］で Excel が出るためボタンは1つ。再出力は再発行）
   return page('請求締め・発行', '請求年月・締日・得意先（任意）で検索し、請求書を発行します。請求書は現場ごとに1枚で、見出しのチェックで全件、行のチェックで選択した現場だけを発行します（訂正後の再発行）。発行すると Excel（1現場＝1シート）をダウンロードします。',
     `${invoiceSearch({ ...q, month })}<select id="inv-state" title="発行状況">${options(Object.entries(ISSUE_STATES).map(([code, name]) => ({ code, name })), ist, { blank: 'すべての発行状況', label: x => x.name })}</select>${canWrite() ? '<button class="primary" data-act="issue">請求書発行</button>' : ''}`,
-    `<section class="card glass" data-sub="issue">
+    `<section class="card glass" data-sub="issue">${sortBarOf('issue', [['closing', '締日'], ['cust', '得意先']])}
     ${table([{ label: '', head: '<input type="checkbox" data-pick-all="inv-pick" title="すべて選択／解除">', html: r => `<input type="checkbox" class="inv-pick" value="${r.k}">` }, { label: '締日', value: r => (r.first ? r.inv.closing : '') }, { label: '得意先コード', value: r => (r.first ? r.inv.customer : '') }, { label: '得意先名', value: r => (r.first ? r.inv.customerName : '') },
       { label: '現場名', html: siteCell }, { label: '売上額', num: 1, value: r => yen(r.net) }, { label: '消費税', num: 1, value: r => yen(r.tax) }, { label: '今回請求額', num: 1, value: r => yen(r.total) },
       { label: '発行状況', html: issueCell }],
@@ -1077,15 +1093,17 @@ VIEWS.receipts = async q => {
         toast('入金予定一覧を出力しました');
       } finally { busy(false); btn.disabled = false; }
     };
+    A.listSort = listSortAct;   // 並べ替え：得意先順・請求年月（締日）順・入金予定日順
+    const prow = sortedBy('plan', d.rows, { cust: (a, b) => jaCmp(a.customer, b.customer) || jaCmp(a.closing, b.closing), closing: (a, b) => jaCmp(a.closing, b.closing) || jaCmp(a.customer, b.customer), due: (a, b) => jaCmp(a.due, b.due) || jaCmp(a.customer, b.customer) });
     const tt = d.totals, range = `${d.from || '過去すべて'} 〜 ${d.to || '指定なし'}`;
     const summary = `<div class="filters small" style="margin-bottom:8px"><span>入金予定月 <b>${esc(range)}</b>${d.overdueOnly ? '（予定日経過・未入金のみ）' : ''}</span><span>${d.rows.length}件</span>
       ${tt.overdueCount ? `<span class="check-ng">予定日経過・未入金 ${tt.overdueCustomers}社 ${tt.overdueCount}件 残高 ${yen(tt.overdueBalance)}円（基準日 ${esc(d.today)}）</span>` : `<span class="check-ok">予定日を過ぎた未入金はありません（基準日 ${esc(d.today)}）</span>`}</div>`;
     return page('入金・消込', '入金予定一覧：支払期日（得意先の回収サイト）が入金予定月の範囲に入る請求。入金予定日を過ぎても未入金の請求は赤で表示します。',
       `<label class="field">入金予定月（から）<input type="month" id="rp-from" value="${esc(from)}"></label><label class="field">（まで）<input type="month" id="rp-to" value="${esc(to)}"></label><input id="rp-cust" list="dl-pcust" autocomplete="off" placeholder="得意先（部分一致）" value="${esc(q.customer || '')}" style="width:200px">${custHints()}
        <label class="small"><input type="checkbox" id="rp-over" ${overdue ? 'checked' : ''}> 予定日経過・未入金のみ</label><button class="primary" data-act="search">検索</button><button data-act="thisMonth">今月</button><button data-act="late" title="入金予定月：過去すべて〜今月">予定日経過・未入金（過去〜現在）</button><button data-act="planXlsx" title="画面の検索条件のまま出力">⇩ Excel</button>`,
-      `<section class="card glass">${summary}${table([{ label: '得意先', value: r => `${r.customer} ${r.name}` }, { label: '請求年月（締日）', value: r => r.closing }, { label: '請求金額', num: 1, value: r => yen(r.total) }, { label: 'サイト', value: r => r.site },
+      `<section class="card glass">${summary}${sortBarOf('plan', [['cust', '得意先'], ['closing', '請求年月（締日）'], ['due', '入金予定日']])}${table([{ label: '得意先', value: r => `${r.customer} ${r.name}` }, { label: '請求年月（締日）', value: r => r.closing }, { label: '請求金額', num: 1, value: r => yen(r.total) }, { label: 'サイト', value: r => r.site },
         { label: '入金予定日', html: r => (r.overdue ? `<span class="check-ng">${esc(r.due)} 超過</span>` : esc(r.due)) }, { label: '経過日数', num: 1, html: r => (r.overdue ? `<span class="check-ng">${r.days}日</span>` : '') }, { label: '入金予定金額', num: 1, value: r => yen(r.planned) }, { label: '入金金額', num: 1, value: r => yen(r.paid) }, { label: '残高', num: 1, value: r => yen(r.balance) }],
-        d.rows, { empty: 'この条件で入金予定の請求はありません', rowClass: r => (r.overdue ? 'overdue' : ''), foot: ['入金予定合計', '', '', '', '', '', yen(tt.planned), yen(tt.paid), yen(tt.balance)] })}</section>`);
+        prow, { empty: 'この条件で入金予定の請求はありません', rowClass: r => (r.overdue ? 'overdue' : ''), foot: ['入金予定合計', '', '', '', '', '', yen(tt.planned), yen(tt.paid), yen(tt.balance)] })}</section>`);
   }
   if (tab === 'targets') {
     // 提案書 スライド19：得意先（部分一致）で検索し、残高のある請求年月の行から「消込」へ
@@ -1278,7 +1296,7 @@ const lrTotals = () => { const used = lrUsed(), fund = used.filter(l => ['bank',
 function lrStep2() {
   return `<div class="table-wrap lr-detail"><table class="lr-grid"><thead><tr><th>行</th><th>部門</th><th>科目</th><th>内訳1</th><th>内訳2</th><th class="num">入金額</th><th>処税率</th><th class="num">消費税額</th></tr></thead>${lr.lines.map(lrLine).join('')}</table></div>
     <p>${lr.lines.length < LR_MAX_LINES ? '<button type="button" class="mini" data-act="lrAddLine">＋ 行追加</button>' : ''}</p><div id="lr-totals">${lrTotals()}</div>
-    ${lrKeys([['lrNext', '入金予定照会', 1]])}`;
+    ${lrKeys([['lrNext', '入金予定照会', 1], ...(canWrite() ? [['lrReg', lr.editId ? '更新' : '登録', 1]] : [])])}`;
 }
 // 今回入金額は表示のみ（2026-10-31 ユーザー指示：現場別の入力を決めるまで）。入金額を表示中の請求へ請求No の古い順に配分する（入金消込の自動配分と同じ）
 const lrShown = () => lr.invoices.filter(r => (!lr.from || r.closing >= lr.from) && (!lr.to || r.closing <= lr.to)).sort((a, b) => a.id - b.id);
@@ -1394,6 +1412,12 @@ async function lrNext() {
   }
   await lrRegister();
 }
+// ［登録］（入金予定照会の右。2026-11-17 ユーザー指示）：入金予定照会を開かずに登録する。今回入金額は古い請求から自動で割り当て（修正は元の入金の今回入金額）
+async function lrRegDirect() {
+  if (!lr.billInput) lr.billInput = lr.customer;
+  if (lr.billTo || masters.customers.some(c => c.code === lr.billInput)) await lrLoadBill(lr.billTo || lr.billInput);
+  lr.pays = lr.editPays; await lrRegister();
+}
 const lrBack = () => { if (lr.step > 1) { lr.step -= 1; lrDraw(); } };
 const lrEnd = () => { lr = { ...lrNew(), open: false }; render({ fresh: true }); };   // ［一覧］＝入金の一覧（2026-11-17 ［終了］から変更）
 const lrFind = () => { const i = $('#lr-cust'); if (!i) return; i.focus(); try { i.showPicker(); } catch {} };
@@ -1413,7 +1437,7 @@ function lrFromReceipt(r) {
 // 入金処理：最初は入金の一覧（他の画面と同じ）。［＋ 新規登録］・［修正］で入力画面（入金日・得意先 → 借方 → 今回入金額）を開く（2026-11-09 ユーザー指示）
 async function legacyReceiptView(q = {}) {
   const A = actions;
-  A.lrNext = () => lrRun(lrNext); A.lrSearch = () => lrRun(() => { lr.step = 1; return lrNext(); }); A.lrBack = lrBack; A.lrEnd = lrEnd; A.lrFind = lrFind;
+  A.lrNext = () => lrRun(lrNext); A.lrReg = () => lrRun(lrRegDirect); A.lrSearch = () => lrRun(() => { lr.step = 1; return lrNext(); }); A.lrBack = lrBack; A.lrEnd = lrEnd; A.lrFind = lrFind;
   A.lrAddPay = () => { lrManual(); if (lr.pays.length >= lrShown().length) { lrPaintRows(); return toast('ほかに入金できる請求（入金日までに締めた残高のある請求）がありません', true); } lr.pays.push({ id: '', amount: '' }); lrPaintRows(); };
   A.lrDelPay = d => { lrManual(); lr.pays.splice(Number(d.i), 1); lrPaintRows(); };
   A.lrAddLine = () => { if (lr.lines.length < LR_MAX_LINES) { lr.lines.push(lrBlank()); lrDraw(); } };
@@ -1423,12 +1447,14 @@ async function legacyReceiptView(q = {}) {
   const month = q.month || thisMonth(), all = await api('/api/receipts?' + qs({ month, customer: q.customer }));
   const RSTATES = { POSTED: '計上済', REVERSED: '取消済' }, rst = RSTATES[q.rstate] ? q.rstate : '', list = rst ? all.filter(r => r.status === rst) : all;
   const sum = k => list.filter(r => r.status === 'POSTED').reduce((n, r) => n + (r[k] || 0), 0);
+  A.listSort = listSortAct;   // 並べ替え：入金日順・得意先順・銀行順（銀行コード順。銀行の無い入金は先頭）
+  const rows = sortedBy('receipts', list, { date: (a, b) => jaCmp(String(a.date).slice(0, 10), String(b.date).slice(0, 10)) || jaCmp(a.no, b.no), cust: (a, b) => jaCmp(a.customer, b.customer) || jaCmp(String(a.date).slice(0, 10), String(b.date).slice(0, 10)), bank: (a, b) => jaCmp(a.bankCode, b.bankCode) || jaCmp(String(a.date).slice(0, 10), String(b.date).slice(0, 10)) });
   return page('入金処理', '入金の一覧です。［＋ 新規登録］で入金を登録し、［修正］で登録済みの入金を直します（月次確定前。元の入金を取り消して登録し直します）。',
     `${monthInput('month', month)}${comboFilter('customer', 'customers', q.customer || '', '得意先（コード・名称）')}<select name="rstate" data-filter title="状態">${options(Object.entries(RSTATES).map(([code, name]) => ({ code, name })), rst, { blank: 'すべての状態', label: x => x.name })}</select>${canWrite() ? '<button class="primary" data-act="lrNew">＋ 新規登録</button>' : ''}`,
-    `<section class="card glass">${table([{ label: '入金No', value: r => r.no }, { label: '入金日', value: r => String(r.date).slice(0, 10) }, { label: '得意先', value: r => `${r.customer} ${r.customerName || ''}` }, { label: '振込', num: 1, value: r => yen(r.bank) }, { label: '銀行', value: r => nameOf('banks', r.bankCode) },
+    `<section class="card glass">${sortBarOf('receipts', [['date', '入金日'], ['cust', '得意先'], ['bank', '銀行']])}${table([{ label: '入金No', value: r => r.no }, { label: '入金日', value: r => String(r.date).slice(0, 10) }, { label: '得意先', value: r => `${r.customer} ${r.customerName || ''}` }, { label: '振込', num: 1, value: r => yen(r.bank) }, { label: '銀行', value: r => nameOf('banks', r.bankCode) },
       { label: '現金', num: 1, value: r => yen(r.cash) }, { label: '手形', num: 1, value: r => yen(r.notes) }, { label: '手数料', num: 1, value: r => yen(r.fee) }, { label: '協力会費', num: 1, value: r => yen(r.coop) }, { label: '預り金', num: 1, value: r => yen(r.deposit) }, { label: '値引', num: 1, value: r => yen(r.discount) }, { label: '雑損失', num: 1, value: r => yen(r.loss) }, { label: '消込額', num: 1, value: r => yen(r.settlement) },
       { label: '消込先（請求日）', value: r => r.allocations.map(a => a.closing).join(', ') }, { label: '状態', html: r => status(r.status) },
-      { label: '', html: r => (canWrite() && r.status === 'POSTED' ? `<button class="mini" data-act="lrEdit" data-id="${r.id}">修正</button>` : '') }], list,
+      { label: '', html: r => (canWrite() && r.status === 'POSTED' ? `<button class="mini" data-act="lrEdit" data-id="${r.id}">修正</button>` : '') }], rows,
       { empty: 'この条件の入金はありません', rowClass: r => (r.status === 'REVERSED' ? 'reversed' : ''), foot: ['合計（計上済）', '', '', yen(sum('bank')), '', yen(sum('cash')), yen(sum('notes')), yen(sum('fee')), yen(sum('coop')), yen(sum('deposit')), yen(sum('discount')), yen(sum('loss')), yen(sum('settlement')), '', '', ''] })}</section>`);
 }
 document.addEventListener('input', e => {
