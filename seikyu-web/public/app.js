@@ -452,8 +452,9 @@ async function arPostView(q = {}) {
   return page('出荷・売上', '', '', `<section class="card glass" data-sub="sales"><div class="card-head"><h2>売掛金計上</h2></div>
     <div class="filters"><label class="field">年月<input type="month" id="ar-month" value="${esc(nx.month)}" style="width:140px"></label>
       ${canWrite() ? `<button class="primary" data-act="arRun" ${nx.linked ? 'disabled title="会計連携済みの締日は実行できません"' : ''}>実行</button>` : ''}<button data-act="arXlsx" ${run ? '' : 'disabled title="実行すると出力できます"'}>⇩ 売掛金計上自動仕訳リスト（Excel）</button></div>
-    <p class="small muted" style="margin-top:8px">対象は選んだ年月の前月21日〜当月20日です。［実行］は何度でもできます（漏れた伝票があれば押し直してください）。仕訳・会計連携 → 会計連携データ を作成すると元に戻せず、次回は翌月20日の締日になります。</p>
-    <p class="small ${run ? '' : 'muted'}" id="ar-status">${run ? `実行：${esc(run.at)}（${esc(run.by)}）　${run.slips}伝票` : '未実行'}${d.linked ? `　／　会計連携済み：締日 ${esc(d.linked.to)} まで` : ''}</p></section>`);
+    ${'' /* user01 は案内・実行結果のメッセージを出さない（2026-11-17 ユーザー指示） */}
+    ${isUser01() ? '' : `<p class="small muted" style="margin-top:8px">対象は選んだ年月の前月21日〜当月20日です。［実行］は何度でもできます（漏れた伝票があれば押し直してください）。仕訳・会計連携 → 会計連携データ を作成すると元に戻せず、次回は翌月20日の締日になります。</p>`}
+    ${isUser01() ? '' : `<p class="small ${run ? '' : 'muted'}" id="ar-status">${run ? `実行：${esc(run.at)}（${esc(run.by)}）　${run.slips}伝票` : '未実行'}${d.linked ? `　／　会計連携済み：締日 ${esc(d.linked.to)} まで` : ''}</p>`}</section>`);
 }
 let invSort = { k: '', dir: 1 }; // 請求一覧照会の並び（'' はサーバーの並び）
 // 一覧の並べ替え（2026-11-17 ユーザー指示：請求書発行・入金処理・入金予定一覧）。key＝画面、k＝項目、dir＝1 昇順／-1 降順（同じボタンをもう一度で逆順）。
