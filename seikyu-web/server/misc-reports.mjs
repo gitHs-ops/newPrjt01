@@ -179,7 +179,7 @@ export async function saveMix(c, ctx, p) {
   const ov = {}; for (const k of ['denki', 'touyu', 'seizou', 'ippann']) { const t = String(p[k] ?? '0').trim(); check(/^\d{1,9}(\.\d{1,2})?$/.test(t), '経費単価は0以上の数値（小数2桁まで）で入力してください'); ov[k] = Number(t); }
   // 材料単価が無い製品は原価を保存しない（材料受払の結果は保存する。2026-11-12）
   await runMixLedger(c, ctx, p);
-  const ym = Number(d.month.replace('-', '')), ok = d.products.filter(x => !x.missing), skipped = d.products.filter(x => x.missing).map(x => `${x.item} ${x.name}`);
+  const ym = Number(d.month.replace('-', '')), ok = d.products.filter(x => !x.missing), skipped = d.products.filter(x => x.missing).map(x => `${x.item} ${x.name}（単価の無い材料 ${x.lines.filter(l => l.price === null).map(l => l.material).join('・')}）`);   // 単価を登録すべき材料コードを示す（2026-11-17：製品コードで登録してしまう誤りを防ぐ）
   for (const x of ok) {
     const total = Math.round(x.haigo + ov.denki + ov.touyu + ov.seizou + ov.ippann);
     await c.query("INSERT INTO genka_m (nengetsu,item_cd,haigo_tanka,denki,touyu,seizou,ippann,total,delete_f) VALUES (?,?,?,?,?,?,?,?,'0') ON DUPLICATE KEY UPDATE haigo_tanka=VALUES(haigo_tanka),denki=VALUES(denki),touyu=VALUES(touyu),seizou=VALUES(seizou),ippann=VALUES(ippann),total=VALUES(total),delete_f='0'",
