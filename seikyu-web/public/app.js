@@ -1497,7 +1497,7 @@ async function legacyReceiptView(q = {}) {
   A.lrDelPay = d => { lrManual(); lr.pays.splice(Number(d.i), 1); lrPaintRows(); };
   A.lrAddLine = () => { if (lr.lines.length < LR_MAX_LINES) { lr.lines.push(lrBlank()); lrDraw(); } };
   A.lrNew = () => { lr = { ...lrNew(), open: true }; render(); };
-  A.lrEdit = d => lrRun(async () => { lr = lrFromReceipt(await api('/api/receipt-detail?' + qs({ id: d.id }))); render(); });
+  A.lrEdit = d => lrRun(async () => { lr = lrFromReceipt(await api('/api/receipt-detail?' + qs({ id: d.id }))); await render(); await lrNext(); });   // ［修正］から入ったら［実行］を押さなくても入力内容を表示（2026-11-17 ユーザー指示）
   if (lr.open) return page('入金処理', '', '', `<section class="card glass lr" id="lr-body">${lrBodyHtml()}</section>`);
   const month = q.month || thisMonth(), all = await api('/api/receipts?' + qs({ month, customer: q.customer }));
   const RSTATES = { POSTED: '計上済', REVERSED: '取消済' }, rst = RSTATES[q.rstate] ? q.rstate : '', list = rst ? all.filter(r => r.status === rst) : all;
