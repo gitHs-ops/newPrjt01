@@ -2157,6 +2157,12 @@ async function miscReport(kind, src) {
   if (reportCount(body)) { await saveXlsx(url + '&format=xlsx'); return toast(`${d.title} を Excel で出力しました`); } // 選択のポップアップは出さない（2026-10-27）
   modal({ title: `${d.title}`, body: reportConfirm(body, 'mr-body', d.sub || (d.from ? `${d.from} 〜 ${d.to}` : d.month), '') });
 }
+// 実行後は［配合計算を実行］の右に結果の Excel を出す（2026-11-17 ユーザー指示）。年月・締日を変えたら消す（別条件の結果と取り違えないため）
+function mixResultLink(month, closing) {
+  $('#mx-xl')?.remove();
+  $('[data-act="mix"]')?.insertAdjacentHTML('afterend', `<a class="button" id="mx-xl" href="/api/reports/misc/mix?${qs({ month, closing })}&format=xlsx" download>⇩ 配合計算結果（Excel）</a>`);
+}
+document.addEventListener('change', e => { if (['mx-month', 'mx-closing'].includes(e.target.id)) $('#mx-xl')?.remove(); });
 // 配合計算モーダル（配合マスタ×材料単価＋経費単価 → 原価）は 2026-11-02 から画面から開かない（現行の配合計算処理とは別物。API は残す）
 async function mixDialog() {
   const month = $('#mx-month').value, closing = $('#mx-closing').value, d = await api('/api/reports/misc/mix?' + qs({ month, closing }));
@@ -2170,7 +2176,7 @@ async function mixDialog() {
   modal({ title: `配合計算 ${month}`, wide: true, submit: canWrite() ? '実行して保存' : undefined, sample: canWrite() && d.products.length ? mixSample : false, body: `${isUser01() ? '' : `<p class="small">［実行して保存］で材料受払の計算結果${d.products.length ? 'と原価（マスタ管理 → 原価（配合計算の結果・照会のみ））' : ''}を保存します。材料受払表はこの結果を出力します（同じ処理年月・締日でやり直すと上書き）。</p>`}${body}
     ${d.products.length ? `<h3 style="margin-top:12px">材料使用量の比較（理論＝製品出荷×配合率 ／ 実際＝材料受払）</h3>${table([{ label: '材料', value: u => `${u.material} ${u.name}` }, { label: '理論使用量', num: 1, value: u => u.theoretical }, { label: '実使用量', num: 1, value: u => u.actual ?? '—' }, { label: '差異', num: 1, html: u => u.diff === null ? '—' : `<span class="${Math.abs(u.diff) > Math.max(1, u.theoretical * 0.05) ? 'check-ng' : ''}">${u.diff}</span>` }], d.usage)}
     <h3 style="margin-top:12px">経費単価（推定・手修正可）</h3><p class="small muted">製品出荷数量 ${d.suggest.tons}／推定: 電気 ${yen(d.suggest.denki)}・灯油 ${yen(d.suggest.touyu)}・製造 ${yen(d.suggest.seizou)}・一般 ${yen(d.suggest.ippann)} 円/単位。${esc(d.suggest.basis)}</p><div class="form-grid">${[['denki', '電気'], ['touyu', '灯油'], ['seizou', '製造'], ['ippann', '一般']].map(([k, l]) => field(l + '（円）', `<input name="${k}" class="num" value="${s0[k]}">`)).join('')}</div>` : ''}`,
-    onSubmit: async v => { const r = await post('/api/mix/save', { month, closing, ...v }); toast(`配合計算を実行しました（材料受払の結果を保存${r.saved ? `・原価 ${r.saved} 製品` : ''}）${r.skipped?.length && !isUser01() ? `。材料単価が無いため原価を保存しなかった製品：${r.skipped.join('、')}（マスタ管理 → 材料単価（配合計算用・手入力））` : ''}`, !!r.skipped?.length && !isUser01()); } });   // user01 は「確認してください」を出さず完了の通知だけ（2026-11-17）
+    onSubmit: async v => { const r = await post('/api/mix/save', { month, closing, ...v }); mixResultLink(month, closing); toast(`配合計算を実行しました（材料受払の結果を保存${r.saved ? `・原価 ${r.saved} 製品` : ''}）${r.skipped?.length && !isUser01() ? `。材料単価が無いため原価を保存しなかった製品：${r.skipped.join('、')}（マスタ管理 → 材料単価（配合計算用・手入力））` : ''}`, !!r.skipped?.length && !isUser01()); } });   // user01 は「確認してください」を出さず完了の通知だけ（2026-11-17）
   footFirst(`<a class="button" href="/api/reports/misc/mix?${qs({ month })}&format=xlsx" download>⇩ Excel</a>`);   // ［Excel］は下部（キャンセルの前）へ（2026-11-17 ユーザー指示）
 }
 
