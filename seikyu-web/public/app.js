@@ -2176,10 +2176,14 @@ VIEWS.journals = async q => {
 };
 // ② 自動仕訳リスト 7種（帳票形式：借方・貸方併記、伝票合計・日付合計）
 const monthStart = () => thisMonth() + '-01';
+// 売掛金計上自動仕訳リスト（A01）は 売掛金計上 の画面と同じく 締日・対象期間（前月21日〜当月20日）で出す（2026-11-17 ユーザー指示）。
+// 締日は毎月20日（選んだ日の月の20日にそろえる）、初めは 売掛金計上 の次の締日。A01 の仕訳は締日の日付なので、締日の 1 日で検索する
 async function journalListsView(q) {
-  const A = actions, kind = meta.journalLists[q.list] ? q.list : 'A01', from = q.from || monthStart(), to = q.to || today();
+  const A = actions, kind = meta.journalLists[q.list] ? q.list : 'A01';
+  const closing = kind !== 'A01' ? '' : /^\d{4}-\d{2}/.test(q.closing || '') ? q.closing.slice(0, 7) + '-20' : (await api('/api/ar-post')).next.to;
+  const from = closing || q.from || monthStart(), to = closing || q.to || today(), pFrom = closing ? addMonths(closing.slice(0, 7), -1) + '-21' : from;
   A.tab = d => go('journals', { tab: d.tab });
-  A.print = () => { $('#print-area').innerHTML = `<section class="invoice-doc report-doc journal-doc"><h2>${esc(meta.journalLists[kind].title)}</h2><p>期間 ${from} 〜 ${to} ／ 出力日 ${today()}</p>${$('#jl-body').innerHTML}</section>`; setTimeout(() => window.print(), 200); };
+  A.print = () => { $('#print-area').innerHTML = `<section class="invoice-doc report-doc journal-doc"><h2>${esc(meta.journalLists[kind].title)}</h2><p>${closing ? `締日 ${closing} ／ 対象期間 ${pFrom} 〜 ${to}` : `期間 ${from} 〜 ${to}`} ／ 出力日 ${today()}</p>${$('#jl-body').innerHTML}</section>`; setTimeout(() => window.print(), 200); };
   const url = kind === 'BANK' ? '/api/reports/bank-payments?' + qs({ from, to }) : '/api/reports/journal-list?' + qs({ pattern: kind, from, to });
   const d = await api(url);
   let body;
@@ -2210,9 +2214,10 @@ async function journalListsView(q) {
   }
   const kinds = Object.entries(meta.journalLists).map(([code, v]) => ({ code, name: v.title }));
   return page('仕訳・会計連携', '自動仕訳リストは現行帳票（⑥⑦⑨・資料ア〜エ）と同じ項目・2段の並びで表示・Excel出力します（削減案5：同一フォーマット）。',
-    `<select name="list" data-filter>${options(kinds, kind, { label: r => r.name })}</select><input type="date" name="from" value="${from}" data-filter><input type="date" name="to" value="${to}" data-filter><input type="hidden" name="tab" value="lists" data-filter>
+    `<select name="list" data-filter>${options(kinds, kind, { label: r => r.name })}</select>${closing ? `<label class="field">締日<input type="date" name="closing" value="${closing}" data-filter style="width:150px"></label><label class="field">対象期間<input value="${pFrom} 〜 ${to}" readonly tabindex="-1" style="width:230px"></label>`
+       : `<input type="date" name="from" value="${from}" data-filter><input type="date" name="to" value="${to}" data-filter>`}<input type="hidden" name="tab" value="lists" data-filter>
      <a class="button" href="${url}&format=xlsx" download>⇩ Excel</a>`,
-    `<section class="card glass"><div class="card-head"><h2>${esc(d.title)}</h2><span class="muted small">${from} 〜 ${to}</span></div><div id="jl-body">${body}</div></section>`);
+    `<section class="card glass"><div class="card-head"><h2>${esc(d.title)}</h2><span class="muted small">${closing ? `締日 ${closing}（${pFrom} 〜 ${to}）` : `${from} 〜 ${to}`}</span></div><div id="jl-body">${body}</div></section>`);
 }
 
 // ----- 帳票・データ出力 -----

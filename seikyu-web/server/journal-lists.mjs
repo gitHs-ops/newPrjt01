@@ -210,7 +210,7 @@ const pairRows = (p, first, s) => {
 const totalRow = (label, amount) => jrow({ 9: label, 6: amount, 16: amount }, 'dashTop');
 export async function journalListBook(c, q) {
   const d = await journalList(c, q), now = new Date(Date.now() + 9 * 36e5).toISOString();
-  const out = [jrow({ 0: `出力 ${yymmdd(now.slice(0, 10))} ${now.slice(11, 19)}`, 7: T(d.title) }), [`期間 ${d.from} 〜 ${d.to}`], [], ...JOURNAL_HEAD];
+  const out = [jrow({ 0: `出力 ${yymmdd(now.slice(0, 10))} ${now.slice(11, 19)}`, 7: T(d.title) }), [d.pattern === 'A01' && d.from === d.to && d.to.endsWith('-20') ? `締日 ${d.to}　対象期間 ${arRange(d.to.slice(0, 7)).from} 〜 ${d.to}` : `期間 ${d.from} 〜 ${d.to}`], [], ...JOURNAL_HEAD];   // 売掛金計上は締日・対象期間（2026-11-17 ユーザー指示）
   let lastDate = null;
   for (const s of d.slips) {
     if (lastDate && s.date !== lastDate) out.push(totalRow('日　付　合　計', d.dates.find(x => x.date === lastDate).total));
