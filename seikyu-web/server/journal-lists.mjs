@@ -208,8 +208,12 @@ export const JOURNAL_HEAD = [
   jrow({ 0: '伝票No', 1: '科　目　名', 3: '内　訳　1　名', 7: '工種CD', 8: '摘要1', 9: '摘　要　1　（貸　方）', 10: '摘　要　2　（貸　方）', 11: '科　目　名', 13: '内　訳　1　名', 16: '貸方金額', 17: '状態' }, 'dashBottom')];
 const pairRows = (p, first, s) => {
   const dr = p.dr || {}, cr = p.cr || {}, amt = x => (x.account ? x.amount : '');
-  return [jrow({ 0: first ? yymmdd(s.date) : '', 1: dr.dept, 2: dr.account, 3: dr.sub, 4: dr.sub2, 5: dr.tax, 6: amt(dr), 8: dr.memo1Code, 9: dr.memo1, 10: dr.memo2, 11: cr.dept, 12: cr.account, 13: cr.sub, 14: cr.sub2, 15: cr.tax, 17: first ? s.sourceNo : '' }),
-    jrow({ 0: first ? s.slipNo : '', 1: dr.accountName, 3: dr.subName, 8: cr.memo1Code, 9: cr.memo1, 10: cr.memo2, 11: cr.accountName, 13: cr.subName, 16: amt(cr), 17: first ? s.status : '' })];
+  // 2026-11-17 ユーザー指示：科目ごと（2 段目の下）に実線、日付・伝票No の列は横の点線なし（xlsx の jEnd・jCol0）
+  const r1 = jrow({ 0: first ? yymmdd(s.date) : '', 1: dr.dept, 2: dr.account, 3: dr.sub, 4: dr.sub2, 5: dr.tax, 6: amt(dr), 8: dr.memo1Code, 9: dr.memo1, 10: dr.memo2, 11: cr.dept, 12: cr.account, 13: cr.sub, 14: cr.sub2, 15: cr.tax, 17: first ? s.sourceNo : '' }),
+    r2 = jrow({ 0: first ? s.slipNo : '', 1: dr.accountName, 3: dr.subName, 8: cr.memo1Code, 9: cr.memo1, 10: cr.memo2, 11: cr.accountName, 13: cr.subName, 16: amt(cr), 17: first ? s.status : '' });
+  r1[0] = { v: r1[0], s: 'jCol0' }; r2[0] = { v: r2[0], s: 'jCol0' };
+  for (let i = 1; i < r2.length; i++) r2[i] = { v: r2[i], s: 'jEnd' };
+  return [r1, r2];
 };
 const totalRow = (label, amount) => jrow({ 9: label, 6: amount, 16: amount }, 'dashTop');
 export async function journalListBook(c, q) {
@@ -219,7 +223,8 @@ export async function journalListBook(c, q) {
   for (const s of d.slips) {
     if (lastDate && s.date !== lastDate) out.push(totalRow('日　付　合　計', d.dates.find(x => x.date === lastDate).total));
     lastDate = s.date;
-    s.pairs.forEach((p, i) => out.push(...pairRows(p, !i, s)));
+    // 売掛金計上（A01）は元伝票（C202600001〜C202600045（45件）など）を出さない（2026-11-17 ユーザー指示）
+    s.pairs.forEach((p, i) => out.push(...pairRows(p, !i, d.pattern === 'A01' ? { ...s, sourceNo: '' } : s)));
     out.push(totalRow('伝　票　合　計', s.total));
   }
   if (lastDate) out.push(totalRow('日　付　合　計', d.dates.find(x => x.date === lastDate).total));
