@@ -500,7 +500,7 @@ VIEWS.shipments = async q => {
   A.copy = d => { const r = list.find(x => x.orderNo === d.id); shipmentForm({ ...r, orderNo: undefined, date: bd, copyOf: r.orderNo }, bd); };
   // 2026-11-17 ユーザー指示：「詳細」は照会だけ（［更新する］を削除、［キャンセル］→［閉じる］）。変更は 赤黒訂正・取消 で行う
   // 2026-11-18 ユーザー指示：［赤黒訂正］［取消］が詳細の画面に入ったので、変更できる伝票（請求前・訂正伝票でない・訂正済でない）は詳細の画面で入力項目を修正できる（［更新する］）。変更できない伝票は照会だけ
-  A.detail = d => { const r = list.find(x => x.orderNo === d.id), why = canWrite() && isUser01() ? '' : slipLock(r);   /* 2026-11-18 ユーザー指示：user01 は請求済・訂正伝票・訂正済も詳細画面で修正できる */ if (why) return slipInquiry(r, why); shipmentForm(r, bd); slipFootActs(r); }; A.correct = d => correctionForm(list.find(r => r.orderNo === d.id));
+  A.detail = d => { const r = list.find(x => x.orderNo === d.id), why = canWrite() && isUser01() ? '' : slipLock(r);   /* 2026-11-18 ユーザー指示：user01 は請求済・訂正伝票・訂正済も詳細画面で修正できる */ if (why) return slipInquiry(r, why); shipmentForm(r, bd); slipFootActs(r, true); }; A.correct = d => correctionForm(list.find(r => r.orderNo === d.id));
   A.del = d => confirmBox('出荷の取消', `売上No ${d.id} を取消します。請求前の伝票のみ取消できます（赤黒は組で取消）。`, () => post('/api/shipments/delete', { orderNo: d.id }).then(() => { toast('取消しました'); render(); }), '取消する');
   const red = r => r.shipKb === 5 && r.quantity < 0;
   // 赤黒訂正のある伝票：元伝票・赤・黒を常に並べて出す（10/26 打合せ「元のがあって、打ち消された赤伝があって、黒伝がある」）。
@@ -579,12 +579,38 @@ function slipInquiry(r, why = '') {
 }
 // ［赤黒訂正］［取消］はフッターの先頭（［閉じる］／［キャンセル］の前）に並べる（2026-11-17 ユーザー指示）。詳細（照会）と詳細（修正できる伝票）で共通
 // user01 は伝票の状態にかかわらず 2 つとも出す（2026-11-17 ユーザー指示。できない操作はサーバーが拒否してメッセージを出す）
-function slipFootActs(r) {
-  const u1 = isUser01();
-  footFirst([canWrite() && (u1 || (!(r.shipKb === 5 && r.quantity < 0) && !r.corrected)) ? '<button type="button" id="slip-correct">赤黒訂正</button>' : '', canWrite() && (u1 || (!r.billed && !r.corrected)) ? '<button type="button" class="danger" id="slip-del">取消</button>' : ''].join(''));
-  $('#slip-correct')?.addEventListener('click', () => correctionForm(r));   // ［赤黒訂正］（2026-11-17 一覧の行から移動）
+// 2026-11-18 ユーザー指示：［取消］は取消できる伝票（請求前・訂正されていない）だけに出す（user01 も同じ）
+// 詳細で修正できるとき（edit）：［キャンセル］→［閉じる］にしてフッターの最後へ。商品・数量・単価を変えたときだけ［赤黒訂正］（変えた内容で赤黒を登録）、それ以外を変えたときだけ［更新する］
+function slipFootActs(r, edit = false) {
+  const u1 = isUser01(), fixable = !(r.shipKb === 5 && r.quantity < 0) && !r.corrected;
+  footFirst([canWrite() && (edit || u1 || fixable) ? `<button type="button" id="slip-correct"${edit ? ' hidden' : ''}>赤黒訂正</button>` : '', canWrite() && !r.billed && !r.corrected ? '<button type="button" class="danger" id="slip-del">取消</button>' : ''].join(''));
+  if (edit) slipEditFoot(r, fixable);
+  else $('#slip-correct')?.addEventListener('click', () => correctionForm(r));   // ［赤黒訂正］（2026-11-17 一覧の行から移動）
   // ［取消］（2026-11-17 一覧の行から移動）：請求前の伝票のみ。赤黒は組で取消
   $('#slip-del')?.addEventListener('click', () => confirmBox('出荷の取消', `売上No ${r.slipNo || r.orderNo} を取消します。請求前の伝票のみ取消できます（赤黒は組で取消）。`, () => post('/api/shipments/delete', { orderNo: r.orderNo }).then(() => { toast('取消しました'); render(); }), '取消する'));
+}
+function slipEditFoot(r, fixable) {
+  const f = $('#modal-form'), foot = $('#modal-foot'), cancel = $('#modal-cancel'), submit = $('#modal-submit'), corr = $('#slip-correct');
+  cancel.textContent = '閉じる'; foot.append(cancel);
+  const ac = new AbortController(), on = { signal: ac.signal }; $('#dialog').addEventListener('close', () => ac.abort(), { once: true });   // フォームは使い回しのため閉じたら外す
+  const n = v => Number(String(v ?? '').replace(/,/g, '').trim()), KEYS = ['item', 'quantity', 'price'];
+  const snap = () => JSON.stringify([...new FormData(f)].filter(([k]) => !KEYS.includes(k)));
+  let base = null;   // 修正前の値：画面の初期表示（現場の選択肢など）が終わってから、最初の操作の直前に取る
+  const take = () => { base ??= snap(); };
+  f.addEventListener('pointerdown', take, { capture: true, ...on }); f.addEventListener('keydown', take, { capture: true, ...on });
+  const keyChanged = () => String(f.item.value).trim() !== String(r.item || '') || n(f.quantity.value) !== n(r.quantity) || n(f.price.value) !== n(r.price);
+  const live = () => submit.isConnected || (ac.abort(), false);   // 確認画面など別の内容に替わったら外す
+  const upd = () => { if (!live()) return; const k = keyChanged(), o = base !== null && snap() !== base, viaCorr = k && fixable;
+    corr.hidden = !viaCorr; submit.hidden = viaCorr || !(k || o); };
+  f.addEventListener('input', upd, on); f.addEventListener('change', upd, on); upd();
+  f.addEventListener('submit', e => { if (live() && submit.hidden) { e.preventDefault(); e.stopImmediatePropagation(); } }, { capture: true, ...on });   // ［更新する］が出ていないとき Enter で更新しない
+  corr.addEventListener('click', async () => {
+    corr.disabled = true; $('#form-error').textContent = '';
+    try { const res = await post('/api/shipments/correct', { orderNo: r.orderNo, date: today(), item: f.item.value.trim(), quantity: f.quantity.value, price: f.price.value });
+      toast(`赤 ${res.redSlip}${res.blackSlip ? '・黒 ' + res.blackSlip : ''} を登録しました（差額 ${yen(res.net)}円）`); $('#dialog').close(); f.onsubmit = null; render(); }
+    catch (err) { $('#form-error').textContent = err.message; toast(err.message, true); }
+    finally { corr.disabled = false; }
+  });
 }
 const siteFields = (cust, r) => `${field('現場', `<select name="site">${siteOptions(cust, r?.site, '（マスタ外・自由入力）')}</select>`)}
     ${field('現場名1', `<input name="siteName1" maxlength="20" value="${esc(r?.siteName1 || '')}">`)}${field('現場名2', `<input name="siteName2" maxlength="20" value="${esc(r?.siteName2 || '')}">`)}`;
