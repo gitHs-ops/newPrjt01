@@ -2256,7 +2256,7 @@ async function journalListsView(q) {
       if (last && sl.date !== last) html += total('日付合計', d.dates.find(x => x.date === last).total); last = sl.date;
       const cls = sl.status && !sl.status.endsWith('を含む') ? 'muted' : '';
       sl.pairs.forEach((p, k) => { const dr = p.dr || {}, cr = p.cr || {};
-        html += tr({ 0: k ? '' : yy(sl.date), 1: dr.dept, 2: dr.account, 3: dr.sub, 4: dr.sub2, 5: dr.tax, 6: amt(dr), 8: dr.memo1Code, 9: dr.memo1, 10: dr.memo2, 11: cr.dept, 12: cr.account, 13: cr.sub, 14: cr.sub2, 15: cr.tax, 17: k ? '' : sl.sourceNo }, cls)
+        html += tr({ 0: k ? '' : yy(sl.date), 1: dr.dept, 2: dr.account, 3: dr.sub, 4: dr.sub2, 5: dr.tax, 6: amt(dr), 8: dr.memo1Code, 9: dr.memo1, 10: dr.memo2, 11: cr.dept, 12: cr.account, 13: cr.sub, 14: cr.sub2, 15: cr.tax, 17: k || kind === 'A01' ? '' : sl.sourceNo }, cls)   /* A01 は元伝票（C…〜C…（N件））を出さない（Excel と同じ。2026-11-17） */
           + tr({ 0: k ? '' : sl.slipNo, 1: dr.accountName, 3: dr.subName, 8: cr.memo1Code, 9: cr.memo1, 10: cr.memo2, 11: cr.accountName, 13: cr.subName, 16: amt(cr), 17: k ? '' : sl.status }, cls); });
       html += total('伝票合計', sl.total);
     }
