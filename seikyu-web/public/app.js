@@ -1109,8 +1109,7 @@ VIEWS.receipts = async q => {
     A.listSort = listSortAct;   // 並べ替え：得意先順・請求年月（締日）順・入金予定日順
     const prow = sortedBy('plan', d.rows, { cust: (a, b) => jaCmp(a.customer, b.customer) || jaCmp(a.closing, b.closing), closing: (a, b) => jaCmp(a.closing, b.closing) || jaCmp(a.customer, b.customer), due: (a, b) => jaCmp(a.due, b.due) || jaCmp(a.customer, b.customer) });
     const tt = d.totals, range = `${d.from || '過去すべて'} 〜 ${d.to || '指定なし'}`;
-    const summary = `<div class="filters small" style="margin-bottom:8px"><span>入金予定月 <b>${esc(range)}</b>${d.overdueOnly ? '（予定日経過・未入金のみ）' : ''}</span><span>${d.rows.length}件</span>
-      ${tt.overdueCount ? `<span class="check-ng">予定日経過・未入金 ${tt.overdueCustomers}社 ${tt.overdueCount}件 残高 ${yen(tt.overdueBalance)}円（基準日 ${esc(d.today)}）</span>` : `<span class="check-ok">予定日を過ぎた未入金はありません（基準日 ${esc(d.today)}）</span>`}</div>`;
+    const summary = `<div class="filters small" style="margin-bottom:8px"><span>入金予定月 <b>${esc(range)}</b>${d.overdueOnly ? '（予定日経過・未入金のみ）' : ''}</span></div>`;
     return page('入金・消込', '入金予定一覧：支払期日（得意先の回収サイト）が入金予定月の範囲に入る請求。入金予定日を過ぎても未入金の請求は赤で表示します。',
       `<label class="field">入金予定月（から）<input type="month" id="rp-from" value="${esc(from)}"></label><label class="field">（まで）<input type="month" id="rp-to" value="${esc(to)}"></label><input id="rp-cust" list="dl-pcust" autocomplete="off" placeholder="得意先（部分一致）" value="${esc(q.customer || '')}" style="width:200px">${custHints()}
        <label class="small"><input type="checkbox" id="rp-over" ${overdue ? 'checked' : ''}> 予定日経過・未入金のみ</label><button class="primary" data-act="search">検索</button><button data-act="thisMonth">今月</button><button data-act="late" title="入金予定月：過去すべて〜今月">予定日経過・未入金（過去〜現在）</button><button data-act="planXlsx" title="画面の検索条件のまま出力">⇩ Excel</button>`,
