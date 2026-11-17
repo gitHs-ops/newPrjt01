@@ -1847,8 +1847,8 @@ function expenseView(kind) {
     // 小口現金一覧（11/04 打合せ No.14）：入力した行ごとに 1 行で表示し、行ごとに［修正］［削除］（行どうしは独立。伝票No は 伝票No－行番号）
     const pettyRows = payable ? [] : list.filter(r => r.status !== 'REVERSED').flatMap(r => r.lines.map(L => ({ ...r, L })));
     const colsP = [{ label: '伝票No', value: r => `${r.no}-${String(r.L.no).padStart(2, '0')}` }, { label: '支払日', value: r => r.date },
-      { label: '支払先', value: r => (r.L.vendor ? `${r.L.vendor} ${r.L.payee}` : r.L.payee || r.payee || '') }, { label: '科目・内訳', value: r => `${r.L.account} ${r.L.accountName}${r.L.sub ? `／${r.L.sub} ${r.L.subName}` : ''}` },
-      { label: '処税率', value: r => taxLabel(r.L.taxCode) }, { label: '支払額', num: 1, value: r => yen(r.L.amount) }, { label: '摘要コード', value: r => r.L.memoCode }, { label: '摘要', value: r => r.L.memo },
+      { label: '支払先', clipW: 9, value: r => (r.L.vendor ? `${r.L.vendor} ${r.L.payee}` : r.L.payee || r.payee || '') }, { label: '科目・内訳', clipW: 8, value: r => `${r.L.account} ${r.L.accountName}${r.L.sub ? `／${r.L.sub} ${r.L.subName}` : ''}` },
+      { label: '処税率', clipW: 4, value: r => taxLabel(r.L.taxCode) }, { label: '支払額', num: 1, value: r => yen(r.L.amount) }, { label: '摘要コード', value: r => r.L.memoCode }, { label: '摘要', value: r => r.L.memo },
       { label: '状態', html: r => (r.status === 'POSTED' ? badge('支払済', 'green') : status(r.status)) },   // D-065：小口現金は登録＝支払済（取消済は一覧に出さない。2026-11-12 結合テスト IT-08）
       { label: '', html: r => canWrite() && r.status === 'POSTED' ? `<button class="mini" data-act="lineEdit" data-id="${r.id}" data-ln="${r.L.no}">修正</button>` : '' }];
     const lineOf = d => { const R = list.find(x => x.id === Number(d.id)); return [R, R?.lines.find(l => l.no === Number(d.ln))]; };
