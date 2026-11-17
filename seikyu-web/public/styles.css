@@ -55,6 +55,7 @@ a { color: var(--accent-secondary); text-decoration: none; }
 .top-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .avatar { width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center; background: linear-gradient(135deg,#818cf8,#22d3ee); color: #fff; font: 700 13px var(--font-accent); }
 .role-tag { font-size: 11px; padding: 2px 8px; border-radius: 99px; background: rgba(99,102,241,.1); color: var(--accent-secondary); font-weight: 600; }
+.work-date { font-size: 13px; color: var(--text-secondary); margin-right: 6px; white-space: nowrap; } .work-date b { color: var(--text-primary); font-weight: 700; font-variant-numeric: tabular-nums; }
 .demo-banner { display: flex; gap: 10px; align-items: center; padding: 9px 16px; margin-bottom: 14px; border-radius: 14px; background: rgba(255,251,235,.75); border: 1px solid rgba(245,158,11,.25); color: #92400e; font-size: 12.5px; position: relative; z-index: 1; }
 .demo-banner strong { font: 800 11px var(--font-accent); background: #f59e0b; color: #fff; padding: 2px 8px; border-radius: 6px; letter-spacing: .06em; }
 .demo-banner a { margin-left: auto; color: #b45309; font-weight: 600; }

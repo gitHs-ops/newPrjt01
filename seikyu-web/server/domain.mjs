@@ -58,9 +58,12 @@ export function nextBusinessDay(iso, holidays) {
   for (let i = 0; i < 60 && isHoliday(d.toISOString().slice(0, 10), holidays); i++) d.setUTCDate(d.getUTCDate() + 1);
   return d.toISOString().slice(0, 10);
 }
-// テスト期間中の作業日（2026-11-05 ユーザー指示で 2026-11-30 に固定 → 2026-11-10 ユーザー指示で実日付に戻した → 2026-11-15 ユーザー指示で 2026-11-30 に固定 → 2026-11-17 ユーザー指示で 2027-05-31 に固定）。固定するときは日付を入れる（public/app.js の TEST_TODAY も）
-const TEST_TODAY = '2027-05-31';
-export const today = () => TEST_TODAY || new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Tokyo' }).format(new Date());
+// テスト期間中の作業日（2026-11-05 ユーザー指示で 2026-11-30 に固定 → 2026-11-10 ユーザー指示で実日付に戻した → 2026-11-15 ユーザー指示で 2026-11-30 に固定 → 2026-11-17 ユーザー指示で 2027-05-31 に固定 → 2026-11-17 自社情報の作業日に移した）。固定するときは日付を入れる（public/app.js の TEST_TODAY も）
+const TEST_TODAY = '';
+// 作業日：自社情報の「作業日（業務日付）」（company_info_m.trading_day）。空欄は実日付（2026-11-17 ユーザー指示「작업일자를 마스타에서 지정」）。起動時・自社情報の保存時・業務日付の取得時に読み直す
+let workDay = '';
+export const setWorkDay = d => { workDay = d ? String(d).slice(0, 10) : ''; };
+export const today = () => TEST_TODAY || workDay || new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Tokyo' }).format(new Date());
 // DB timestamps are UTC ("YYYY-MM-DD HH:MM:SS[.ffffff]"); printed documents use Japan time.
 export const jst = (v, len = 19) => { if (!v) return ''; const d = new Date(String(v).replace(' ', 'T').replace(/\.\d+$/, '') + 'Z'); return isNaN(d) ? String(v) : new Date(d.getTime() + 9 * 3600e3).toISOString().replace('T', ' ').slice(0, len); };
 export function addMonths(month, n) { const [y, m] = month.split('-').map(Number); return new Date(Date.UTC(y, m - 1 + n, 1)).toISOString().slice(0, 7); }

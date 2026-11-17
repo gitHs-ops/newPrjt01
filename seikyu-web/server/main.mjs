@@ -3,6 +3,8 @@ import { createPool } from './pg.mjs';
 import { prepare } from './schema.mjs';
 import { seedIfEmpty } from './seed.mjs';
 import { createApp } from './http.mjs';
+import { tx } from './db.mjs';
+import { businessDate } from './sales.mjs';
 
 const e = process.env;
 if (!e.DATABASE_URL) throw Error('Missing environment variable: DATABASE_URL');
@@ -12,6 +14,7 @@ const pool = createPool(e.DATABASE_URL, { max: 8, ssl: internal ? false : { reje
 const version = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8')).version;
 try {
   await prepare(pool);
+  await tx(pool, c => businessDate(c)); // 作業日（自社情報）を読み込む
   if (e.SEED_DEMO !== '0' && await seedIfEmpty(pool)) console.log('Sample data created');
   const server = await createApp({ pool, publicDir: new URL('../public/', import.meta.url), version });
   server.listen(Number(e.PORT || 8080), '0.0.0.0', () => console.log(`APLink seikyu-web ${version} listening (PostgreSQL)`));

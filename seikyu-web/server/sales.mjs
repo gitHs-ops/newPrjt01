@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { check, Conflict, yen, qty, taxOf, isoDate, isoMonth, toNum, fromNum, period, dueDate, closingDay, text, RATES, METHODS, CREDIT, today } from './domain.mjs';
+import { check, Conflict, yen, qty, taxOf, isoDate, isoMonth, toNum, fromNum, period, dueDate, closingDay, text, RATES, METHODS, CREDIT, today, setWorkDay } from './domain.mjs';
 import { rows, one, nextSlipNoFy, docNo, invoiceNos, DOC_SERIES, assertOpen, isClosed, audit, stamp, postJournal, reverseJournal, discardOrReverseJournal, line, AR_SLIP_MAX } from './db.mjs';
 import { mustDecode, decode } from './taxcode.mjs';
 
@@ -24,7 +24,7 @@ export async function taxRateOn(c, date) {
   return r ? Number(String(r.category1).trim()) : 10;
 }
 // 業務日付（現行 Java company_info_m.trading_day・MA057 出荷日変更）。未設定は当日
-export async function businessDate(c) { const r = await one(c, 'SELECT trading_day FROM company_info_m WHERE company_info_id=1'); return r?.trading_day ? String(r.trading_day).slice(0, 10) : today(); }
+export async function businessDate(c) { const r = await one(c, 'SELECT trading_day FROM company_info_m WHERE company_info_id=1'); setWorkDay(r?.trading_day); return today(); }
 // 伝票番号（提案書 出荷伝票画面・現行 Java NumberingMEntity）：業務日付の YYMM＋5桁、月が変わると 00001 から
 async function nextShipNo(c) {
   const bd = await businessDate(c), p = bd.slice(2, 4) + bd.slice(5, 7);

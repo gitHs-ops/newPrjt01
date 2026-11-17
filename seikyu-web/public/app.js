@@ -3,9 +3,10 @@ import { installKb } from './kb.js';
 const $ =(s, r = document) => r.querySelector(s), $$ = (s, r = document) => [...r.querySelectorAll(s)];
 const esc = v => String(v ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const yen = v => new Intl.NumberFormat('ja-JP').format(Number(v) || 0);
-// テスト期間中の作業日（2026-11-05 固定 → 2026-11-10 実日付に戻した → 2026-11-15 2026-11-30 に固定 → 2026-11-17 2027-05-31 に固定）。固定するときは日付を入れる（server/domain.mjs の TEST_TODAY も）
-const TEST_TODAY = '2027-05-31';
-const today = () => TEST_TODAY || new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Tokyo' }).format(new Date());
+// テスト期間中の作業日（2026-11-05 固定 → 2026-11-10 実日付に戻した → 2026-11-15 2026-11-30 に固定 → 2026-11-17 2027-05-31 に固定 → 2026-11-17 自社情報の作業日に移した）。固定するときは日付を入れる（server/domain.mjs の TEST_TODAY も）
+const TEST_TODAY = '';
+let workDay = ''; // 作業日：サーバーの作業日（自社情報の作業日、空欄は実日付）。loadMasters で読み直す
+const today = () => TEST_TODAY || workDay || new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Tokyo' }).format(new Date());
 const thisMonth = () => today().slice(0, 7);
 // DB timestamps are stored in UTC ("YYYY-MM-DD HH:MM:SS[.ffffff]"); screens show Japan time.
 const jst = (v, len = 19) => { if (!v) return ''; const d = new Date(String(v).replace(' ', 'T').replace(/\.\d+$/, '') + 'Z'); return isNaN(d) ? String(v) : new Date(d.getTime() + 9 * 3600e3).toISOString().replace('T', ' ').slice(0, len); };
@@ -62,7 +63,7 @@ const progress = {
   close() { const d = $('#progress-dialog'); if (d.open) d.close(); },
 };
 $('#progress-dialog')?.addEventListener('cancel', e => e.preventDefault()); // 処理中は Esc で閉じない
-async function loadMasters() { masters = await api('/api/masters'); }
+async function loadMasters() { let bd; [masters, bd] = await Promise.all([api('/api/masters'), api('/api/business-date')]); workDay = bd.date || ''; const el = $('#work-date'); if (el) el.textContent = today().replaceAll('-', '/'); }
 const qs = o => new URLSearchParams(Object.entries(o).filter(([, v]) => v !== undefined && v !== '' && v !== null)).toString();
 
 // ---------- UI helpers ----------
