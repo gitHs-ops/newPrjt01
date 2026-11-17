@@ -738,6 +738,7 @@ VIEWS.invoices = async q => {
   if (q.view === 'balance') return invoiceBalanceView(q);
   if (q.view === 'ledger') return arLedgerView(q); // await より前に呼ぶ（画面のボタン actions は描画開始時に同期で受け取る）
   if (q.view === 'issue') return invoiceIssueView(q);
+  if (!q.month && q.closing === undefined) q = { ...q, closing: '20' }; // 請求一覧照会の締日の初期値は20日（2026-11-17 ユーザー指示。検索した後は選んだ締日のまま：「すべての締日」は空）
   const month = q.month || thisMonth(); // 請求年月の既定は当月（2026-10-27）
   const list = await api('/api/invoices?' + qs({ month, closing: q.closing, customer: q.customer }));
   const closings = closingList();
