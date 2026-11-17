@@ -594,3 +594,6 @@ dialog .table-wrap:has(> table.one-line) { max-height: calc(100vh - 260px); }
 /* 定時請求データ入力：ラベルの右に入力欄（1 行。2026-11-17 ユーザー指示）。補足（small）は入力欄の下 */
 .hw-head label.field { grid-template-columns: 7.5em minmax(0, 1fr); align-items: center; gap: 4px 8px; }
 .hw-head label.field > small { grid-column: 2; }
+
+/* 一覧の列の余白を詰める（table の narrow。2026-11-17 出荷伝票一覧の運賃） */
+.one-line th.narrow, .one-line td.narrow { padding-left: 2px; padding-right: 2px; }

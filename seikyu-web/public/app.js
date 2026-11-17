@@ -109,13 +109,14 @@ const options = (list, value, { blank, label = r => `${r.code} ${r.name}`, val =
 const siteOptions = (customer, value, blank) => options((masters.sites || []).filter(s => s.customer === customer && (s.active || `${s.code}|${s.suffix}` === value)), value, { blank, val: s => `${s.code}|${s.suffix}`, label: s => `${s.code}-${s.suffix} ${s.name}` });
 // oneLine：各セルを 1 行表示。文字の項目は幅 20 文字程度で切り、カーソルを当てると全体を表示（2026-11-17 ユーザー指示。同日「全一覧に適用」で既定を on）
 // 入力欄・ボタンのあるセルは切らない（1 行表示だけ）
+// narrow：その列の左右の余白を詰める（2026-11-17 出荷伝票一覧の運賃）
 // w：その列だけ幅を em で狭める（2026-11-17 出荷伝票一覧の現場名など。右端の［詳細］が見えるように）
 const clip = (t, w) => { t = String(t ?? ''); return `<span class="clip"${w ? ` style="max-width:${w}em"` : ''}${t.length > (w || 20) ? ` title="${esc(t)}"` : ''}>${esc(t)}</span>`; };
 const clipHtml = h => (/<(input|select|textarea|button)|class="actions"/.test(h) ? h : `<span class="clip">${h}</span>`);
 document.addEventListener('mouseover', e => { const c = e.target.closest?.('.one-line .clip'); if (c && !c.title && c.scrollWidth > c.clientWidth) c.title = c.innerText; });
 function table(cols, rows, { empty = 'データがありません', foot, rowClass, oneLine = true } = {}) {
   if (!rows.length) return `<div class="empty">${esc(empty)}</div>`;
-  return `<div class="table-wrap"><table${oneLine ? ' class="one-line"' : ''}><thead><tr>${cols.map(c => `<th class="${c.num ? 'num' : ''}">${c.head ?? esc(c.label)}</th>`).join('')}</tr></thead><tbody>${rows.map(r => `<tr class="${rowClass ? rowClass(r) : ''}">${cols.map(c => `<td class="${c.num ? 'num' : ''} ${c.cls || ''}">${c.html ? (oneLine && !c.num ? clipHtml(c.html(r)) : c.html(r)) : oneLine && !c.num ? clip(c.value(r), c.clipW) : esc(c.value(r))}</td>`).join('')}</tr>`).join('')}</tbody>${foot ? `<tfoot><tr>${foot.map(f => `<td class="num">${f ?? ''}</td>`).join('')}</tr></tfoot>` : ''}</table></div>`;
+  return `<div class="table-wrap"><table${oneLine ? ' class="one-line"' : ''}><thead><tr>${cols.map(c => `<th class="${c.num ? 'num' : ''}${c.narrow ? ' narrow' : ''}">${c.head ?? esc(c.label)}</th>`).join('')}</tr></thead><tbody>${rows.map(r => `<tr class="${rowClass ? rowClass(r) : ''}">${cols.map(c => `<td class="${c.num ? 'num' : ''} ${c.cls || ''}${c.narrow ? ' narrow' : ''}">${c.html ? (oneLine && !c.num ? clipHtml(c.html(r)) : c.html(r)) : oneLine && !c.num ? clip(c.value(r), c.clipW) : esc(c.value(r))}</td>`).join('')}</tr>`).join('')}</tbody>${foot ? `<tfoot><tr>${foot.map(f => `<td class="num">${f ?? ''}</td>`).join('')}</tr></tfoot>` : ''}</table></div>`;
 }
 const field = (label, input, { req, hint, wide } = {}) => `<label class="field ${req ? 'req' : ''} ${wide ? 'wide' : ''}"><span>${esc(label)}</span>${input}${hint ? `<small>${esc(hint)}</small>` : ''}</label>`;
 const monthInput = (name, value) => `<input type="month" name="${name}" value="${esc(value)}" data-filter>`;
@@ -527,7 +528,7 @@ VIEWS.shipments = async q => {
     `<section class="card glass" data-sub="slips">${sortBar}${table([{ label: '売上No', value: r => r.slipNo || r.orderNo } /* 赤黒は「元伝票No－枝番」だけ（内部の売上Noは出さない。指摘 No.6） */, { label: '出荷日', value: r => r.date }, { label: '得意先', value: r => r.customerName, clipW: 9 }, { label: '現場', value: r => r.siteName, clipW: 5 }, { label: '商品', value: r => r.itemName, clipW: 6 },
       { label: '数量', num: 1, html: r => `${Math.abs(r.quantity)} ${esc(r.unit)}${r.cumulativeCount ? ` <span class="small muted" title="同日・同現場・同商品・同納入区分の累計">累計 ${r.cumulativeQty}／${r.cumulativeCount}台</span>` : ''}` },
       { label: '担当・納入', html: r => `<span class="small">${clip([r.operatorName || r.operator, r.deliveryKbnName].filter(Boolean).join(' ／ '))}</span>` },
-      { label: '単価', num: 1, value: r => yen(r.price) }, { label: '運賃', num: 1, value: r => (r.freight ? yen(r.freight) : '') }, { label: '金額', num: 1, html: r => (r.net < 0 ? `<span class="check-ng">${yen(r.net)}</span>` : yen(r.net)) }, { label: '税', num: 1, value: r => `${r.taxRate}%` },   // 数量は黒のまま、金額だけマイナス表示（2026-11-17 ユーザー指示）
+      { label: '単価', num: 1, value: r => yen(r.price) }, { label: '運賃', num: 1, narrow: 1, value: r => (r.freight ? yen(r.freight) : '') }, { label: '金額', num: 1, html: r => (r.net < 0 ? `<span class="check-ng">${yen(r.net)}</span>` : yen(r.net)) }, { label: '税', num: 1, value: r => `${r.taxRate}%` },   // 数量は黒のまま、金額だけマイナス表示（2026-11-17 ユーザー指示）
       { label: '決済', html: r => r.method === CREDIT ? esc(r.methodName) : badge(r.methodName, 'amber') },
       { label: '状態', html: r => (r.shipKb === 5 ? (red(r) ? badge('赤', 'red') + ' ' : '') : r.shipKb !== 1 ? badge(r.shipKbName, 'gray') + ' ' : '') + (r.corrected ? badge('訂正済', 'gray') + ' ' : '') + (r.billed ? badge('請求済', 'green') : r.method === CREDIT ? badge('未請求', 'gray') : badge('請求対象外', 'amber')) },
       { label: '', html: acts }],
