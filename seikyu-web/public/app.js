@@ -557,9 +557,10 @@ function slipInquiry(r, why = '') {
     ${SL('車両番号', RO(esc(r.vehicle), 1))}${SL('累計台数', RO(String(r.cumulativeCount), 1))}<div class="span4c fill"></div>
     ${SL('出発時間', RO(esc(r.startTime)))}${SL('予定時間', RO(esc(r.planTime)))}${SL('出発温度', RO(r.startTemp === '' ? '' : esc(r.startTemp) + ' ℃', 1))}${SL('担当者', RO(esc(r.operatorName || r.operator)))}
     ${SL('伝票備考', RO(esc(r.remarks)), { span: 4 })}</div>
-    ${(() => { const b = [canWrite() && !(r.shipKb === 5 && r.quantity < 0) && !r.corrected ? '<button type="button" id="slip-correct">赤黒訂正</button>' : '', canWrite() && !r.billed && !r.corrected ? '<button type="button" class="danger" id="slip-del">取消</button>' : '', canWrite() && !isUser01() && r.shipKb !== 5 ? '<button type="button" class="primary" id="dn-one">伝票発行</button>' : ''].join('');
-      return b ? `<div class="filters right" style="margin-top:12px">${b}</div>` : ''; })()}`,
+    ${canWrite() && !isUser01() && r.shipKb !== 5 ? '<div class="filters right" style="margin-top:12px"><button type="button" class="primary" id="dn-one">伝票発行</button></div>' : ''}`,
     onOpen: () => { $('#dn-one')?.addEventListener('click', () => issueDeliveryNotes({ orderNo: r.orderNo }).catch(e => toast(e.message, true)));
+      // ［赤黒訂正］［取消］は下の［閉じる］の前に並べる（2026-11-17 ユーザー指示）
+      $('#modal-foot').insertAdjacentHTML('afterbegin', [canWrite() && !(r.shipKb === 5 && r.quantity < 0) && !r.corrected ? '<button type="button" id="slip-correct">赤黒訂正</button>' : '', canWrite() && !r.billed && !r.corrected ? '<button type="button" class="danger" id="slip-del">取消</button>' : ''].join(''));
       $('#slip-correct')?.addEventListener('click', () => correctionForm(r));   // ［赤黒訂正］（2026-11-17 一覧の行から移動）
       // ［取消］（2026-11-17 一覧の行から移動）：請求前の伝票のみ。赤黒は組で取消
       $('#slip-del')?.addEventListener('click', () => confirmBox('出荷の取消', `売上No ${r.slipNo || r.orderNo} を取消します。請求前の伝票のみ取消できます（赤黒は組で取消）。`, () => post('/api/shipments/delete', { orderNo: r.orderNo }).then(() => { toast('取消しました'); render(); }), '取消する')); } });
