@@ -428,12 +428,14 @@ document.addEventListener('change', e => { if (e.target.id !== 'ship-cust') retu
 // 売掛金計上（2026-11-17 ユーザー指示）：締日は毎月20日固定（前月21日〜当月20日）。次に会計連携する締日を出す。［実行］は確認・完了のメッセージを出さず、何度でもできる（漏れた伝票があれば押し直す）。
 // 売掛金計上自動仕訳リスト（Excel）はその締日で一度も実行していなければ押せない。会計連携データを作成すると元に戻せず、次は翌月20日の締日になる（11/20 → 12/20）
 // 締日は月だけ選べる（日は20日固定。2026-11-17 ユーザー指示）。初めは次に会計連携する締日。会計連携済みの月は［実行］できない
+// ［検索］は出さず、年月を変えたらすぐ切り替える（2026-11-17 ユーザー指示）
+document.addEventListener('change', e => { if (e.target.id === 'ar-month' && /^\d{4}-\d{2}$/.test(e.target.value)) go('shipments', { month: e.target.value }); });
 async function arPostView(q = {}) {
   const A = actions, d = await api('/api/ar-post?' + qs({ month: q.month || '' })), nx = d.sel, run = d.run; // actions は await の前に受け取る
   A.arRun = async (_, btn) => { if (btn) btn.disabled = true; try { await post('/api/ar-post/run', { month: nx.month }); render({ fresh: true }); } catch (e) { toast(e.message, true); if (btn) btn.disabled = false; } };
   A.arXlsx = () => run && saveXlsx('/api/reports/journal-list?' + qs({ pattern: 'A01', from: nx.to, to: nx.to, format: 'xlsx' })).catch(e => toast(e.message, true));
   return page('出荷・売上', '', '', `<section class="card glass" data-sub="sales"><div class="card-head"><h2>売掛金計上</h2></div>
-    <div class="filters"><label class="field">締日<span style="display:flex;align-items:center;gap:4px"><input type="month" name="month" value="${esc(nx.month)}" data-filter style="width:140px">20日</span></label><label class="field">対象期間<input value="${esc(nx.from)} 〜 ${esc(nx.to)}" readonly tabindex="-1" style="width:220px"></label>
+    <div class="filters"><label class="field">締日<span style="display:flex;align-items:center;gap:4px"><input type="month" id="ar-month" value="${esc(nx.month)}" style="width:140px">20日</span></label><label class="field">対象期間<input value="${esc(nx.from)} 〜 ${esc(nx.to)}" readonly tabindex="-1" style="width:220px"></label>
       ${canWrite() ? `<button class="primary" data-act="arRun" ${nx.linked ? 'disabled title="会計連携済みの締日は実行できません"' : ''}>実行</button>` : ''}<button data-act="arXlsx" ${run ? '' : 'disabled title="実行すると出力できます"'}>⇩ 売掛金計上自動仕訳リスト（Excel）</button></div>
     <p class="small muted" style="margin-top:8px">締日は毎月20日に固定です（年月だけ選べます）。［実行］は何度でもできます（漏れた伝票があれば押し直してください）。仕訳・会計連携 → 会計連携データ を作成すると元に戻せず、次回は翌月20日の締日になります。</p>
     <p class="small ${run ? '' : 'muted'}" id="ar-status">${run ? `実行：${esc(run.at)}（${esc(run.by)}）　${run.slips}伝票・合計 ${yen(run.total)} 円` : '未実行'}${d.linked ? `　／　会計連携済み：締日 ${esc(d.linked.to)} まで` : ''}</p></section>`);
