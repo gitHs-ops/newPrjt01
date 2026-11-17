@@ -165,7 +165,7 @@ dialog.modal.wide:has(.py-form) { width: min(960px, calc(100vw - 24px)); }
 .master-list .pager { display: flex; gap: 4px; align-items: center; flex-wrap: wrap; justify-content: flex-end; margin-bottom: 10px; } /* マスタ一覧のページ移動（2026-11-06） */
 .master-list .pager .small { margin-left: 8px; }
 table { width: 100%; border-collapse: collapse; font-size: 13px; }
-th { text-align: left; font-weight: 600; font-size: 11.5px; color: var(--text-secondary); padding: 8px 10px; border-bottom: 1px solid var(--field-border); white-space: nowrap; background: rgba(255,255,255,.35); position: sticky; top: 0; }
+th { text-align: left; font-weight: 700; font-size: 12px; color: #1e293b; padding: 8px 10px; border-bottom: 2px solid #94a3b8; white-space: nowrap; background: rgba(255,255,255,.35); position: sticky; top: 0; }
 td { padding: 8px 10px; border-bottom: 1px solid rgba(148,163,184,.16); vertical-align: middle; }
 tr:hover td { background: rgba(255,255,255,.55); }
 td.num, th.num { text-align: right; white-space: nowrap; }
@@ -180,6 +180,9 @@ tfoot td { font-weight: 700; background: rgba(255,255,255,.4); }
 .badge.gray { background: rgba(100,116,139,.12); color: var(--text-secondary); }
 .actions { display: flex; gap: 4px; justify-content: flex-end; }
 .one-line td { white-space: nowrap; } .one-line .actions { flex-wrap: nowrap; } .card:has(table.one-line) { min-width: 0; }
+/* 1 行表示の一覧で表が横に長いときも右端の操作ボタン（［詳細］など）が見えるよう右に固定（2026-11-17） */
+.one-line td:has(> .actions) { position: sticky; right: 0; z-index: 1; background: rgba(250,251,255,.96); }
+.one-line thead th:last-child:empty { position: sticky; right: 0; z-index: 3; }
 tr.grp-top td { border-top: 2px solid rgba(71,85,105,.7); } /* 請求一覧照会：得意先ごとの実線（2026-11-17） */
 .clip { display: inline-block; max-width: 20em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: bottom; }
 .note { padding: 10px 14px; border-radius: 12px; background: rgba(238,242,255,.7); border: 1px solid rgba(99,102,241,.18); font-size: 12.5px; color: #3730a3; }
@@ -533,7 +536,7 @@ input.file-native { position: absolute; width: 1px; height: 1px; opacity: 0; poi
 @media print { .invoice-doc tr.site-head td { background: #eef2f7 !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; } }
 
 /* スクロール表の見出し行：下の行が透けないように不透明にする（実在庫登録など） */
-.table-wrap th { background: rgba(246,248,253,.97); z-index: 2; box-shadow: 0 1px 0 var(--field-border); }
+.table-wrap th { background: #e6ecf5; z-index: 2; box-shadow: 0 1px 0 #94a3b8; } /* 見出しの色を濃く（2026-11-17 ユーザー指示「헤더 표시 색상을 좀더 뚜렷하게」） */
 /* ロックされた入力欄（在庫計上済みの月度など）を見た目でも区別する */
 input:disabled, select:disabled, textarea:disabled { background: rgba(120,130,150,.10); color: var(--text-secondary); border-style: dashed; cursor: not-allowed; }
 
