@@ -531,7 +531,7 @@ VIEWS.shipments = async q => {
       { label: '担当・納入', narrow: 1, html: r => `<span class="small">${clip([r.operatorName || r.operator, r.deliveryKbnName].filter(Boolean).join('／'), 7)}</span>` },   // 区切りの空白を詰め、幅 7em（2026-11-17 ユーザー指示）
       { label: '単価', num: 1, value: r => yen(r.price) }, { label: '運賃', num: 1, narrow: 1, value: r => (r.freight ? yen(r.freight) : '') }, { label: '金額', num: 1, html: r => (r.net < 0 ? `<span class="check-ng">${yen(r.net)}</span>` : yen(r.net)) }, { label: '税', num: 1, value: r => `${r.taxRate}%` },   // 数量は黒のまま、金額だけマイナス表示（2026-11-17 ユーザー指示）
       { label: '決済', html: r => r.method === CREDIT ? esc(r.methodName) : badge(r.methodName, 'amber') },
-      { label: '状態', narrow: 1, html: r => (r.shipKb === 5 ? (red(r) ? badge('赤', 'red') + ' ' : '') : r.shipKb !== 1 ? badge(r.shipKbName, 'gray') + ' ' : '') + (r.corrected ? badge('訂正済', 'gray') + ' ' : '') + (r.billed ? badge('請求済', 'green') : r.method === CREDIT ? badge('未請求', 'gray') : badge('請求対象外', 'amber')) },
+      { label: '状態', narrow: 1, html: r => [r.billed ? badge('請求済', 'green') : r.method === CREDIT ? badge('未請求', 'gray') : badge('請求対象外', 'amber'), r.corrected ? badge('訂正済', 'gray') : '', r.shipKb !== 5 && r.shipKb !== 1 ? badge(r.shipKbName, 'gray') : '', r.shipKb === 5 && red(r) ? badge('赤', 'red') : ''].filter(Boolean).join(' ') },   // 並び：請求状況 → 訂正済 → 伝票区分 → 赤（赤は最後。2026-11-17 ユーザー指示）
       { label: '', html: acts }],
       shown, { empty: 'この条件の出荷はありません', foot: ['合計', '', '', '', '', '', '', '', '', yen(net), '', `税 ${yen(tax)}`, ''] })}</section><div data-sub="reports">${shipmentReportsCard()}${shipDailyCard()}</div>
      <section class="card glass" data-sub="notes"><div class="card-head"><h2>納品書発行</h2></div>
