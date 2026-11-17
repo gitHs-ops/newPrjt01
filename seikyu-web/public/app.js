@@ -220,6 +220,14 @@ function comboize(sel) {
 }
 const comboizeIn = root => { if (root.matches?.(COMBO_SELECT)) comboize(root); root.querySelectorAll?.(COMBO_SELECT).forEach(comboize); };
 new MutationObserver(ms => { for (const m of ms) for (const n of m.addedNodes) if (n.nodeType === 1) comboizeIn(n); }).observe(document.documentElement, { childList: true, subtree: true });
+// 数量・金額がマイナスのときは赤字（2026-11-17 ユーザー指示：すべての画面）。数値の欄（.num・.amount・KPI）の先頭が「-」＋数字なら is-neg を付ける。
+// 描画・書き換えのたびに（MutationObserver）、入力欄は入力のたびに付け直す
+const NEG_SEL = '.num, .amount, .kpi b', NEG_RE = /^[-−]\s*[\d.,]*\d/;
+const markNeg = el => el.classList.toggle('is-neg', NEG_RE.test(String(el.matches('input, textarea') ? el.value : el.textContent).trim()));
+let negQueued = false;
+const markNegAll = () => { negQueued = false; document.querySelectorAll(NEG_SEL).forEach(markNeg); };
+new MutationObserver(() => { if (!negQueued) { negQueued = true; requestAnimationFrame(markNegAll); } }).observe(document.documentElement, { childList: true, subtree: true, characterData: true });
+['input', 'change'].forEach(t => document.addEventListener(t, e => { if (e.target.matches?.(NEG_SEL)) markNeg(e.target); }));
 
 // ---------- navigation ----------
 // 小メニュー（サイドバー）：#画面/小メニュー で直接開ける。q＝従来のタブ等の条件、tools＝上部の検索・登録ボタンを出すか（既定は先頭と q 付きのみ）
@@ -952,7 +960,7 @@ async function invoiceDetail(id, site = null) {
   // 明細の列は請求書発行確認表と同じ（運送＝納入区分の名称（11/04 打合せ No.26）、備考＝現場名。2026-10-27、10/27 打合せ）
   const lineTable = () => table([{ label: '日付', value: r => r.date }, { label: '売上No', value: r => r.orderNo }, { label: '区分', html: r => r.shipKb === 5 ? badge('訂正', 'amber') : '売上' }, { label: '商品', value: r => r.itemName }, { label: '数量', num: 1, value: r => r.quantity }, { label: '単価', num: 1, value: r => yen(r.price) }, { label: '金額', num: 1, value: r => yen(r.net) }, { label: '処税率', num: 1, value: r => r.taxRate + '%' },
     { label: '運送', value: r => r.carry || '' }, { label: '備考', value: r => r.siteName }], pick(inv.lines));
-  modal({ title: `請求 ${inv.customerName}`, wide: true,   /* 見出しの請求No（システム連番）と現場名は出さない（2026-11-17 ユーザー指示。現場は本文に表示） */ body: `
+  modal({ title: `請求詳細照会 ${inv.customerName}`, wide: true,   /* 2026-11-17 見出し 請求 → 請求詳細照会（ユーザー指示）。見出しの請求No（システム連番）と現場名は出さない（2026-11-17 ユーザー指示。現場は本文に表示） */ body: `
     <div class="grid3"><div><div class="muted small">${site ? '現場' : '請求単位'}</div><b>${esc(site ? site.siteName || '（現場なし）' : inv.siteName)}</b></div><div><div class="muted small">締日 / 支払期日</div><b>${esc(inv.closing)} / ${esc(inv.due)}</b></div><div><div class="muted small">状態</div>${status(inv.status)}</div></div>
     <div class="grid3" style="margin:12px 0"><div class="sum-line"><span>税抜金額</span><b>${yen(site ? site.net : inv.net)}</b></div><div class="sum-line"><span>消費税</span><b>${yen(site ? site.tax : inv.tax)}</b></div>${site ? `<div class="sum-line"><span>今回請求額</span><b>${yen(site.total)}</b></div>` : `<div class="sum-line"><span>請求額 / 残高</span><b>${yen(inv.total)} / ${yen(inv.balance)}</b></div>`}</div>
     <h3>明細</h3><div id="inv-lines">${lineTable()}</div>
