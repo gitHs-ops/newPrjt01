@@ -2230,7 +2230,7 @@ VIEWS.journals = async q => {
 };
 // ② 自動仕訳リスト 7種（帳票形式：借方・貸方併記、伝票合計・日付合計）
 const monthStart = () => thisMonth() + '-01';
-// 売掛金計上自動仕訳リスト（A01）は 売掛金計上 の画面と同じく 締日・対象期間（前月21日〜当月20日）で出す（2026-11-17 ユーザー指示）。
+// 売掛金計上自動仕訳リスト（A01）は 売掛金計上 の画面と同じく 締日・対象期間（前月21日〜当月20日）で出す（2026-11-17 ユーザー指示）。　画面の「対象期間」欄は表示しない（2026-11-17 ユーザー指示）
 // 締日は毎月20日（選んだ日の月の20日にそろえる）、初めは 売掛金計上 の次の締日。対象期間（前月21日〜当月20日）の A01 をすべて出す（20日締め以外の請求も含む。2026-11-17 ユーザー指示）
 async function journalListsView(q) {
   const A = actions, kind = meta.journalLists[q.list] ? q.list : 'A01';
@@ -2268,7 +2268,7 @@ async function journalListsView(q) {
   }
   const kinds = Object.entries(meta.journalLists).map(([code, v]) => ({ code, name: v.title }));
   return page('仕訳・会計連携', '自動仕訳リストは現行帳票（⑥⑦⑨・資料ア〜エ）と同じ項目・2段の並びで表示・Excel出力します（削減案5：同一フォーマット）。',
-    `<select name="list" data-filter>${options(kinds, kind, { label: r => r.name })}</select>${closing ? `<label class="field">締日<span style="display:flex;align-items:center;gap:4px"><input type="month" name="closing" value="${closing.slice(0, 7)}" data-filter style="width:140px">20日</span></label><label class="field">対象期間<input value="${pFrom} 〜 ${to}" readonly tabindex="-1" style="width:230px"></label>`
+    `<select name="list" data-filter>${options(kinds, kind, { label: r => r.name })}</select>${closing ? `<label class="field">締日<span style="display:flex;align-items:center;gap:4px"><input type="month" name="closing" value="${closing.slice(0, 7)}" data-filter style="width:140px">20日</span></label>`
        : `<input type="date" name="from" value="${from}" data-filter><input type="date" name="to" value="${to}" data-filter>`}<input type="hidden" name="tab" value="lists" data-filter>
      <a class="button" href="${url}&format=xlsx" download>⇩ Excel</a>`,
     `<section class="card glass"><div class="card-head"><h2>${esc(d.title)}</h2><span class="muted small">${closing ? `締日 ${closing}（${pFrom} 〜 ${to}）` : `${from} 〜 ${to}`}</span></div><div id="jl-body">${body}</div></section>`);
