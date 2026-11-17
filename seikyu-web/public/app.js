@@ -443,16 +443,17 @@ document.addEventListener('change', e => { if (e.target.id !== 'ship-cust') retu
 // 売掛金計上自動仕訳リスト（Excel）はその締日で一度も実行していなければ押せない。会計連携データを作成すると元に戻せず、次は翌月20日の締日になる（11/20 → 12/20）
 // 締日は月だけ選べる（日は20日固定。2026-11-17 ユーザー指示）。初めは次に会計連携する締日。会計連携済みの月は［実行］できない
 // ［検索］は出さず、年月を変えたらすぐ切り替える（2026-11-17 ユーザー指示）
+// 対象期間の欄と実行結果の合計金額は表示しない（2026-11-17 ユーザー指示）
 document.addEventListener('change', e => { if (e.target.id === 'ar-month' && /^\d{4}-\d{2}$/.test(e.target.value)) go('shipments', { month: e.target.value }); });
 async function arPostView(q = {}) {
   const A = actions, d = await api('/api/ar-post?' + qs({ month: q.month || '' })), nx = d.sel, run = d.run; // actions は await の前に受け取る
   A.arRun = async (_, btn) => { if (btn) btn.disabled = true; try { await post('/api/ar-post/run', { month: nx.month }); render({ fresh: true }); } catch (e) { toast(e.message, true); if (btn) btn.disabled = false; } };
   A.arXlsx = () => run && saveXlsx('/api/reports/journal-list?' + qs({ pattern: 'A01', from: nx.from, to: nx.to, format: 'xlsx' })).catch(e => toast(e.message, true));
   return page('出荷・売上', '', '', `<section class="card glass" data-sub="sales"><div class="card-head"><h2>売掛金計上</h2></div>
-    <div class="filters"><label class="field">年月<input type="month" id="ar-month" value="${esc(nx.month)}" style="width:140px"></label><label class="field">対象期間<input value="${esc(nx.from)} 〜 ${esc(nx.to)}" readonly tabindex="-1" style="width:220px"></label>
+    <div class="filters"><label class="field">年月<input type="month" id="ar-month" value="${esc(nx.month)}" style="width:140px"></label>
       ${canWrite() ? `<button class="primary" data-act="arRun" ${nx.linked ? 'disabled title="会計連携済みの締日は実行できません"' : ''}>実行</button>` : ''}<button data-act="arXlsx" ${run ? '' : 'disabled title="実行すると出力できます"'}>⇩ 売掛金計上自動仕訳リスト（Excel）</button></div>
-    <p class="small muted" style="margin-top:8px">年月を選ぶと対象期間（前月21日〜当月20日）が変わります。［実行］は何度でもできます（漏れた伝票があれば押し直してください）。仕訳・会計連携 → 会計連携データ を作成すると元に戻せず、次回は翌月20日の締日になります。</p>
-    <p class="small ${run ? '' : 'muted'}" id="ar-status">${run ? `実行：${esc(run.at)}（${esc(run.by)}）　${run.slips}伝票・合計 ${yen(run.total)} 円` : '未実行'}${d.linked ? `　／　会計連携済み：締日 ${esc(d.linked.to)} まで` : ''}</p></section>`);
+    <p class="small muted" style="margin-top:8px">対象は選んだ年月の前月21日〜当月20日です。［実行］は何度でもできます（漏れた伝票があれば押し直してください）。仕訳・会計連携 → 会計連携データ を作成すると元に戻せず、次回は翌月20日の締日になります。</p>
+    <p class="small ${run ? '' : 'muted'}" id="ar-status">${run ? `実行：${esc(run.at)}（${esc(run.by)}）　${run.slips}伝票` : '未実行'}${d.linked ? `　／　会計連携済み：締日 ${esc(d.linked.to)} まで` : ''}</p></section>`);
 }
 let invSort = { k: '', dir: 1 }; // 請求一覧照会の並び（'' はサーバーの並び）
 // 一覧の並べ替え（2026-11-17 ユーザー指示：請求書発行・入金処理・入金予定一覧）。key＝画面、k＝項目、dir＝1 昇順／-1 降順（同じボタンをもう一度で逆順）。
@@ -821,7 +822,7 @@ VIEWS.invoices = async q => {
       { label: '請求書発行状況', html: r => issueCell(r) + (r.first && ['partial', 'paid', 'credit'].includes(r.inv.status) ? ' ' + status(r.inv.status) : '') },
       // 再作成区分（D-004）：赤黒などの未請求の出荷がある未発行の請求。請求データ作成で作り直す（2026-11-12 結合テスト IT-02）
       { label: '再作成区分', html: r => (r.first && r.inv.rebuild ? `<span title="未請求の出荷（赤黒など）があります。請求データ作成で作り直してください">${badge('1 再作成', 'amber')}</span>` : '') },
-      { label: '', html: r => `<button class="mini" data-act="detail" data-k="${r.k}">詳細</button>` }], lines, { empty: '請求がありません', foot: ['合計', '', '', '', '', yen(sum('net')), yen(sum('tax')), yen(sum('total')), '', '', ''] })}</section>`);
+      { label: '', html: r => `<button class="mini" data-act="detail" data-k="${r.k}">詳細</button>` }], lines, { rowClass: r => (r.first && r.k ? 'grp-top' : ''), empty: '請求がありません', foot: ['合計', '', '', '', '', yen(sum('net')), yen(sum('tax')), yen(sum('total')), '', '', ''] })}</section>`);
 };
 // 請求一覧照会・請求書発行で共通：検索条件（請求年月・締日・得意先。得意先は任意）と 得意先×現場 の行
 const invoiceSearch = q => `${monthInput('month', q.month || '')}<select name="closing" data-filter title="締日">${options(closingList().map(x => ({ code: String(x), name: closingName(x) })), q.closing, { blank: 'すべての締日', label: x => x.name })}</select>${comboFilter('customer', 'customers', q.customer || '', '得意先（コード・名称）')}`;
@@ -835,11 +836,12 @@ const siteLabel = n => (n && String(n).trim() ? String(n) : '（現場なし）'
 // 現場ごとの発行回数（現場別発行より前の発行分は請求の発行回数）
 const siteNo = s => s.pageIssueNo ?? s.siteIssueNo?.[siteLabel(s.siteName)] ?? s.issueNo; // pageIssueNo＝請求書1枚の発行回数（invoicePage）
 const issueState = r => (!r.issues ? 'unissued' : r.issues > 1 ? 'reissued' : 'issued'); // r＝現場の行（issues＝その現場の発行回数）
-const issueCell = r => badge(ISSUE_STATES[issueState(r)], r.issues ? 'green' : 'gray') + (r.issues ? ` <span class="small muted">${r.issues}回</span>` : '');
+const issueCell = r => badge(ISSUE_STATES[issueState(r)], r.issues ? 'green' : 'gray'); // 発行回数（N回）は出さない（2026-11-17 ユーザー指示）
 async function invoiceIssueView(q) {
   const A = actions;
   A.view = d => go('invoices', { view: d.view });
-  const ist = ISSUE_STATES[q.istate] ? q.istate : '', month = q.month || thisMonth(); // 請求年月の既定は当月（2026-10-27）
+  // 発行状況の既定は「未発行」、「すべて」＝all（2026-11-17 ユーザー指示）
+  const ist = q.istate === 'all' ? '' : ISSUE_STATES[q.istate] ? q.istate : 'unissued', month = q.month || thisMonth(); // 請求年月の既定は当月（2026-10-27）
   const list = await api('/api/invoices?' + qs({ month, closing: q.closing, customer: q.customer }));
   // 行＝得意先×現場。発行状況・チェックは現場の行ごと（請求書は現場ごとに1枚。訂正した現場だけを再発行できる。2026-10-27）
   A.listSort = listSortAct;
@@ -867,12 +869,12 @@ async function invoiceIssueView(q) {
   };
   // ［⇩ 一括ダウンロード］は 2026-10-27 削除（10/27 打合せ：［請求書発行］で Excel が出るためボタンは1つ。再出力は再発行）
   return page('請求締め・発行', '請求年月・締日・得意先（任意）で検索し、請求書を発行します。請求書は現場ごとに1枚で、見出しのチェックで全件、行のチェックで選択した現場だけを発行します（訂正後の再発行）。発行すると Excel（1現場＝1シート）をダウンロードします。',
-    `${invoiceSearch({ ...q, month })}<select id="inv-state" title="発行状況">${options(Object.entries(ISSUE_STATES).map(([code, name]) => ({ code, name })), ist, { blank: 'すべての発行状況', label: x => x.name })}</select>${canWrite() ? '<button class="primary" data-act="issue">請求書発行</button>' : ''}`,
+    `${invoiceSearch({ ...q, month })}<select id="inv-state" title="発行状況">${options([{ code: 'all', name: 'すべて' }, ...Object.entries(ISSUE_STATES).map(([code, name]) => ({ code, name }))], ist || 'all', { label: x => x.name })}</select>${canWrite() ? '<button class="primary" data-act="issue">請求書発行</button>' : ''}`,
     `<section class="card glass" data-sub="issue">${sortBarOf('issue', [['closing', '締日'], ['cust', '得意先']])}
-    ${table([{ label: '', head: '<input type="checkbox" data-pick-all="inv-pick" title="すべて選択／解除">', html: r => `<input type="checkbox" class="inv-pick" value="${r.k}">` }, { label: '締日', value: r => (r.first ? r.inv.closing : '') }, { label: '得意先コード', value: r => (r.first ? r.inv.customer : '') }, { label: '得意先名', value: r => (r.first ? r.inv.customerName : '') },
+    ${table([{ label: '', head: '<input type="checkbox" data-pick-all="inv-pick" title="すべて選択／解除">', html: r => `<input type="checkbox" class="inv-pick" value="${r.k}">` }, /* 締日の列は 2026-11-17 ユーザー指示で削除 */ { label: '得意先コード', value: r => (r.first ? r.inv.customer : '') }, { label: '得意先名', value: r => (r.first ? r.inv.customerName : '') },
       { label: '現場名', html: siteCell }, { label: '売上額', num: 1, value: r => yen(r.net) }, { label: '消費税', num: 1, value: r => yen(r.tax) }, { label: '今回請求額', num: 1, value: r => yen(r.total) },
       { label: '発行状況', html: issueCell }],
-      lines, { empty: ist ? 'この発行状況の現場はありません' : '請求がありません', foot: ['', '合計', '', '', '', yen(sum('net')), yen(sum('tax')), yen(sum('total')), ''] })}</section>`);
+      lines, { empty: ist ? 'この発行状況の現場はありません' : '請求がありません', foot: ['', '合計', '', '', yen(sum('net')), yen(sum('tax')), yen(sum('total')), ''] })}</section>`);
 }
 // 発行前確認一覧（2026-10-25）：請求データ作成の前に、その締日で請求される未請求の掛売上（出荷伝票）を得意先ごとに確認する。
 // 現行 HAR430（メニュー 11）と同じ明細項目。請求データは作らない（読み取りのみ）
