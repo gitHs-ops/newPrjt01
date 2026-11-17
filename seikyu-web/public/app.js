@@ -2314,7 +2314,7 @@ async function oneToManyView(q) {
   const code = q.parent, par = parents.find(c => c.code === code), list = children.filter(x => x[d.ref] === code), { shown, html } = pageNav(list, q.page);
   A.back = () => go('masters', { kind, search: q.back || '' });
   A.new = () => masterForm(d.child, null, { [d.ref]: code }); A.edit = x => masterForm(d.child, list.find(r => r.key === x.key));
-  return page('マスタ管理', desc, `<button data-act="back">← 前画面</button>${canWrite() ? '<button class="primary" data-act="new">＋ 新規登録</button>' : ''}`,
+  return page('マスタ管理', desc, `<button data-act="back">← 戻る</button>${canWrite() ? '<button class="primary" data-act="new">＋ 新規登録</button>' : ''}`,
     `<section class="card glass master-list"><p style="margin:0 0 10px">${d.pLabel} <b class="lr-cname" style="margin-left:6px">${esc(code)}　${esc(par?.name || '')}</b>　<span class="muted small">${d.cLabel} ${list.length} 件</span></p>${html}${table([...(canWrite() ? [{ label: '', html: r => `<button class="mini" data-act="edit" data-key="${esc(r.key)}">編集</button>` }] : []),
       ...d.cols.map(([label, value, num]) => ({ label, value, num })), { label: '状態', html: state }],
       shown, { empty: `この${d.pLabel}の${d.cLabel}はありません。［＋ 新規登録］で登録できます`, rowClass: r => r.active ? '' : 'muted' })}</section>`);
