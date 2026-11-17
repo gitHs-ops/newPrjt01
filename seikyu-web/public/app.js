@@ -824,8 +824,9 @@ VIEWS.invoices = async q => {
       // 発行状況は現場の行ごと（請求書発行と同じ 未発行／発行済／再発行。2026-10-28）。入金・クレジットの状況は得意先の先頭行に並べる
       { label: '請求書発行状況', html: r => issueCell(r) + (r.first && ['partial', 'paid', 'credit'].includes(r.inv.status) ? ' ' + status(r.inv.status) : '') },
       // 再作成区分（D-004）：赤黒などの未請求の出荷がある未発行の請求。請求データ作成で作り直す（2026-11-12 結合テスト IT-02）
-      { label: '再作成区分', html: r => (r.first && r.inv.rebuild ? `<span title="未請求の出荷（赤黒など）があります。請求データ作成で作り直してください">${badge('1 再作成', 'amber')}</span>` : '') },
-      { label: '', html: r => `<button class="mini" data-act="detail" data-k="${r.k}">詳細</button>` }], lines, { rowClass: r => (r.first && r.k ? 'grp-top' : ''), empty: '請求がありません', foot: ['合計', '', '', '', '', yen(sum('net')), yen(sum('tax')), yen(sum('total')), '', '', ''] })}</section>`);
+      // user01 は再作成区分の列を出さない（2026-11-17 ユーザー指示）
+      ...(isUser01() ? [] : [{ label: '再作成区分', html: r => (r.first && r.inv.rebuild ? `<span title="未請求の出荷（赤黒など）があります。請求データ作成で作り直してください">${badge('1 再作成', 'amber')}</span>` : '') }]),
+      { label: '', html: r => `<button class="mini" data-act="detail" data-k="${r.k}">詳細</button>` }], lines, { rowClass: r => (r.first && r.k ? 'grp-top' : ''), empty: '請求がありません', foot: ['合計', '', '', '', '', yen(sum('net')), yen(sum('tax')), yen(sum('total')), '', ...(isUser01() ? [] : ['']), ''] })}</section>`);
 };
 // 請求一覧照会・請求書発行で共通：検索条件（請求年月・締日・得意先。得意先は任意）と 得意先×現場 の行
 const invoiceSearch = q => `${monthInput('month', q.month || '')}<select name="closing" data-filter title="締日">${options(closingList().map(x => ({ code: String(x), name: closingName(x) })), q.closing, { blank: 'すべての締日', label: x => x.name })}</select>${comboFilter('customer', 'customers', q.customer || '', '得意先（コード・名称）')}`;
