@@ -2167,10 +2167,11 @@ async function mixDialog() {
     : '<div class="empty">配合マスタが登録されていないため原価は計算しません（マスタ管理 → 配合）。実行すると材料受払の計算結果だけを保存します</div>');
   // サンプル入力：経費単価を推定値（推定が 0 なら見本の値）にする（2026-11-01）
   const mixSample = f => [['denki', 110], ['touyu', 220], ['seizou', 330], ['ippann', 40]].forEach(([k, v]) => { if (f[k]) f[k].value = d.suggest[k] || v; });
-  modal({ title: `配合計算 ${month}`, wide: true, submit: canWrite() ? '実行して保存' : undefined, sample: canWrite() && d.products.length ? mixSample : false, body: `${isUser01() ? '' : `<p class="small">［実行して保存］で材料受払の計算結果${d.products.length ? 'と原価（マスタ管理 → 原価）' : ''}を保存します。材料受払表はこの結果を出力します（同じ処理年月・締日でやり直すと上書き）。</p>`}<div class="filters" style="margin-bottom:10px"><a class="button" href="/api/reports/misc/mix?${qs({ month })}&format=xlsx" download>⇩ Excel</a></div>${body}
+  modal({ title: `配合計算 ${month}`, wide: true, submit: canWrite() ? '実行して保存' : undefined, sample: canWrite() && d.products.length ? mixSample : false, body: `${isUser01() ? '' : `<p class="small">［実行して保存］で材料受払の計算結果${d.products.length ? 'と原価（マスタ管理 → 原価）' : ''}を保存します。材料受払表はこの結果を出力します（同じ処理年月・締日でやり直すと上書き）。</p>`}${body}
     ${d.products.length ? `<h3 style="margin-top:12px">材料使用量の比較（理論＝製品出荷×配合率 ／ 実際＝材料受払）</h3>${table([{ label: '材料', value: u => `${u.material} ${u.name}` }, { label: '理論使用量', num: 1, value: u => u.theoretical }, { label: '実使用量', num: 1, value: u => u.actual ?? '—' }, { label: '差異', num: 1, html: u => u.diff === null ? '—' : `<span class="${Math.abs(u.diff) > Math.max(1, u.theoretical * 0.05) ? 'check-ng' : ''}">${u.diff}</span>` }], d.usage)}
     <h3 style="margin-top:12px">経費単価（推定・手修正可）</h3><p class="small muted">製品出荷数量 ${d.suggest.tons}／推定: 電気 ${yen(d.suggest.denki)}・灯油 ${yen(d.suggest.touyu)}・製造 ${yen(d.suggest.seizou)}・一般 ${yen(d.suggest.ippann)} 円/単位。${esc(d.suggest.basis)}</p><div class="form-grid">${[['denki', '電気'], ['touyu', '灯油'], ['seizou', '製造'], ['ippann', '一般']].map(([k, l]) => field(l + '（円）', `<input name="${k}" class="num" value="${s0[k]}">`)).join('')}</div>` : ''}`,
     onSubmit: async v => { const r = await post('/api/mix/save', { month, closing, ...v }); toast(`配合計算を実行しました（材料受払の結果を保存${r.saved ? `・原価 ${r.saved} 製品` : ''}）${r.skipped?.length ? `。材料単価が無いため原価を保存しなかった製品：${r.skipped.join('、')}（マスタ管理 → 材料単価）` : ''}`, !!r.skipped?.length); } });
+  footFirst(`<a class="button" href="/api/reports/misc/mix?${qs({ month })}&format=xlsx" download>⇩ Excel</a>`);   // ［Excel］は下部（キャンセルの前）へ（2026-11-17 ユーザー指示）
 }
 
 async function pettyFundDialog() {
