@@ -174,8 +174,13 @@ export async function extraBook(c, kind, q) {
     const d = await payableInputList(c, q), out = head(d, `${d.month} 月度　区分 ${d.kb ? '1 組織' : 'ブランク 工事'}　業者 ${d.vendor}`), pct = (a, b) => `${b ? (Math.floor(a / b * 10000) / 100).toFixed(2) : '0.00'} %`;
     // （内消費税）の行の下は実線（業者・工事の区切り。2026-11-17 ユーザー指示）：12 列すべて jEnd
     const taxEnd = t => ['', '', '', '', '', '（内消費税', '', t, 0, `${t.toLocaleString('ja-JP')} ）`, '', ''].map(v => ({ v, s: 'jEnd' }));
+    // 見出し 2 段（2026-11-18 ユーザー指示「헤더 디자인 개선」）：2 段に分かれるのは 業者名／請求No. だけ。ほかの列は上下の 2 行を結合して 1 つの見出しにする
+    const merges = [];
     for (const dp of d.depts) {
-      out.push(band(PAYIN_W, [`${d.groupLabel} : ${dp.dept} ${dp.name}`]), ['業者CD', '業者名'].map(H), ['', '請求No.', '科目', '内訳', '科目名', '内訳名', '発注残金額', '請求金額', '相殺金額', '摘要', '処税率', '相殺（支払）業者'].map(H));
+      out.push(band(PAYIN_W, [`${d.groupLabel} : ${dp.dept} ${dp.name}`]));
+      const r1 = out.length + 1;
+      out.push(['業者CD', '業者名', '科目', '内訳', '科目名', '内訳名', '発注残金額', '請求金額', '相殺金額', '摘要', '処税率', '相殺（支払）業者'].map(H), ['', '請求No.', '', '', '', '', '', '', '', '', '', ''].map(H));
+      for (const c of ['A', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L']) merges.push(`${c}${r1}:${c}${r1 + 1}`);
       for (const v of dp.vendors) {
         out.push([v.vendor, v.name]);
         for (const r of v.rows) out.push(['', r.no, r.account, r.sub, r.accountName, r.subName, r.orderRemain, r.amount, r.offset, r.memo, r.tax, '']);
@@ -185,7 +190,7 @@ export async function extraBook(c, kind, q) {
       out.push(['', '', '', '', '', '', '', '', '', H('当月支払額'), H('当月出来高'), H('支払率')], ['', '', '', '', '', '', '', '', '', dp.paid, dp.done, pct(dp.paid, dp.done)]);
       out.push(['', '', '', '', '', '', '', '', '', H('累計支払額'), H('累計出来高'), H('支払率')], ['', '', '', '', '', '', '', '', '', dp.cumPaid, dp.cumDone, pct(dp.cumPaid, dp.cumDone)], []);
     }
-    return { name: `定時請求入力明細表_${d.month}.xlsx`, body: xlsx([{ name: '定時請求入力明細表', rows: out, widths: PAYIN_W }]) };
+    return { name: `定時請求入力明細表_${d.month}.xlsx`, body: xlsx([{ name: '定時請求入力明細表', rows: out, widths: PAYIN_W, merges }]) };
   }
   if (kind === 'petty-book') {
     // 構成員の列は現行 HJR051 と同じく名称だけ。列幅は名称が切れないよう全角2・半角1で計算（2026-10-29）

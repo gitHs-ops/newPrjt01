@@ -162,6 +162,9 @@ function listify(sh) {
     let w = 0; for (let x = 0; x < (span0[`${i},${j}`] || 1); x++) w += fw[j + x] ?? 9;
     return { v: textWidth(v) > w ? v.replace(/[ 　]+/g, '') : v, s: 'tHeadF' };
   };
+  // グループ名の結合の幅は見本の列幅（fw）で計算し直す（元の列幅で計算すると見本の幅で名前が切れる：定時請求データ入力明細表の「部門 : 063 豊明工場」2026-11-18）
+  const bandSpan = {};
+  for (const r of rows) if (r?.span) { const need = textWidth(cellOf(r[r.start]).v) * 1.1 + 2, lim = r.max || W - r.start; let s = 1, w = fw[r.start] ?? 9; while (s < lim && w < need) w += fw[r.start + s++] ?? 9; bandSpan[r.start] = Math.max(bandSpan[r.start] || 0, s); }
   let firstHead = -1, lastHead = -1;
   rows.forEach((r, i) => {
     const k = K[i];
@@ -182,7 +185,7 @@ function listify(sh) {
     if (i === t) { row = [{ v: spaced(cellOf(r.find(c => TITLE_S.has(cellOf(c).s))).v), s: 'tTitle' }]; heights[n] = 26; }
     else if (start >= 0 && i >= start && k !== 'empty') {
       row = Array.from({ length: Math.max(W, r.length) }, (_, j) => sty(r[j], j));
-      if (r.span) Object.assign(row, { span: r.span, start: r.start, max: r.max });
+      if (r.span) Object.assign(row, { span: Math.max(r.span, Math.min(bandSpan[r.start] || 1, r.max || W - r.start)), start: r.start, max: r.max });
       heights[n] = k === 'head' ? 16 : 15;
       if (k === 'head' && (firstHead < 0 || lastHead === n - 1)) { if (firstHead < 0) firstHead = n; lastHead = n; }
     } else row = r.map(c => (filled(c) ? { v: cellOf(c).v, s: i === condAt ? 'tCond' : 'tPlain' } : ''));
