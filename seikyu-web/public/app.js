@@ -1423,7 +1423,8 @@ const lrRows = () => {
 const lrDepNote = () => (lrUsed().some(l => lrKind(l) === 'deposit') && lr.billTo ? `請求先の預り金残高 ${yen(lr.deposit)} 円` : '');
 // 請求日の範囲（任意の絞込）。初期値は 自＝空欄・至＝入金日（2026-11-07 変更：至が今日だと未来日付の入金で当月の請求が隠れる。至を手で変えるまで入金日に追随）
 // user01 は請求日・請求先・請求No・今回入金額を入力欄にせず表示だけ（2026-11-18 ユーザー指示）
-const lrRange = () => isUser01() ? `<div class="filters lr-range"><label class="field">請求日<div class="lr-ro">${esc(lr.from) || '&nbsp;'}</div></label><span>〜</span><label class="field">　<div class="lr-ro">${esc(lr.to) || '&nbsp;'}</div></label></div>` : `<div class="filters lr-range"><label class="field">請求日<input type="date" id="lr-from" value="${esc(lr.from)}"></label><span>〜</span><label class="field">　<input type="date" id="lr-to" value="${esc(lr.to)}" aria-label="請求日（至）"></label></div>`;
+// 請求日の範囲は user01 も入力できる（2026-11-18 ユーザー指示。11-18 午前の「表示のみ」から戻す）
+const lrRange = () => `<div class="filters lr-range"><label class="field">請求日<input type="date" id="lr-from" value="${esc(lr.from)}"></label><span>〜</span><label class="field">　<input type="date" id="lr-to" value="${esc(lr.to)}" aria-label="請求日（至）"></label></div>`;
 // 入金予定照会：user01 は［＋ 行追加］と行の［✕］を出さない（2026-11-17 ユーザー指示）
 const lrAddPayBtn = () => (canWrite() && !isUser01() && lr.billTo && lrShown().length > (lr.pays ? lr.pays.length : 0) ? '<button type="button" class="mini" data-act="lrAddPay">＋ 行追加</button>' : '');
 function lrStep3() {
