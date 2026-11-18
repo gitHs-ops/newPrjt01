@@ -191,8 +191,11 @@ async function act(fn, msg) { try { const r = await fn(); if (msg) toast(typeof 
 // ---------- マスタの選択リスト：直接入力もできるコンボ（2026-10-29） ----------
 // マスタ由来の <select> の前に入力欄（datalist で候補）を置き、select は隠して値・change イベントをそのまま使う。
 // コード（例 V002）・「コード 名称」・名称の一部（候補が1件）で決まる。フォーカスすると全候補を出す（入力済みの値は placeholder に退避）
-const COMBO_SELECT = ['customer', 'otherCustomer', 'vendor', 'item', 'product', 'material', 'account', 'sub', 'dept', 'site', 'sitePick', 'operator', 'bankCode', 'payBank', 'invoiceBank', 'deliveryKbn', 'weather', 'unit', 'taxCode']
-  .map(n => `select[name="${n}"]`).concat('select[data-pick]', '#pi-dept', '#pr-bank').join(',');
+const COMBO_SELECT = ['closing', 'pclosing', 'bclosing', 'customer', 'otherCustomer', 'vendor', 'item', 'product', 'material', 'account', 'sub', 'dept', 'site', 'sitePick', 'operator', 'bankCode', 'payBank', 'invoiceBank', 'deliveryKbn', 'weather', 'unit', 'taxCode']
+  .map(n => `select[name="${n}"]`).concat('select[data-pick]', '#pi-dept', '#pr-bank', '#bill-closing', '#rep-closing').join(',');
+// 締日の選択は候補（5・10・15・20・25・月末）のほか 1〜31 の日を手入力できる（例 27 → 27日。「末」を含めば月末。2026-11-18 ユーザー指示）
+const CLOSING_FREE = 'select[name="closing"], select[name="pclosing"], select[name="bclosing"], #bill-closing, #rep-closing';
+const parseClosing = t => { t = String(t ?? '').trim(); if (/末/.test(t)) return 31; const m = t.match(/^(\d{1,2})\s*日?(締)?$/), d = m ? Number(m[1]) : 0; return d >= 1 && d <= 31 ? d : 0; };
 const SELECT_VALUE = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value'), SELECT_INDEX = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'selectedIndex');
 let comboSeq = 0;
 function comboize(sel) {
@@ -210,6 +213,7 @@ function comboize(sel) {
   const build = () => { dl.innerHTML = opts().map(o => `<option value="${esc(text(o))}"${o.title ? ` label="${esc(o.title)}"` : ''}></option>`).join(''); sync(); };
   const find = t => { t = t.trim(); const os = opts(), lt = t.toLowerCase(); if (!t) return os.find(o => o.value === '') || null;
     const hit = os.find(o => text(o) === t) || os.find(o => o.value === t) || os.find(o => o.value !== '' && text(o).startsWith(t + ' ')); if (hit) return hit;
+    if (sel.matches(CLOSING_FREE)) { const d = parseClosing(t); if (d) { let o = os.find(x => x.value === String(d)); if (!o) { o = new Option(d === 31 ? (os.some(x => text(x) === '末日') ? '末日' : '月末') : `${d}日`, String(d)); sel.add(o); } return o; } }
     const part = os.filter(o => o.value !== '' && `${text(o)} ${o.title}`.toLowerCase().includes(lt)); return part.length === 1 ? part[0] : null; };
   const pick = (o, final) => {
     if (!o) { if (!final) return; const blank = opts().find(x => x.value === '');
@@ -459,13 +463,14 @@ document.addEventListener('change', e => { if (e.target.id !== 'ship-cust') retu
 // 締日は月だけ選べる（日は20日固定。2026-11-17 ユーザー指示）。初めは次に会計連携する締日。会計連携済みの月は［実行］できない
 // ［検索］は出さず、年月を変えたらすぐ切り替える（2026-11-17 ユーザー指示）
 // 対象期間の欄と実行結果の合計金額は表示しない（2026-11-17 ユーザー指示）
-document.addEventListener('change', e => { if (e.target.id === 'ar-month' && /^\d{4}-\d{2}$/.test(e.target.value)) go('shipments', { month: e.target.value }); });
+// 締日は年月日で表示（2026-11-18 ユーザー指示）。日を変えても締日は その月の20日（日は20日固定）
+document.addEventListener('change', e => { if (e.target.id === 'ar-month' && /^\d{4}-\d{2}-\d{2}$/.test(e.target.value)) go('shipments', { month: e.target.value.slice(0, 7) }); });
 async function arPostView(q = {}) {
   const A = actions, d = await api('/api/ar-post?' + qs({ month: q.month || '' })), nx = d.sel, run = d.run; // actions は await の前に受け取る
   A.arRun = async (_, btn) => { if (btn) btn.disabled = true; try { await post('/api/ar-post/run', { month: nx.month }); render({ fresh: true }); } catch (e) { toast(e.message, true); if (btn) btn.disabled = false; } };
   A.arXlsx = () => run && saveXlsx('/api/reports/journal-list?' + qs({ pattern: 'A01', from: nx.from, to: nx.to, format: 'xlsx' })).catch(e => toast(e.message, true));
   return page('出荷・売上', '', '', `<section class="card glass" data-sub="sales"><div class="card-head"><h2>売掛金計上</h2></div>
-    <div class="filters"><label class="field">年月<input type="month" id="ar-month" value="${esc(nx.month)}" style="width:140px"></label>
+    <div class="filters"><label class="field">年月日<input type="date" id="ar-month" value="${esc(nx.to)}" style="width:160px"></label>
       ${canWrite() ? `<button class="primary" data-act="arRun" ${nx.linked ? 'disabled title="会計連携済みの締日は実行できません"' : ''}>実行</button>` : ''}<button data-act="arXlsx" ${run ? '' : 'disabled title="実行すると出力できます"'}>⇩ 売掛金計上自動仕訳リスト（Excel）</button></div>
     ${'' /* user01 は案内・実行結果のメッセージを出さない（2026-11-17 ユーザー指示） */}
     ${isUser01() ? '' : `<p class="small muted" style="margin-top:8px">対象は選んだ年月の前月21日〜当月20日です。［実行］は何度でもできます（漏れた伝票があれば押し直してください）。仕訳・会計連携 → 会計連携データ を作成すると元に戻せず、次回は翌月20日の締日になります。</p>`}
@@ -788,9 +793,10 @@ const SHIP_KINDS = { credit: { name: '掛売', q: { method: 2 } }, card: { name:
 const monthEnd = m => { const [y, mo] = m.split('-').map(Number); return new Date(Date.UTC(y, mo, 0)).toISOString().slice(0, 10); };
 // ----- 請求締め・発行 -----
 const closingLabel = c => (Number(c) === 31 ? '月末' : c + '日');
-// 締日の選択肢は規定の 5・10・15・20・月末 だけ（2026-10-23：規定外の締日のデモ得意先は削除済み、得意先マスタも規定値のみ登録可）
-const STD_CLOSINGS = [5, 10, 15, 20, 31];
-const closingList = () => STD_CLOSINGS;
+// 締日の選択肢は 5・10・15・20・25・月末（25日は 2026-11-18 追加）。ほかの日（例 27日）は手入力（CLOSING_FREE）。
+// cur：今の値が候補に無い日（手入力の締日）なら候補に足す
+const STD_CLOSINGS = [5, 10, 15, 20, 25, 31];
+const closingList = cur => { const d = parseClosing(cur); return d && !STD_CLOSINGS.includes(d) ? [...STD_CLOSINGS, d].sort((a, b) => a - b) : STD_CLOSINGS; };
 const closingName = closingLabel;
 VIEWS.invoices = async q => {
   const A = actions;
@@ -877,13 +883,13 @@ VIEWS.invoices = async q => {
       { label: '', html: r => `<button class="mini" data-act="detail" data-k="${r.k}">詳細</button>` }], lines, { rowClass: r => (r.first && r.k ? 'grp-top' : ''), empty: '請求がありません', foot: ['合計', '', '', '', '', yen(sum('net')), yen(sum('tax')), yen(sum('total')), '', ...(isUser01() ? [] : ['']), ''] })}</section>`);
 };
 // 請求一覧照会・請求書発行で共通：検索条件（請求年月・締日・得意先。得意先は任意）と 得意先×現場 の行
-const invoiceSearch = (q, all = true) => `${monthInput('month', q.month || '')}<select name="closing" data-filter title="締日">${options(closingList().map(x => ({ code: String(x), name: closingName(x) })), q.closing, { blank: all ? 'すべての締日' : undefined, label: x => x.name })}</select>${comboFilter('customer', 'customers', q.customer || '', '得意先（コード・名称）')}`;
+const invoiceSearch = (q, all = true) => `${monthInput('month', q.month || '')}<select name="closing" data-filter title="締日">${options(closingList(q.closing).map(x => ({ code: String(x), name: closingName(x) })), q.closing, { blank: all ? 'すべての締日' : undefined, label: x => x.name })}</select>${comboFilter('customer', 'customers', q.customer || '', '得意先（コード・名称）')}`;
 const invoiceLines = list => list.flatMap(r => (r.sites?.length ? r.sites : [{ site: '', siteName: '', method: '', net: r.net, tax: r.tax, total: r.total }]).map((x, k) => ({ ...x, inv: r, first: k === 0 }))).map((x, k) => ({ ...x, k }));
 const siteCell = r => (r.siteName ? esc(r.siteName) : '<span class="muted small">（現場なし）</span>');
 // 請求書発行（10/26 打合せ・提案書 P13）：請求年月・締日・得意先（任意）で検索 → 得意先×現場の行と発行状況（未発行／発行済／再発行）。
 // 請求書は現場ごとに1枚。チェック・発行状況は現場の行ごと（2026-10-27）。見出しのチェックで全件、行のチェックで選択した現場だけ（訂正後の再発行）
 const ISSUE_STATES = { unissued: '未発行', issued: '発行済', reissued: '再発行' };
-const REV_KIND = { new: '③ 初回発行版', diff: '④ 訂正分', all: '⑤ 統合版' }; // 発行の後に赤黒を追加した現場の 3 行（2026-11-18 現行 帳票③④⑤。名称 新規→初回発行版・全部→統合版 は同日ユーザー指示）
+const REV_KIND = { new: '③ 初回発行版', diff: '④ 訂正分', all: '⑤ 修正版' };   // ⑤ は「修正版」（お客様に渡して前の請求書と差し替える。2026-11-18 ユーザー指示） // 発行の後に赤黒を追加した現場の 3 行（2026-11-18 現行 帳票③④⑤。名称 新規→初回発行版・全部→統合版 は同日ユーザー指示）
 // 現場名の表記（請求書の「現場：」・現場別発行の単位。サーバーの siteLabel と同じ）
 const siteLabel = n => (n && String(n).trim() ? String(n) : '（現場なし）');
 // 現場ごとの発行回数（現場別発行より前の発行分は請求の発行回数）
@@ -895,7 +901,7 @@ async function invoiceIssueView(q) {
   A.view = d => go('invoices', { view: d.view });
   // 発行状況の既定は「すべて」（2026-11-18 ユーザー指示。11-17 の「未発行」既定を変更）
   // 請求書発行は「すべての締日」を出さない。締日の既定は20日（2026-11-18 ユーザー指示）
-  if (!closingList().map(String).includes(String(q.closing ?? ''))) q = { ...q, closing: '20' };
+  q = { ...q, closing: String(parseClosing(q.closing) || 20) };   // 手入力の締日（1〜31）もそのまま使う（2026-11-18）
   const ist = ISSUE_STATES[q.istate] ? q.istate : '', month = q.month || thisMonth(); // 請求年月の既定は当月（2026-10-27）
   const list = await api('/api/invoices?' + qs({ month, closing: q.closing, customer: q.customer, revisions: 1 }));
   // 行＝得意先×現場。発行状況・チェックは現場の行ごと（請求書は現場ごとに1枚。訂正した現場だけを再発行できる。2026-10-27）
@@ -945,14 +951,14 @@ const PRECHECK_PLAN = { new: ['新規作成', 'green'], append: ['作成済み�
 async function precheckView(q) {
   const A = actions;
   A.view = d => go('invoices', { view: d.view });
-  const closings = closingList(), month = q.pmonth || thisMonth(), closing = q.pclosing || closings[closings.length - 1];
+  const closings = closingList(q.pclosing), month = q.pmonth || thisMonth(), closing = q.pclosing || closings[closings.length - 1];
   const d = await api('/api/reports/billing-precheck?' + qs({ month, closing, customer: q.pcust || '' })), all = String(closing) === 'all'; // すべて＝5・10・15・20・月末（2026-10-27）
   const ymd = iso => String(iso).slice(2).replaceAll('-', '/'), kb = l => (Number(l.shipKb) === 5 ? (l.quantity < 0 ? '赤' : '黒') : '売上');
   const lineTable = r => table([{ label: '売上日', value: l => ymd(l.date) }, { label: '伝票No', value: l => l.orderNo }, { label: '区分', value: kb }, { label: '商品名', value: l => `${l.item} ${l.itemName}` },
     { label: '数量', num: 1, value: l => Number(l.quantity).toLocaleString('ja-JP', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) }, { label: '単位', value: l => l.unit }, { label: '単価', num: 1, value: l => yen(l.price) },
     { label: '金額', num: 1, value: l => yen(l.net) }, { label: '処税率', num: 1, value: l => l.taxRate + '%' }, { label: '運送', value: l => l.carry }, { label: '現場名', value: l => l.siteName }], r.lines);
   const block = r => `<div class="har430-cust"><div class="filters"><b>${esc(r.customer)} ${esc(r.name)}</b>${badge(PRECHECK_PLAN[r.plan][0], PRECHECK_PLAN[r.plan][1])}</div>${lineTable(r)}
-    <p class="small har430-sum">（売上額 <b>${yen(r.net)}</b>）（消費税額 <b>${yen(r.tax)}</b>）（値引額 <b>0</b>）（今回請求額 <b>${yen(r.current)}</b>）</p>
+    <p class="small har430-sum">（売上額 <b>${yen(r.net)}</b>）（消費税額 <b>${yen(r.tax)}</b>）（今回請求額 <b>${yen(r.current)}</b>）</p>   ${'' /* 値引額は出さない（値引は入金のときだけ。請求で減らすときは単価を直す。2026-11-18 ユーザー指示） */}
     ${(r.byRate || []).map(x => `<p class="small har430-rate"><span>${x.rate} %</span><span>${yen(x.net)}</span><span>${yen(x.tax)}</span></p>`).join('')}</div>`;
   A.lines = dd => { const r = d.rows.find(x => x.customer === dd.id); if (r) modal({ title: `発行前確認 ${r.customer} ${r.name}（${month} ${closingLabel(r.closing)}締　請求期間 ${r.start}〜${r.end}）`, wide: true, body: block(r) }); };
   A.print = () => { $('#print-area').innerHTML = `<section class="invoice-doc report-doc"><h2>発行前確認一覧</h2><p>${all ? `締日 すべて（${esc(month)}）` : `締日 ${closingLabel(closing)} ／ 請求期間 ${esc(d.start)}〜${esc(d.end)}`} ／ 出力日 ${today()}</p>${d.rows.map(r => (all ? `<h3>${closingLabel(r.closing)}締（請求期間 ${esc(r.start)}〜${esc(r.end)}）</h3>` : '') + block(r)).join('')}</section>`; setTimeout(() => window.print(), 100); };
@@ -976,7 +982,7 @@ async function invoiceBalanceView(q) {
   const A = actions;
   A.view = d => go('invoices', { view: d.view });
   A.detail = d => invoiceDetail(d.id);
-  const closings = closingList();
+  const closings = closingList(q.bclosing);
   const month = q.bmonth || thisMonth(), closing = q.bclosing || closings[0] || 31;
   // 請求書状況で絞込（検索結果をそのまま絞るので DB は読み直さない）
   const st = ['none', 'draft', 'issued'].includes(q.bstate) ? q.bstate : '', all = await api('/api/reports/billing-list?' + qs({ month, closing })), d = { ...all, rows: all.rows.filter(r => !st || r.state === st) };
@@ -1011,7 +1017,7 @@ async function billingReport(kind, month, closing, unissued = false, customer = 
     body = d.rows.length ? `<div class="har430-head"><span>締日 <b>${esc(String(d.closing))}</b></span><span>請求日付 <b>${ymd(d.end)}</b></span><span>売上締切日 <b>${ymd(d.end)}</b></span><span>作成日 <b>${ymd(today())}</b></span><span class="right">${esc(d.company)}</span></div>` + d.rows.flatMap(r => r.sites.map(g => ({ ...g, customer: r.customer, name: r.name, siteName: g.name }))).map(r => `<div class="har430-cust"><div class="filters"><b>${esc(r.customer)} ${esc(r.name)}${r.no > 1 ? `　${r.no}　${esc(r.siteName)}` : ''}</b></div>
       ${table([{ label: '売上日', value: l => ymd(l.date) }, { label: '伝票No.', value: l => l.orderNo }, { label: '', value: kb }, { label: '商品名', value: l => `${l.item} ${l.itemName}` }, { label: '数量', num: 1, value: l => Number(l.quantity).toFixed(2) }, { label: '', value: l => l.unit },
         { label: '単価', num: 1, value: l => yen(l.price) }, { label: '金額', num: 1, value: l => yen(l.net) }, { label: '', num: 1, value: l => l.taxRate + '%' }, { label: '運送', value: l => l.carry }, { label: '備考', value: l => l.siteName }], r.lines)}
-      <p class="small har430-sum">（売上額 <b>${yen(r.net)}</b>）（消費税額 <b>${yen(r.tax)}</b>）（値引額 <b>0</b>）（今回請求額 <b>${yen(r.current)}</b>）</p>
+      <p class="small har430-sum">（売上額 <b>${yen(r.net)}</b>）（消費税額 <b>${yen(r.tax)}</b>）（今回請求額 <b>${yen(r.current)}</b>）</p>
       ${(r.byRate || []).map(x => `<p class="small har430-rate"><span>${x.rate} %</span><span>${yen(x.net)}</span><span>${yen(x.tax)}</span></p>`).join('')}</div>`).join('') + ''
       : `<div class="empty">${unissued ? 'この請求年月・締日の請求はありません' : 'この請求年月・締日の発行済み請求書はありません'}</div>${d.available?.length ? `<p class="small">発行済みの請求がある年月・締日：${d.available.map(a => `<button type="button" class="mini" data-period="${a.month}|${a.closing}">${a.month} ${closingLabel(a.closing)}締</button>`).join(' ')}</p>` : ''}`;
   }
@@ -1196,7 +1202,7 @@ VIEWS.receipts = async q => {
     const all = await api('/api/ar-ledger?' + qs({ customer: q.customer }));
     // 絞込（検索結果を絞るだけで DB は読まない）：「消込対象のみ」（既定オン）＝得意先ごとの最新の請求年月で残高のある行、締日（5・10・15・20・月末）
     // 消込済み（消込残高 0）でも月次確定前の入金がある行は残す（2026-10-27。［修正］で選び直す）
-    const only = q.all !== '1', cl = STD_CLOSINGS.includes(Number(q.cl)) ? Number(q.cl) : 0;
+    const only = q.all !== '1', cl = parseClosing(q.cl);
     const dayOf = c => (c === monthEnd(c.slice(0, 7)) ? 31 : Number(c.slice(8, 10)));
     // デモ版：前回残高 0 の行は出さない（10/27 打合せ。実システムでの扱いは別途確認）
     // 請求年月（2026-10-28 追加）：指定時はその年月の請求の行（「消込対象のみ」は残高か入金のある行）。空欄は従来どおり得意先ごとの最新の請求年月

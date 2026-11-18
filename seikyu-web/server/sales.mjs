@@ -493,10 +493,11 @@ export async function billingList(c, { month, closing }) {
 // 現行 HAR430（メニュー 11）は請求書印刷及び更新（12）の前に出力していたため、請求データを作らずに出荷伝票から直接作る。
 // 対象・条件は請求データ作成（runBilling）と同じ：締日の得意先、process_status=0・掛売・売上日≦締日。
 // closing='all'（2026-10-27）：規定の締日 5・10・15・20・月末 をまとめて表示（請求漏れの確認用）。各行に締日・請求期間を持つ
-const PRECHECK_CLOSINGS = [5, 10, 15, 20, 31];
+const PRECHECK_CLOSINGS = [5, 10, 15, 20, 25, 31];   // 25日は 2026-11-18 追加。得意先マスタの手入力の締日（例 27日）も足す
 export async function billingPrecheck(c, { month, closing, customer }) {
   if (String(closing) === 'all') {
-    const parts = []; for (const cl of PRECHECK_CLOSINGS) parts.push(await billingPrecheckOne(c, { month, closing: cl, customer }));
+    const extra = (await rows(c, "SELECT DISTINCT CAST(substring(deadline from '^ *([0-9]+)') AS INTEGER) d FROM client_m WHERE delete_f<>'1'")).map(r => Number(r.d)).filter(d => d >= 1 && d <= 31);
+    const parts = []; for (const cl of [...new Set([...PRECHECK_CLOSINGS, ...extra])].sort((a, b) => a - b)) parts.push(await billingPrecheckOne(c, { month, closing: cl, customer }));
     return { month, closing: 'all', start: parts[0].start, end: parts[parts.length - 1].end, company: parts[0].company, rows: parts.flatMap(p => p.rows) };
   }
   return billingPrecheckOne(c, { month, closing, customer });
@@ -646,7 +647,8 @@ async function baseIssue(c, id) {
 function correctionsLast(lines, added) {
   const key = l => String(l.orderNo || '').replace(/-\d+$/, ''), suf = l => Number((String(l.orderNo).match(/-(\d+)$/) || [])[1] || 1);
   const fixed = new Set(lines.filter(l => added.has(ownOf(l))).map(key)), rest = lines.filter(l => !fixed.has(key(l))), moved = [];
-  for (const k of fixed) moved.push(...lines.filter(l => key(l) === k).sort((a, b) => (suf(a) === 2 ? -1 : suf(b) === 2 ? 1 : suf(a) - suf(b))).map(l => ({ ...l, box: true })));
+  // 並びは 元の売上（枝番1）→ 赤（2）→ 黒（3）。元の売上を上にする（2026-11-18 ユーザー指示。以前は 赤・元・黒）
+  for (const k of fixed) moved.push(...lines.filter(l => key(l) === k).sort((a, b) => suf(a) - suf(b)).map(l => ({ ...l, box: true })));
   return [...rest, ...moved];
 }
 // 請求書発行の一覧（2026-11-18 ユーザー指示：③ 新規・④ 訂正分・⑤ 全部 を 3 行で出す）：通常の発行の後に赤黒を追加した請求の現場ごとに
@@ -690,7 +692,7 @@ export async function issuedDocument(c, id, site = null, kind = null) {
   let nos = site ? (await siteIssues(c, [Number(id)])).get(Number(id)).of(site) : null; check(!site || nos.length, `現場「${siteLabel(site)}」は未発行です`);
   if (kind) {
     const ks = await rows(c, "SELECT issue_no, COALESCE(snapshot_json->>'kind','new') k FROM invoice_issue WHERE invoice_id=? ORDER BY issue_no", [Number(id)]), ok = new Set(ks.filter(x => x.k === kind).map(x => Number(x.issue_no)));
-    nos = (nos || ks.map(x => Number(x.issue_no))).filter(n => ok.has(n)); check(nos.length, `請求No.${id} の${{ new: '初回発行版', diff: '訂正分', all: '統合版' }[kind] || ''}の請求書は未発行です`);
+    nos = (nos || ks.map(x => Number(x.issue_no))).filter(n => ok.has(n)); check(nos.length, `請求No.${id} の${{ new: '初回発行版', diff: '訂正分', all: '修正版' }[kind] || ''}の請求書は未発行です`);
   }
   const r = await one(c, `SELECT snapshot_json, issue_no FROM invoice_issue WHERE invoice_id=?${nos ? ' AND issue_no=?' : ''} ORDER BY issue_no DESC LIMIT 1`, nos ? [Number(id), nos.at(-1)] : [Number(id)]); check(r, '発行履歴がありません');
   const s = typeof r.snapshot_json === 'string' ? JSON.parse(r.snapshot_json) : r.snapshot_json;

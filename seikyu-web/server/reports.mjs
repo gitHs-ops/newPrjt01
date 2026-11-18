@@ -46,7 +46,7 @@ export async function billingConfirmBook(c, q) {
   for (const x of d.rows) for (const g of x.sites) {
     out.push(band(CONFIRM_W, [`${x.customer}　${x.name}`, '', '', '', '', ...(g.no > 1 ? [g.no, '', g.name] : ['', '', '']), '', '', '', x.invoiceNo ? `請求書番号 ${x.invoiceNo}` : '']));
     for (const l of g.lines) out.push([ymd(l.date), l.orderNo, kindOf(l), l.item, l.itemName, { v: l.quantity, s: 'qty' }, l.unit, l.price, l.net, `${l.taxRate}%`, l.carry, l.siteName]);
-    out.push(['', S('（売上額）'), S(g.net), '', S('（消費税額）'), S(g.tax), '', S('（値引額）'), S(0), '', S('（今回請求額）'), S(g.current)]);
+    out.push(['', S('（売上額）'), S(g.net), '', S('（消費税額）'), S(g.tax), '', '', '', '', S('（今回請求額）'), S(g.current)]);   // 値引額は出さない（値引は入金のときだけ。2026-11-18 ユーザー指示）
     for (const r of g.byRate) out.push(['', `${r.rate} %`, r.net, '', '', r.tax]);
     out.push([]);
   }
