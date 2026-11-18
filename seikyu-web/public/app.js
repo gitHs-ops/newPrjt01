@@ -1174,7 +1174,6 @@ VIEWS.receipts = async q => {
     const d = await api('/api/receipt-plan?' + qs({ from, to, customer: q.customer, overdue: overdue ? '1' : '' }));
     A.search = () => go('receipts', { tab, r: '1', from: $('#rp-from').value, to: $('#rp-to').value, customer: $('#rp-cust').value, overdue: $('#rp-over').checked ? '1' : '' });
     A.late = () => go('receipts', { tab, r: '1', from: '', to: cur, customer: $('#rp-cust').value, overdue: '1' });
-    A.thisMonth = () => go('receipts', { tab, r: '1', from: cur, to: cur, customer: $('#rp-cust').value });
     // 画面に入っている検索条件のまま Excel を出力
     A.planXlsx = async (_, btn) => {
       btn.disabled = true; busy(true, '入金予定一覧を作成中…');
@@ -1192,7 +1191,7 @@ VIEWS.receipts = async q => {
     const summary = `<div class="filters small" style="margin-bottom:8px"><span>入金予定月 <b>${esc(range)}</b>${d.overdueOnly ? '（予定日経過・未入金のみ）' : ''}</span></div>`;
     return page('入金・消込', '入金予定一覧：支払期日（得意先のサイト）が入金予定月の範囲に入る請求。入金予定日を過ぎても未入金の請求は赤で表示します。',
       `<label class="field">入金予定月（から）<input type="month" id="rp-from" value="${esc(from)}"></label><label class="field">（まで）<input type="month" id="rp-to" value="${esc(to)}"></label><input id="rp-cust" list="dl-pcust" autocomplete="off" placeholder="得意先（部分一致）" value="${esc(q.customer || '')}" style="width:200px">${custHints()}
-       <label class="small"><input type="checkbox" id="rp-over" ${overdue ? 'checked' : ''}> 予定日経過・未入金のみ</label><button class="primary" data-act="search">検索</button><button data-act="thisMonth">今月</button><button data-act="late" title="入金予定月：過去すべて〜今月">予定日経過・未入金（過去〜現在）</button><button data-act="planXlsx" title="画面の検索条件のまま出力">⇩ Excel</button>`,
+       <label class="small"><input type="checkbox" id="rp-over" ${overdue ? 'checked' : ''}> 予定日経過・未入金のみ</label><button class="primary" data-act="search">検索</button><button data-act="late" title="入金予定月：過去すべて〜今月">予定日経過・未入金（過去〜現在）</button><button data-act="planXlsx" title="画面の検索条件のまま出力">⇩ Excel</button>`,
       `<section class="card glass plan-list">${summary}${sortBarOf('plan', [['cust', '得意先'], ['closing', '請求年月'], ['due', '入金予定日']])}${table([{ label: '得意先', value: r => `${r.customer} ${r.name}` }, { label: '請求年月', value: r => r.closing }, { label: '請求金額', num: 1, value: r => yen(r.total) }, { label: 'サイト', value: r => r.site } /* 見出しは「サイト」（2026-11-17） */,
         { label: '入金予定日', html: r => (r.overdue ? `<span class="check-ng">${esc(r.due)} 超過</span>` : esc(r.due)) }, /* 経過日数の列は 2026-11-17 ユーザー指示で削除 */ { label: '入金予定金額', num: 1, value: r => yen(r.planned) }, { label: '入金金額', num: 1, value: r => yen(r.paid) }, { label: '残高', num: 1, value: r => yen(r.balance) }],
         prow, { empty: 'この条件で入金予定の請求はありません', rowClass: r => (r.overdue ? 'overdue' : ''), foot: ['入金予定合計', '', '', '', '', yen(tt.planned), yen(tt.paid), yen(tt.balance)] })}</section>`);
@@ -1390,7 +1389,7 @@ function lrStep2() {
     <p>${lr.lines.length < LR_MAX_LINES ? '<button type="button" class="mini" data-act="lrAddLine">＋ 行追加</button>' : ''}</p><div id="lr-totals">${lrTotals()}</div>
     ${lrKeys([['lrNext', '入金予定照会', 1]])}`;   // 登録は入金予定照会の画面だけ（借方の画面の［登録］は 2026-11-17 お客様の要望で削除）
 }
-// 今回入金額は表示のみ（2026-10-31 ユーザー指示：現場別の入力を決めるまで）。入金額を表示中の請求へ請求No の古い順に配分する（入金消込の自動配分と同じ）
+// 今回入金額は自動で入り、手で直せる（2026-11-18 ユーザー指示。10-31〜は表示のみだった）。自動は 入金額を表示中の請求へ請求No の古い順に配分する（入金消込の自動配分と同じ）
 const lrShown = () => lr.invoices.filter(r => (!lr.from || r.closing >= lr.from) && (!lr.to || r.closing <= lr.to)).sort((a, b) => a.id - b.id);
 // 預り金（過入金）の相殺・受入（2026-11-08 ユーザー指示）。預り金残高は入金予定額の欄にマイナスで表示し、次回の請求入金で相殺する（預り金充当 4170）。
 // 第一画面で科目 4170 預り金を入力したときは、その金額で充当する（自動の相殺はしない）
@@ -1418,8 +1417,8 @@ const lrRows = () => {
   const who = `${esc(lr.billTo)} ${esc(lrNameOf(lr.billTo))}`, u1 = isUser01();   // user01 は請求No・今回入金額を表示だけ（2026-11-18 ユーザー指示）
   if (lr.pays) return lrDepRow(who) + lr.pays.map((p, i) => { const r = lr.invoices.find(x => String(x.id) === String(p.id)), used = new Set(lr.pays.filter((_, k) => k !== i).map(x => String(x.id)));
     return `<tr><td>${who}</td><td>${esc(r?.closing || '')}</td><td>${u1 ? `<span class="lr-ro">${r ? `${esc(r.closing)}（No.${r.id}）` : '&nbsp;'}</span>` : `<select data-lp="id" data-i="${i}" aria-label="請求No"><option value="">請求を選択</option>${lrShown().filter(x => !used.has(String(x.id))).map(x => `<option value="${x.id}" ${String(x.id) === String(p.id) ? 'selected' : ''}>${esc(x.closing)}（No.${x.id}）</option>`).join('')}</select>`}</td><td>${esc(r?.due || '')}</td><td class="num">${r ? yen(r.balance) : ''}</td>`
-      + `<td class="num">${u1 ? `<span class="lr-ro num">${esc(p.amount === '' ? '' : yen(lrNum(p.amount) || 0))}</span>` : `<input class="num" data-lp="amount" data-i="${i}" value="${esc(p.amount)}" inputmode="numeric" aria-label="今回入金額" style="width:120px"> <button type="button" class="mini" data-act="lrDelPay" data-i="${i}" title="この行を削除">✕</button>`}</td></tr>`; }).join('');
-  return lrDepRow(who) + shown.map(({ r, n }) => `<tr><td>${who}</td><td>${esc(r.closing)}</td><td>${r.id}</td><td>${esc(r.due || '')}</td><td class="num">${yen(r.balance)}</td><td class="num">${n ? yen(n) : ''}</td></tr>`).join('');
+      + `<td class="num"><input class="num" data-lp="amount" data-i="${i}" value="${esc(p.amount)}" inputmode="numeric" aria-label="今回入金額" style="width:120px">${u1 ? '' : ` <button type="button" class="mini" data-act="lrDelPay" data-i="${i}" title="この行を削除">✕</button>`}</td></tr>`; }).join('');   // 今回入金額は user01 も手で直せる（2026-11-18）
+  return lrDepRow(who) + shown.map(({ r, n }) => `<tr><td>${who}</td><td>${esc(r.closing)}</td><td>${r.id}</td><td>${esc(r.due || '')}</td><td class="num">${yen(r.balance)}</td><td class="num"><input class="num" data-lp="auto" data-id="${r.id}" value="${n || ''}" inputmode="numeric" aria-label="今回入金額" style="width:120px"></td></tr>`).join('');   // 今回入金額は自動で入るが手で直せる（直すと手入力の行に切り替わる。2026-11-18 ユーザー指示）
 };
 const lrDepNote = () => (lrUsed().some(l => lrKind(l) === 'deposit') && lr.billTo ? `請求先の預り金残高 ${yen(lr.deposit)} 円` : '');
 // 請求日の範囲（任意の絞込）。初期値は 自＝空欄・至＝入金日（2026-11-07 変更：至が今日だと未来日付の入金で当月の請求が隠れる。至を手で変えるまで入金日に追随）
@@ -1584,6 +1583,7 @@ document.addEventListener('input', e => {
   else if (t.dataset.lr === 'amount') { const l = lr.lines[t.dataset.i], c = $(`[data-lr="taxamt"][data-i="${t.dataset.i}"]`); l.amount = t.value; if (c && l.taxAmt === '') c.value = lrTaxable(l) ? String(lrTax(l)) : ''; $('#lr-totals').innerHTML = lrTotals(); }
   // 消費税額を空にすると自動計算に戻す
   else if (t.dataset.lp === 'amount') { lrManual(); lr.pays[t.dataset.i].amount = t.value; lrFootPaint(); }
+  else if (t.dataset.lp === 'auto') { lrManual(); let p = lr.pays.find(x => x.id === t.dataset.id); if (!p) lr.pays.push(p = { id: t.dataset.id, amount: '' }); p.amount = t.value; lrFootPaint(); }
   else if (t.dataset.lr === 'taxamt') { lr.lines[t.dataset.i].taxAmt = t.value.trim(); $('#lr-totals').innerHTML = lrTotals(); }
   else if (['due', 'sub2', 'work', 'memo1', 'memo2'].includes(t.dataset.lr)) lr.lines[t.dataset.i][t.dataset.lr] = t.value;
   // 適用コード → 摘要2 に名称（11/04 打合せ No.7）。コードは保存しない（摘要2 の文字だけ）。2026-11-05 ユーザー指示で入力欄をマスタから選ぶ select に変更
