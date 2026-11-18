@@ -40,7 +40,7 @@ export async function billingListBook(c, q) {
 export async function billingConfirmBook(c, q) {
   // 2026-11-05 ユーザー指示：一般の帳票（現金売上明細表など）と同じ出力スタイル（表題・薄青の見出し・合計の枠）。並び・項目は現行 HAR430 のまま
   const d = await billingConfirm(c, q), ymd = iso => iso.slice(2).replaceAll('-', '/');
-  const out = [[T(d.unissued ? '請求書発行確認表（未発行を含む）' : '請求書発行確認表'), '', '', '', '', '', '', '', '', '', '', d.company],
+  const out = [[T('請求書発行確認表')   /* 表題に「（未発行を含む）」を付けない（2026-11-18 ユーザー指示） */, '', '', '', '', '', '', '', '', '', '', d.company],
     [`締日 ${d.closing}　請求日付 ${ymd(d.end)}　売上締切日 ${ymd(d.end)}　作成日 ${ymd(today())}`], [],
     ['売上日', '伝票No.', '', '', '商品名', '数量', '', '単価', '金額', '', '運送', '備考'].map(H)];
   for (const x of d.rows) for (const g of x.sites) {

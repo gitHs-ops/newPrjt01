@@ -992,7 +992,7 @@ async function invoiceBalanceView(q) {
 // NO12 / NO13 report viewer with print and Excel download.
 async function billingReport(kind, month, closing, unissued = false, customer = '', quiet = false) { // quiet：請求データ作成の後の自動出力（出力・該当なしのメッセージを出さない）
   const url = `/api/reports/${kind === 'list' ? 'billing-list' : 'billing-confirm'}?${qs({ month, closing, customer, ...(kind !== 'list' && unissued ? { unissued: '1' } : {}) })}`, d = await api(url);
-  const title = kind === 'list' ? '請求一覧表（確認用）' : unissued ? '請求書発行確認表（未発行を含む）' : '請求書発行確認表';
+  const title = kind === 'list' ? '請求一覧表（確認用）' : '請求書発行確認表'   /* 「（未発行を含む）」は付けない（2026-11-18） */;
   let body;
   if (kind === 'list') {
     // 現行 HAR431：得意先・現場名・売上額・税額・値引額・請求額、得意先計・会社合計。得意先×現場ごとに 1 行（2026-11-17 から全得意先。以前は現場別発行の得意先だけ）、得意先計は 2 行以上のときだけ、状態は出さない
@@ -1334,7 +1334,7 @@ const lrBlank = () => ({ acc: '', sub: '', amount: '', due: '', tax: '', sub2: '
 // 1 行目の科目の初期値は当座預金（D-071。2026-11-12 結合テスト IT-04）
 // 入金日の初期値は当月 20 日（変更可。2026-11-17 ユーザー指示）。メニューから開くと入力画面（open: true）、［一覧］で入金の一覧
 const lr20 = () => `${today().slice(0, 7)}-20`;
-const lrNew = () => ({ step: 1, date: lr20(), customer: '', lines: [{ ...lrBlank(), acc: '1112' }, lrBlank()],   /* 初期表示は 2 行（2026-11-18 ユーザー指示。足りなければ［＋ 行追加］） */ billTo: '', billInput: '', invoices: [], deposit: 0, from: '', to: '', key: uuid(), open: true, editId: 0, editNo: '', editPays: null });
+const lrNew = () => ({ step: 1, date: lr20(), customer: '', lines: [{ ...lrBlank(), acc: '1112' }, lrBlank(), lrBlank()],   /* 初期表示は 3 行（2026-11-18 ユーザー指示で 2 行→3 行。足りなければ［＋ 行追加］） */ billTo: '', billInput: '', invoices: [], deposit: 0, from: '', to: '', key: uuid(), open: true, editId: 0, editNo: '', editPays: null });
 let lr = lrNew();
 const lrNum = v => { const n = Number(String(v ?? '').replace(/,/g, '').trim()); return Number.isFinite(n) ? n : NaN; };
 const lrSub = l => LR_ACC[l.acc]?.subs?.find(s => s[0] === l.sub);
@@ -1530,7 +1530,7 @@ function lrFromReceipt(r) {
     if (d.tax && ![lrTaxCode(l), lrTaxDef(l)].includes(d.tax)) l.tax = d.tax;
     if (d.taxAmt !== null && d.taxAmt !== undefined && lrTaxable(l) && d.taxAmt !== lrTaxAuto(l)) l.taxAmt = String(d.taxAmt);
     return l; });
-  while (lines.length < 2) lines.push(lrBlank());
+  while (lines.length < 3) lines.push(lrBlank());   // 修正も 3 行まで空行で埋める（2026-11-18）
   const date = String(r.date).slice(0, 10);
   return { ...lrNew(), open: true, editId: r.id, editNo: r.no, date, customer: r.customer, billInput: r.customer, lines, editPays: r.allocations.map(a => ({ id: String(a.invoiceId), amount: String(a.amount) })) };
 }
