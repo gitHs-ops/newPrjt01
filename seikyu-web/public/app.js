@@ -1712,6 +1712,16 @@ VIEWS.inventory = async q => {
   };
   // 完了のポップアップは見出しと［確認］ボタンだけ（計上月度・品目数・評価額・仕訳日付・伝票番号は出さない。2026-11-03）
   A.post = () => { const month = $('#ip-month').value; confirmBox('在庫計上', `${month} 月度の実在庫を評価し、月末在庫の洗い替え仕訳（C01）を作成します。在庫計上は月度ごとに1回です。`, async () => { await post('/api/inventory/post', { month }); render(); alertBox('', { ok: true, title: '在庫計上が完了しました' }); }, '在庫計上する'); };
+  // ［模擬実行］（2026-11-19 ユーザー指示：user01 のテスト用。何度でも）：在庫計上と同じ計算の結果を表示するだけで、DB は変えない（計上済みの月度でも可）
+  A.simulate = async (_, btn) => {
+    const month = $('#ip-month').value; if (btn) btn.disabled = true;
+    try {
+      const r = await post('/api/inventory/simulate', { month });
+      modal({ title: '在庫計上（模擬実行）', wide: true, submit: '', body: `<p class="note small">${esc(r.month)} 月度（仕訳日付 ${esc(r.date)}）の在庫計上を計算した結果です。保存していません（在庫・仕訳は変わりません）。${r.posted ? 'この月度は在庫計上済みです。' : ''}</p>
+        ${table([{ label: '商品', value: x => `${x.item} ${x.name}` }, { label: '数量', num: 1, value: x => `${x.quantity} ${x.unit}` }, { label: '評価単価', num: 1, value: x => yen(x.price) }, { label: '評価額（月末在庫）', num: 1, value: x => yen(x.value) }, { label: '前月末在庫', num: 1, value: x => yen(x.previous) }],
+          r.items, { foot: ['合計', '', '', yen(r.value), yen(r.previous)] })}` });
+    } catch (e) { alertBox(e.message); } finally { if (btn) btn.disabled = false; }
+  };
   // ［在庫計上の取消］ボタンは画面から削除（2026-11-03 ユーザー指示）。2026-11-06：テスト用として管理者だけに再表示（ボタン名に「テスト用」）
   A.unpost = () => { const month = $('#ip-month').value; confirmBox('在庫計上の取消', `${month} 月度の在庫計上を取消し、洗い替え仕訳を逆仕訳します。実在庫の数量は残ります。`, async () => { const r = await post('/api/inventory/unpost', { month }); render(); alertBox(`計上月度　${r.month}
 逆仕訳の日付　${r.date}
@@ -1727,7 +1737,7 @@ VIEWS.inventory = async q => {
     </tbody></table></div>
     <div class="filters" style="margin-top:10px"><span class="muted small">空欄は未登録。登録済みの数量を消して登録すると、その品目の実在庫を取り消します。数量は小数2桁まで。</span></div></section>`;
   const postCard = `<section class="card glass" data-sub="post"><div class="card-head"><h2>在庫計上（月次1回）</h2></div>
-    <div class="filters"><label class="field">計上月度<input type="month" id="ip-month" value="${esc(cnt.month)}"></label>${canWrite() ? '<button class="primary" data-act="post">在庫計上</button>' : ''}${isAdmin() && !isUser01() ? '<button class="danger" data-act="unpost" title="テスト用：管理者だけに表示。計上済みの月度を取り消します（実在庫の数量は残ります）">［テスト用］在庫計上の取消</button>' : ''}</div>
+    <div class="filters"><label class="field">計上月度<input type="month" id="ip-month" value="${esc(cnt.month)}"></label>${canWrite() ? '<button class="primary" data-act="post">在庫計上</button>' : ''}${isUser01() ? '<button data-act="simulate" title="テスト用：在庫計上と同じ計算をして結果を表示します。保存しないので何度でも実行できます">模擬実行</button>' : ''}${isAdmin() && !isUser01() ? '<button class="danger" data-act="unpost" title="テスト用：管理者だけに表示。計上済みの月度を取り消します（実在庫の数量は残ります）">［テスト用］在庫計上の取消</button>' : ''}</div>
     </section>`;
   return page('在庫', '実在庫登録 → 配合計算 → 材料受払表 → 在庫計上（月次1回）の順に処理します（10/21 打合せ）。', `${monthInput('month', q.month || thisMonth())}${csvLink('inventory', { month: q.month || thisMonth() })}`,
     `${countCard}${postCard}<section class="card glass" data-sub="list"><h2>在庫一覧</h2>${table([{ label: '月度', value: r => r.month }, { label: '調査日', value: r => String(r.countedOn || '').slice(0, 10) }, { label: '商品', value: r => `${r.item} ${r.itemName}` }, { label: '数量', num: 1, value: r => `${r.quantity} ${r.unit || ''}` },

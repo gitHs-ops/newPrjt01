@@ -129,6 +129,7 @@ export async function createApp({ pool, publicDir, secureCookies = process.env.N
   w('/api/inventory/delete', (c, x, b) => P.deleteInventory(c, x, b));
   w('/api/inventory/counts', (c, x, b) => P.saveCounts(c, x, b));
   w('/api/inventory/post', (c, x, b) => P.postInventory(c, x, b));
+  w('/api/inventory/simulate', (c, x, b) => P.simulateInventory(c, x, b), 'read'); // 在庫計上の模擬実行（DB は変えない。user01 のテスト用 2026-11-19）
   w('/api/inventory/unpost', (c, x, b) => P.unpostInventory(c, x, b), 'admin'); // テスト用の取消は管理者だけ（2026-11-06）
   w('/api/expenses', (c, x, b) => P.createExpense(c, x, b));
   w('/api/expenses/reverse', (c, x, b) => P.reverseExpense(c, x, b));

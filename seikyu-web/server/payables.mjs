@@ -195,6 +195,20 @@ export async function postInventory(c, ctx, p) {
   await audit(c, ctx, 'inventory_count', month.replace('-', ''), 'inventory.post', { month, items: list.length, value: total });
   return { month, items: list.length, value: total, date: end, slipNo: await lastInvSlip(c, end) };
 }
+// 在庫計上の模擬実行（2026-11-19 ユーザー指示：user01 のテスト用。何度でも実行できる）：在庫計上と同じ式で評価額と洗い替えの金額を計算して返すだけで、
+// DB は変えない（計上済みの月度でも計算する。状態・仕訳・操作履歴は作らない）
+export async function simulateInventory(c, ctx, p) {
+  const P = await companyPeriod(c), month = isoMonth(p.month, '計上月'), end = P.closeOf(+month.slice(0, 4), +month.slice(5, 7)), { from, to } = P.monthRange(month);
+  const list = await rows(c, "SELECT n.*, m.item_nam, unit_name(m.unit) unit FROM inventory_count n LEFT JOIN item_m m ON m.item_cd=n.item_cd WHERE n.period_start=? AND n.location_code='MAIN' ORDER BY n.item_cd", [month + '-01']);
+  check(list.length, `${month} 月度の実在庫が登録されていません。先に実在庫登録をしてください`);
+  const items = [];
+  for (const r of list) {
+    const price = await inventoryPrice(c, r.item_cd, month, from, to), value = Math.round(Number(r.quantity) * price);
+    const prior = await one(c, "SELECT valuation_amount FROM inventory_count WHERE item_cd=? AND location_code='MAIN' AND period_start<? AND status='POSTED' ORDER BY period_start DESC LIMIT 1", [r.item_cd, month + '-01']);
+    items.push({ item: r.item_cd, name: r.item_nam || '', unit: r.unit || '', quantity: Number(r.quantity), price, value, previous: Number(prior?.valuation_amount || 0) });
+  }
+  return { month, date: end, posted: await isPosted(c, month), items, value: items.reduce((n, x) => n + x.value, 0), previous: items.reduce((n, x) => n + x.previous, 0) };
+}
 export async function unpostInventory(c, ctx, p) {
   const P = await companyPeriod(c), month = isoMonth(p.month, '計上月'), end = P.closeOf(+month.slice(0, 4), +month.slice(5, 7)); await assertOpen(c, end);
   check(await isPosted(c, month), `${month} 月度は在庫計上されていません`);
