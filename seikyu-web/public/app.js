@@ -502,7 +502,6 @@ VIEWS.shipments = async q => {
   // 2026-11-18 ユーザー指示：［赤黒訂正］［取消］が詳細の画面に入ったので、変更できる伝票（請求前・訂正伝票でない・訂正済でない）は詳細の画面で入力項目を修正できる（［更新する］）。変更できない伝票は照会だけ
   A.detail = d => { const r = list.find(x => x.orderNo === d.id), why = canWrite() && isUser01() ? '' : slipLock(r);   /* 2026-11-18 ユーザー指示：user01 は請求済・訂正伝票・訂正済も詳細画面で修正できる */ if (why) return slipInquiry(r, why); shipmentForm(r, bd); slipFootActs(r, true); }; A.correct = d => correctionForm(list.find(r => r.orderNo === d.id));
   A.del = d => confirmBox('出荷の取消', `売上No ${d.id} を取消します。請求前の伝票のみ取消できます（赤黒は組で取消）。`, () => post('/api/shipments/delete', { orderNo: d.id }).then(() => { toast('取消しました'); render(); }), '取消する');
-  const red = r => r.shipKb === 5 && r.quantity < 0;
   // 赤黒訂正のある伝票：元伝票・赤・黒を常に並べて出す（10/26 打合せ「元のがあって、打ち消された赤伝があって、黒伝がある」）。
   // 赤・黒は元伝票のすぐ下（伝票No 元No－枝番の順）。元伝票・赤も取消線を付けず、3 行とも有効な伝票として表示（2026-11-02）
   const root = r => String(r.slipNo || '').split('-')[0], has = new Set(list.map(r => String(r.orderNo)));
@@ -532,7 +531,7 @@ VIEWS.shipments = async q => {
       { label: '担当・納入', narrow: 1, html: r => `<span class="small">${clip([r.operatorName || r.operator, r.deliveryKbnName].filter(Boolean).join('／'), 7)}</span>` },   // 区切りの空白を詰め、幅 7em（2026-11-17 ユーザー指示）
       { label: '単価', num: 1, value: r => yen(r.price) }, { label: '運賃', num: 1, narrow: 1, value: r => (r.freight ? yen(r.freight) : '') }, { label: '金額', num: 1, html: r => (r.net < 0 ? `<span class="check-ng">${yen(r.net)}</span>` : yen(r.net)) }, { label: '税', num: 1, value: r => `${r.taxRate}%` },   // 数量は黒のまま、金額だけマイナス表示（2026-11-17 ユーザー指示）
       { label: '決済', html: r => r.method === CREDIT ? esc(r.methodName) : badge(r.methodName, 'amber') },
-      { label: '状態', narrow: 1, html: r => [r.billed ? badge('請求済', 'green') : r.method === CREDIT ? badge('未請求', 'gray') : badge('請求対象外', 'amber'), r.corrected ? badge('訂正済', 'gray') : '', r.shipKb !== 5 && r.shipKb !== 1 ? badge(r.shipKbName, 'gray') : '', r.shipKb === 5 && red(r) ? badge('赤', 'red') : ''].filter(Boolean).join(' ') },   // 並び：請求状況 → 訂正済 → 伝票区分 → 赤（赤は最後。2026-11-17 ユーザー指示）
+      { label: '状態', narrow: 1, html: r => [r.billed ? badge('請求済', 'green') : r.method === CREDIT ? badge('未請求', 'gray') : badge('請求対象外', 'amber'), r.corrected ? badge('訂正済', 'gray') : '', r.shipKb !== 5 && r.shipKb !== 1 ? badge(r.shipKbName, 'gray') : ''].filter(Boolean).join(' ') },   // 並び：請求状況 → 訂正済 → 伝票区分（「赤」バッジは 2026-11-18 ユーザー指示で削除。赤伝は金額の赤字で分かる）
       { label: '', html: acts }],
       shown, { empty: 'この条件の出荷はありません', foot: ['合計', '', '', '', '', '', '', '', '', yen(net), '', `税 ${yen(tax)}`, ''] })}</section><div data-sub="reports">${shipmentReportsCard()}${shipDailyCard()}</div>
      <section class="card glass" data-sub="notes"><div class="card-head"><h2>納品書発行</h2></div>
