@@ -206,13 +206,13 @@ const jrow = (cells, style) => Array.from({ length: JOURNAL_COLS }, (_, i) => { 
 export const JOURNAL_HEAD = [
   jrow({ 0: '日付', 1: '部', 2: '科目', 3: '内訳1', 4: '内訳2', 5: '処税率', 6: '借方金額', 7: '工種CD', 8: '摘要1', 9: '摘　要　1　（借　方）', 10: '摘　要　2　（借　方）', 11: '部', 12: '科目', 13: '内訳1', 14: '内訳2', 15: '処税率', 17: '元伝票' }, 'dashTop'),
   jrow({ 0: '伝票No', 1: '科　目　名', 3: '内　訳　1　名', 7: '工種CD', 8: '摘要1', 9: '摘　要　1　（貸　方）', 10: '摘　要　2　（貸　方）', 11: '科　目　名', 13: '内　訳　1　名', 16: '貸方金額', 17: '状態' }, 'dashBottom')];
-const pairRows = (p, first, s) => {
+const pairRows = (p, first, s, end = true) => {
   const dr = p.dr || {}, cr = p.cr || {}, amt = x => (x.account ? x.amount : '');
-  // 2026-11-17 ユーザー指示：科目ごと（2 段目の下）に実線、日付・伝票No の列は横の点線なし（xlsx の jEnd・jCol0）
+  // 2026-11-17 ユーザー指示：日付・伝票No の列は横の点線なし（xlsx の jCol0）。2026-11-18 ユーザー指示：実線は科目ごとではなく借方・貸方の 1 組（貸借が一致したところ）の下だけ（jEnd）
   const r1 = jrow({ 0: first ? yymmdd(s.date) : '', 1: dr.dept, 2: dr.account, 3: dr.sub, 4: dr.sub2, 5: dr.tax, 6: amt(dr), 8: dr.memo1Code, 9: dr.memo1, 10: dr.memo2, 11: cr.dept, 12: cr.account, 13: cr.sub, 14: cr.sub2, 15: cr.tax, 17: first ? s.sourceNo : '' }),
     r2 = jrow({ 0: first ? s.slipNo : '', 1: dr.accountName, 3: dr.subName, 8: cr.memo1Code, 9: cr.memo1, 10: cr.memo2, 11: cr.accountName, 13: cr.subName, 16: amt(cr), 17: first ? s.status : '' });
   r1[0] = { v: r1[0], s: 'jCol0' }; r2[0] = { v: r2[0], s: 'jCol0' };
-  for (let i = 1; i < r2.length; i++) r2[i] = { v: r2[i], s: 'jEnd' };
+  if (end) for (let i = 1; i < r2.length; i++) r2[i] = { v: r2[i], s: 'jEnd' };
   return [r1, r2];
 };
 const totalRow = (label, amount) => jrow({ 9: label, 6: amount, 16: amount }, 'dashTop');
@@ -224,7 +224,10 @@ export async function journalListBook(c, q) {
     if (lastDate && s.date !== lastDate) out.push(totalRow('日　付　合　計', d.dates.find(x => x.date === lastDate).total));
     lastDate = s.date;
     // 売掛金計上（A01）は元伝票（C202600001〜C202600045（45件）など）を出さない（2026-11-17 ユーザー指示）
-    s.pairs.forEach((p, i) => out.push(...pairRows(p, !i, d.pattern === 'A01' ? { ...s, sourceNo: '' } : s)));
+    // 借方・貸方の 1 組の終わり＝その伝票の中で借方の累計と貸方の累計が一致した行（最後の行は必ず終わり）
+    let dr = 0, cr = 0;
+    s.pairs.forEach((p, i) => { dr += p.dr?.account ? Number(p.dr.amount) || 0 : 0; cr += p.cr?.account ? Number(p.cr.amount) || 0 : 0;
+      out.push(...pairRows(p, !i, d.pattern === 'A01' ? { ...s, sourceNo: '' } : s, i === s.pairs.length - 1 || (dr === cr && dr !== 0))); });
     out.push(totalRow('伝　票　合　計', s.total));
   }
   if (lastDate) out.push(totalRow('日　付　合　計', d.dates.find(x => x.date === lastDate).total));
