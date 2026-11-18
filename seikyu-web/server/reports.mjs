@@ -60,7 +60,8 @@ export async function receiptPlanBook(c, q) {
   const out = [[T('入金予定一覧')], [`入金予定月 ${range}${d.overdueOnly ? '（予定日経過・未入金のみ）' : ''}${q.customer ? `　得意先 ${q.customer}` : ''}　基準日 ${d.today}　出力日 ${today()}`], [],
     // 2026-11-17 ユーザー指示：見出し「回収サイト」→「サイト」、「経過日数」「状態」の列は削除
     // 見出し「請求年月（締日）」→「請求年月」（2026-11-17 ユーザー指示）
-    ['得意先CD', '得意先名', '請求年月', '請求金額', 'サイト', '入金予定日', '入金予定金額', '入金金額', '残高'].map(H)];
+    // 見出し「得意先CD」→「得意先」（2026-11-18 ユーザー指示）
+    ['得意先', '得意先名', '請求年月', '請求金額', 'サイト', '入金予定日', '入金予定金額', '入金金額', '残高'].map(H)];
   for (const r of d.rows) out.push([r.customer, r.name, r.closing, r.total, r.site, r.due, r.planned, r.paid, r.balance]);
   out.push([S('合計'), `${d.rows.length}件`, '', '', '', '', S(t.planned), S(t.paid), S(t.balance)]);
   return { name: `入金予定一覧_${d.from || '過去'}_${d.to || '指定なし'}.xlsx`, body: xlsx([{ name: '入金予定一覧', rows: out, widths: [10, 30, 13, 13, 16, 12, 14, 13, 13] }]) };
