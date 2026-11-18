@@ -884,6 +884,7 @@ const siteCell = r => (r.siteName ? esc(r.siteName) : '<span class="muted small"
 // 請求書発行（10/26 打合せ・提案書 P13）：請求年月・締日・得意先（任意）で検索 → 得意先×現場の行と発行状況（未発行／発行済／再発行）。
 // 請求書は現場ごとに1枚。チェック・発行状況は現場の行ごと（2026-10-27）。見出しのチェックで全件、行のチェックで選択した現場だけ（訂正後の再発行）
 const ISSUE_STATES = { unissued: '未発行', issued: '発行済', reissued: '再発行' };
+const REV_KIND = { new: '③ 新規', diff: '④ 訂正分', all: '⑤ 全部' }; // 発行の後に赤黒を追加した現場の 3 行（2026-11-18 現行 帳票③④⑤）
 // 現場名の表記（請求書の「現場：」・現場別発行の単位。サーバーの siteLabel と同じ）
 const siteLabel = n => (n && String(n).trim() ? String(n) : '（現場なし）');
 // 現場ごとの発行回数（現場別発行より前の発行分は請求の発行回数）
@@ -895,28 +896,36 @@ async function invoiceIssueView(q) {
   A.view = d => go('invoices', { view: d.view });
   // 発行状況の既定は「未発行」、「すべて」＝all（2026-11-17 ユーザー指示）
   const ist = q.istate === 'all' ? '' : ISSUE_STATES[q.istate] ? q.istate : 'unissued', month = q.month || thisMonth(); // 請求年月の既定は当月（2026-10-27）
-  const list = await api('/api/invoices?' + qs({ month, closing: q.closing, customer: q.customer }));
+  const list = await api('/api/invoices?' + qs({ month, closing: q.closing, customer: q.customer, revisions: 1 }));
   // 行＝得意先×現場。発行状況・チェックは現場の行ごと（請求書は現場ごとに1枚。訂正した現場だけを再発行できる。2026-10-27）
+  // 発行の後に赤黒を追加した現場は ③ 新規（発行済みの金額）・④ 訂正分（赤黒の差額）・⑤ 全部（今の金額）の 3 行（2026-11-18 ユーザー指示：現行 帳票③④⑤）。
+  // ③ はチェックなしで［⇩］だけ、④⑤ はチェックして［請求書発行］。合計は ⑤ の金額で数える
   A.listSort = listSortAct;
-  const lines = invoiceLines(sortedBy('issue', list, INV_SORT_FNS)).filter(r => !ist || issueState(r) === ist).map((x, k, a) => ({ ...x, k, first: k === 0 || a[k - 1].inv.id !== x.inv.id }));
-  const sum = k => lines.reduce((n, r) => n + r[k], 0);
+  const revLines = ls => ls.flatMap(x => (!x.rev ? [x] : [{ ...x, kind: 'new', ...x.rev.base, issues: 1 }, { ...x, kind: 'diff', ...x.rev.diff, issues: x.rev.diff.issued ? 1 : 0 }, { ...x, kind: 'all', ...x.rev.all, issues: x.rev.all.issued ? 1 : 0 }]));
+  const lines = revLines(invoiceLines(sortedBy('issue', list, INV_SORT_FNS))).filter(r => !ist || issueState(r) === ist).map((x, k, a) => ({ ...x, k, first: k === 0 || a[k - 1].inv.id !== x.inv.id }));
+  const sum = k => lines.filter(r => r.kind !== 'new' && r.kind !== 'diff').reduce((n, r) => n + r[k], 0);
   const picks = rows => { const m = {}; for (const r of rows) (m[r.inv.id] ||= []).push(siteLabel(r.siteName)); return m; };
   const checked = () => $$('.inv-pick:checked').map(x => lines[Number(x.value)]).filter(Boolean);
-  // 発行した現場の Excel（現場ごとに最新の発行分を1シート）をダウンロード
-  const book = async rows => {
+  // 発行した現場の Excel（現場ごとに最新の発行分を1シート）をダウンロード。kind＝③④⑤ の行の区分（その区分の最後の発行分）
+  const book = async (rows, kind = '') => {
     const sites = picks(rows), ids = Object.keys(sites);
-    const res = await fetch('/api/invoices/book', { method: 'POST', cache: 'no-store', headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': session?.csrf || '' }, body: JSON.stringify({ ids: ids.map(Number), sites }) });
+    const res = await fetch('/api/invoices/book', { method: 'POST', cache: 'no-store', headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': session?.csrf || '' }, body: JSON.stringify({ ids: ids.map(Number), sites, kind }) });
     if (!res.ok) return toast((await res.json().catch(() => ({}))).error || `ダウンロードできません（HTTP ${res.status}）`, true);
-    const url = URL.createObjectURL(await res.blob()), el = document.createElement('a'); el.href = url; el.download = `請求書_${today()}_${rows.length}現場.xlsx`; el.click(); setTimeout(() => URL.revokeObjectURL(url), 2000);
+    const url = URL.createObjectURL(await res.blob()), el = document.createElement('a'); el.href = url; el.download = `請求書${kind ? '_' + REV_KIND[kind].replace(' ', '') : ''}_${today()}_${rows.length}現場.xlsx`; el.click(); setTimeout(() => URL.revokeObjectURL(url), 2000);
     return true;
   };
-  // 確認ポップアップは出さずにそのまま発行して Excel をダウンロードし、結果だけ知らせる（2026-10-27）
+  A.revBook = d => { const r = lines[Number(d.k)]; if (r) book([r], r.kind).catch(e => toast(e.message, true)); };
+  // 確認ポップアップは出さずにそのまま発行して Excel をダウンロードし、結果だけ知らせる（2026-10-27）。③④⑤ の行は区分ごとに発行・ダウンロード
   A.issue = async (_, btn) => { const rows = checked(); if (!rows.length) return toast('発行する現場を選択してください（見出しのチェックで全件）', true);
-    const re = rows.filter(r => r.issues).length, sites = picks(rows), ids = Object.keys(sites).map(Number);
+    const re = rows.filter(r => r.issues).length, groups = ['', 'diff', 'all'].map(kind => [kind, rows.filter(r => (r.kind || '') === kind)]).filter(([, g]) => g.length);
     if (btn) btn.disabled = true;
     try {
-      await post('/api/invoices/issue', { ids, sites });
-      if (await book(rows)) toast(`${ids.length}得意先・${rows.length}現場（請求額合計 ${yen(rows.reduce((n, r) => n + r.total, 0))} 円）の請求書を発行し、Excel をダウンロードしました${re ? `（うち再発行 ${re}現場）` : ''}`);
+      for (const [kind, g] of groups) {
+        const sites = picks(g), ids = Object.keys(sites).map(Number);
+        await post('/api/invoices/issue', { ids, sites, ...(kind ? { kind } : {}) });
+        if (!(await book(g, kind))) return;
+      }
+      toast(`${new Set(rows.map(r => r.inv.id)).size}得意先・${rows.length}現場（請求額合計 ${yen(rows.reduce((n, r) => n + r.total, 0))} 円）の請求書を発行し、Excel をダウンロードしました${re ? `（うち再発行 ${re}現場）` : ''}`);
     } catch (e) { toast(e.message, true); } finally { if (btn) btn.disabled = false; }
     await render();
   };
@@ -924,14 +933,14 @@ async function invoiceIssueView(q) {
   return page('請求締め・発行', '請求年月・締日・得意先（任意）で検索し、請求書を発行します。請求書は現場ごとに1枚で、見出しのチェックで全件、行のチェックで選択した現場だけを発行します（訂正後の再発行）。発行すると Excel（1現場＝1シート）をダウンロードします。',
     `${invoiceSearch({ ...q, month })}<select id="inv-state" title="発行状況">${options([{ code: 'all', name: 'すべて' }, ...Object.entries(ISSUE_STATES).map(([code, name]) => ({ code, name }))], ist || 'all', { label: x => x.name })}</select>${canWrite() ? '<button class="primary" data-act="issue">請求書発行</button>' : ''}`,
     `<section class="card glass" data-sub="issue">${sortBarOf('issue', [['cust', '得意先コード'], ['name', '得意先名']])}
-    ${table([{ label: '', head: '<input type="checkbox" data-pick-all="inv-pick" title="すべて選択／解除">', html: r => `<input type="checkbox" class="inv-pick" value="${r.k}">` }, /* 締日の列は 2026-11-17 ユーザー指示で削除 */ { label: '得意先コード', value: r => (r.first ? r.inv.customer : '') }, { label: '得意先名', value: r => (r.first ? r.inv.customerName : '') },
-      { label: '現場名', html: siteCell }, { label: '売上額', num: 1, value: r => yen(r.net) }, { label: '消費税', num: 1, value: r => yen(r.tax) }, { label: '今回請求額', num: 1, value: r => yen(r.total) },
-      { label: '発行状況', html: issueCell }],
+    ${table([{ label: '', head: '<input type="checkbox" data-pick-all="inv-pick" title="すべて選択／解除">', html: r => (r.kind === 'new' ? '' : `<input type="checkbox" class="inv-pick" value="${r.k}">`) }, /* 締日の列は 2026-11-17 ユーザー指示で削除 */ { label: '得意先コード', value: r => (r.first ? r.inv.customer : '') }, { label: '得意先名', value: r => (r.first ? r.inv.customerName : '') },
+      { label: '現場名', html: r => siteCell(r) + (r.kind ? ` ${badge(REV_KIND[r.kind], r.kind === 'new' ? 'gray' : r.kind === 'diff' ? 'amber' : 'blue')}` : '') }, { label: '売上額', num: 1, value: r => yen(r.net) }, { label: '消費税', num: 1, value: r => yen(r.tax) }, { label: '今回請求額', num: 1, value: r => yen(r.total) },
+      { label: '発行状況', html: r => issueCell(r) + (r.kind && r.issues ? ` <button type="button" class="mini" data-act="revBook" data-k="${r.k}" title="この区分の最後の発行分の Excel">⇩</button>` : '') }],
       lines, { empty: ist ? 'この発行状況の現場はありません' : '請求がありません', foot: ['', '合計', '', '', yen(sum('net')), yen(sum('tax')), yen(sum('total')), ''] })}</section>`);
 }
 // 発行前確認一覧（2026-10-25）：請求データ作成の前に、その締日で請求される未請求の掛売上（出荷伝票）を得意先ごとに確認する。
 // 現行 HAR430（メニュー 11）と同じ明細項目。請求データは作らない（読み取りのみ）
-const PRECHECK_PLAN = { new: ['新規作成', 'green'], append: ['作成済みの請求に追加', 'amber'], next: ['発行済みのため次回締め', 'gray'] };
+const PRECHECK_PLAN = { new: ['新規作成', 'green'], append: ['作成済みの請求に追加', 'amber'], correct: ['発行済みの請求に赤黒を追加', 'amber'], next: ['発行済みのため次回締め', 'gray'] };
 async function precheckView(q) {
   const A = actions;
   A.view = d => go('invoices', { view: d.view });

@@ -327,12 +327,20 @@ export async function runBilling(c, ctx, { month, closing, customers, slip: cont
     if (n && n < AR_SLIP_MAX) Object.assign(slip, { no: cont, count: n });
   }
   for (const cu of targets) {
-    const list = await rows(c, "SELECT * FROM sales_trn WHERE customers_cd=? AND process_status='0' AND payment_method_cd=2 AND sales_date<=? ORDER BY field_cd, field_suffix, sales_date, order_no FOR UPDATE", [cu.customers_cd, toNum(end)]);
+    let list = await rows(c, "SELECT * FROM sales_trn WHERE customers_cd=? AND process_status='0' AND payment_method_cd=2 AND sales_date<=? ORDER BY field_cd, field_suffix, sales_date, order_no FOR UPDATE", [cu.customers_cd, toNum(end)]);
     if (!list.length) continue;
     let h = await one(c, 'SELECT * FROM billing_head WHERE customers_cd=? AND closing_date=? FOR UPDATE', [cu.customers_cd, toNum(end)]);
     if (h) {
-      const locked = h.invoice_flag !== '0' || await one(c, 'SELECT 1 x FROM receipt_allocation WHERE invoice_id=? LIMIT 1', [h.invoice_id]);
-      if (locked) { skipped.push(cu.customers_name + ': ' + end + '締の請求は発行済みのため、追加分 ' + list.length + '件は次回締めで請求されます'); continue; }
+      const alloc = await one(c, 'SELECT 1 x FROM receipt_allocation WHERE invoice_id=? LIMIT 1', [h.invoice_id]);
+      if (alloc || h.invoice_flag !== '0') {
+        // 発行済み（入金消込なし）の請求は、その請求の伝票を元にした赤黒だけを同じ請求に追加する（現行 帳票④ 訂正分・⑤ 全部の請求書。2026-11-18 ユーザー指示）。
+        // それ以外の追加分は従来どおり次回締めで請求
+        const own = new Set(alloc ? [] : (await rows(c, `SELECT DISTINCT order_no FROM billing_detail WHERE ${detailWhere(h).sql}`, detailWhere(h).args)).map(r => String(r.order_no)));
+        const fix = list.filter(x => String(x.ship_kb) === CORRECTION && x.sales_no && String(x.sales_no) !== String(x.order_no) && own.has(String(x.sales_no)));
+        if (fix.length < list.length) skipped.push(cu.customers_name + ': ' + end + '締の請求は' + (alloc ? '入金消込済み' : '発行済み') + 'のため、追加分 ' + (list.length - fix.length) + '件は次回締めで請求されます');
+        if (!fix.length) continue;
+        list = fix;
+      }
     }
     const site = await customerSite(c, cu.customers_cd);
     if (!h) {
@@ -402,6 +410,7 @@ export async function listInvoices(c, q = {}) {
       AND EXISTS (SELECT 1 FROM sales_trn s WHERE s.customers_cd=h.customers_cd AND s.process_status='0' AND s.payment_method_cd=2 AND s.sales_date<=h.closing_date)`, list.map(i => i.id))).map(r => Number(r.invoice_id)));
     for (const i of list) i.rebuild = rb.has(i.id);
   }
+  if (list.length && q.revisions) await revisions(c, list);   // 請求書発行の ③④⑤ の行（2026-11-18）
   if (q.status === 'open') list = list.filter(i => i.balance > 0);
   else if (q.status) list = list.filter(i => i.status === q.status);
   return list;
@@ -503,16 +512,19 @@ async function billingPrecheckOne(c, { month, closing, customer }) {
     if (!sales.length) continue;
     const { net, tax } = totals(sales), lines = sales.map(s => decodeLine({ ...s, field_name: s.field_name1 }));
     const h = await one(c, 'SELECT invoice_id, invoice_flag FROM billing_head WHERE customers_cd=? AND closing_date=?', [cu.customers_cd, toNum(end)]);
-    const locked = h && (h.invoice_flag !== '0' || await one(c, 'SELECT 1 x FROM receipt_allocation WHERE invoice_id=? LIMIT 1', [h.invoice_id]));
+    const alloc = h && await one(c, 'SELECT 1 x FROM receipt_allocation WHERE invoice_id=? LIMIT 1', [h.invoice_id]), locked = h && (h.invoice_flag !== '0' || alloc);
+    // 発行済み（消込なし）の請求の伝票を元にした赤黒は同じ請求に追加する（runBilling と同じ判定。2026-11-18 ③④⑤）
+    const own = locked && !alloc ? new Set((await rows(c, `SELECT DISTINCT order_no FROM billing_detail WHERE ${detailWhere(h).sql}`, detailWhere(h).args)).map(r => String(r.order_no))) : new Set();
+    const fixes = sales.filter(x => String(x.ship_kb) === CORRECTION && x.sales_no && String(x.sales_no) !== String(x.order_no) && own.has(String(x.sales_no))).length;
     const byRate = RATES.map(rate => { const n = lines.filter(l => Math.round(l.taxRate) === rate).reduce((a, l) => a + l.net, 0); return { rate, net: n, tax: bucketTax(n, rate) }; }).filter(x => x.net);
-    out.push({ closing: day, start, end, customer: cu.customers_cd, name: cu.customers_name, plan: !h ? 'new' : locked ? 'next' : 'append', invoiceId: h?.invoice_id || null,
+    out.push({ closing: day, start, end, customer: cu.customers_cd, name: cu.customers_name, plan: !h ? 'new' : !locked ? 'append' : fixes ? 'correct' : 'next', fixes, invoiceId: h?.invoice_id || null,
       count: lines.length, corrections: lines.filter(l => String(l.shipKb) === CORRECTION).length, late: sales.filter(s => fromNum(s.sales_date) < start).length,
       sites: new Set(lines.map(l => l.site)).size, net, tax, current: net + tax, byRate, lines });
   }
   const co = await one(c, 'SELECT company_name1 FROM company_info_m WHERE company_info_id=1');
   return { month, start, end, closing: day, company: co?.company_name1 || '', rows: out };
 }
-export const PRECHECK_PLAN = { new: '新規作成', append: '作成済みの請求に追加', next: '発行済みのため次回締めで請求' };
+export const PRECHECK_PLAN = { new: '新規作成', append: '作成済みの請求に追加', correct: '発行済みの請求に赤黒を追加（訂正分・全部の請求書）', next: '発行済みのため次回締めで請求' };
 // NO13 請求書発行確認表: issued customers with lines, same calculation as NO12.
 // 該当なしのとき案内する「請求がある年月・締日」（新しい順）。issued=true は発行済みのみ
 async function billingPeriods(c, issued) {
@@ -588,24 +600,75 @@ async function snapshot(c, inv) {
   };
 }
 // sites：{請求ID: [現場名]}（2026-10-27 現場別発行）。無い請求は全現場。スナップショットは請求全体を保存し、発行した現場（sites）と現場ごとの発行回数（siteIssueNo）を持つ
-export async function issueInvoices(c, ctx, { ids, sites = {} }) {
+// kind（2026-11-18 ユーザー指示：現行 帳票③④⑤）：new＝通常の発行（③ 新規・再発行）、diff＝訂正分（④：最後の通常の発行に無い明細＝赤黒だけ、金額は差額）、
+// all＝全部（⑤：全明細。赤黒のある伝票は 赤・元・黒 の順で末尾にまとめ、Excel で枠を付ける）。請求年月日はどれも元の締日
+export async function issueInvoices(c, ctx, { ids, sites = {}, kind = 'new' }) {
   check(Array.isArray(ids) && ids.length > 0 && ids.length <= 200, '発行する請求を選択してください（最大200件）');
+  check(['new', 'diff', 'all'].includes(kind), '発行の区分が正しくありません');
   const out = [];
   for (const id of [...new Set(ids.map(Number))].sort((a, b) => a - b)) {
     const h = await one(c, 'SELECT * FROM billing_head WHERE invoice_id=? FOR UPDATE', [id]); check(h, '請求が見つかりません');
-    const inv = await invoiceDetail(c, id), snap = await snapshot(c, inv), no = (inv.issues || 0) + 1;
+    const inv = await invoiceDetail(c, id), no = (inv.issues || 0) + 1;
+    let snap = await snapshot(c, inv);
     const all = [...new Set(snap.lines.map(l => siteLabel(l.siteName)))], want = Array.isArray(sites[id]) ? [...new Set(sites[id].map(siteLabel))] : all;
     const bad = want.filter(n => !all.includes(n)); check(!bad.length && want.length, `請求No.${id} に現場「${bad.join('・')}」がありません`);
+    if (kind !== 'new') {
+      const base = await baseIssue(c, id); check(base, `請求No.${id} は通常の発行（新規）がないため、訂正分・全部の請求書は発行できません`);
+      const had = new Set(base.lines.map(ownOf)), added = snap.lines.filter(l => !had.has(ownOf(l)) && want.includes(siteLabel(l.siteName)));
+      check(added.length, `請求No.${id} に訂正分（新規発行の後に追加した赤黒）がありません`);
+      if (kind === 'diff') {
+        const lines = snap.lines.filter(l => !had.has(ownOf(l))), buckets = RATES.map(rate => { const net = lines.filter(l => l.taxRate === rate).reduce((n, l) => n + l.net, 0); return { rate, net, tax: bucketTax(net, rate) }; }).filter(b => b.net);
+        const net = lines.reduce((n, l) => n + l.net, 0), tax = buckets.reduce((n, b) => n + b.tax, 0);
+        snap = { ...snap, lines, buckets, net, tax, total: net + tax, grandTotal: net + tax };
+      } else snap = { ...snap, lines: correctionsLast(snap.lines, new Set(added.map(ownOf))) };
+      snap = { ...snap, baseIssueNo: base.no };
+    }
     const prev = (await siteIssues(c, [id])).get(id), siteIssueNo = Object.fromEntries(want.map(n => [n, (prev?.of(n).length || 0) + 1]));
-    const body = JSON.stringify({ ...snap, issueNo: no, issuedOn: today(), issuedBy: ctx.user.login_id, sites: want, siteIssueNo }), sha = createHash('sha256').update(body).digest('hex');
+    const body = JSON.stringify({ ...snap, kind, issueNo: no, issuedOn: today(), issuedBy: ctx.user.login_id, sites: want, siteIssueNo }), sha = createHash('sha256').update(body).digest('hex');
     await c.query('INSERT INTO invoice_issue (invoice_id,issue_no,issued_at,issued_by,snapshot_json,document_sha256) VALUES (?,?,UTC_TIMESTAMP(6),?,?,?)', [id, no, ctx.user.login_id, body, sha]);
     for (const n of want) await c.query('INSERT INTO app_invoice_issue_site (invoice_id,issue_no,site_name) VALUES (?,?,?)', [id, no, n.slice(0, 80)]);
     await c.query('UPDATE billing_head SET invoice_flag=?, row_version=row_version+1 WHERE invoice_id=?', [no === 1 ? '1' : '2', id]);
     const w = detailWhere(h); await c.query(`UPDATE billing_detail SET invoice_issud_flag='1' WHERE ${w.sql}`, w.args);
-    await audit(c, ctx, 'billing_head', id, no === 1 ? 'invoice.issue' : 'invoice.reissue', { issueNo: no, sha256: sha, sites: want });
+    await audit(c, ctx, 'billing_head', id, no === 1 ? 'invoice.issue' : 'invoice.reissue', { issueNo: no, sha256: sha, sites: want, kind });
     out.push({ ...JSON.parse(body), reissue: no > 1 });
   }
   return { documents: out };
+}
+// 明細の伝票（元の番号）：発行スナップショットの明細は ownNo（無い古い発行分は orderNo の枝番を除いたもの）
+const ownOf = l => String(l.ownNo || String(l.orderNo || '').replace(/-\d+$/, ''));
+// 通常の発行（kind が無い・new）の最後の回＝訂正分・全部の基準（現行 帳票③）
+async function baseIssue(c, id) {
+  const r = await one(c, "SELECT issue_no, snapshot_json FROM invoice_issue WHERE invoice_id=? AND COALESCE(snapshot_json->>'kind','new')='new' ORDER BY issue_no DESC LIMIT 1", [Number(id)]);
+  if (!r) return null; const s = typeof r.snapshot_json === 'string' ? JSON.parse(r.snapshot_json) : r.snapshot_json;
+  return { no: Number(r.issue_no), lines: s.lines || [] };
+}
+// 全部の請求書（⑤）の並び：訂正のある伝票（元・赤黒）を末尾にまとめ、伝票ごとに 赤（-02）・元（-01）・黒（-03）…の順。box＝Excel で枠を付ける行
+function correctionsLast(lines, added) {
+  const key = l => String(l.orderNo || '').replace(/-\d+$/, ''), suf = l => Number((String(l.orderNo).match(/-(\d+)$/) || [])[1] || 1);
+  const fixed = new Set(lines.filter(l => added.has(ownOf(l))).map(key)), rest = lines.filter(l => !fixed.has(key(l))), moved = [];
+  for (const k of fixed) moved.push(...lines.filter(l => key(l) === k).sort((a, b) => (suf(a) === 2 ? -1 : suf(b) === 2 ? 1 : suf(a) - suf(b))).map(l => ({ ...l, box: true })));
+  return [...rest, ...moved];
+}
+// 請求書発行の一覧（2026-11-18 ユーザー指示：③ 新規・④ 訂正分・⑤ 全部 を 3 行で出す）：通常の発行の後に赤黒を追加した請求の現場ごとに
+// base＝最後の通常の発行の金額、diff＝追加した明細（赤黒）の差額、all＝今の全明細。issued＝その区分を基準の後に発行し、今の明細を全部含む
+async function revisions(c, list) {
+  const ids = list.filter(i => i.issues).map(i => i.id); if (!ids.length) return;
+  const q = ids.map(() => '?').join(','), iss = await rows(c, `SELECT invoice_id, issue_no, snapshot_json FROM invoice_issue WHERE invoice_id IN (${q}) ORDER BY issue_no`, ids);
+  const cur = await rows(c, `SELECT h.invoice_id, d.order_no, COALESCE(NULLIF(d.field_name,''), NULLIF(TRIM(CONCAT_WS(' ', st.field_name1, st.field_name2)),''), '') field_name, d.money, d.tax_rate FROM billing_detail d JOIN billing_head h ON ${DETAIL_JOIN}
+    LEFT JOIN sales_trn st ON st.order_no=d.order_no AND st.order_suffix=1 WHERE h.invoice_id IN (${q})`, ids);
+  const amt = ls => { const net = ls.reduce((n, l) => n + l.net, 0), tax = RATES.reduce((n, r) => n + bucketTax(ls.filter(l => l.taxRate === r).reduce((a, l) => a + l.net, 0), r), 0); return { net, tax, total: net + tax }; };
+  for (const inv of list) {
+    const mine = iss.filter(x => Number(x.invoice_id) === inv.id).map(x => ({ no: Number(x.issue_no), s: typeof x.snapshot_json === 'string' ? JSON.parse(x.snapshot_json) : x.snapshot_json }));
+    const base = mine.filter(x => (x.s.kind || 'new') === 'new').at(-1); if (!base) continue;
+    const had = new Set((base.s.lines || []).map(ownOf)), now = cur.filter(x => Number(x.invoice_id) === inv.id).map(x => ({ own: String(x.order_no), siteName: x.field_name || '', net: num(x.money), taxRate: Math.round(num(x.tax_rate)) }));
+    const added = now.filter(l => !had.has(l.own)); if (!added.length) continue;
+    for (const site of inv.sites || []) {
+      const label = siteLabel(site.siteName), here = l => siteLabel(l.siteName) === label, add = added.filter(here); if (!add.length) continue;
+      const covers = (kind, need) => mine.some(x => x.no > base.no && x.s.kind === kind && (x.s.sites || []).includes(label) && need.every(o => (x.s.lines || []).some(l => ownOf(l) === o)));
+      site.rev = { baseNo: base.no, base: amt((base.s.lines || []).filter(l => siteLabel(l.siteName) === label).map(l => ({ net: num(l.net), taxRate: Math.round(num(l.taxRate)) }))),
+        diff: { ...amt(add), issued: covers('diff', add.map(l => l.own)) }, all: { ...amt(now.filter(here)), issued: covers('all', now.filter(here).map(l => l.own)) } };
+    }
+  }
 }
 // 現場名の表記（請求書の「現場：」・現場別発行の単位）。名称の無い現場は（現場なし）
 export const siteLabel = n => (n && String(n).trim() ? String(n) : '（現場なし）');
@@ -622,9 +685,14 @@ async function siteIssues(c, ids) {
   }
   return out;
 }
-export async function issuedDocument(c, id, site = null) {
-  const nos = site ? (await siteIssues(c, [Number(id)])).get(Number(id)).of(site) : null; check(!site || nos.length, `現場「${siteLabel(site)}」は未発行です`);
-  const r = await one(c, `SELECT snapshot_json, issue_no FROM invoice_issue WHERE invoice_id=?${site ? ' AND issue_no=?' : ''} ORDER BY issue_no DESC LIMIT 1`, site ? [Number(id), nos.at(-1)] : [Number(id)]); check(r, '発行履歴がありません');
+// kind（new・diff・all）を指定すると、その区分の最後の発行分（2026-11-18 ③④⑤）
+export async function issuedDocument(c, id, site = null, kind = null) {
+  let nos = site ? (await siteIssues(c, [Number(id)])).get(Number(id)).of(site) : null; check(!site || nos.length, `現場「${siteLabel(site)}」は未発行です`);
+  if (kind) {
+    const ks = await rows(c, "SELECT issue_no, COALESCE(snapshot_json->>'kind','new') k FROM invoice_issue WHERE invoice_id=? ORDER BY issue_no", [Number(id)]), ok = new Set(ks.filter(x => x.k === kind).map(x => Number(x.issue_no)));
+    nos = (nos || ks.map(x => Number(x.issue_no))).filter(n => ok.has(n)); check(nos.length, `請求No.${id} の${{ new: '新規', diff: '訂正分', all: '全部' }[kind] || ''}の請求書は未発行です`);
+  }
+  const r = await one(c, `SELECT snapshot_json, issue_no FROM invoice_issue WHERE invoice_id=?${nos ? ' AND issue_no=?' : ''} ORDER BY issue_no DESC LIMIT 1`, nos ? [Number(id), nos.at(-1)] : [Number(id)]); check(r, '発行履歴がありません');
   const s = typeof r.snapshot_json === 'string' ? JSON.parse(r.snapshot_json) : r.snapshot_json;
   // 2026-10-26 より前の発行分は明細に現場名が無い：金額はそのまま、現場名を今の請求明細から補う（まとめない）
   if (s.lines?.length && s.lines.every(l => !l.siteName)) {

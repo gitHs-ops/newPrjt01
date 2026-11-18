@@ -200,6 +200,24 @@ function listify(sh) {
   return { ...sh, listed: true, rows: shifted, widths: [1.5, ...fw], heights, merges, gridlines: false, header: undefined, footer: '&C&P / &N 頁', margins: [0.4, 0.6],
     printTitles: lastHead >= 0 ? `1:${lastHead + 1}` : undefined };
 }
+// 枠で囲む行（請求書⑤ 全部の赤黒。2026-11-18）：明細のスタイルの複製に、元の罫線へ中太の外枠を重ねる。STYLE['box{T|M|B|S}{L|I|R}_名前']
+// T＝枠の最初の行（上）、B＝最後の行（下）、S＝1 行だけ（上下）、M＝途中。L＝左端の列（左）、R＝右端（右）、I＝内側
+const BOX_BASE = ['rCenter', 'rCell', 'rQty', 'rNum', 'vCellC', 'vCell', 'vQty', 'vNum'];
+function boxStyles(xml) {
+  const bM = xml.match(/<borders count="(\d+)">([\s\S]*?)<\/borders>/), xM = xml.match(/<cellXfs count="(\d+)">([\s\S]*?)<\/cellXfs>/);
+  const borders = bM[2].match(/<border\/>|<border>[\s\S]*?<\/border>/g), xfs = xM[2].match(/<xf [^>]*?(?:\/>|>[\s\S]*?<\/xf>)/g), add = [], xadd = [];
+  const edge = (b, tag) => { const re = new RegExp(`<${tag}(?:\\s[^>]*)?(?:\\/>|>[\\s\\S]*?<\\/${tag}>)`); const m = `<${tag} style="medium"/>`; return re.test(b) ? b.replace(re, m) : b.replace('</border>', m + '</border>'); };
+  const order = ['left', 'right', 'top', 'bottom', 'diagonal'], sortB = b => { const parts = order.map(t => (b.match(new RegExp(`<${t}(?:\\s[^>]*)?(?:\\/>|>[\\s\\S]*?<\\/${t}>)`)) || [''])[0]); return `<border>${parts.join('')}</border>`; };
+  let k = xfs.length;
+  for (const name of BOX_BASE) {
+    const xf = xfs[STYLE[name]], bid = Number((xf.match(/borderId="(\d+)"/) || [])[1] || 0), base = borders[bid] === '<border/>' ? '<border><left/><right/><top/><bottom/><diagonal/></border>' : borders[bid];
+    for (const p of ['T', 'M', 'B', 'S']) for (const sd of ['L', 'I', 'R']) {
+      let b = base; if (p === 'T' || p === 'S') b = edge(b, 'top'); if (p === 'B' || p === 'S') b = edge(b, 'bottom'); if (sd === 'L') b = edge(b, 'left'); if (sd === 'R') b = edge(b, 'right');
+      add.push(sortB(b)); xadd.push(xf.replace(/borderId="\d+"/, `borderId="${borders.length + add.length - 1}"`)); STYLE[`box${p}${sd}_${name}`] = k++;
+    }
+  }
+  return xml.replace(bM[0], `<borders count="${borders.length + add.length}">${borders.join('')}${add.join('')}</borders>`).replace(xM[0], `<cellXfs count="${xfs.length + xadd.length}">${xfs.join('')}${xadd.join('')}</cellXfs>`);
+}
 // styles.xml の font を赤にした複製を後ろに足し、cellXfs も全部複製して赤の font を指す（n 番の赤は n＋redAt）
 function redTwins(xml) {
   const fontsM = xml.match(/<fonts count="(\d+)">([\s\S]*?)<\/fonts>/), xfsM = xml.match(/<cellXfs count="(\d+)">([\s\S]*?)<\/cellXfs>/);
@@ -243,7 +261,7 @@ export function xlsx(sheets0) {
       [169, 16, 11, 12, 'right'], [0, 16, 12, 12, 'left'], [168, 16, 12, 12, 'right'], [169, 16, 12, 12, 'right'],
     ].map(([n, f, fill, b, h]) => `<xf numFmtId="${n}" fontId="${f}" fillId="${fill}" borderId="${b}" xfId="0" applyNumberFormat="1" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="${h}" vertical="center"/></xf>`).join('')}</cellXfs><cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>`],
   ];
-  const st = files.find(f => f[0] === 'xl/styles.xml'), red = redTwins(st[1]); st[1] = red.xml;
+  const st = files.find(f => f[0] === 'xl/styles.xml'); st[1] = boxStyles(st[1]); const red = redTwins(st[1]); st[1] = red.xml;
   files.push(...sheets.map((s, i) => [`xl/worksheets/sheet${i + 1}.xml`, sheetXml({ ...s, redAt: red.redAt })]));
   return zip(files);
 }
