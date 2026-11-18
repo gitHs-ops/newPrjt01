@@ -1406,7 +1406,7 @@ const lrDepUse = () => (lrDepLine() ? 0 : Math.min(lr.deposit || 0, Math.max(0, 
 // 過入金＝入金予定額をすべて入金しても余る入金額。預り金（貸方 4170）で受け入れる。請求日の範囲外に残高のある請求があるときは受け入れない
 const lrFull = () => lr.invoices.length > 0 && lr.invoices.every(r => lrPays().some(x => x.r && x.r.id === r.id && x.n === r.balance));
 const lrOver = () => { const d = lrSum() + lrDepUse() - lrPayTotal(); return d > 0 && lrFull() ? d : 0; };
-const lrPayFoot = () => `<tr><th colspan="5">合計</th><td class="num"><b>${yen(lrPayTotal() - lrDepUse())}</b></td></tr>`
+const lrPayFoot = () => `<tr><th colspan="5">合計</th><th class="num"><b>${yen(lrPayTotal() - lrDepUse())}</b></th></tr>`   /* 金額も th にして「合計」と同じ罫線・背景（2026-11-18） */
   + (lrOver() ? `<tr class="lr-deprow"><th colspan="4">過入金（預り金 4170 で受入）</th><td class="num neg"><b>${yen(-lrOver())}</b></td><td></td></tr>` : '');   // 過入金は入金予定額の欄にマイナス（D-077。2026-11-12 結合テスト IT-06）
 const lrDepRow = who => (lr.deposit > 0 ? `<tr class="lr-deprow"><td>${who}</td><td></td><td>預り金</td><td></td><td class="num neg">${yen(-lr.deposit)}</td><td class="num neg" id="lr-depuse">${lrDepUse() ? yen(-lrDepUse()) : ''}</td></tr>` : '');
 const lrFootPaint = () => { const f = $('#lr-foot'); if (f) f.innerHTML = lrPayFoot(); const d = $('#lr-depuse'); if (d) d.textContent = lrDepUse() ? yen(-lrDepUse()) : ''; };
