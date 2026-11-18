@@ -362,7 +362,7 @@ export async function miscBook(c, kind, q) {
   const MIX_W = [9, 22, 9, 22, 10, 11, 26, 12, 8, 10, 8, 10];
   if (kind === 'mix') {
     const d = await mixCalc(c, q), out = head(d, `対象月 ${d.month}`);
-    out.push(['製品CD', '製品名', '材料CD', '材料名', '配合率(%)', '材料単価', '単価根拠', '配合金額'].map(H));
+    out.push(['製品', '製品名', '材料', '材料名', '配合率(%)', '材料単価', '単価根拠', '配合金額'].map(H));
     for (const p of d.products) {
       for (const l of p.lines) out.push([p.item, p.name, l.material, l.name, l.ratio, l.price ?? '', l.source, l.cost ?? '']);
       out.push(['', S(`${p.name} 配合単価`), '', '', S(p.ratio), '', '', S(p.haigo)]);
@@ -370,7 +370,7 @@ export async function miscBook(c, kind, q) {
     }
     // 区切りの見出し（経費単価・材料使用量の比較）は名前の分だけ結合して色付け（2026-11-07 ユーザー指示：同じ様式の帳票を全部直す）
     out.push([], band(MIX_W, ['経費単価（推定）']), ['', '製品出荷数量', d.suggest.tons, '電気', d.suggest.denki, '灯油', d.suggest.touyu, '製造', d.suggest.seizou, '一般', d.suggest.ippann], [d.suggest.basis], [],
-      band(MIX_W, ['材料使用量の比較']), ['材料CD', '材料名', '理論使用量', '実使用量', '差異'].map(H), ...d.usage.map(u => [u.material, u.name, u.theoretical, u.actual ?? '', u.diff ?? '']), []);
+      band(MIX_W, ['材料使用量の比較']), ['材料', '材料名', '理論使用量', '実使用量', '差異'].map(H), ...d.usage.map(u => [u.material, u.name, u.theoretical, u.actual ?? '', u.diff ?? '']), []);
     return { name: `配合計算_${d.month}.xlsx`, body: xlsx([{ name: '配合計算', rows: out, widths: MIX_W }]) };
   }
   // 合計表：現行 HJR011 の見出し（支払日・科目名・支払金額・支払本体・支払消費税、構成員ごとに「** 構成員名 **」の下に出資金額・出資本体・出資消費税。2026-11-02）
