@@ -32,7 +32,7 @@ Object.assign(STYLE, { rHeadHi: 42, rBigHi: 43 });
 // v*：請求書（提案書様式）の文字の大きさを 帳票イメージ_20261108.xlsx の請求書に合わせたもの（2026-11-17 ユーザー指示）。
 // 本文 10pt・見出し 10pt 太字・会社名／御中／現場／請求額の見出し 11pt 太字・請求額 13pt 太字・得意先名 14pt 太字・表題 16pt 太字（中太枠）・共同企業体名 9pt。罫線は細線。納品書（plans.mjs）の i* は変えない
 Object.assign(STYLE, { vTitle: 78, vText: 79, vTextR: 80, vBold: 81, vCust: 82, vBoxHi: 83, vBoxH: 84, vBoxBig: 85, vBoxNum: 86, vHead: 87, vCellC: 88, vCell: 89, vNum: 90, vQty: 91, vFit9: 92, vFit: 93 });
-Object.assign(STYLE, { tTitle: 59, tCond: 60, tInfo: 61, tHead: 62, tText: 63, tCenter: 64, tRight: 65, tNum: 66, tQty: 67, tQty3: 68, tPrice1: 69, tBand: 70, tSumL: 71, tSumN: 72, tSumQ: 73, tGrandL: 74, tGrandN: 75, tGrandQ: 76, tPlain: 77, tHeadF: 94, tTextB: 95, tNumB: 96, tTextV: 97, tBoxL: 98, tBoxN: 99, tBoxQ3: 100, tSumBL: 98, tSumBN: 99, tSumBQ: 101, tGrandBL: 102, tGrandBN: 103, tGrandBQ: 104 });
+Object.assign(STYLE, { tTitle: 59, tCond: 60, tInfo: 61, tHead: 62, tText: 63, tCenter: 64, tRight: 65, tNum: 66, tQty: 67, tQty3: 68, tPrice1: 69, tBand: 70, tSumL: 71, tSumN: 72, tSumQ: 73, tGrandL: 74, tGrandN: 75, tGrandQ: 76, tPlain: 77, tHeadF: 94, tTextB: 95, tNumB: 96, tTextV: 97, tBoxL: 98, tBoxN: 99, tBoxQ3: 100, tSumBL: 98, tSumBN: 99, tSumBQ: 101, tGrandBL: 102, tGrandBN: 103, tGrandBQ: 104, tGrandBQ3: 105 });
 Object.assign(STYLE, { iTitle: 44, iText: 45, iTextR: 46, iBold: 47, iCust: 48, iBoxHi: 49, iBoxH: 50, iBoxBig: 51, iBoxNum: 52, iHead: 53, iCellC: 54, iCell: 55, iNum: 56, iQty: 57, iTextFit: 58 });   // iTextFit：長い文字は縮小して枠に収める（共同企業体名）
 // 印刷は横1ページに収める（pageSetUpPr fitToPage が無いと fitToWidth が効かず、右の列が次のページに分かれる）
 // header：印刷時のページヘッダー（例 '&R&P 頁'）。printTitles：各ページに繰り返す見出し行（例 '4:5'。xlsx() で定義名にする）
@@ -131,6 +131,13 @@ function listify(sh) {
   const K = rows0.map(kind), t = K.indexOf('title');
   // 最後の合計行（表の一番下の 小計／合計／総合計）は上も実線（2026-11-18 ユーザー指示「제일 마지막 합계란에는 실선을 위에도」）
   const lastSum = K.findLastIndex(k => k === 'sum' || k === 'grand');
+  // 帳票規約 8（2026-11-18 ユーザー指示）：表全体の合計行（総合計・会社合計の行と、最後の 合計・＊計＊・【合計】）は「総　合　計」。
+  // 雛形仕様：背景 EDEDED・太字・上下 細線（tGrandB）。2 段の合計（業者別支払内訳表）は文字の無い 2 段目も同じ書式。得意先計などグループの計は変えない
+  const genRest = v => { const m = typeof v === 'string' && v.match(/^[\s　]*([＊*【]*)[\s　]*(会[\s　]*社[\s　]*|総[\s　]*)?(合[\s　]*)?計[\s　]*[＊*】]*[\s　]*(.*)$/); return m && (m[3] || m[1]) && /^(\d+\s*件)?$/.test(m[4]) ? m[4] : null; };
+  const genRow = i => (rows0[i] || []).some(c => genRest(cellOf(c).v) !== null);
+  const grandAt = K.findLastIndex((k, i) => (k === 'sum' || k === 'grand' || k === 'box') && genRow(i));
+  const GL = new Set(K.flatMap((k, i) => (i === grandAt || (k === 'grand' && genRow(i)) ? [i] : []))), GT = new Set(GL);
+  for (const g of GL) for (let i = g + 1; i < rows0.length && (K[i] === 'sum' || K[i] === 'grand') && !(rows0[i] || []).some(c => typeof cellOf(c).v === 'string' && filled(c)); i++) GT.add(i);
   // 現行の様式で見出しに書式の無い帳票（自動仕訳リスト）は printTitles の行を見出しにする
   const pt = sh.printTitles ? sh.printTitles.split(':').map(Number) : null;
   if (pt) for (let i = pt[0] - 1; i < pt[1]; i++) if (i > t + 1 && K[i] !== 'empty' && K[i] !== 'title') K[i] = 'head';
@@ -139,6 +146,7 @@ function listify(sh) {
   // 右上に出すもの：抽出条件の行の「出力日…／作成日…」と、表題の行の表題以外（会社名・日付）
   const info = [], condAt = t >= 0 && t + 1 < rows0.length && (start < 0 || t + 1 < start) ? t + 1 : -1;
   const rows = rows0.map(r => Object.assign((r || []).slice(), r?.span ? { span: r.span, start: r.start, max: r.max } : {}));
+  for (const g of GL) rows[g] = Object.assign(rows[g].map(c => { const o = cellOf(c), rest = genRest(o.v); return rest === null ? c : { ...o, v: `総　合　計${rest ? '　　' + rest : ''}` }; }), rows[g].span ? { span: rows[g].span, start: rows[g].start, max: rows[g].max } : {});
   if (condAt >= 0) rows[condAt] = rows[condAt].map(c => {
     const o = cellOf(c); if (typeof o.v !== 'string') return c;
     const m = o.v.match(/[\s　]*((出力日時?|作成日|出力)[\s　:：]*[0-9０-９/\-:年月日 ]+)/); if (!m) return c;
@@ -163,6 +171,7 @@ function listify(sh) {
       const o = cellOf(c), v = o.v ?? '', num = typeof v === 'number', s = o.s;
       if (k === 'head') return headCell(v, i, j);
       if (k === 'band') return { v, s: 'tBand' };
+      if (GT.has(i)) return { v, s: num ? (QTY_S.has(s) ? 'tGrandBQ' : s === 'qty3' ? 'tGrandBQ3' : 'tGrandBN') : 'tGrandBL' };
       if (k === 'box') return { v, s: num ? (s === 'qty3' ? 'tBoxQ3' : 'tBoxN') : 'tBoxL' };
       if (k === 'sum' || k === 'grand') { const g = (k === 'grand' ? 'tGrand' : 'tSum') + (i === lastSum ? 'B' : ''); return { v, s: num ? (QTY_S.has(s) ? g + 'Q' : g + 'N') : g + 'L' }; }
       if (s === 'jEnd') return { v, s: num ? 'tNumB' : 'tTextB' };   // 自動仕訳リスト：科目（2 段）の下は実線
@@ -259,6 +268,8 @@ export function xlsx(sheets0) {
       [0, 16, 11, 12, 'left'], [168, 16, 11, 12, 'right'], [170, 16, 11, 12, 'right'],
       // 101〜104 最後の合計行（上下とも実線。2026-11-18 ユーザー指示）：101 小計の数量（小数2桁）、102〜104 総合計の文字・金額・数量
       [169, 16, 11, 12, 'right'], [0, 16, 12, 12, 'left'], [168, 16, 12, 12, 'right'], [169, 16, 12, 12, 'right'],
+      // 105 総合計の数量（小数3桁。材料受払表。2026-11-18 帳票規約 8）
+      [170, 16, 12, 12, 'right'],
     ].map(([n, f, fill, b, h]) => `<xf numFmtId="${n}" fontId="${f}" fillId="${fill}" borderId="${b}" xfId="0" applyNumberFormat="1" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="${h}" vertical="center"/></xf>`).join('')}</cellXfs><cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>`],
   ];
   const st = files.find(f => f[0] === 'xl/styles.xml'); st[1] = boxStyles(st[1]); const red = redTwins(st[1]); st[1] = red.xml;
