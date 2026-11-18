@@ -12,7 +12,8 @@ import { gsMigration } from './gslink.mjs';
 
 export const MENUS = [
   [1, 'ダッシュボード', '#dashboard', '▦', 'OVERVIEW'], [2, '出荷・売上', '#shipments', '▤', '販売・請求'], [3, '請求締め・発行', '#invoices', '▧', '販売・請求'], [4, '入金・消込', '#receipts', '↙', '販売・請求'],
-  [5, '商品仕入', '#purchases', '◇', '購買・支払'], [6, '在庫計上', '#inventory', '▥', '購買・支払'], [7, '定時請求', '#payables', '▣', '購買・支払'], [8, '小口現金', '#cash', '◈', '購買・支払'], [9, '支払', '#payments', '↗', '購買・支払'],
+  // 2026-11-18 ユーザー指示（業務フローの支払処理の順）：定時請求 → 小口現金 → 商品仕入。表示順は配列の順（display_seq）
+  [7, '定時請求', '#payables', '▣', '購買・支払'], [8, '小口現金', '#cash', '◈', '購買・支払'], [5, '商品仕入', '#purchases', '◇', '購買・支払'], [6, '在庫計上', '#inventory', '▥', '購買・支払'], [9, '支払', '#payments', '↗', '購買・支払'],
   [10, '仕訳・会計連携', '#journals', '≡', '会計・管理'], [11, '帳票・データ出力', '#reports', '▱', '会計・管理'], [12, '月次確定', '#periods', '◉', '会計・管理'], [13, 'マスタ管理', '#masters', '⚙', '会計・管理'],
   [14, '移行・確認事項', '#migration', '⊞', '会計・管理'], [15, '操作履歴', '#audit', '◷', '会計・管理'], [16, '利用者管理', '#users', '☺', '会計・管理'],
   [17, '仕訳入力', '#kb-entry', '✎', '財務会計'], [18, '仕訳帳・伝票検索', '#kb-journal', '☰', '財務会計'], [19, '元帳', '#kb-ledger', '▤', '財務会計'], [20, '残高試算表', '#kb-trial', '⊟', '財務会計'],
@@ -226,8 +227,8 @@ export async function prepare(pool, env = process.env) {
   await pool.query("DO $c$ BEGIN ALTER TABLE payment_allocation ADD CONSTRAINT payment_allocation_amount_nz CHECK (amount <> 0); EXCEPTION WHEN duplicate_object THEN NULL; END $c$");
   await loadRateDigits(pool);   // 税率区分マスタ → 処税率の計算
   for (const [id, name] of Object.entries(ROLES)) await pool.query('INSERT INTO roles (role_id,role_name) VALUES (?,?) ON DUPLICATE KEY UPDATE role_name=VALUES(role_name)', [Number(id), name]);
-  for (const [id, title, url, icon, grp] of MENUS) {
-    await pool.query('INSERT INTO menus (menu_id,menu_title,launch_url,parent_menu_id,display_seq,menu_class,group_title) VALUES (?,?,?,0,?,?,?) ON DUPLICATE KEY UPDATE menu_title=VALUES(menu_title),launch_url=VALUES(launch_url),display_seq=VALUES(display_seq),menu_class=VALUES(menu_class),group_title=VALUES(group_title)', [id, title, url, id * 10, icon, grp]);
+  for (const [i, [id, title, url, icon, grp]] of MENUS.entries()) {
+    await pool.query('INSERT INTO menus (menu_id,menu_title,launch_url,parent_menu_id,display_seq,menu_class,group_title) VALUES (?,?,?,0,?,?,?) ON DUPLICATE KEY UPDATE menu_title=VALUES(menu_title),launch_url=VALUES(launch_url),display_seq=VALUES(display_seq),menu_class=VALUES(menu_class),group_title=VALUES(group_title)', [id, title, url, (i + 1) * 10, icon, grp]);
     for (const role of id === 16 ? [1] : [1, 2, 3, 4, 5]) await pool.query('INSERT IGNORE INTO menu_role_ts (menu_id,role_id) VALUES (?,?)', [id, role]);
   }
   // Initial administrator: DEMO_USER / DEMO_PASSWORD stay authoritative for this one account.
