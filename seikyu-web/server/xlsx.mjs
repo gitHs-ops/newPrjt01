@@ -40,7 +40,7 @@ Object.assign(STYLE, { iTitle: 44, iText: 45, iTextR: 46, iBold: 47, iCust: 48, 
 // 同じ書式で文字だけ赤のスタイル（styles の後半に複製：番号＋redAt）にする
 const NEG_TEXT = /^[-−]\s*[\d.,]*\d/;
 const isNeg = v => (typeof v === 'number' ? Number.isFinite(v) && v < 0 : typeof v === 'string' && NEG_TEXT.test(v.trim()));
-function sheetXml({ rows: given0, widths = [], header, footer, heights = {}, merges: given = [], gridlines = true, portrait = false, margins = [0.5, 0.6], listed = false, redAt = 0, breaks = [] }) {
+function sheetXml({ rows: given0, widths = [], header, footer, heights = {}, merges: given = [], gridlines = true, portrait = false, margins = [0.5, 0.6], listed = false, redAt = 0 }) {
   const rows = listed ? given0 : evenBands(given0);   // listify 済みはグループ名の結合も決まっている
   const merges = [...given, ...rows.flatMap((r, ri) => (r?.span > 1 ? [`${col(r.start || 0)}${ri + 1}:${col((r.start || 0) + r.span - 1)}${ri + 1}`] : []))];
   const cols = widths.length ? `<cols>${widths.map((w, i) => `<col min="${i + 1}" max="${i + 1}" width="${w}" customWidth="1"/>`).join('')}</cols>` : '';
@@ -54,7 +54,7 @@ function sheetXml({ rows: given0, widths = [], header, footer, heights = {}, mer
   const hf = header || footer ? `<headerFooter>${header ? `<oddHeader>${x(header)}</oddHeader>` : ''}${footer ? `<oddFooter>${x(footer)}</oddFooter>` : ''}</headerFooter>` : '';
   const mc = merges.length ? `<mergeCells count="${merges.length}">${merges.map(m => `<mergeCell ref="${m}"/>`).join('')}</mergeCells>` : '';
   const sv = gridlines ? '' : '<sheetViews><sheetView workbookViewId="0" showGridLines="0"/></sheetViews>';
-  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetPr><pageSetUpPr fitToPage="1"/></sheetPr>${sv}${cols}<sheetData>${body}</sheetData>${mc}<pageMargins left="${margins[0]}" right="${margins[0]}" top="${margins[1]}" bottom="${margins[1]}" header="0.3" footer="0.3"/><pageSetup paperSize="9" orientation="${portrait ? 'portrait' : 'landscape'}" fitToWidth="1" fitToHeight="0"/>${hf}${breaks.length ? `<rowBreaks count="${breaks.length}" manualBreakCount="${breaks.length}">${breaks.map(b => `<brk id="${b}" max="16383" man="1"/>`).join('')}</rowBreaks>` : ''}</worksheet>`;
+  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetPr><pageSetUpPr fitToPage="1"/></sheetPr>${sv}${cols}<sheetData>${body}</sheetData>${mc}<pageMargins left="${margins[0]}" right="${margins[0]}" top="${margins[1]}" bottom="${margins[1]}" header="0.3" footer="0.3"/><pageSetup paperSize="9" orientation="${portrait ? 'portrait' : 'landscape'}" fitToWidth="1" fitToHeight="0"/>${hf}</worksheet>`;
 }
 // 小見出しの行（得意先・仕入先・組織などのグループ名）：名前が入る分の列だけ結合して見出しの色を付ける（2026-11-07 ユーザー指示。
 // 1 セルだけ・全列だと不自然）。cells は列の位置どおり：最初の値が名前（その列から）、次に値のある列の手前まで結合。結合は sheetXml が row.span・row.start から作る。
@@ -229,18 +229,19 @@ function listify(sh) {
   return { ...sh, listed: true, rows: shifted, widths: [1.5, ...fw], heights, merges, gridlines: false, header: undefined, footer: '&C&P / &N 頁', margins: [0.4, 0.6],
     printTitles: lastHead >= 0 ? `1:${lastHead + 1}` : undefined };
 }
-// 1 シートに複数の様式を縦に並べる（stack：listify 前のシート定義の配列）。様式ごとに表題から作り、様式の間は改ページ
-// （銀行別随時支払一覧表：支払日ごとの様式を 1 シートに。2026-11-19 ユーザー指示）
+// 1 シートに複数の様式を縦に並べる（stack：listify 前のシート定義の配列）。表題は先頭の様式だけに出す（2 つ目以降は表題の行まで外す）
+// （銀行別随時支払一覧表：支払日ごとの様式を 1 シートに。2026-11-19 ユーザー指示「타이틀은 한번만」。改ページは入れない）
 function stackSheets(sh) {
-  const parts = sh.stack.map(listify), rows = [], heights = {}, merges = [], breaks = [];
-  for (const p of parts) {
-    if (rows.length) { rows.push([], []); breaks.push(rows.length); }   // 画面で見たときの区切り（空 2 行）。印刷は改ページ
-    const off = rows.length;
-    rows.push(...p.rows);
-    for (const [i, h] of Object.entries(p.heights || {})) heights[off + Number(i)] = h;
-    for (const m of p.merges || []) merges.push(m.replace(/([A-Z]+)(\d+)/g, (_, c, r) => c + (Number(r) + off)));
-  }
-  return { ...parts[0], name: sh.name, rows, heights, merges, breaks, printTitles: undefined };
+  const parts = sh.stack.map(listify), rows = [], heights = {}, merges = [];
+  parts.forEach((p, n) => {
+    const cut = n ? p.rows.findIndex(r => (r || []).some(c => c?.s === 'tTitle')) + 1 : 0;
+    if (n) rows.push([], []);   // 様式の間は空 2 行
+    const off = rows.length - cut;
+    rows.push(...p.rows.slice(cut));
+    for (const [i, h] of Object.entries(p.heights || {})) if (Number(i) >= cut) heights[off + Number(i)] = h;
+    for (const m of p.merges || []) if (Math.min(...m.match(/\d+/g).map(Number)) > cut) merges.push(m.replace(/([A-Z]+)(\d+)/g, (_, c, r) => c + (Number(r) + off)));
+  });
+  return { ...parts[0], name: sh.name, rows, heights, merges, printTitles: undefined };
 }
 // 枠で囲む行（請求書⑤ 全部の赤黒。2026-11-18）：明細のスタイルの複製に、元の罫線へ中太の外枠を重ねる。STYLE['box{T|M|B|S}{L|I|R}_名前']
 // T＝枠の最初の行（上）、B＝最後の行（下）、S＝1 行だけ（上下）、M＝途中。L＝左端の列（左）、R＝右端（右）、I＝内側
