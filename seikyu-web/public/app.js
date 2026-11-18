@@ -894,10 +894,10 @@ const issueCell = r => badge(ISSUE_STATES[issueState(r)], r.issues ? 'green' : '
 async function invoiceIssueView(q) {
   const A = actions;
   A.view = d => go('invoices', { view: d.view });
-  // 発行状況の既定は「未発行」、「すべて」＝all（2026-11-17 ユーザー指示）
+  // 発行状況の既定は「すべて」（2026-11-18 ユーザー指示。11-17 の「未発行」既定を変更）
   // 請求書発行は「すべての締日」を出さない。締日の既定は20日（2026-11-18 ユーザー指示）
   if (!closingList().map(String).includes(String(q.closing ?? ''))) q = { ...q, closing: '20' };
-  const ist = q.istate === 'all' ? '' : ISSUE_STATES[q.istate] ? q.istate : 'unissued', month = q.month || thisMonth(); // 請求年月の既定は当月（2026-10-27）
+  const ist = ISSUE_STATES[q.istate] ? q.istate : '', month = q.month || thisMonth(); // 請求年月の既定は当月（2026-10-27）
   const list = await api('/api/invoices?' + qs({ month, closing: q.closing, customer: q.customer, revisions: 1 }));
   // 行＝得意先×現場。発行状況・チェックは現場の行ごと（請求書は現場ごとに1枚。訂正した現場だけを再発行できる。2026-10-27）
   // 発行の後に赤黒を追加した現場は ③ 新規（発行済みの金額）・④ 訂正分（赤黒の差額）・⑤ 全部（今の金額）の 3 行（2026-11-18 ユーザー指示：現行 帳票③④⑤）。
