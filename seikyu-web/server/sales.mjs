@@ -690,7 +690,7 @@ export async function issuedDocument(c, id, site = null, kind = null) {
   let nos = site ? (await siteIssues(c, [Number(id)])).get(Number(id)).of(site) : null; check(!site || nos.length, `現場「${siteLabel(site)}」は未発行です`);
   if (kind) {
     const ks = await rows(c, "SELECT issue_no, COALESCE(snapshot_json->>'kind','new') k FROM invoice_issue WHERE invoice_id=? ORDER BY issue_no", [Number(id)]), ok = new Set(ks.filter(x => x.k === kind).map(x => Number(x.issue_no)));
-    nos = (nos || ks.map(x => Number(x.issue_no))).filter(n => ok.has(n)); check(nos.length, `請求No.${id} の${{ new: '新規', diff: '訂正分', all: '全部' }[kind] || ''}の請求書は未発行です`);
+    nos = (nos || ks.map(x => Number(x.issue_no))).filter(n => ok.has(n)); check(nos.length, `請求No.${id} の${{ new: '初回発行版', diff: '訂正分', all: '統合版' }[kind] || ''}の請求書は未発行です`);
   }
   const r = await one(c, `SELECT snapshot_json, issue_no FROM invoice_issue WHERE invoice_id=?${nos ? ' AND issue_no=?' : ''} ORDER BY issue_no DESC LIMIT 1`, nos ? [Number(id), nos.at(-1)] : [Number(id)]); check(r, '発行履歴がありません');
   const s = typeof r.snapshot_json === 'string' ? JSON.parse(r.snapshot_json) : r.snapshot_json;
