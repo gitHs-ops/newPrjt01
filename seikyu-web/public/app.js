@@ -878,7 +878,7 @@ VIEWS.invoices = async q => {
       { label: '', html: r => `<button class="mini" data-act="detail" data-k="${r.k}">詳細</button>` }], lines, { rowClass: r => (r.first && r.k ? 'grp-top' : ''), empty: '請求がありません', foot: ['合計', '', '', '', '', yen(sum('net')), yen(sum('tax')), yen(sum('total')), '', ...(isUser01() ? [] : ['']), ''] })}</section>`);
 };
 // 請求一覧照会・請求書発行で共通：検索条件（請求年月・締日・得意先。得意先は任意）と 得意先×現場 の行
-const invoiceSearch = q => `${monthInput('month', q.month || '')}<select name="closing" data-filter title="締日">${options(closingList().map(x => ({ code: String(x), name: closingName(x) })), q.closing, { blank: 'すべての締日', label: x => x.name })}</select>${comboFilter('customer', 'customers', q.customer || '', '得意先（コード・名称）')}`;
+const invoiceSearch = (q, all = true) => `${monthInput('month', q.month || '')}<select name="closing" data-filter title="締日">${options(closingList().map(x => ({ code: String(x), name: closingName(x) })), q.closing, { blank: all ? 'すべての締日' : undefined, label: x => x.name })}</select>${comboFilter('customer', 'customers', q.customer || '', '得意先（コード・名称）')}`;
 const invoiceLines = list => list.flatMap(r => (r.sites?.length ? r.sites : [{ site: '', siteName: '', method: '', net: r.net, tax: r.tax, total: r.total }]).map((x, k) => ({ ...x, inv: r, first: k === 0 }))).map((x, k) => ({ ...x, k }));
 const siteCell = r => (r.siteName ? esc(r.siteName) : '<span class="muted small">（現場なし）</span>');
 // 請求書発行（10/26 打合せ・提案書 P13）：請求年月・締日・得意先（任意）で検索 → 得意先×現場の行と発行状況（未発行／発行済／再発行）。
@@ -895,6 +895,8 @@ async function invoiceIssueView(q) {
   const A = actions;
   A.view = d => go('invoices', { view: d.view });
   // 発行状況の既定は「未発行」、「すべて」＝all（2026-11-17 ユーザー指示）
+  // 請求書発行は「すべての締日」を出さない。締日の既定は20日（2026-11-18 ユーザー指示）
+  if (!closingList().map(String).includes(String(q.closing ?? ''))) q = { ...q, closing: '20' };
   const ist = q.istate === 'all' ? '' : ISSUE_STATES[q.istate] ? q.istate : 'unissued', month = q.month || thisMonth(); // 請求年月の既定は当月（2026-10-27）
   const list = await api('/api/invoices?' + qs({ month, closing: q.closing, customer: q.customer, revisions: 1 }));
   // 行＝得意先×現場。発行状況・チェックは現場の行ごと（請求書は現場ごとに1枚。訂正した現場だけを再発行できる。2026-10-27）
@@ -931,7 +933,7 @@ async function invoiceIssueView(q) {
   };
   // ［⇩ 一括ダウンロード］は 2026-10-27 削除（10/27 打合せ：［請求書発行］で Excel が出るためボタンは1つ。再出力は再発行）
   return page('請求締め・発行', '請求年月・締日・得意先（任意）で検索し、請求書を発行します。請求書は現場ごとに1枚で、見出しのチェックで全件、行のチェックで選択した現場だけを発行します（訂正後の再発行）。発行すると Excel（1現場＝1シート）をダウンロードします。',
-    `${invoiceSearch({ ...q, month })}<select id="inv-state" title="発行状況">${options([{ code: 'all', name: 'すべて' }, ...Object.entries(ISSUE_STATES).map(([code, name]) => ({ code, name }))], ist || 'all', { label: x => x.name })}</select>${canWrite() ? '<button class="primary" data-act="issue">請求書発行</button>' : ''}`,
+    `${invoiceSearch({ ...q, month }, false)}<select id="inv-state" title="発行状況">${options([{ code: 'all', name: 'すべて' }, ...Object.entries(ISSUE_STATES).map(([code, name]) => ({ code, name }))], ist || 'all', { label: x => x.name })}</select>${canWrite() ? '<button class="primary" data-act="issue">請求書発行</button>' : ''}`,
     `<section class="card glass" data-sub="issue">${sortBarOf('issue', [['cust', '得意先コード'], ['name', '得意先名']])}
     ${table([{ label: '', head: '<input type="checkbox" data-pick-all="inv-pick" title="すべて選択／解除">', html: r => (r.kind === 'new' ? '' : `<input type="checkbox" class="inv-pick" value="${r.k}">`) }, /* 締日の列は 2026-11-17 ユーザー指示で削除 */ { label: '得意先コード', value: r => (r.first ? r.inv.customer : '') }, { label: '得意先名', value: r => (r.first ? r.inv.customerName : '') },
       { label: '現場名', html: r => siteCell(r) + (r.kind ? ` ${badge(REV_KIND[r.kind], r.kind === 'new' ? 'gray' : r.kind === 'diff' ? 'amber' : 'blue')}` : '') }, { label: '売上額', num: 1, value: r => yen(r.net) }, { label: '消費税', num: 1, value: r => yen(r.tax) }, { label: '今回請求額', num: 1, value: r => yen(r.total) },
