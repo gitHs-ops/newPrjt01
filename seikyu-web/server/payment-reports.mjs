@@ -137,14 +137,16 @@ export async function paymentBook(c, kind, q) {
     // 現行 HJR211 の並び（2026-11-04）：業者ごとに 2 段。1 段目 業者コード 業者名 支払額 前払金 現金 小切手、2 段目 立替金 手数料 振込 手形 支払日。
     // 立替金＝相殺額（安全協力費を含む）、振込＝振込額。前払金・現金・小切手・手形の支払は新システムに無いため 0
     const d = await vendorPayments(c, q), out = [[T(d.title), '', '', '', '', `${ymdJ(d.from)}${d.from === d.to ? '' : ' 〜 ' + ymdJ(d.to)}`], [`出力日 ${today()}`], []];
-    out.push(['業者コード', '業　者　名', '支払額', '前払金', '', '現　金', '小切手', ''].map(H), ['', '', '', '立替金', '手数料', '振　込', '手　形', '支払日'].map(H));
+    // 見出し 2 段の空きセルは上下を結合（2026-11-19 ユーザー指示「헤더 빈칸 병합」）：業者コード・業者名・支払額・手数料・支払日
+    out.push(['業者コード', '業　者　名', '支払額', '前払金', '手数料', '現　金', '小切手', '支払日'].map(H), ['', '', '', '立替金', '', '振　込', '手　形', ''].map(H));
+    const merges = ['A4:A5', 'B4:B5', 'C4:C5', 'E4:E5', 'H4:H5'];
     const t = { paid: 0, adv: 0, offset: 0, fee: 0, bank: 0 };
     for (const v of d.vendors) for (const r of v.rows) {
       const off = r.offset + r.safety; out.push([v.vendor, v.name, r.paid, 0, '', 0, 0, ''], ['', '', '', off, r.fee, r.bank, 0, yy(r.date)]);
       t.paid += r.paid; t.offset += off; t.fee += r.fee; t.bank += r.bank;
     }
     out.push(['', S('合　　計'), S(t.paid), S(0), '', S(0), S(0), ''], ['', '', '', S(t.offset), S(t.fee), S(t.bank), S(0), '']);
-    return { name: `業者別支払内訳表_${d.from}_${d.to}.xlsx`, body: xlsx([{ name: '業者別支払内訳表', rows: out, widths: [11, 34, 13, 13, 10, 13, 11, 10] }]) };
+    return { name: `業者別支払内訳表_${d.from}_${d.to}.xlsx`, body: xlsx([{ name: '業者別支払内訳表', rows: out, widths: [11, 34, 13, 13, 10, 13, 11, 10], merges }]) };
   }
   if (kind === 'transfer-request') {
     // 現行 HJR220 の並び（2026-11-04）：支払元の「銀行　支店　御中」、振込指定日・依頼人。振込銀行名 支店名 種目 口座番号 受取人（上段カナ・下段名称） 金額 電信扱。支払元ごとに合計 件数・金額
@@ -163,10 +165,12 @@ export async function paymentBook(c, kind, q) {
     // 現行 HJR241 の並び（2026-11-04）：業者CD 業者名 ／ 支払繰越額（3 か月・合計）／ 相殺繰越額（3 か月・合計）／ 差引繰越額。見出し 2 段
     const d = await payableCarryover(c, q), m = d.months, out = [[T(d.title), '', '', '', '', '', `${ymdJ(d.date)}現在`], [`出力日 ${today()}`], []];
     const ms = [mon(m.m3 + '-'), mon(m.m2), mon(m.m1)];
-    out.push(['業者CD', '業　者　名', '支　払　繰　越　額', '', '', '', '相　殺　繰　越　額', '', '', '', ''].map(H), ['', '', ...ms, '合　計', ...ms, '合　計', '差引繰越額'].map(H));
+    // 見出し 2 段の空きセルは結合（2026-11-19 ユーザー指示「헤더 빈칸 병합」）：業者CD・業者名・差引繰越額は上下、支払繰越額・相殺繰越額は左右（4 列）
+    out.push(['業者CD', '業　者　名', '支　払　繰　越　額', '', '', '', '相　殺　繰　越　額', '', '', '', '差引繰越額'].map(H), ['', '', ...ms, '合　計', ...ms, '合　計', ''].map(H));
+    const merges = ['A4:A5', 'B4:B5', 'C4:F4', 'G4:J4', 'K4:K5'];
     for (const v of d.vendors) out.push([v.vendor, v.name, v.m3, v.m2, v.l1, v.total, v.o3, v.o2, v.o1, v.offset, v.net]);
     const t = d.totals; out.push([], ['', S('合　　計'), S(t.m3), S(t.m2), S(t.l1), S(t.total), S(0), S(0), S(t.offset), S(t.offset), S(t.net)]);
-    return { name: `支払繰越一覧表_${d.date}.xlsx`, body: xlsx([{ name: '支払繰越一覧表', rows: out, widths: [10, 34, 13, 13, 13, 14, 12, 12, 12, 12, 14] }]) };
+    return { name: `支払繰越一覧表_${d.date}.xlsx`, body: xlsx([{ name: '支払繰越一覧表', rows: out, widths: [10, 34, 13, 13, 13, 14, 12, 12, 12, 12, 14], merges }]) };
   }
   if (kind === 'notices') {
     // 現行 支払案内書の並び（2026-11-04）：宛先（〒・住所・業者名 御中・（業者コード））と発行元（〒・住所・会社名・共同企業体・TEL・FAX・登録番号）、

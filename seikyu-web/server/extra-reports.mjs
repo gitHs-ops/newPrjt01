@@ -177,9 +177,10 @@ export async function extraBook(c, kind, q) {
     // 見出し 2 段（2026-11-18 ユーザー指示「헤더 디자인 개선」）：2 段に分かれるのは 業者名／請求No. だけ。ほかの列は上下の 2 行を結合して 1 つの見出しにする
     const merges = [];
     for (const dp of d.depts) {
-      out.push(band(PAYIN_W, [`${d.groupLabel} : ${dp.dept} ${dp.name}`]));
+      // 部門の行は表の幅いっぱいに結合する（右の空きセルを残さない。2026-11-19 ユーザー指示）
+      out.push(Object.assign(band(PAYIN_W, [`${d.groupLabel} : ${dp.dept} ${dp.name}`]), { span: PAYIN_W.length, start: 0, max: PAYIN_W.length }));
       const r1 = out.length + 1;
-      out.push(['業者CD', '業者名', '科目', '内訳', '科目名', '内訳名', '発注残金額', '請求金額', '相殺金額', '摘要', '処税率', '相殺（支払）業者'].map(H), ['', '請求No.', '', '', '', '', '', '', '', '', '', ''].map(H));
+      out.push(['業者', '業者名', /* 業者CD → 業者（2026-11-19 ユーザー指示） */ '科目', '内訳', '科目名', '内訳名', '発注残金額', '請求金額', '相殺金額', '摘要', '処税率', '相殺（支払）業者'].map(H), ['', '請求No.', '', '', '', '', '', '', '', '', '', ''].map(H));
       for (const c of ['A', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L']) merges.push(`${c}${r1}:${c}${r1 + 1}`);
       for (const v of dp.vendors) {
         out.push([v.vendor, v.name]);

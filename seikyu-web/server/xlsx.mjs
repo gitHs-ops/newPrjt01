@@ -156,7 +156,22 @@ function listify(sh) {
   const out = [[]], heights = { 0: 12 }, map = [];
   // 見出しは 2 行に折り返さない（2026-11-17 ユーザー指示）。列（結合なら結合した幅）に入らないときは字間の空白を詰め、それでも入らなければ縮小して 1 行に
   const fw = sampleWidths(t >= 0 ? cellOf(rows0[t].find(c => TITLE_S.has(cellOf(c).s))).v : '', sh.widths || []);
-  const span0 = {}; for (const m of sh.merges || []) { const [a, b] = m.split(':').map(x => x.match(/([A-Z]+)(\d+)/)); if (a && b) span0[`${a[2] - 1},${colNo(a[1]) - 1}`] = colNo(b[1]) - colNo(a[1]) + 1; }
+  // 1 段の見出しの空きセルは左の見出しと結合（2026-11-19 ユーザー指示「헤더 빈칸 병합」。例 商品名＋空き＝コードと名称の 2 列）。
+  // 2 段の見出しは帳票ごとに結合を指定する。結合済みのセル・先頭の空きは触らない
+  const rc = m => m.split(':').map(x => x.match(/([A-Z]+)(\d+)/)), covered = new Set();
+  for (const m of sh.merges || []) { const [a, b] = rc(m); if (a && b) for (let r = +a[2]; r <= +b[2]; r++) for (let cc = colNo(a[1]); cc <= colNo(b[1]); cc++) covered.add(`${r - 1},${cc - 1}`); }
+  const autoM = [];
+  K.forEach((k, i) => {
+    if (k !== 'head' || K[i - 1] === 'head' || K[i + 1] === 'head') return;
+    const r = rows0[i] || [], free = j => !filled(r[j]) && !covered.has(`${i},${j}`);
+    for (let j = 0; j < r.length; j++) {
+      if (!filled(r[j]) || covered.has(`${i},${j}`)) continue;
+      let e = j; while (e + 1 < r.length && free(e + 1)) e++;
+      if (e > j) { autoM.push(`${col(j)}${i + 1}:${col(e)}${i + 1}`); j = e; }
+    }
+  });
+  const merges0 = [...(sh.merges || []), ...autoM];
+  const span0 = {}; for (const m of merges0) { const [a, b] = m.split(':').map(x => x.match(/([A-Z]+)(\d+)/)); if (a && b) span0[`${a[2] - 1},${colNo(a[1]) - 1}`] = colNo(b[1]) - colNo(a[1]) + 1; }
   const headCell = (v, i, j) => {
     if (typeof v !== 'string' || v.includes('\n')) return { v, s: 'tHead' };
     let w = 0; for (let x = 0; x < (span0[`${i},${j}`] || 1); x++) w += fw[j + x] ?? 9;
@@ -166,6 +181,7 @@ function listify(sh) {
   const bandSpan = {};
   for (const r of rows) if (r?.span) { const need = textWidth(cellOf(r[r.start]).v) * 1.1 + 2, lim = r.max || W - r.start; let s = 1, w = fw[r.start] ?? 9; while (s < lim && w < need) w += fw[r.start + s++] ?? 9; bandSpan[r.start] = Math.max(bandSpan[r.start] || 0, s); }
   let firstHead = -1, lastHead = -1;
+  const lastRow = K.findLastIndex(k => k !== 'empty' && k !== 'title');
   rows.forEach((r, i) => {
     const k = K[i];
     if (k === 'empty' && start >= 0 && i > start && K.slice(i + 1).some(x => x !== 'empty')) { map[i] = out.length; return; }   // 明細の間の空行は詰める
@@ -185,6 +201,7 @@ function listify(sh) {
     if (i === t) { row = [{ v: spaced(cellOf(r.find(c => TITLE_S.has(cellOf(c).s))).v), s: 'tTitle' }]; heights[n] = 26; }
     else if (start >= 0 && i >= start && k !== 'empty') {
       row = Array.from({ length: Math.max(W, r.length) }, (_, j) => sty(r[j], j));
+      if (i === lastRow) row = row.map(c => (c && /^t[A-Z]/.test(c.s) ? { ...c, s: c.s + '_U' } : c));   // 表の最後の行は下を実線
       if (r.span) Object.assign(row, { span: Math.max(r.span, Math.min(bandSpan[r.start] || 1, r.max || W - r.start)), start: r.start, max: r.max });
       heights[n] = k === 'head' ? 16 : 15;
       if (k === 'head' && (firstHead < 0 || lastHead === n - 1)) { if (firstHead < 0) firstHead = n; lastHead = n; }
@@ -207,7 +224,7 @@ function listify(sh) {
   });
   for (const [i, h] of Object.entries(sh.heights || {})) if (map[i] !== undefined) heights[map[i]] = h;
   // 元の結合（材料受払表の見出しなど）は新しい位置へ。表題の行の結合は表題の結合と重なるので外す
-  const merges = (sh.merges || []).filter(m => !(t >= 0 && m.match(/\d+/g).some(x => Number(x) === t + 1)))
+  const merges = merges0.filter(m => !(t >= 0 && m.match(/\d+/g).some(x => Number(x) === t + 1)))
     .map(m => m.replace(/([A-Z]+)(\d+)/g, (_, c, r) => col(colNo(c)) + (map[r - 1] + 1)));
   return { ...sh, listed: true, rows: shifted, widths: [1.5, ...fw], heights, merges, gridlines: false, header: undefined, footer: '&C&P / &N 頁', margins: [0.4, 0.6],
     printTitles: lastHead >= 0 ? `1:${lastHead + 1}` : undefined };
@@ -227,6 +244,20 @@ function boxStyles(xml) {
       let b = base; if (p === 'T' || p === 'S') b = edge(b, 'top'); if (p === 'B' || p === 'S') b = edge(b, 'bottom'); if (sd === 'L') b = edge(b, 'left'); if (sd === 'R') b = edge(b, 'right');
       add.push(sortB(b)); xadd.push(xf.replace(/borderId="\d+"/, `borderId="${borders.length + add.length - 1}"`)); STYLE[`box${p}${sd}_${name}`] = k++;
     }
+  }
+  return xml.replace(bM[0], `<borders count="${borders.length + add.length}">${borders.join('')}${add.join('')}</borders>`).replace(xM[0], `<cellXfs count="${xfs.length + xadd.length}">${xfs.join('')}${xadd.join('')}</cellXfs>`);
+}
+// 表の最後の行（2026-11-19 ユーザー指示「맨 마지막 행 밑줄 실선」）：t* の各スタイルの複製で下だけ実線（細線）。STYLE['名前_U']
+function underTwins(xml) {
+  const bM = xml.match(/<borders count="(\d+)">([\s\S]*?)<\/borders>/), xM = xml.match(/<cellXfs count="(\d+)">([\s\S]*?)<\/cellXfs>/);
+  const borders = bM[2].match(/<border\/>|<border>[\s\S]*?<\/border>/g), xfs = xM[2].match(/<xf [^>]*?(?:\/>|>[\s\S]*?<\/xf>)/g), add = [], xadd = [];
+  const full = b => (b === '<border/>' ? '<border><left/><right/><top/><bottom/><diagonal/></border>' : b);
+  let k = xfs.length;
+  for (const name of Object.keys(STYLE).filter(n => /^t[A-Z]/.test(n) && !n.endsWith('_U'))) {
+    const xf = xfs[STYLE[name]], bid = Number((xf.match(/borderId="(\d+)"/) || [])[1] || 0);
+    add.push(full(borders[bid]).replace(/<bottom(?:\s[^>]*)?(?:\/>|>[\s\S]*?<\/bottom>)/, '<bottom style="thin"/>'));
+    xadd.push(xf.replace(/borderId="\d+"/, `borderId="${borders.length + add.length - 1}"`).replace(/applyBorder="1"/, '').replace('<xf ', '<xf applyBorder="1" '));
+    STYLE[`${name}_U`] = k++;
   }
   return xml.replace(bM[0], `<borders count="${borders.length + add.length}">${borders.join('')}${add.join('')}</borders>`).replace(xM[0], `<cellXfs count="${xfs.length + xadd.length}">${xfs.join('')}${xadd.join('')}</cellXfs>`);
 }
@@ -275,7 +306,7 @@ export function xlsx(sheets0) {
       [170, 16, 12, 12, 'right'],
     ].map(([n, f, fill, b, h]) => `<xf numFmtId="${n}" fontId="${f}" fillId="${fill}" borderId="${b}" xfId="0" applyNumberFormat="1" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="${h}" vertical="center"/></xf>`).join('')}</cellXfs><cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>`],
   ];
-  const st = files.find(f => f[0] === 'xl/styles.xml'); st[1] = boxStyles(st[1]); const red = redTwins(st[1]); st[1] = red.xml;
+  const st = files.find(f => f[0] === 'xl/styles.xml'); st[1] = underTwins(boxStyles(st[1])); const red = redTwins(st[1]); st[1] = red.xml;
   files.push(...sheets.map((s, i) => [`xl/worksheets/sheet${i + 1}.xml`, sheetXml({ ...s, redAt: red.redAt })]));
   return zip(files);
 }
