@@ -81,7 +81,7 @@ export async function billingBalanceBook(c, q) {
 
 // 請求残高照会（得意先×請求年月）：画面と同じ項目・同じ絞込（得意先・請求年月・請求書状況）
 export async function arLedgerBook(c, q) {
-  const STATES = { draft: '未発行', issued: '発行済', partial: '一部入金', paid: '入金済', credit: 'クレジット' };
+  const STATES = { draft: '未発行', issued: '発行済', partial: '一部入金', paid: '入金済', credit: 'マイナス請求' };
   const d = await arLedger(c, q), rows = STATES[q.state] ? d.rows.filter(r => r.status === q.state) : d.rows;
   const cond = [q.customer ? `得意先 ${q.customer}` : '', q.month ? `請求年月 ${q.month}` : '', STATES[q.state] ? `請求書状況 ${STATES[q.state]}` : ''].filter(Boolean).join('　');
   const out = [[T('請求残高照会')], [`${cond ? cond + '　' : ''}出力日 ${today()}`], [],
