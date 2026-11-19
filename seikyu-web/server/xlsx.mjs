@@ -135,7 +135,8 @@ function listify(sh) {
   // 雛形仕様：背景 EDEDED・太字・上下 細線（tGrandB）。2 段の合計（業者別支払内訳表）は文字の無い 2 段目も同じ書式。得意先計などグループの計は変えない
   const genRest = v => { const m = typeof v === 'string' && v.match(/^[\s　]*([＊*【]*)[\s　]*(会[\s　]*社[\s　]*|総[\s　]*)?(合[\s　]*)?計[\s　]*[＊*】]*[\s　]*(.*)$/); return m && (m[3] || m[1]) && /^(\d+\s*件)?$/.test(m[4]) ? m[4] : null; };
   const genRow = i => (rows0[i] || []).some(c => genRest(cellOf(c).v) !== null);
-  const grandAt = K.findLastIndex((k, i) => (k === 'sum' || k === 'grand' || k === 'box') && genRow(i));
+  // noGrand：様式ごとの合計を「総合計」に書き換えない（振込依頼書の支払元ごとの様式、2026-11-19）
+  const grandAt = sh.noGrand ? -1 : K.findLastIndex((k, i) => (k === 'sum' || k === 'grand' || k === 'box') && genRow(i));
   const GL = new Set(K.flatMap((k, i) => (i === grandAt || (k === 'grand' && genRow(i)) ? [i] : []))), GT = new Set(GL);
   for (const g of GL) for (let i = g + 1; i < rows0.length && (K[i] === 'sum' || K[i] === 'grand') && !(rows0[i] || []).some(c => typeof cellOf(c).v === 'string' && filled(c)); i++) GT.add(i);
   // 現行の様式で見出しに書式の無い帳票（自動仕訳リスト）は printTitles の行を見出しにする
