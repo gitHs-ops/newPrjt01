@@ -473,7 +473,9 @@ export async function paymentSummary(c, q = {}) {
     FROM expense_document d WHERE d.expense_kind='PAYABLE' AND d.status='POSTED' AND d.vendor_id=? AND d.booked_on<?`, [ex, v.vendor_id, months[0] + '-01']);
   out[0].before = Number(old.bal || 0);
   for (const o of out) o.carry = o.billed - o.paid + (o.before || 0);
-  return { months, buckets: out };
+  // 業者立替金の残高（支払の立替金が超えたら画面に赤で警告だけ出す。登録は止めない：2026-11-19 ユーザー指示）。修正中の支払の立替金は取り消す前提で戻す
+  const back = ex ? Number((await one(c, "SELECT offset_amount n FROM payment WHERE payment_id=? AND status='POSTED'", [ex]))?.n || 0) : 0;
+  return { months, buckets: out, advance: (await advanceBalance(c, v.vendor_id)) + back };
 }
 // 支払の修正（2026-11-08 ユーザー指示「一覧で、あれば修正、なければ新規」）：入金の修正と同じく、元の支払を取り消して（逆仕訳）同じ業者で登録し直す（1トランザクション。支払No は新しくなる）
 export async function updatePayment(c, ctx, p) {
