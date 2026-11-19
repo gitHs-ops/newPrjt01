@@ -114,9 +114,9 @@ const siteOptions = (customer, value, blank) => options((masters.sites || []).fi
 const clip = (t, w) => { t = String(t ?? ''); return `<span class="clip"${w ? ` style="max-width:${w}em"` : ''}${t.length > (w || 20) ? ` title="${esc(t)}"` : ''}>${esc(t)}</span>`; };
 const clipHtml = h => (/<(input|select|textarea|button)|class="actions"/.test(h) ? h : `<span class="clip">${h}</span>`);
 document.addEventListener('mouseover', e => { const c = e.target.closest?.('.one-line .clip'); if (c && !c.title && c.scrollWidth > c.clientWidth) c.title = c.innerText; });
-function table(cols, rows, { empty = 'データがありません', foot, rowClass, oneLine = true } = {}) {
+function table(cols, rows, { empty = 'データがありません', foot, rowClass, rowAttr, oneLine = true } = {}) {
   if (!rows.length) return `<div class="empty">${esc(empty)}</div>`;
-  return `<div class="table-wrap"><table${oneLine ? ' class="one-line"' : ''}><thead><tr>${cols.map(c => `<th class="${c.num ? 'num' : ''}${c.narrow ? ' narrow' : ''}">${c.head ?? esc(c.label)}</th>`).join('')}</tr></thead><tbody>${rows.map(r => `<tr class="${rowClass ? rowClass(r) : ''}">${cols.map(c => `<td class="${c.num ? 'num' : ''} ${c.cls || ''}${c.narrow ? ' narrow' : ''}">${c.html ? (oneLine && !c.num ? clipHtml(c.html(r)) : c.html(r)) : oneLine && !c.num ? clip(c.value(r), c.clipW) : esc(c.value(r))}</td>`).join('')}</tr>`).join('')}</tbody>${foot ? `<tfoot><tr>${foot.map(f => `<td class="num">${f ?? ''}</td>`).join('')}</tr></tfoot>` : ''}</table></div>`;
+  return `<div class="table-wrap"><table${oneLine ? ' class="one-line"' : ''}><thead><tr>${cols.map(c => `<th class="${c.num ? 'num' : ''}${c.narrow ? ' narrow' : ''}">${c.head ?? esc(c.label)}</th>`).join('')}</tr></thead><tbody>${rows.map(r => `<tr class="${rowClass ? rowClass(r) : ''}"${rowAttr ? ' ' + rowAttr(r) : ''}>${cols.map(c => `<td class="${c.num ? 'num' : ''} ${c.cls || ''}${c.narrow ? ' narrow' : ''}">${c.html ? (oneLine && !c.num ? clipHtml(c.html(r)) : c.html(r)) : oneLine && !c.num ? clip(c.value(r), c.clipW) : esc(c.value(r))}</td>`).join('')}</tr>`).join('')}</tbody>${foot ? `<tfoot><tr>${foot.map(f => `<td class="num">${f ?? ''}</td>`).join('')}</tr></tfoot>` : ''}</table></div>`;
 }
 const field = (label, input, { req, hint, wide } = {}) => `<label class="field ${req ? 'req' : ''} ${wide ? 'wide' : ''}"><span>${esc(label)}</span>${input}${hint ? `<small>${esc(hint)}</small>` : ''}</label>`;
 const monthInput = (name, value) => `<input type="month" name="${name}" value="${esc(value)}" data-filter>`;
@@ -1937,7 +1937,7 @@ VIEWS.payments = async q => {
   const unpaid = open.filter(d => String(d.date).slice(0, 7) <= month).sort((a, b) => String(a.due || a.date).localeCompare(String(b.due || b.date)) || String(a.no).localeCompare(String(b.no)))
     .map(d => ({ unpaid: true, id: 'u' + d.id, no: '', date: d.due ? `予定 ${String(d.due).slice(0, 10)}` : '', vendor: d.vendor, vendorName: d.vendorName, amount: d.balance, docNo: d.no }));
   // 登録と修正は同じ画面（2026-11-08 ユーザー指示「一覧で、あれば修正、なければ新規」）。修正は元の支払を取り消して（逆仕訳）同じ業者で登録し直す（支払No は新しくなる。入金の修正と同じ）
-  const pyForm = old => { const key = uuid(); let sum = null, open = []; const H = {}; modal({ title: old ? `支払の詳細（${old.no}）` : '支払の登録', wide: true, submit: old ? '更新' : '支払を登録', sample: !old, body: `<div class="py-form">${old?.exported ? `<p class="check-ng small">⚠ 支払 ${esc(old.no)} は全銀データ作成済みです（${esc(old.exported.slice(0, 16))}）。銀行へ送信済みなら振込の組戻しが必要です。修正すると元の支払を取り消して登録し直します。</p>` : old ? `<p class="small muted">修正すると支払 ${esc(old.no)} を取り消し（逆仕訳）、新しい支払No で登録し直します。</p>` : ''}<div class="form-grid">${field('業者', `<select name="vendor">${old ? options(masters.vendors.filter(x => x.code === old.vendor), old.vendor) : options(active('vendors'), '', { blank: '選択してください' })}</select>`, { req: 1 }).replace('class="field', 'class="field py-w2')}
+  const pyForm = (old, vendor0 = '') => { const key = uuid(); let sum = null, open = []; const H = {}; modal({ title: old ? `支払の詳細（${old.no}）` : '支払の登録', wide: true, submit: old ? '更新' : '支払を登録', sample: !old, body: `<div class="py-form">${old?.exported ? `<p class="check-ng small">⚠ 支払 ${esc(old.no)} は全銀データ作成済みです（${esc(old.exported.slice(0, 16))}）。銀行へ送信済みなら振込の組戻しが必要です。修正すると元の支払を取り消して登録し直します。</p>` : old ? `<p class="small muted">修正すると支払 ${esc(old.no)} を取り消し（逆仕訳）、新しい支払No で登録し直します。</p>` : ''}<div class="form-grid">${field('業者', `<select name="vendor">${old ? options(masters.vendors.filter(x => x.code === old.vendor), old.vendor) : options(active('vendors'), vendor0, { blank: '選択してください' })}</select>`, { req: 1 }).replace('class="field', 'class="field py-w2')}
       ${field('支払日', `<input type="date" name="date" value="${esc(old ? String(old.date).slice(0, 10) : today())}">`, { req: 1 })}</div>
       ${/* 現行 HJW200 支払内訳入力の並び（2026-11-08）：支払内訳 → 支払合計 → 振込銀行 → 振込方法・手数料 → 支払銀行 → 前々々月〜前月の繰越。
            現金・小切手・手形は 10/19 打合せ「振込のみ」で置かない。立替金（相殺）は定時請求データ入力の明細（科目 1431、マイナス）で入力する（10/28 回答②）ので支払の画面では入力しない。
@@ -1982,7 +1982,7 @@ VIEWS.payments = async q => {
       sum = f.vendor.value && f.date.value ? await api('/api/payments/summary?' + qs({ vendor: f.vendor.value, date: f.date.value, payment: old?.id || '' })).catch(() => null) : null;
       open = f.vendor.value ? await api('/api/expenses?' + qs({ kind: 'PAYABLE', vendor: f.vendor.value, open: 1, payment: old?.id })) : [];
       drawCarry(); };
-      drawCarry(); if (old) f.vendor.onchange(); },
+      drawCarry(); if (old || f.vendor.value) f.vendor.onchange(); },
     onSubmit: async v => {
       if (!sum) throw Error('業者・支払日を選択してください');
       const now = H.nowVals(), allocations = [];
@@ -2001,6 +2001,7 @@ VIEWS.payments = async q => {
       if (old) { const r = await post('/api/payments/update', { ...v, id: old.id, force: !!old.exported, allocations, idempotencyKey: key }); toast(`支払 ${old.no} を取り消し、${r.no} で登録し直しました（仕訳 F01）`); return render(); }
       const r = await post('/api/payments', { ...v, allocations, idempotencyKey: key }); toast(`支払 ${r.no} を登録しました（仕訳 F01）`); render(); } }); };
   A.new = () => pyForm(null);
+  A.newFor = d => pyForm(null, d.vendor);   // 未払の行をクリック → その業者で新規の支払登録（2026-11-19 ユーザー指示）
   A.edit = d => { const p = list.find(r => String(r.id) === String(d.id)); if (p) { pyForm(p); footFirst(`<button type="button" class="danger" data-act="rev" data-id="${p.id}" data-no="${esc(p.no)}" data-exported="${esc(p.exported || '')}">取消</button>`); } };
   A.rev = d => confirmBox('支払の取消', d.exported ? `⚠ 支払 ${d.no} は全銀データ作成済みです（${d.exported.slice(0, 16)}）。銀行へ送信済みなら振込の組戻しが必要です。それでも取消し、逆仕訳を計上しますか？` : `支払 ${d.no} を取消し、逆仕訳を計上します。`, () => post('/api/payments/reverse', { id: Number(d.id), force: !!d.exported }).then(() => { toast('取消しました'); render(); }), '取消する');
   A.prep = d => paymentReport(d.kind).catch(e => toast(e.message, true)); A.zengin = () => zenginDialog().catch(e => toast(e.message, true));
@@ -2010,7 +2011,7 @@ VIEWS.payments = async q => {
   return page('支払', '定時請求（買掛金）に対する振込支払を登録します（payment / payment_allocation）。', `${monthInput('month', month)}<select name="status" data-filter>${options(PY_ST, q.status || '', { blank: 'すべての状態', label: r => r.name })}</select>${csvLink('payments', { month })}${canWrite() ? '<button class="primary" data-act="new">＋ 支払登録</button>' : ''}`,
     `<section class="card glass" data-sub="list">${table([{ label: '支払No', value: r => r.no }, { label: '支払日', value: r => r.date }, { label: '業者', value: r => [r.vendor, r.vendorName].filter(Boolean).join(' ') }, { label: '支払額', num: 1, value: r => yen(r.amount) }, { label: '支払元', value: r => (r.unpaid ? '' : nameOf('banks', r.fromBank)) }, { label: '振込方法', value: r => (r.unpaid ? '' : r.transferMethod === '1' ? '1 文書' : '0 電信') },
       { label: '振込先', value: r => (r.unpaid ? '' : r.payee ? `${r.payee.bank}-${r.payee.branch} ${r.payee.account}` : '未登録') }, { label: '対象伝票', value: r => (r.unpaid ? r.docNo : r.allocations.map(a => a.no).join(', ')) }, { label: '状態', html: r => (r.unpaid ? badge('未払', 'amber') : status(r.status)) },
-      { label: '', html: r => canWrite() && !r.unpaid && r.status === 'POSTED' ? `<button class="mini" data-act="edit" data-id="${r.id}">詳細</button>` : '' }], shown, { rowClass: r => r.status === 'REVERSED' ? 'reversed' : '' })}</section><div data-sub="reports">${paymentReportsCard()}</div><div data-sub="bank">${miscCard('銀行別随時支払一覧表', '支払日→支払元口座（銀行）別に、業者・振込先銀行・支店を一覧', rangeInputs('bp', '支払日'),
+      { label: '', html: r => canWrite() && !r.unpaid && r.status === 'POSTED' ? `<button class="mini" data-act="edit" data-id="${r.id}">詳細</button>` : '' }], shown, { rowClass: r => r.status === 'REVERSED' ? 'reversed' : r.unpaid && canWrite() ? 'row-link' : '', rowAttr: r => r.unpaid && canWrite() ? `data-act="newFor" data-vendor="${esc(r.vendor)}" title="クリックでこの業者の支払を登録"` : '' })}</section><div data-sub="reports">${paymentReportsCard()}</div><div data-sub="bank">${miscCard('銀行別随時支払一覧表', '支払日→支払元口座（銀行）別に、業者・振込先銀行・支店を一覧', rangeInputs('bp', '支払日'),
       '<button data-act="bankList">表示・Excel</button>', '「仕訳・会計連携 › 自動仕訳リスト」の「銀行別随時支払一覧表」と同じ帳票です。')}</div><div data-sub="transfer">${miscCard('振込先一覧', '業者マスタの振込サイクル（15日／月末）・振込元口座・振込先口座（10/19 打合せ）', `<label class="field">支払予定日（まで）<input type="date" id="tl-to" value="${today()}"></label>`, '<button data-act="misc" data-kind="transfer-list" data-src="tl">表示・Excel</button>')}</div>`);
 };
 
