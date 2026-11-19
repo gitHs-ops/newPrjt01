@@ -269,7 +269,7 @@ const SUBMENUS = {
   cash: [{ k: 'list', l: '小口現金出納登録' }, { k: 'book', l: '出納簿・定額資金・現金補充' }],
   // 要件定義の業務順（2026-11-19 ユーザー指示）：振込先一覧（支払予定・口座の確認）→ 支払データ作成（全銀：未払から自動作成 → 全銀、機能一覧 14-1）→ 支払一覧・支払内訳入力（修正、14-7）→ 支払帳票（14-2〜14-5）→ 銀行別随時支払一覧表（14-6）。
   // 一覧の絞り込み（月・状態・CSV）は支払内訳入力の小メニューに出す（tools）
-  payments: [{ k: 'transfer', l: '振込先一覧', tools: false }, { k: 'zengin', l: '支払データ作成（全銀）' }, { k: 'list', l: '支払一覧・支払内訳入力', tools: true }, { k: 'reports', l: '支払帳票' }, { k: 'bank', l: '銀行別随時支払一覧表', href: '#journals/lists?list=BANK' }],   // 銀行別随時支払一覧表は自動仕訳リスト（帳票）の画面へ（2026-11-19 ユーザー指示）,
+  payments: [{ k: 'transfer', l: '振込先一覧', tools: false }, { k: 'zengin', l: '支払データ作成（全銀）' }, { k: 'list', l: '支払一覧・支払内訳入力', tools: true }, { k: 'reports', l: '支払帳票' }, { k: 'bank', l: '銀行別随時支払一覧表', q: { list: 'BANK' } }],   // 銀行別随時支払一覧表は自動仕訳リスト（帳票）の画面を支払メニューのまま表示（2026-11-19 ユーザー指示：メニューは移らない）,
   journals: [{ k: 'list', l: '仕訳一覧' }, { k: 'tb', l: '月次残高試算', q: { tab: 'tb' } }, { k: 'lists', l: '自動仕訳リスト（帳票）', q: { tab: 'lists' } }, { k: 'export', l: '会計連携データ' }],
   external: [{ k: 'gslink', l: 'gsLink' }], // 2026-11-05 ユーザー指示
   reports: [{ k: 'csv', l: 'CSV出力', tools: true }, { k: 'ar', l: '売掛金残高一覧' }, { k: 'ap', l: '未払残高一覧' }, { k: 'jv', l: '出資金（JV）帳票' }, { k: 'jvalloc', l: '入金分配端数調整登録' }], // 入金分配端数調整登録は 2026-11-03 に小メニューへ
@@ -318,7 +318,7 @@ function navSubs() {
   const subs = subsOf(route.name), link = $(`.nav-link[data-nav="${route.name}"]`);
   if (!subs || !link) return;
   link.classList.add('open');
-  link.insertAdjacentHTML('afterend', `<div class="nav-subs">${subs.filter(s => !s.hidden && !(s.noUser01 && isUser01())).map(s => (s.disabled ? `<span class="nav-sub disabled" aria-disabled="true" title="現在は使用できません">${esc(s.l)}</span>` : `<a class="nav-sub ${s.k === route.sub ? 'active' : ''}" href="${s.href || `#${route.name}/${s.to || s.k}`}">${esc(s.l)}</a>`)).join('')}</div>`);
+  link.insertAdjacentHTML('afterend', `<div class="nav-subs">${subs.filter(s => !s.hidden && !(s.noUser01 && isUser01())).map(s => (s.disabled ? `<span class="nav-sub disabled" aria-disabled="true" title="現在は使用できません">${esc(s.l)}</span>` : `<a class="nav-sub ${s.k === route.sub ? 'active' : ''}" href="#${route.name}/${s.to || s.k}">${esc(s.l)}</a>`)).join('')}</div>`);
 }
 function parseHash() {
   const [path, q] = location.hash.slice(1).split('?'), [name, sub] = (path || '').split('/');
@@ -1932,7 +1932,7 @@ VIEWS.cash = expenseView('PETTY_CASH');
 // ----- 支払 -----
 VIEWS.payments = async q => {
   const A = actions;
-  A.bankList = () => { location.hash = '#journals/lists?' + qs({ tab: 'lists', list: 'BANK', from: $('#bp-from').value, to: $('#bp-to').value }); };
+  if (q.list === 'BANK') return journalListsView(q, true);   // 小メニュー「銀行別随時支払一覧表」
   A.misc = d => miscReport(d.kind, d.src).catch(e => toast(e.message, true));
   const month = q.month || thisMonth(), [list, open] = await Promise.all([api('/api/payments?' + qs({ month })), api('/api/expenses?' + qs({ kind: 'PAYABLE', open: 1 }))]);
   // 未払の定時請求も一覧に出す（2026-11-19 ユーザー指示）：計上日がこの月までで未払残高のある伝票。支払No は空、支払日の欄は支払予定日、支払額は未払残高
@@ -2014,8 +2014,7 @@ VIEWS.payments = async q => {
   return page('支払', '定時請求（買掛金）の支払の一覧です。支払はメニュー「支払データ作成（全銀）」で支払日・振込元口座の未払から自動作成し、立替金・手数料・安全協力費は［詳細］の支払内訳入力（修正）で直します（現行 HJW200）。未払の行の［支払］で業者ごとに登録することもできます。', `${monthInput('month', month)}<select name="status" data-filter>${options(PY_ST, q.status || '', { blank: 'すべての状態', label: r => r.name })}</select>${csvLink('payments', { month })}`,
     `<section class="card glass" data-sub="list">${table([{ label: '支払No', value: r => r.no }, { label: '支払日', value: r => r.date }, { label: '業者', value: r => [r.vendor, r.vendorName].filter(Boolean).join(' ') }, { label: '支払額', num: 1, value: r => yen(r.amount) }, { label: '支払元', value: r => (r.unpaid ? '' : nameOf('banks', r.fromBank)) }, { label: '振込方法', value: r => (r.unpaid ? '' : r.transferMethod === '1' ? '1 文書' : '0 電信') },
       { label: '振込先', value: r => (r.unpaid ? '' : r.payee ? `${r.payee.bank}-${r.payee.branch} ${r.payee.account}` : '未登録') }, { label: '対象伝票', value: r => (r.unpaid ? r.docNo : r.allocations.map(a => a.no).join(', ')) }, { label: '状態', html: r => (r.unpaid ? badge('未払', 'amber') : status(r.status)) },
-      { label: '', html: r => !canWrite() ? '' : r.unpaid ? `<button class="mini primary" data-act="newFor" data-vendor="${esc(r.vendor)}">支払</button>` : r.status === 'POSTED' ? `<button class="mini" data-act="edit" data-id="${r.id}">詳細</button>` : '' }], shown, { rowClass: r => r.status === 'REVERSED' ? 'reversed' : r.unpaid && canWrite() ? 'row-link' : '', rowAttr: r => r.unpaid && canWrite() ? `data-act="newFor" data-vendor="${esc(r.vendor)}" title="クリックでこの業者の支払を登録"` : '' })}</section><div data-sub="zengin">${paymentZenginCard()}</div><div data-sub="reports">${paymentReportsCard()}</div><div data-sub="bank">${miscCard('銀行別随時支払一覧表', '支払日→支払元口座（銀行）別に、業者・振込先銀行・支店を一覧', rangeInputs('bp', '支払日'),
-      '<button data-act="bankList">表示・Excel</button>', '「仕訳・会計連携 › 自動仕訳リスト」の「銀行別随時支払一覧表」と同じ帳票です。')}</div><div data-sub="transfer">${miscCard('振込先一覧', '業者マスタの振込サイクル（15日／月末）・振込元口座・振込先口座（10/19 打合せ）', `<label class="field">支払予定日（まで）<input type="date" id="tl-to" value="${today()}"></label>`, '<button class="primary" data-act="tlSearch">検索</button><button data-act="misc" data-kind="transfer-list" data-src="tl">Excel</button>')}<div id="tl-result"></div></div>`);
+      { label: '', html: r => !canWrite() ? '' : r.unpaid ? `<button class="mini primary" data-act="newFor" data-vendor="${esc(r.vendor)}">支払</button>` : r.status === 'POSTED' ? `<button class="mini" data-act="edit" data-id="${r.id}">詳細</button>` : '' }], shown, { rowClass: r => r.status === 'REVERSED' ? 'reversed' : r.unpaid && canWrite() ? 'row-link' : '', rowAttr: r => r.unpaid && canWrite() ? `data-act="newFor" data-vendor="${esc(r.vendor)}" title="クリックでこの業者の支払を登録"` : '' })}</section><div data-sub="zengin">${paymentZenginCard()}</div><div data-sub="reports">${paymentReportsCard()}</div><div data-sub="transfer">${miscCard('振込先一覧', '業者マスタの振込サイクル（15日／月末）・振込元口座・振込先口座（10/19 打合せ）', `<label class="field">支払予定日（まで）<input type="date" id="tl-to" value="${today()}"></label>`, '<button class="primary" data-act="tlSearch">検索</button><button data-act="misc" data-kind="transfer-list" data-src="tl">Excel</button>')}<div id="tl-result"></div></div>`);
 };
 
 // ③ 支払帳票（NO37 全銀データ・NO45〜48）
@@ -2327,7 +2326,8 @@ VIEWS.journals = async q => {
 const monthStart = () => thisMonth() + '-01';
 // 売掛金計上自動仕訳リスト（A01）は 売掛金計上 の画面と同じく 締日・対象期間（前月21日〜当月20日）で出す（2026-11-17 ユーザー指示）。　画面の「対象期間」欄は表示しない（2026-11-17 ユーザー指示）
 // 締日は毎月20日（選んだ日の月の20日にそろえる）、初めは 売掛金計上 の次の締日。対象期間（前月21日〜当月20日）の A01 をすべて出す（20日締め以外の請求も含む。2026-11-17 ユーザー指示）
-async function journalListsView(q) {
+// bankOnly：支払メニューの「銀行別随時支払一覧表」から（帳票の選択は銀行別随時支払一覧表だけ。メニューは支払のまま）
+async function journalListsView(q, bankOnly = false) {
   const A = actions, kind = meta.journalLists[q.list] ? q.list : 'A01';
   const closing = kind !== 'A01' ? '' : /^\d{4}-\d{2}/.test(q.closing || '') ? q.closing.slice(0, 7) + '-20' : (await api('/api/ar-post')).next.to;
   const pFrom = closing ? addMonths(closing.slice(0, 7), -1) + '-21' : '', from = pFrom || q.from || monthStart(), to = closing || q.to || today();
@@ -2361,10 +2361,10 @@ async function journalListsView(q) {
     if (last) html += total('日付合計', d.dates.find(x => x.date === last).total);
     body = d.slips.length ? `<div class="table-wrap"><table class="jl"><thead>${head}</thead><tbody>${html}</tbody></table></div>` : '<div class="empty">対象期間の仕訳はありません</div>';
   }
-  const kinds = Object.entries(meta.journalLists).map(([code, v]) => ({ code, name: v.title }));
+  const kinds = Object.entries(meta.journalLists).filter(([code]) => !bankOnly || code === 'BANK').map(([code, v]) => ({ code, name: v.title }));
   return page('仕訳・会計連携', '自動仕訳リストは現行帳票（⑥⑦⑨・資料ア〜エ）と同じ項目・2段の並びで表示・Excel出力します（削減案5：同一フォーマット）。',
     `<select name="list" data-filter>${options(kinds, kind, { label: r => r.name })}</select>${closing ? `<label class="field">締日<span style="display:flex;align-items:center;gap:4px"><input type="month" name="closing" value="${closing.slice(0, 7)}" data-filter style="width:140px">20日</span></label>`
-       : `<input type="date" name="from" value="${from}" data-filter><input type="date" name="to" value="${to}" data-filter>`}<input type="hidden" name="tab" value="lists" data-filter>
+       : `<input type="date" name="from" value="${from}" data-filter><input type="date" name="to" value="${to}" data-filter>`}${bankOnly ? '' : '<input type="hidden" name="tab" value="lists" data-filter>'}
      <a class="button" href="${url}&format=xlsx" download>⇩ Excel</a>`,
     `<section class="card glass"><div class="card-head"><h2>${esc(d.title)}</h2><span class="muted small">${closing ? `締日 ${closing}（${pFrom} 〜 ${to}）` : `${from} 〜 ${to}`}</span></div><div id="jl-body">${body}</div></section>`);
 }
