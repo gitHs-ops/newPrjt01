@@ -59,11 +59,13 @@ export async function transferList(c, q) {
   const open = (await listExpenses(c, { kind: 'PAYABLE', open: true })).filter(e => (e.due || e.date) <= to);
   const vs = await rows(c, `SELECT v.vendor_code, v.vendor_name, b.bank_code, b.branch_code, b.account_type_code, b.account_number, b.holder_name, vp.category1 m, vp.category2 d, vp.category3 cycle, vp.code_dtl_abr from_bank
     FROM vendor v LEFT JOIN bank_account b ON b.bank_account_id=v.bank_account_id LEFT JOIN code_m vp ON vp.code_key='VPAY' AND vp.code_dtl=v.vendor_code ORDER BY v.vendor_code`);
+  // 支払繰延は「翌月 15 日払」の形（定時請求データ入力明細表 HAR136 と同じ。2026-11-19 ユーザー指示で「1か月後 15日」から統一）。未設定は翌月末＝翌月 31 日払
+  const payTerm = (m, d) => { const mm = m !== null && m !== undefined && m !== '' ? Number(m) : 1; return `${({ 0: '当月', 1: '翌月', 2: '翌々月' })[mm] ?? `${mm}か月後`} ${Number(d) || 31} 日払`; };
   const TYPE = { 1: '普通', 2: '当座', 4: '貯蓄' }, groups = [];
   for (const cycle of ['15', '31', '']) {
     const list = vs.filter(v => (v.cycle || '') === cycle).map(v => {
       const mine = open.filter(e => e.vendor === v.vendor_code); if (!mine.length) return null;
-      return { code: v.vendor_code, name: v.vendor_name, terms: v.m !== null && v.m !== undefined && (v.m !== '' || v.d !== '') ? `${v.m || 1}か月後 ${v.d === '31' || !v.d ? '月末' : v.d + '日'}` : '翌月末（未設定）',
+      return { code: v.vendor_code, name: v.vendor_name, terms: payTerm(v.m, v.d),
         from: v.from_bank || '（未設定）', payee: v.bank_code ? `${v.bank_code}-${v.branch_code} ${TYPE[v.account_type_code] || ''} ${v.account_number}` : '振込先未登録', holder: v.holder_name || '',
         due: mine.map(e => e.due).sort()[0] || '', docs: mine.length, balance: mine.reduce((n, e) => n + e.balance, 0) };
     }).filter(Boolean);
