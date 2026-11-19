@@ -267,7 +267,7 @@ const SUBMENUS = {
   purchases: [{ k: 'list', l: '商品仕入一覧・登録' }, { k: 'reports', l: '商品仕入登録リスト' }], // 2026-10-29 帳票を小メニューに分けた
   payables: [{ k: 'list', l: '定時請求一覧・入力' }, { k: 'reports', l: '定時請求入力明細表' }],
   cash: [{ k: 'list', l: '小口現金出納登録' }, { k: 'book', l: '出納簿・定額資金・現金補充' }],
-  payments: [{ k: 'list', l: '支払一覧・登録' }, { k: 'reports', l: '支払帳票・全銀データ' }, { k: 'transfer', l: '振込先一覧' }, { k: 'bank', l: '銀行別随時支払一覧表' }],
+  payments: [{ k: 'list', l: '支払一覧・登録' }, { k: 'zengin', l: '支払データ作成（全銀）' }, { k: 'reports', l: '支払帳票' }, { k: 'transfer', l: '振込先一覧' }, { k: 'bank', l: '銀行別随時支払一覧表' }],
   journals: [{ k: 'list', l: '仕訳一覧' }, { k: 'tb', l: '月次残高試算', q: { tab: 'tb' } }, { k: 'lists', l: '自動仕訳リスト（帳票）', q: { tab: 'lists' } }, { k: 'export', l: '会計連携データ' }],
   external: [{ k: 'gslink', l: 'gsLink' }], // 2026-11-05 ユーザー指示
   reports: [{ k: 'csv', l: 'CSV出力', tools: true }, { k: 'ar', l: '売掛金残高一覧' }, { k: 'ap', l: '未払残高一覧' }, { k: 'jv', l: '出資金（JV）帳票' }, { k: 'jvalloc', l: '入金分配端数調整登録' }], // 入金分配端数調整登録は 2026-11-03 に小メニューへ
@@ -2008,10 +2008,10 @@ VIEWS.payments = async q => {
   // 状態で絞り込み（2026-11-19 ユーザー指示）：未払（定時請求）・計上済・取消済
   const PY_ST = [{ code: 'unpaid', name: '未払' }, { code: 'POSTED', name: '計上済' }, { code: 'REVERSED', name: '取消済' }];
   const shown = [...unpaid, ...list].filter(r => !q.status || (q.status === 'unpaid' ? r.unpaid : !r.unpaid && r.status === q.status));
-  return page('支払', '定時請求（買掛金）の支払の一覧です。支払は下の［支払データ作成（全銀）］で支払日・振込元口座の未払から自動作成し、立替金・手数料・安全協力費は［詳細］の支払内訳入力（修正）で直します（現行 HJW200）。未払の行の［支払］で業者ごとに登録することもできます。', `${monthInput('month', month)}<select name="status" data-filter>${options(PY_ST, q.status || '', { blank: 'すべての状態', label: r => r.name })}</select>${csvLink('payments', { month })}`,
+  return page('支払', '定時請求（買掛金）の支払の一覧です。支払はメニュー「支払データ作成（全銀）」で支払日・振込元口座の未払から自動作成し、立替金・手数料・安全協力費は［詳細］の支払内訳入力（修正）で直します（現行 HJW200）。未払の行の［支払］で業者ごとに登録することもできます。', `${monthInput('month', month)}<select name="status" data-filter>${options(PY_ST, q.status || '', { blank: 'すべての状態', label: r => r.name })}</select>${csvLink('payments', { month })}`,
     `<section class="card glass" data-sub="list">${table([{ label: '支払No', value: r => r.no }, { label: '支払日', value: r => r.date }, { label: '業者', value: r => [r.vendor, r.vendorName].filter(Boolean).join(' ') }, { label: '支払額', num: 1, value: r => yen(r.amount) }, { label: '支払元', value: r => (r.unpaid ? '' : nameOf('banks', r.fromBank)) }, { label: '振込方法', value: r => (r.unpaid ? '' : r.transferMethod === '1' ? '1 文書' : '0 電信') },
       { label: '振込先', value: r => (r.unpaid ? '' : r.payee ? `${r.payee.bank}-${r.payee.branch} ${r.payee.account}` : '未登録') }, { label: '対象伝票', value: r => (r.unpaid ? r.docNo : r.allocations.map(a => a.no).join(', ')) }, { label: '状態', html: r => (r.unpaid ? badge('未払', 'amber') : status(r.status)) },
-      { label: '', html: r => !canWrite() ? '' : r.unpaid ? `<button class="mini primary" data-act="newFor" data-vendor="${esc(r.vendor)}">支払</button>` : r.status === 'POSTED' ? `<button class="mini" data-act="edit" data-id="${r.id}">詳細</button>` : '' }], shown, { rowClass: r => r.status === 'REVERSED' ? 'reversed' : r.unpaid && canWrite() ? 'row-link' : '', rowAttr: r => r.unpaid && canWrite() ? `data-act="newFor" data-vendor="${esc(r.vendor)}" title="クリックでこの業者の支払を登録"` : '' })}</section><div data-sub="reports">${paymentReportsCard()}</div><div data-sub="bank">${miscCard('銀行別随時支払一覧表', '支払日→支払元口座（銀行）別に、業者・振込先銀行・支店を一覧', rangeInputs('bp', '支払日'),
+      { label: '', html: r => !canWrite() ? '' : r.unpaid ? `<button class="mini primary" data-act="newFor" data-vendor="${esc(r.vendor)}">支払</button>` : r.status === 'POSTED' ? `<button class="mini" data-act="edit" data-id="${r.id}">詳細</button>` : '' }], shown, { rowClass: r => r.status === 'REVERSED' ? 'reversed' : r.unpaid && canWrite() ? 'row-link' : '', rowAttr: r => r.unpaid && canWrite() ? `data-act="newFor" data-vendor="${esc(r.vendor)}" title="クリックでこの業者の支払を登録"` : '' })}</section><div data-sub="zengin">${paymentZenginCard()}</div><div data-sub="reports">${paymentReportsCard()}</div><div data-sub="bank">${miscCard('銀行別随時支払一覧表', '支払日→支払元口座（銀行）別に、業者・振込先銀行・支店を一覧', rangeInputs('bp', '支払日'),
       '<button data-act="bankList">表示・Excel</button>', '「仕訳・会計連携 › 自動仕訳リスト」の「銀行別随時支払一覧表」と同じ帳票です。')}</div><div data-sub="transfer">${miscCard('振込先一覧', '業者マスタの振込サイクル（15日／月末）・振込元口座・振込先口座（10/19 打合せ）', `<label class="field">支払予定日（まで）<input type="date" id="tl-to" value="${today()}"></label>`, '<button data-act="misc" data-kind="transfer-list" data-src="tl">表示・Excel</button>')}</div>`);
 };
 
@@ -2033,12 +2033,19 @@ function reportConfirm(body, id, sub, buttons) {
   if (!n) { const e = t.querySelector('.empty'); return `<p><b>データがありません。</b>${sub ? `（${esc(sub)}）` : ''}</p>${e ? `<p class="muted small">${esc(e.textContent)}</p>` : ''}`; }
   return `<p>対象 <b>${n}</b> ${docs ? '件' : '行'}${sub ? `　<span class="muted small">${esc(sub)}</span>` : ''}</p><div class="filters" style="margin-top:10px">${buttons}</div><div id="${id}" hidden>${body}</div>`;
 }
+// 支払データ作成（全銀）と支払帳票は小メニューを分ける（2026-11-19 ユーザー指示：振込元口座は全銀データだけに使う）
+function paymentZenginCard() {
+  return `<section class="card glass"><div class="card-head"><h2>支払データ作成（全銀）</h2></div>
+    <div class="filters"><label class="field">支払日<input type="date" id="zg-date" value="${today()}"></label>
+      <label class="field">振込元口座<select id="pr-bank">${options(active('banks'), active('banks')[0]?.code)}</select></label>
+      <button data-act="zengin">支払データ作成（全銀）</button></div>
+    </section>`;
+}
 function paymentReportsCard() {
   const lastDay = new Date(Date.UTC(+thisMonth().slice(0, 4), +thisMonth().slice(5, 7), 0)).toISOString().slice(0, 10);
-  return `<section class="card glass"><div class="card-head"><h2>支払帳票・支払データ</h2></div>
-    <div class="filters"><label class="field">支払日／基準日<input type="date" id="pr-date" value="${today()}"></label><label class="field">期間（開始）<input type="date" id="pr-from" value="${thisMonth()}-01"></label><label class="field">期間（終了）<input type="date" id="pr-to" value="${lastDay}"></label>
-      <label class="field">振込元口座<select id="pr-bank">${options(active('banks'), active('banks')[0]?.code)}</select></label></div>
-    <div class="filters" style="margin-top:8px"><button data-act="zengin">支払データ作成（全銀）</button><button data-act="prep" data-kind="vendor-payments">業者別支払内訳表</button>
+  return `<section class="card glass"><div class="card-head"><h2>支払帳票</h2></div>
+    <div class="filters"><label class="field">支払日／基準日<input type="date" id="pr-date" value="${today()}"></label><label class="field">期間（開始）<input type="date" id="pr-from" value="${thisMonth()}-01"></label><label class="field">期間（終了）<input type="date" id="pr-to" value="${lastDay}"></label></div>
+    <div class="filters" style="margin-top:8px"><button data-act="prep" data-kind="vendor-payments">業者別支払内訳表</button>
       <button data-act="prep" data-kind="transfer-request">振込依頼書</button><button data-act="prep" data-kind="carryover">支払繰越一覧表</button><button data-act="prep" data-kind="notices">支払案内書</button></div>
     </section>`;
 }
@@ -2065,7 +2072,7 @@ async function paymentReport(kind) {
   if (reportCount(body)) { await saveXlsx(url + '&format=xlsx'); return toast(`${d.title} を Excel で出力しました`); } // 選択のポップアップは出さない（2026-10-27）
   modal({ title: `${d.title}`, body: reportConfirm(body, 'pr-body', d.sub || (d.from ? `${d.from} 〜 ${d.to}` : d.date || ''), '') });
 }
-async function zenginDialog(date = $('#pr-date').value, bank = $('#pr-bank').value) {
+async function zenginDialog(date = $('#zg-date').value, bank = $('#pr-bank').value) {
   const url = '/api/reports/zengin?' + qs({ date, bank });
   const [d, au] = await Promise.all([api(url), api('/api/payments/auto?' + qs({ date, bank }))]);
   // ① 未作成の支払（支払予定日がこの支払日以前の未払・振込元がこの口座の業者）→［支払を自動作成］ ② 作成済みの支払で全銀データ（2026-11-19 ユーザー指示：現行 HJW200 の流れ）
