@@ -267,7 +267,7 @@ const SUBMENUS = {
   purchases: [{ k: 'list', l: '商品仕入一覧・登録' }, { k: 'reports', l: '商品仕入登録リスト' }], // 2026-10-29 帳票を小メニューに分けた
   payables: [{ k: 'list', l: '定時請求一覧・入力' }, { k: 'reports', l: '定時請求入力明細表' }],
   cash: [{ k: 'list', l: '小口現金出納登録' }, { k: 'book', l: '出納簿・定額資金・現金補充' }],
-  payments: [{ k: 'list', l: '支払一覧・登録' }, { k: 'zengin', l: '支払データ作成（全銀）' }, { k: 'reports', l: '支払帳票' }, { k: 'transfer', l: '振込先一覧' }, { k: 'bank', l: '銀行別随時支払一覧表' }],
+  payments: [{ k: 'list', l: '支払一覧・登録' }, { k: 'zengin', l: '支払データ作成（全銀）' }, { k: 'reports', l: '支払帳票' }, { k: 'transfer', l: '振込先一覧' }, { k: 'bank', l: '銀行別随時支払一覧表', href: '#journals/lists?list=BANK' }],   // 銀行別随時支払一覧表は自動仕訳リスト（帳票）の画面へ（2026-11-19 ユーザー指示）,
   journals: [{ k: 'list', l: '仕訳一覧' }, { k: 'tb', l: '月次残高試算', q: { tab: 'tb' } }, { k: 'lists', l: '自動仕訳リスト（帳票）', q: { tab: 'lists' } }, { k: 'export', l: '会計連携データ' }],
   external: [{ k: 'gslink', l: 'gsLink' }], // 2026-11-05 ユーザー指示
   reports: [{ k: 'csv', l: 'CSV出力', tools: true }, { k: 'ar', l: '売掛金残高一覧' }, { k: 'ap', l: '未払残高一覧' }, { k: 'jv', l: '出資金（JV）帳票' }, { k: 'jvalloc', l: '入金分配端数調整登録' }], // 入金分配端数調整登録は 2026-11-03 に小メニューへ
@@ -316,7 +316,7 @@ function navSubs() {
   const subs = subsOf(route.name), link = $(`.nav-link[data-nav="${route.name}"]`);
   if (!subs || !link) return;
   link.classList.add('open');
-  link.insertAdjacentHTML('afterend', `<div class="nav-subs">${subs.filter(s => !s.hidden && !(s.noUser01 && isUser01())).map(s => (s.disabled ? `<span class="nav-sub disabled" aria-disabled="true" title="現在は使用できません">${esc(s.l)}</span>` : `<a class="nav-sub ${s.k === route.sub ? 'active' : ''}" href="#${route.name}/${s.to || s.k}">${esc(s.l)}</a>`)).join('')}</div>`);
+  link.insertAdjacentHTML('afterend', `<div class="nav-subs">${subs.filter(s => !s.hidden && !(s.noUser01 && isUser01())).map(s => (s.disabled ? `<span class="nav-sub disabled" aria-disabled="true" title="現在は使用できません">${esc(s.l)}</span>` : `<a class="nav-sub ${s.k === route.sub ? 'active' : ''}" href="${s.href || `#${route.name}/${s.to || s.k}`}">${esc(s.l)}</a>`)).join('')}</div>`);
 }
 function parseHash() {
   const [path, q] = location.hash.slice(1).split('?'), [name, sub] = (path || '').split('/');
