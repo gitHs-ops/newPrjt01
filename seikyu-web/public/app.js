@@ -2408,10 +2408,15 @@ const ONE_TO_MANY = {
   prices2: { label: '得意先別単価2', after: 'prices', parent: 'items', child: 'prices', ref: 'item', pLabel: '商品', cLabel: '得意先別単価',
     cols: [['得意先', r => `${r.customer} ${nameOf('customers', r.customer)}`], ['現場', priceSite], ['単価', r => yen(r.price), 1], ['運賃', r => yen(r.freight), 1],
       ['適用単価', r => r.applyPrice ? yen(r.applyPrice) : '', 1], ['適用運賃', r => r.applyFreight ? yen(r.applyFreight) : '', 1], ['適用期間', r => r.start ? `${r.start}〜${r.end}` : '']] },
+  // 金融機関2 = 銀行 → 支店（2026-11-19 ユーザー指示）。金融機関マスタは銀行と支店が同じマスタ（支店番号が空欄＝銀行）なので split で親子に分ける
+  bankdir2: { label: '金融機関（銀行・支店）2', after: 'bankdir', parent: 'bankdir', child: 'bankdir', ref: 'bank', pLabel: '銀行', cLabel: '支店', split: true,
+    cols: [['支店番号', r => r.branch], ['支店名', r => r.name], ['カナ（全銀用）', r => r.kana || '']] },
 };
 async function oneToManyView(q) {
-  const A = actions, kind = q.kind, d = ONE_TO_MANY[kind], [parents, children] = await Promise.all([api('/api/masters/' + d.parent), api('/api/masters/' + d.child)]);
-  masters[d.parent] = parents; masters[d.child] = children;
+  const A = actions, kind = q.kind, d = ONE_TO_MANY[kind];
+  let parents, children;
+  if (d.split) { const all = masters[d.child] = await api('/api/masters/' + d.child); parents = all.filter(r => !r.branch).map(r => ({ ...r, code: r[d.ref] })); children = all.filter(r => r.branch); }
+  else { [parents, children] = await Promise.all([api('/api/masters/' + d.parent), api('/api/masters/' + d.child)]); masters[d.parent] = parents; masters[d.child] = children; }
   A.mpage = x => go('masters', { ...q, page: x.page });
   const desc = `${d.pLabel}ごとの${d.cLabel}数を一覧し、${d.pLabel}を選ぶとその${d.pLabel}の${d.cLabel}を一覧・編集・新規登録します（${d.cLabel}マスタと同じデータ）。`;
   const state = r => r.active ? badge('有効', 'green') : badge('無効', 'gray');
