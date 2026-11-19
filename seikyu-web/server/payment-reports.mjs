@@ -195,7 +195,7 @@ export async function paymentBook(c, kind, q) {
       out.push(['', ...ms].map(H), ['繰越額', ...n.before], ['今回支払', ...n.paidBy], [], []);
     }
     if (!d.notices.length) out.push(['この支払日の支払はありません']);
-    return { name: `支払案内書_${d.date}.xlsx`, body: xlsx([{ name: '支払案内書', rows: out, widths: [14, 14, 22, 30, 34], portrait: true }]) };
+    return { name: `支払案内書_${d.date}.xlsx`, body: xlsx([{ name: '支払案内書', rows: out, widths: [14, 22, 22, 22, 34], portrait: true }]) };   // 3 か月（B〜D）は同じ幅（2026-11-19 ユーザー指示「8월 9월 10월 가로 폭」。全体の幅は変えない）
   }
   check(false, '帳票の種類が不正です');
 }
