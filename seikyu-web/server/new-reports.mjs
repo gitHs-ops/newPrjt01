@@ -72,8 +72,9 @@ export async function transferList(c, q) {
     }).filter(Boolean);
     if (list.length) groups.push({ title: cycle === '15' ? '振込サイクル：15日' : cycle === '31' ? '振込サイクル：月末' : '振込サイクル：未設定', rows: list, totals: { balance: sum(list, 'balance') } });
   }
+  // 業者コードの見出しは「業者」、列幅は狭く（2026-11-19 ユーザー指示）
   return { title: '振込先一覧', ref: '10/19 打合せ（支払処理）', to, sub: `支払予定日 ${to} まで`,
-    columns: [{ key: 'code', label: '業者CD' }, { key: 'name', label: '業者名' }, { key: 'terms', label: '支払繰延' }, { key: 'from', label: '振込元口座' }, { key: 'payee', label: '振込先（銀行-支店 種別 口座）' }, { key: 'holder', label: '受取人' },
+    columns: [{ key: 'code', label: '業者', w: 9 }, { key: 'name', label: '業者名' }, { key: 'terms', label: '支払繰延' }, { key: 'from', label: '振込元口座' }, { key: 'payee', label: '振込先（銀行-支店 種別 口座）' }, { key: 'holder', label: '受取人' },
       { key: 'due', label: '最早支払予定日' }, { key: 'docs', label: '伝票数', num: 1 }, { key: 'balance', label: '未払残高', num: 1 }],
     groups, totals: { balance: groups.reduce((n, g) => n + g.totals.balance, 0) } };
 }
