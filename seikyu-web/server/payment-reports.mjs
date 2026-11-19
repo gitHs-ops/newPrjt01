@@ -183,7 +183,7 @@ export async function paymentBook(c, kind, q) {
   if (kind === 'notices') {
     // 現行 支払案内書の並び（2026-11-04）：宛先（〒・住所・業者名 御中・（業者コード））と発行元（〒・住所・会社名・共同企業体・TEL・FAX・登録番号）、
     // 締切日・必着日の案内、支払合計／手形／振込／振込手数料（内消費税）と支払日・振込銀行・口座、繰越額・今回支払（3 か月）。業者の住所は業者マスタに無いため空欄
-    // 業者ごとに別の様式にして縦に並べる（2026-11-19 ユーザー指示：2 社目から案内書が前の表の中に入っていた）
+    // 業者ごとに別のシート（業者に個別に送る案内書。請求書の 1 請求書＝1 シートと同じ。2026-11-19 ユーザー指示）。シート名は「業者コード_業者名」
     const d = await paymentNotices(c, q), m = d.months, p = d.profile, ms = [mon(m.m3 + '-'), mon(m.m2), mon(m.m1)], parts = [];
     const zip = z => (z ? `〒 ${String(z).replace(/^(\d{3})-?(\d{4})$/, '$1-$2')}` : ''), jd = x => `${x.slice(2, 4)} 年 ${Number(x.slice(5, 7))} 月 ${Number(x.slice(8, 10))} 日`;
     for (const n of d.notices) {
@@ -195,10 +195,10 @@ export async function paymentBook(c, kind, q) {
       const feeTax = Math.floor(n.fee * 10 / 110);
       out.push([H('支払合計'), n.total, '', `${jd(d.date)}支払`], ['', '', '', `振込銀行 : ${n.payee?.bankName || '未登録'}　${n.payee?.branchName || ''}`], ['手　形', 0, '', n.payee ? `${(n.payee.typeName || '').slice(0, 1)} ${n.payee.account}` : ''], ['振　込', n.bank], ['振込手数料', n.fee, `（ 内消費税　${feeTax}　税率 10% ）`], []);
       out.push(['', ...ms].map(H), ['繰越額', ...n.before], ['今回支払', ...n.paidBy]);
-      parts.push({ name: '支払案内書', rows: out, widths: [14, 22, 22, 22, 34], portrait: true, noGrand: true });
+      parts.push({ name: `${n.vendor}_${n.name}`.replace(/[\\/?*:[\]]/g, '').slice(0, 31), rows: out, widths: [14, 22, 22, 22, 34], portrait: true, noGrand: true });
     }
     if (!parts.length) parts.push({ name: '支払案内書', rows: [['', '', T('支　払　案　内　書')], [], ['この支払日の支払はありません']], widths: [14, 22, 22, 22, 34], portrait: true });
-    return { name: `支払案内書_${d.date}.xlsx`, body: xlsx([{ name: '支払案内書', stack: parts, keepTitles: true }]) };   // 3 か月（B〜D）は同じ幅（2026-11-19 ユーザー指示「8월 9월 10월 가로 폭」。全体の幅は変えない）
+    return { name: `支払案内書_${d.date}.xlsx`, body: xlsx(parts) };   // 3 か月（B〜D）は同じ幅（2026-11-19 ユーザー指示「8월 9월 10월 가로 폭」。全体の幅は変えない）
   }
   check(false, '帳票の種類が不正です');
 }
