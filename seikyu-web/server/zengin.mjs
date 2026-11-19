@@ -59,5 +59,11 @@ export function zenginFile({ date, payer, transfers }) {
   recs.push('8' + digits(transfers.length, 6) + digits(total, 12) + blank(101));
   recs.push('9' + blank(119));
   for (const r of recs) check(r.length === 120, '全銀レコード長エラー（内部）');
-  return { records: recs, count: transfers.length, total, errors, body: sjis(recs.join('')) };   // 改行なしで 120 バイトずつ連続（現行 SOFRIFP.DAT・名古屋銀行の全銀協規定形式。差異 No.1）
+  // 全銀協形式 CSV（銀行連携ファイル_サンプル_20261119「今回の対象は CSV」）：固定長の各項目をカンマで区切る。S-JIS・CRLF。
+  //   コード・番号は前ゼロを残し、金額・件数は前ゼロを除く。文字項目の後ろの空白とダミーは除く（手形交換所番号・顧客コード 2・識別表示も空）
+  const txt = (v, len) => toZenginKana(v).slice(0, len).trimEnd().replaceAll(',', ' ');
+  const csv = [['1', '21', '0', digits(payer.requesterCode, 10), txt(payer.requesterName, 40), date.slice(5, 7) + date.slice(8, 10), digits(payer.bank, 4), txt(payer.bankName, 15), digits(payer.branch, 3), txt(payer.branchName, 15), String(payer.type || '1').slice(0, 1), digits(payer.account, 7), ''],
+    ...transfers.map(t => ['2', digits(t.bank, 4), txt(t.bankName, 15), digits(t.branch, 3), txt(t.branchName, 15), '', String(t.type || '1').slice(0, 1), digits(t.account, 7), txt(t.holder, 30), String(t.amount), '0', '0'.repeat(10), '', '7', '', '']),
+    ['8', String(transfers.length), String(total), ''], ['9', '']].map(r => r.join(',') + '\r\n').join('');
+  return { records: recs, count: transfers.length, total, errors, body: sjis(recs.join('')), csvBody: sjis(csv) };   // 改行なしで 120 バイトずつ連続（現行 SOFRIFP.DAT・名古屋銀行の全銀協規定形式。差異 No.1）
 }

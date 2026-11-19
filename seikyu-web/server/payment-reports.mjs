@@ -47,10 +47,11 @@ export async function zenginData(c, q, ctx) {
   // 振込指定日が休日（土日・カレンダーマスタ）なら作成しない（2026-10-31。テキストエディタで日付を直さなくて済むように）
   const hs = await holidaySet(c);
   if (isHoliday(date, hs)) f.errors.push(`振込指定日 ${date} は休日です（翌営業日は ${nextBusinessDay(date, hs)}）`);
-  if (q.format === 'file') {
+  if (q.format === 'file' || q.format === 'csv') {   // csv＝全銀協形式 CSV（今回の対象、2026-11-19）、file＝全銀協規定形式（120 バイト固定長）
     check(!f.errors.length, '全銀データを作成できません: ' + f.errors.join(' / '));
     await audit(c, ctx, 'payment', date, 'zengin.export', { bank: bankCode, count: f.count, total: f.total, payments: transfers.flatMap(t => t.nos) });
-    return { file: { name: `ZENGIN_${date.replaceAll('-', '')}_${bankCode}.txt`, body: f.body, type: 'application/octet-stream' } };
+    const csv = q.format === 'csv';
+    return { file: { name: `ZENGIN_${date.replaceAll('-', '')}_${bankCode}.${csv ? 'csv' : 'txt'}`, body: csv ? f.csvBody : f.body, type: csv ? 'text/csv; charset=Shift_JIS' : 'application/octet-stream' } };
   }
   return { date, bank: bankCode, bankName: z.code_dtl_nam, payerReady: !!z.zg_bank, count: f.count, total: f.total, errors: f.errors, records: f.records, transfers: transfers.map(t => ({ ...t, typeName: TYPES[t.type] || '' })) };
 }

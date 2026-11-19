@@ -61,7 +61,7 @@ export async function createApp({ pool, publicDir, secureCookies = process.env.N
   route('GET', '/api/ar-post', 'read', x => db(c => J.arPostStatus(c, x.q.month))); // 売掛金計上：実行済みの印（2026-11-17）
   route('GET', '/api/reports/journal-list', 'read', x => x.q.format === 'xlsx' ? db(c => J.journalListBook(c, x.q)).then(b => ({ file: b })) : db(c => J.journalList(c, x.q)));
   route('GET', '/api/reports/bank-payments', 'read', x => x.q.format === 'xlsx' ? db(c => J.bankPaymentBook(c, x.q)).then(b => ({ file: b })) : db(c => J.bankPaymentList(c, x.q)));
-  route('GET', '/api/reports/zengin', 'read', x => { if (x.q.format === 'file' && !U.WRITE_ROLES.includes(x.user.role)) throw new Forbidden('参照者は支払データを作成できません'); return db(c => PR.zenginData(c, x.q, x)); });
+  route('GET', '/api/reports/zengin', 'read', x => { if (['file', 'csv'].includes(x.q.format) && !U.WRITE_ROLES.includes(x.user.role)) throw new Forbidden('参照者は支払データを作成できません'); return db(c => PR.zenginData(c, x.q, x)); });
   route('GET', '/api/reports/payments/:kind', 'read', x => {
     const fn = { 'vendor-payments': PR.vendorPayments, 'transfer-request': PR.transferRequest, carryover: PR.payableCarryover, notices: PR.paymentNotices }[x.params.kind];
     if (!fn) throw new DomainError('帳票の種類が不正です');

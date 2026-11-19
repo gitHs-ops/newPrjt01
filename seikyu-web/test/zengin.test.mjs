@@ -24,6 +24,8 @@ test('総合振込 file: 120-byte records, totals and validation', () => {
   assert.equal(f.records[2].slice(43, 50), '0000001');
   assert.equal(f.records[3], '8' + '000002' + '000000251000' + ' '.repeat(101));
   assert.equal(f.records[4], '9' + ' '.repeat(119));
+  const csv = Buffer.from(f.csvBody).toString('latin1').split('\r\n');   // 全銀協形式 CSV（2026-11-19）
+  assert.equal(csv.length, 6); assert.equal(csv[0].split(',').length, 13); assert.equal(csv[1].split(',').length, 16); assert.equal(csv[3], '8,2,251000,'); assert.equal(csv[4], '9,'); assert.equal(csv[5], '');
   const bad = zenginFile({ date: '2026-10-31', payer: { ...payer, requesterCode: '' }, transfers: [{ label: 'X', bank: '1', branch: '1', account: '12345678', holder: '山田', amount: 0 }] });
   assert.equal(bad.errors.length, 4);
 });
