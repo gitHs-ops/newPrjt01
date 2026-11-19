@@ -85,6 +85,7 @@ export async function createApp({ pool, publicDir, secureCookies = process.env.N
   route('GET', '/api/expenses', 'read', x => db(c => P.listExpenses(c, { ...x.q, open: x.q.open === '1' })));
   route('GET', '/api/payments', 'read', x => db(c => P.listPayments(c, x.q)));
   route('GET', '/api/payments/summary', 'read', x => db(c => P.paymentSummary(c, x.q)));
+  route('GET', '/api/payments/auto', 'read', x => db(c => P.autoPayments(c, x, { ...x.q, commit: false })));   // 支払の自動作成の対象（2026-11-19）
   route('GET', '/api/journals', 'read', x => db(c => L.listJournals(c, x.q)));
   route('GET', '/api/trial-balance', 'read', x => db(c => L.trialBalance(c, x.q.month)));
   route('GET', '/api/periods', 'read', () => db(c => L.periods(c)));
@@ -138,6 +139,7 @@ export async function createApp({ pool, publicDir, secureCookies = process.env.N
   w('/api/payments', (c, x, b) => P.createPayment(c, x, b));
   w('/api/payments/reverse', (c, x, b) => P.reversePayment(c, x, b));
   w('/api/payments/update', (c, x, b) => P.updatePayment(c, x, b));
+  w('/api/payments/auto', (c, x, b) => P.autoPayments(c, x, { ...b, commit: true }));   // 支払データ作成のときに未払から支払を自動作成（2026-11-19）
   w('/api/periods/close', (c, x, b) => L.closeMonth(c, x, b), 'admin');
   w('/api/periods/reopen', (c, x, b) => L.reopenMonth(c, x, b), 'admin');
   // ----- 財務会計（勘定奉行相当） -----

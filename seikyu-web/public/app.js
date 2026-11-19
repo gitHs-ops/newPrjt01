@@ -2000,18 +2000,17 @@ VIEWS.payments = async q => {
       if (allocations.reduce((n, a) => n + a.amount, 0) <= 0) throw Error('今回支の合計が0以下です（価格調整のマイナスは、同じ業者のプラスの請求と一緒に支払ってください）');
       if (old) { const r = await post('/api/payments/update', { ...v, id: old.id, force: !!old.exported, allocations, idempotencyKey: key }); toast(`支払 ${old.no} を取り消し、${r.no} で登録し直しました（仕訳 F01）`); return render(); }
       const r = await post('/api/payments', { ...v, allocations, idempotencyKey: key }); toast(`支払 ${r.no} を登録しました（仕訳 F01）`); render(); } }); };
-  A.new = () => pyForm(null);
-  A.newFor = d => pyForm(null, d.vendor);   // 未払の行をクリック → その業者で新規の支払登録（2026-11-19 ユーザー指示）
+  // 支払は［＋ 支払登録］で手入力せず、支払データ作成（全銀）のときに未払から自動作成する（2026-11-19 ユーザー指示：現行 HJW200 の流れ）。画面では［詳細］で修正だけ
   A.edit = d => { const p = list.find(r => String(r.id) === String(d.id)); if (p) { pyForm(p); footFirst(`<button type="button" class="danger" data-act="rev" data-id="${p.id}" data-no="${esc(p.no)}" data-exported="${esc(p.exported || '')}">取消</button>`); } };
   A.rev = d => confirmBox('支払の取消', d.exported ? `⚠ 支払 ${d.no} は全銀データ作成済みです（${d.exported.slice(0, 16)}）。銀行へ送信済みなら振込の組戻しが必要です。それでも取消し、逆仕訳を計上しますか？` : `支払 ${d.no} を取消し、逆仕訳を計上します。`, () => post('/api/payments/reverse', { id: Number(d.id), force: !!d.exported }).then(() => { toast('取消しました'); render(); }), '取消する');
   A.prep = d => paymentReport(d.kind).catch(e => toast(e.message, true)); A.zengin = () => zenginDialog().catch(e => toast(e.message, true));
   // 状態で絞り込み（2026-11-19 ユーザー指示）：未払（定時請求）・計上済・取消済
   const PY_ST = [{ code: 'unpaid', name: '未払' }, { code: 'POSTED', name: '計上済' }, { code: 'REVERSED', name: '取消済' }];
   const shown = [...unpaid, ...list].filter(r => !q.status || (q.status === 'unpaid' ? r.unpaid : !r.unpaid && r.status === q.status));
-  return page('支払', '定時請求（買掛金）に対する振込支払を登録します（payment / payment_allocation）。', `${monthInput('month', month)}<select name="status" data-filter>${options(PY_ST, q.status || '', { blank: 'すべての状態', label: r => r.name })}</select>${csvLink('payments', { month })}${canWrite() ? '<button class="primary" data-act="new">＋ 支払登録</button>' : ''}`,
+  return page('支払', '定時請求（買掛金）の支払の一覧です。支払は下の［支払データ作成（全銀）］で支払日・振込元口座の未払から自動作成し、立替金・手数料などは［詳細］で修正します（payment / payment_allocation）。', `${monthInput('month', month)}<select name="status" data-filter>${options(PY_ST, q.status || '', { blank: 'すべての状態', label: r => r.name })}</select>${csvLink('payments', { month })}`,
     `<section class="card glass" data-sub="list">${table([{ label: '支払No', value: r => r.no }, { label: '支払日', value: r => r.date }, { label: '業者', value: r => [r.vendor, r.vendorName].filter(Boolean).join(' ') }, { label: '支払額', num: 1, value: r => yen(r.amount) }, { label: '支払元', value: r => (r.unpaid ? '' : nameOf('banks', r.fromBank)) }, { label: '振込方法', value: r => (r.unpaid ? '' : r.transferMethod === '1' ? '1 文書' : '0 電信') },
       { label: '振込先', value: r => (r.unpaid ? '' : r.payee ? `${r.payee.bank}-${r.payee.branch} ${r.payee.account}` : '未登録') }, { label: '対象伝票', value: r => (r.unpaid ? r.docNo : r.allocations.map(a => a.no).join(', ')) }, { label: '状態', html: r => (r.unpaid ? badge('未払', 'amber') : status(r.status)) },
-      { label: '', html: r => !canWrite() ? '' : r.unpaid ? `<button class="mini primary" data-act="newFor" data-vendor="${esc(r.vendor)}">支払</button>` : r.status === 'POSTED' ? `<button class="mini" data-act="edit" data-id="${r.id}">詳細</button>` : '' }], shown, { rowClass: r => r.status === 'REVERSED' ? 'reversed' : r.unpaid && canWrite() ? 'row-link' : '', rowAttr: r => r.unpaid && canWrite() ? `data-act="newFor" data-vendor="${esc(r.vendor)}" title="クリックでこの業者の支払を登録"` : '' })}</section><div data-sub="reports">${paymentReportsCard()}</div><div data-sub="bank">${miscCard('銀行別随時支払一覧表', '支払日→支払元口座（銀行）別に、業者・振込先銀行・支店を一覧', rangeInputs('bp', '支払日'),
+      { label: '', html: r => canWrite() && !r.unpaid && r.status === 'POSTED' ? `<button class="mini" data-act="edit" data-id="${r.id}">詳細</button>` : '' }], shown, { rowClass: r => r.status === 'REVERSED' ? 'reversed' : '' })}</section><div data-sub="reports">${paymentReportsCard()}</div><div data-sub="bank">${miscCard('銀行別随時支払一覧表', '支払日→支払元口座（銀行）別に、業者・振込先銀行・支店を一覧', rangeInputs('bp', '支払日'),
       '<button data-act="bankList">表示・Excel</button>', '「仕訳・会計連携 › 自動仕訳リスト」の「銀行別随時支払一覧表」と同じ帳票です。')}</div><div data-sub="transfer">${miscCard('振込先一覧', '業者マスタの振込サイクル（15日／月末）・振込元口座・振込先口座（10/19 打合せ）', `<label class="field">支払予定日（まで）<input type="date" id="tl-to" value="${today()}"></label>`, '<button data-act="misc" data-kind="transfer-list" data-src="tl">表示・Excel</button>')}</div>`);
 };
 
@@ -2065,9 +2064,20 @@ async function paymentReport(kind) {
   if (reportCount(body)) { await saveXlsx(url + '&format=xlsx'); return toast(`${d.title} を Excel で出力しました`); } // 選択のポップアップは出さない（2026-10-27）
   modal({ title: `${d.title}`, body: reportConfirm(body, 'pr-body', d.sub || (d.from ? `${d.from} 〜 ${d.to}` : d.date || ''), '') });
 }
-async function zenginDialog() {
-  const date = $('#pr-date').value, bank = $('#pr-bank').value, url = '/api/reports/zengin?' + qs({ date, bank }), d = await api(url);
-  modal({ title: `支払データ作成（全銀・総合振込）${date}`, wide: true, body: `
+async function zenginDialog(date = $('#pr-date').value, bank = $('#pr-bank').value) {
+  const url = '/api/reports/zengin?' + qs({ date, bank });
+  const [d, au] = await Promise.all([api(url), api('/api/payments/auto?' + qs({ date, bank }))]);
+  // ① 未作成の支払（支払予定日がこの支払日以前の未払・振込元がこの口座の業者）→［支払を自動作成］ ② 作成済みの支払で全銀データ（2026-11-19 ユーザー指示：現行 HJW200 の流れ）
+  actions.autoPay = async (_, btn) => { if (btn) btn.disabled = true;
+    try { const r = await post('/api/payments/auto', { date, bank }); toast(`${r.created.length}業者の支払を作成しました（${r.created.map(x => x.no).join(' ')}、合計 ${yen(r.total)} 円）。立替金・手数料は支払の［詳細］で修正できます`); $("#dialog").close(); await render(); await zenginDialog(date, bank); }
+    catch (e) { toast(e.message, true); if (btn) btn.disabled = false; } };
+  const autoHtml = `<h3>① 支払の自動作成（未払 → 支払）</h3>${au.holiday ? `<p class="check-ng small">支払日 ${esc(date)} は休日です（翌営業日は ${esc(au.holiday)}）</p>` : ''}
+    ${au.targets.length ? table([{ label: '業者', value: r => `${r.vendor} ${r.name}` }, { label: '対象伝票', value: r => r.docs.join(', ') }, { label: '今回支（未払残高）', num: 1, value: r => yen(r.total) }], au.targets, { foot: ['合計 ' + au.targets.length + '業者', '', yen(au.total)] })
+      + (canWrite() && !au.holiday ? '<div class="filters" style="margin-top:6px"><button class="primary" data-act="autoPay">支払を自動作成</button><span class="muted small">振込＝未払残高の全額で作成します。立替金・手数料・安全協力費は作成後に支払の［詳細］で修正</span></div>' : '')
+      : '<p class="muted small">自動作成する未払はありません（支払予定日がこの支払日以前・振込元がこの口座の業者）</p>'}
+    ${au.skipped.length ? `<p class="small" style="margin-top:6px">作成しない業者：${au.skipped.map(x => `${esc(x.vendor)} ${esc(x.name)}（${esc(x.reason)}）`).join('、')}</p>` : ''}
+    <h3 style="margin-top:14px">② 全銀データ（作成済みの支払）</h3>`;
+  modal({ title: `支払データ作成（全銀・総合振込）${date}`, wide: true, body: `${autoHtml}
     <div class="grid3"><div class="sum-line"><span>振込元口座</span><b>${esc(d.bank)} ${esc(d.bankName)}</b></div><div class="sum-line"><span>件数</span><b>${d.count}</b></div><div class="sum-line"><span>合計金額</span><b>${yen(d.total)}</b></div></div>
     ${d.errors.length ? `<div class="note warn" style="margin:10px 0"><b>作成できません</b><ul class="list">${d.errors.map(e => `<li>${esc(e)}</li>`).join('')}</ul></div>` : ''}
     ${table([{ label: '業者', value: r => r.label }, { label: '振込先', value: r => `${r.bank || '-'}-${r.branch || '-'} ${r.typeName} ${r.account || ''}` }, { label: '受取人名', value: r => r.holder }, { label: '金額', num: 1, value: r => yen(r.amount) }, { label: '支払No', value: r => r.nos.join(' ') }], d.transfers, { empty: '対象の支払がありません' })}

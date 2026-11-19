@@ -1,4 +1,5 @@
-import { check, Conflict, yen, qty, lineAmount, isoDate, isoMonth, text, dueDate, nextBusinessDay, addMonths } from './domain.mjs';
+import { randomUUID } from 'crypto';
+import { check, Conflict, yen, qty, lineAmount, isoDate, isoMonth, text, dueDate, nextBusinessDay, addMonths, isHoliday } from './domain.mjs';
 import { rows, one, nextSlipNoFy, docNo, DOC_SERIES, assertOpen, audit, postJournal, reverseJournal, line } from './db.mjs';
 import { mustDecode, taxOf, CATALOG, decode } from './taxcode.mjs';
 import { companyPeriod } from './period.mjs';
@@ -484,6 +485,38 @@ export async function updatePayment(c, ctx, p) {
   await reversePayment(c, ctx, { id: p.id, force: p.force });
   const res = await createPayment(c, ctx, p);
   return { ...res, replaced: Number(p.id) };
+}
+
+// 支払の自動作成（2026-11-19 ユーザー指示：現行 HJW200 のとおり、支払は手入力で新規登録せず、支払データ作成のときに未払から作る。直すのは［詳細］の修正）
+// 対象：振込元口座（業者マスタの支払条件 VPAY の振込元）がこの銀行の業者で、支払予定日（なければ計上日）が支払日以前の未払の定時請求。
+// 1 業者 1 支払。今回支＝未払残高の全額（価格調整のマイナスも含む）、振込＝今回支、手数料・安全協力費・立替金は 0（修正で入れる）。
+// その支払日に計上済みの支払がある業者は作らない（修正で直す）。commit なしは対象の一覧だけ返す（DB は変えない）
+export async function autoPayments(c, ctx, q = {}) {
+  const date = isoDate(q.date, '支払日'), bank = String(q.bank || '');
+  const b = await one(c, "SELECT code_dtl, code_dtl_nam, category1 FROM code_m WHERE code_key='BANK' AND code_dtl=?", [bank]); check(b && b.category1 !== '0', '振込元口座（銀行）を選択してください');
+  const hs = await holidaySet(c), holiday = isHoliday(date, hs);
+  const open = (await listExpenses(c, { kind: 'PAYABLE', open: true })).filter(e => e.vendor && String(e.due || e.date).slice(0, 10) <= date && String(e.date).slice(0, 10) <= date);
+  const vs = await rows(c, "SELECT v.vendor_code, v.vendor_name, v.active, v.bank_account_id, COALESCE(p.code_dtl_abr,'') from_bank FROM vendor v LEFT JOIN code_m p ON p.code_key='VPAY' AND p.code_dtl=v.vendor_code");
+  const done = new Set((await rows(c, "SELECT DISTINCT v.vendor_code FROM payment p JOIN vendor v ON v.vendor_id=p.vendor_id WHERE p.status='POSTED' AND p.paid_on=?", [date])).map(r => r.vendor_code));
+  const targets = [], skipped = [];
+  for (const v of vs) {
+    const docs = open.filter(e => e.vendor === v.vendor_code); if (!docs.length) continue;
+    const total = docs.reduce((n, e) => n + e.balance, 0), row = { vendor: v.vendor_code, name: v.vendor_name, docs: docs.map(e => e.no), total };
+    const why = v.from_bank !== bank ? (v.from_bank ? null : '振込元口座が未設定') : done.has(v.vendor_code) ? 'この支払日の支払が作成済み（［詳細］で修正）' : !v.active ? '業者が無効' : !v.bank_account_id ? '振込先口座が未登録' : total <= 0 ? '未払残高が 0 以下（価格調整のみ）' : '';
+    if (why === null) continue;   // 他の銀行から振り込む業者
+    (why ? skipped : targets).push(why ? { ...row, reason: why } : row);
+  }
+  const out = { date, bank, bankName: b.code_dtl_nam, holiday: holiday ? nextBusinessDay(date, hs) : '', targets, skipped, total: targets.reduce((n, t) => n + t.total, 0) };
+  if (!q.commit) return out;
+  check(!holiday, `支払日 ${date} は休日です（翌営業日は ${out.holiday}）`); check(targets.length, '自動作成する支払がありません');
+  const created = [];
+  for (const t of targets) {
+    const allocations = open.filter(e => e.vendor === t.vendor).sort((x, y) => x.id - y.id).map(e => ({ expenseId: e.id, amount: e.balance }));
+    const r = await createPayment(c, ctx, { idempotencyKey: `auto-${randomUUID()}`, date, vendor: t.vendor, bankCode: bank, fee: 0, offset: 0, safety: 0, transferMethod: '0', feeKbn: '0', allocations });
+    created.push({ ...t, no: r.no });
+  }
+  await audit(c, ctx, 'payment', date, 'payment.auto', { bank, count: created.length, total: out.total, payments: created.map(x => x.no) });
+  return { ...out, created };
 }
 
 // ---------- 小口現金の定額資金設定と現金補充（仕訳パターン G-03 相当：現金／当座預金） ----------
