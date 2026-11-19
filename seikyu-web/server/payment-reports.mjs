@@ -78,7 +78,7 @@ export async function transferRequest(c, q) {
     g.rows.push({ vendor: p.vendor_code, name: p.vendor_name, no: p.payment_no, payee: payee(p), amount: p.bank }); g.total += p.bank;
   }
   const co = await one(c, 'SELECT * FROM company_info_m ORDER BY company_info_id LIMIT 1');
-  return { title: '振込依頼書', ref: 'NO46 / 添付帳票㉓', date, company: [co?.company_name1, co?.company_name2].filter(Boolean).join(' '), groups, total: groups.reduce((n, g) => n + g.total, 0) };
+  return { title: '振込依頼書', ref: 'NO46 / 添付帳票㉓', date, company: [co?.company_name1, co?.company_name2].filter(Boolean), groups, total: groups.reduce((n, g) => n + g.total, 0) };
 }
 // ---------- NO47 支払繰越一覧表（基準日時点の未払残高を計上月で年齢区分） ----------
 async function carryRows(c, date, vendorCode) {
@@ -155,7 +155,9 @@ export async function paymentBook(c, kind, q) {
     // 現行 HJR220 の並び（2026-11-04）：支払元の「銀行　支店　御中」、振込指定日・依頼人。振込銀行名 支店名 種目 口座番号 受取人（上段カナ・下段名称） 金額 電信扱。支払元ごとに合計 件数・金額
     const d = await transferRequest(c, q), out = [[T(d.title)], [`出力日 ${today()}`], []];
     for (const g of d.groups) {
-      out.push([H(g.bankName || g.fromBankName), H(g.branchName), H('御中'), '', '', `振込指定日 : ${ymdJ(d.date)}`], ['', '', '', '', '', `依頼人 : ${d.company}`]);
+      // 振込指定日・依頼人は「受取人」の列から書く。依頼人は会社名 1・2 を 2 行に分ける（2026-11-19 ユーザー指示：依頼人が様式の右にはみ出す）
+      out.push([H(g.bankName || g.fromBankName), H(g.branchName), H('御中'), '', `振込指定日 : ${ymdJ(d.date)}`], ['', '', '', '', `依頼人 : ${d.company[0] || ''}`]);
+      if (d.company[1]) out.push(['', '', '', '', `　　　　 ${d.company[1]}`]);
       out.push(['振込銀行名', '支店名', '種目', '口座番号', '受　取　人', '金　額', ''].map(H));
       for (const r of g.rows) out.push(['', '', '', '', r.payee?.holder || '', '', ''], [r.payee?.bankName || '未登録', r.payee?.branchName || '', r.payee?.typeName || '', r.payee?.account || '', r.name, r.amount, '電信扱']);
       out.push(['', '', '', '', S(`合　　計　　${g.rows.length} 件`), S(g.total), ''], []);
