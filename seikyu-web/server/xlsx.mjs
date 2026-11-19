@@ -235,7 +235,8 @@ function listify(sh) {
 function stackSheets(sh) {
   const parts = sh.stack.map(listify), rows = [], heights = {}, merges = [];
   parts.forEach((p, n) => {
-    const cut = n ? p.rows.findIndex(r => (r || []).some(c => c?.s === 'tTitle')) + 1 : 0;
+    // keepTitles：様式ごとに表題を残す（支払案内書は業者ごとの案内書、2026-11-19）
+    const cut = n && !sh.keepTitles ? p.rows.findIndex(r => (r || []).some(c => c?.s === 'tTitle')) + 1 : 0;
     if (n) rows.push([], []);   // 様式の間は空 2 行
     const off = rows.length - cut;
     rows.push(...p.rows.slice(cut));
