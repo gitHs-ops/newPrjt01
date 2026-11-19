@@ -553,7 +553,7 @@ const REMOVE = {
     del: ['DELETE FROM item_m WHERE item_cd=?'] },
   prices: { refs: [], del: ['DELETE FROM uriage_tanka_m WHERE item_cd=? AND customers_cd=? AND field_cd=? AND field_suffix=?'] },
   banks: { refs: [['仕訳', "SELECT 1 x FROM journal_line WHERE account_code IN ('1112','1113') AND sub_code=? LIMIT 1"], ['財務会計の伝票', "SELECT 1 x FROM kb_line WHERE account_code IN ('1112','1113') AND sub_code=? LIMIT 1"],
-    ['業者の支払銀行', "SELECT 1 x FROM code_m WHERE code_key='VPAY' AND code_dtl_nam=? LIMIT 1"], ['請求書の振込先', "SELECT 1 x FROM code_m WHERE code_key='SET' AND code_dtl IN ('INVBANK','INVBANK2') AND code_dtl_abr=? LIMIT 1"]],
+    ['業者の振込元口座', "SELECT 1 x FROM code_m WHERE code_key='VPAY' AND code_dtl_abr=? LIMIT 1"], ['得意先の入金先口座', "SELECT 1 x FROM code_m WHERE code_key='CSITE' AND code_dtl_abr=? LIMIT 1"],   /* 2026-11-19：振込元口座は code_dtl_abr（code_dtl_nam を見ていたため使用中の銀行 F6WE3 を削除できた） */ ['請求書の振込先', "SELECT 1 x FROM code_m WHERE code_key='SET' AND code_dtl IN ('INVBANK','INVBANK2') AND code_dtl_abr=? LIMIT 1"]],
     del: ["DELETE FROM code_m WHERE code_key IN ('BANK','ZGN') AND code_dtl=?", "DELETE FROM account_subsubject WHERE account_code IN ('1112','1113') AND sub_code=?"] },
   vendors: { refs: [['商品仕入', `SELECT 1 x FROM purchase WHERE vendor_id=${VID} LIMIT 1`], ['定時請求・小口現金', `SELECT 1 x FROM expense_document WHERE vendor_id=${VID} LIMIT 1`], ['支払', `SELECT 1 x FROM payment WHERE vendor_id=${VID} LIMIT 1`],
     ['仕訳', `SELECT 1 x FROM journal_line WHERE vendor_id=${VID} LIMIT 1`], ['期首残高', `SELECT 1 x FROM opening_balance WHERE vendor_id=${VID} LIMIT 1`]],
