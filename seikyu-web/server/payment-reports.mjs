@@ -139,13 +139,15 @@ export async function paymentBook(c, kind, q) {
     // 立替金＝相殺額（安全協力費を含む）、振込＝振込額。前払金・現金・小切手・手形の支払は新システムに無いため 0
     const d = await vendorPayments(c, q), out = [[T(d.title), '', '', '', '', `${ymdJ(d.from)}${d.from === d.to ? '' : ' 〜 ' + ymdJ(d.to)}`], [`出力日 ${today()}`], []];
     // 見出し 2 段の空きセルは上下を結合（2026-11-19 ユーザー指示「헤더 빈칸 병합」）：業者コード・業者名・支払額・手数料・支払日
-    out.push(['業者コード', '業　者　名', '支払額', '前払金', '手数料', '現　金', '小切手', '支払日'].map(H), ['', '', '', '立替金', '', '振　込', '手　形', ''].map(H));
+    out.push(['業　者', '業　者　名', '支払額', '前払金', '手数料', '現　金', '小切手', '支払日'].map(H), ['', '', '', '立替金', '', '振　込', '手　形', ''].map(H));
     const merges = ['A4:A5', 'B4:B5', 'C4:C5', 'E4:E5', 'H4:H5'];
     const t = { paid: 0, adv: 0, offset: 0, fee: 0, bank: 0 };
-    for (const v of d.vendors) for (const r of v.rows) {
-      const off = r.offset + r.safety; out.push([v.vendor, v.name, r.paid, 0, '', 0, 0, ''], ['', '', '', off, r.fee, r.bank, 0, yy(r.date)]);
+    // 見出し「業者コード」→「業者」、業者ごとに下を実線（2026-11-19 ユーザー指示）
+    for (const v of d.vendors) v.rows.forEach((r, i) => {
+      const off = r.offset + r.safety, r2 = ['', '', '', off, r.fee, r.bank, 0, yy(r.date)];
+      out.push([v.vendor, v.name, r.paid, 0, '', 0, 0, ''], i === v.rows.length - 1 ? r2.map(x => ({ v: x, s: 'jEnd' })) : r2);
       t.paid += r.paid; t.offset += off; t.fee += r.fee; t.bank += r.bank;
-    }
+    });
     out.push(['', S('合　　計'), S(t.paid), S(0), '', S(0), S(0), ''], ['', '', '', S(t.offset), S(t.fee), S(t.bank), S(0), '']);
     return { name: `業者別支払内訳表_${d.from}_${d.to}.xlsx`, body: xlsx([{ name: '業者別支払内訳表', rows: out, widths: [11, 34, 13, 13, 10, 13, 11, 10], merges }]) };
   }
