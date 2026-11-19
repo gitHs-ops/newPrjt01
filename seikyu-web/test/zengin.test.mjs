@@ -18,9 +18,9 @@ test('総合振込 file: 120-byte records, totals and validation', () => {
     { label: 'V002', bank: '0009', branch: '456', type: '1', account: '1', holder: 'ｻﾝﾌﾟﾙ', amount: 1000 }] });
   assert.deepEqual(f.errors, []);
   assert.equal(f.records.length, 5); for (const r of f.records) assert.equal(r.length, 120);
-  assert.equal(f.body.length, 5 * 122);
+  assert.equal(f.body.length, 5 * 120);   // 改行なし（現行 SOFRIFP.DAT と同じ）
   assert.ok(f.records[0].startsWith('1210' + '1234567890')); assert.equal(f.records[0].slice(54, 58), '1031');
-  assert.equal(f.records[1].slice(0, 1), '2'); assert.equal(f.records[1].slice(43, 50), '7654321'); assert.equal(f.records[1].slice(80, 90), '0000250000');
+  assert.equal(f.records[1].slice(0, 1), '2');  assert.equal(f.records[1].slice(38, 42), "0000"); assert.equal(f.records[1].slice(91, 101), "0000000000"); assert.equal(f.records[1].slice(43, 50), '7654321'); assert.equal(f.records[1].slice(80, 90), '0000250000');
   assert.equal(f.records[2].slice(43, 50), '0000001');
   assert.equal(f.records[3], '8' + '000002' + '000000251000' + ' '.repeat(101));
   assert.equal(f.records[4], '9' + ' '.repeat(119));

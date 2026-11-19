@@ -52,11 +52,12 @@ export function zenginFile({ date, payer, transfers }) {
     req(holder.trim() && !zenginInvalid(holder).length, `${t.label}: 受取人名に全銀で使えない文字があります（${zenginInvalid(holder).join('') || '未入力'}）。半角カナで登録してください`);
     req(Number.isSafeInteger(t.amount) && t.amount > 0 && t.amount <= 9999999999, `${t.label}: 振込金額が範囲外です`);
     total += t.amount;
-    recs.push('2' + digits(t.bank, 4) + kana(t.bankName, 15) + digits(t.branch, 3) + kana(t.branchName, 15) + blank(4) + String(t.type || '1').slice(0, 1) + digits(t.account, 7)
-      + kana(t.holder, 30) + digits(t.amount, 10) + '0' + kana(t.customer1 || '', 10) + blank(10) + '7' + ' ' + blank(7));
+    // 手形交換所番号は 0000、顧客コード 1 は現行どおり 0000000000（数字項目のため業者コードは入れない）。全銀フォーマット_総合振込_20261119 の差異 No.6・7
+    recs.push('2' + digits(t.bank, 4) + kana(t.bankName, 15) + digits(t.branch, 3) + kana(t.branchName, 15) + '0000' + String(t.type || '1').slice(0, 1) + digits(t.account, 7)
+      + kana(t.holder, 30) + digits(t.amount, 10) + '0' + '0'.repeat(10) + blank(10) + '7' + ' ' + blank(7));
   }
   recs.push('8' + digits(transfers.length, 6) + digits(total, 12) + blank(101));
   recs.push('9' + blank(119));
   for (const r of recs) check(r.length === 120, '全銀レコード長エラー（内部）');
-  return { records: recs, count: transfers.length, total, errors, body: sjis(recs.join('\r\n') + '\r\n') };
+  return { records: recs, count: transfers.length, total, errors, body: sjis(recs.join('')) };   // 改行なしで 120 バイトずつ連続（現行 SOFRIFP.DAT・名古屋銀行の全銀協規定形式。差異 No.1）
 }

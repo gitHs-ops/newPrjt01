@@ -227,7 +227,7 @@ test('workflow against PostgreSQL business tables', { skip, timeout: 900000 }, a
       assert.ok(z.data.records.every(r => r.length === 120)); assert.ok(z.data.records[0].includes('ｻﾝﾌﾟﾙｹﾝｻﾞｲ'));
       const file = await fetch(base + '/api/reports/zengin?' + new URLSearchParams({ date: d, bank: 'B' + tag, format: 'file' }), { headers: { cookie: a.cookie } });
       const bytes = Buffer.from(await file.arrayBuffer());
-      if (wk) assert.equal(file.status, 400); else { assert.equal(file.status, 200); assert.equal(bytes.length, 4 * 122); assert.equal(bytes[0], 0x31); }
+      if (wk) assert.equal(file.status, 400); else { assert.equal(file.status, 200); assert.equal(bytes.length, 4 * 120); assert.equal(bytes[0], 0x31); }
       // カレンダーマスタに登録した休日も同じく作成しない
       if (!wk) {
         assert.equal((await a.call('/api/masters/holidays', { mode: 'create', record: { code: d, name: '試験休日', active: true } })).status, 200);
