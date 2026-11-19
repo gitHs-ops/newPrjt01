@@ -192,8 +192,8 @@ export async function paymentBook(c, kind, q) {
       const left = ['', '', '', `${n.name}　御中`, '', `（ ${n.vendor} ）`], right = [zip(p.postcode), [p.pref, p.addr1].filter(Boolean).join('') + (p.addr2 ? ' ' + p.addr2 : ''), p.name1, p.name2, `TEL : ${p.tel}`, p.fax ? `FAX : ${p.fax}` : '', p.invoiceNo ? `登録番号 ${p.invoiceNo}` : ''];
       for (let k = 0; k < Math.max(left.length, right.length); k++) out.push([left[k] || '', '', '', '', right[k] || '']);   // 御中は業者名と同じセル（業者名が切れないように）
       out.push([], ['毎月 20 日 ･･･ 締切日'], ['毎月 26 日 ･･･ 必着（ 26 日以降の請求については翌月へ繰越となります ）'], [], ['請求書には業者コードをお忘れなく'], []);
-      const feeTax = Math.floor(n.fee * 10 / 110);
-      out.push([H('支払合計'), n.total, '', `${jd(d.date)}支払`], ['', '', '', `振込銀行 : ${n.payee?.bankName || '未登録'}　${n.payee?.branchName || ''}`], ['手　形', 0, '', n.payee ? `${(n.payee.typeName || '').slice(0, 1)} ${n.payee.account}` : ''], ['振　込', n.bank], ['振込手数料', n.fee, `（ 内消費税　${feeTax}　税率 10% ）`], []);
+      const feeTax = Math.floor(n.fee * 10 / 110), Y = v => ({ v, s: 'plainNum' });   // 上の金額も 3 桁区切り（2026-11-19 ユーザー指示）
+      out.push([H('支払合計'), Y(n.total), '', `${jd(d.date)}支払`], ['', '', '', `振込銀行 : ${n.payee?.bankName || '未登録'}　${n.payee?.branchName || ''}`], ['手　形', Y(0), '', n.payee ? `${(n.payee.typeName || '').slice(0, 1)} ${n.payee.account}` : ''], ['振　込', Y(n.bank)], ['振込手数料', Y(n.fee), `（ 内消費税　${feeTax.toLocaleString('ja-JP')}　税率 10% ）`], []);
       out.push(['', ...ms].map(H), ['繰越額', ...n.before], ['今回支払', ...n.paidBy]);
       parts.push({ name: `${n.vendor}_${n.name}`.replace(/[\\/?*:[\]]/g, '').slice(0, 31), rows: out, widths: [14, 22, 22, 22, 34], portrait: true, noGrand: true });
     }

@@ -32,7 +32,7 @@ Object.assign(STYLE, { rHeadHi: 42, rBigHi: 43 });
 // v*：請求書（提案書様式）の文字の大きさを 帳票イメージ_20261108.xlsx の請求書に合わせたもの（2026-11-17 ユーザー指示）。
 // 本文 10pt・見出し 10pt 太字・会社名／御中／現場／請求額の見出し 11pt 太字・請求額 13pt 太字・得意先名 14pt 太字・表題 16pt 太字（中太枠）・共同企業体名 9pt。罫線は細線。納品書（plans.mjs）の i* は変えない
 Object.assign(STYLE, { vTitle: 78, vText: 79, vTextR: 80, vBold: 81, vCust: 82, vBoxHi: 83, vBoxH: 84, vBoxBig: 85, vBoxNum: 86, vHead: 87, vCellC: 88, vCell: 89, vNum: 90, vQty: 91, vFit9: 92, vFit: 93 });
-Object.assign(STYLE, { tTitle: 59, tCond: 60, tInfo: 61, tHead: 62, tText: 63, tCenter: 64, tRight: 65, tNum: 66, tQty: 67, tQty3: 68, tPrice1: 69, tBand: 70, tSumL: 71, tSumN: 72, tSumQ: 73, tGrandL: 74, tGrandN: 75, tGrandQ: 76, tPlain: 77, tHeadF: 94, tTextB: 95, tNumB: 96, tTextV: 97, tBoxL: 98, tBoxN: 99, tBoxQ3: 100, tSumBL: 98, tSumBN: 99, tSumBQ: 101, tGrandBL: 102, tGrandBN: 103, tGrandBQ: 104, tGrandBQ3: 105 });
+Object.assign(STYLE, { tTitle: 59, tCond: 60, tInfo: 61, tHead: 62, tText: 63, tCenter: 64, tRight: 65, tNum: 66, tQty: 67, tQty3: 68, tPrice1: 69, tBand: 70, tSumL: 71, tSumN: 72, tSumQ: 73, tGrandL: 74, tGrandN: 75, tGrandQ: 76, tPlain: 77, tHeadF: 94, tTextB: 95, tNumB: 96, tTextV: 97, tBoxL: 98, tBoxN: 99, tBoxQ3: 100, tSumBL: 98, tSumBN: 99, tSumBQ: 101, tGrandBL: 102, tGrandBN: 103, tGrandBQ: 104, tGrandBQ3: 105, tPlainN: 106 });
 Object.assign(STYLE, { iTitle: 44, iText: 45, iTextR: 46, iBold: 47, iCust: 48, iBoxHi: 49, iBoxH: 50, iBoxBig: 51, iBoxNum: 52, iHead: 53, iCellC: 54, iCell: 55, iNum: 56, iQty: 57, iTextFit: 58 });   // iTextFit：長い文字は縮小して枠に収める（共同企業体名）
 // 印刷は横1ページに収める（pageSetUpPr fitToPage が無いと fitToWidth が効かず、右の列が次のページに分かれる）
 // header：印刷時のページヘッダー（例 '&R&P 頁'）。printTitles：各ページに繰り返す見出し行（例 '4:5'。xlsx() で定義名にする）
@@ -206,7 +206,7 @@ function listify(sh) {
       if (r.span) Object.assign(row, { span: Math.max(r.span, Math.min(bandSpan[r.start] || 1, r.max || W - r.start)), start: r.start, max: r.max });
       heights[n] = k === 'head' ? 16 : 15;
       if (k === 'head' && (firstHead < 0 || lastHead === n - 1)) { if (firstHead < 0) firstHead = n; lastHead = n; }
-    } else row = r.map(c => (filled(c) ? { v: cellOf(c).v, s: i === condAt ? 'tCond' : 'tPlain' } : ''));
+    } else row = r.map(c => (filled(c) ? { v: cellOf(c).v, s: i === condAt ? 'tCond' : cellOf(c).s === 'plainNum' ? 'tPlainN' : 'tPlain' } : ''));
     out.push(row);
   });
   // 右上（最終列・右寄せ）：1 つ目は抽出条件の行、2 つ目以降は次の行（空いていなければ抽出条件の行にまとめる）
@@ -319,6 +319,8 @@ export function xlsx(sheets0) {
       [169, 16, 11, 12, 'right'], [0, 16, 12, 12, 'left'], [168, 16, 12, 12, 'right'], [169, 16, 12, 12, 'right'],
       // 105 総合計の数量（小数3桁。材料受払表。2026-11-18 帳票規約 8）
       [170, 16, 12, 12, 'right'],
+      // 106 表の外の金額（3 桁区切り・左寄せ。支払案内書の支払合計など。2026-11-19）
+      [168, 15, 0, 0, 'left'],
     ].map(([n, f, fill, b, h]) => `<xf numFmtId="${n}" fontId="${f}" fillId="${fill}" borderId="${b}" xfId="0" applyNumberFormat="1" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="${h}" vertical="center"/></xf>`).join('')}</cellXfs><cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>`],
   ];
   const st = files.find(f => f[0] === 'xl/styles.xml'); st[1] = underTwins(boxStyles(st[1])); const red = redTwins(st[1]); st[1] = red.xml;
