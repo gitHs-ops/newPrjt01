@@ -2070,7 +2070,7 @@ function paymentReportsCard() {
 const acctText = p => (p ? `${esc(p.bank)}-${esc(p.branch)} ${esc(p.typeName)} ${esc(p.account)}` : '<span class="check-ng">振込先未登録</span>');
 async function paymentReport(kind) {
   const date = $('#pr-date').value, from = $('#pr-from').value, to = $('#pr-to').value;
-  const params = kind === 'vendor-payments' ? { from, to } : { date };
+  const params = kind === 'vendor-payments' ? { from, to } : kind === 'carryover' ? { date, from, to } : { date };   // 繰越は期間も送る（照合シート、2026-11-20）
   const url = `/api/reports/payments/${kind}?${qs(params)}`, d = await api(url);
   let body = '';
   if (kind === 'vendor-payments') body = d.vendors.length ? d.vendors.map(v => `<h3 style="margin:10px 0 4px">${esc(v.vendor)} ${esc(v.name)}</h3>` + table([{ label: '支払日', value: r => r.date }, { label: '支払No', value: r => r.no }, { label: '支払方法', value: r => r.method },
