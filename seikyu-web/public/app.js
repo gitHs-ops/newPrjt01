@@ -2390,7 +2390,11 @@ VIEWS.journals = async q => {
   } else {
     // user01 は逆計上ができないため、取消された仕訳と逆仕訳は出さない（有効な仕訳だけ。2026-11-21 ユーザー指示）
     const list = (await api('/api/journals?' + qs({ month, pattern: q.pattern }))).filter(j => !isUser01() || (j.status !== 'REVERSED' && !j.reversalOf));
-    body = list.length ? list.map(j => `<div style="margin-bottom:12px" class="${j.status === 'REVERSED' || j.reversalOf ? 'muted' : ''}"><div class="filters small"><b>#${j.id}</b><span>${esc(j.date)}</span>${badge(j.pattern + ' ' + j.patternName)}${isUser01() ? '' /* user01 は「元伝票 billing_head:… 版…」を出さない（2026-11-21 ユーザー指示） */ : `<span class="muted">元伝票 ${esc(j.source)}:${esc(j.sourceId)} 版${j.revision}</span>`}${j.reversalOf ? badge('逆仕訳 ← #' + j.reversalOf, 'amber') : ''}${j.status === 'REVERSED' ? badge('取消済', 'gray') : ''}</div>
+    // 並べ替え：日付・業務（パターン）・科目（先頭行の科目）。同順位は元の並び（2026-11-21 ユーザー指示）
+    A.listSort = listSortAct;
+    const ord = new Map(list.map((j, i) => [j, i])), acc = j => j.lines?.[0]?.account || '';
+    const JN_SORT_FNS = { date: (a, b) => jaCmp(a.date, b.date) || ord.get(a) - ord.get(b), pattern: (a, b) => jaCmp(a.pattern, b.pattern) || ord.get(a) - ord.get(b), account: (a, b) => jaCmp(acc(a), acc(b)) || ord.get(a) - ord.get(b) };
+    body = list.length ? sortBarOf('jn', [['date', '日付'], ['pattern', '業務'], ['account', '科目']]) + sortedBy('jn', list, JN_SORT_FNS).map(j => `<div style="margin-bottom:12px" class="${j.status === 'REVERSED' || j.reversalOf ? 'muted' : ''}"><div class="filters small"><b>#${j.id}</b><span>${esc(j.date)}</span>${badge(j.pattern + ' ' + j.patternName)}${isUser01() ? '' /* user01 は「元伝票 billing_head:… 版…」を出さない（2026-11-21 ユーザー指示） */ : `<span class="muted">元伝票 ${esc(j.source)}:${esc(j.sourceId)} 版${j.revision}</span>`}${j.reversalOf ? badge('逆仕訳 ← #' + j.reversalOf, 'amber') : ''}${j.status === 'REVERSED' ? badge('取消済', 'gray') : ''}</div>
       ${table([{ label: '貸借', value: l => l.side === 'D' ? '借方' : '貸方' }, { label: '科目', value: l => `${l.account} ${l.accountName || ''}` }, { label: '内訳', value: l => l.sub ? `${l.sub} ${l.subName}` : '' }, { label: '部門', value: l => l.dept }, { label: '税区分', value: l => l.tax },
         { label: '取引先', value: l => l.partner }, { label: '借方金額', num: 1, value: l => l.side === 'D' ? yen(l.amount) : '' }, { label: '貸方金額', num: 1, value: l => l.side === 'C' ? yen(l.amount) : '' }], j.lines)}</div>`).join('') : '<div class="empty">仕訳がありません</div>';
   }
