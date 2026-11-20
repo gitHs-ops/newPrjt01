@@ -184,8 +184,8 @@ export async function extraBook(c, kind, q) {
       out.push(['業者', '業者名', '科目', '内訳', '科目名', '内訳名', '請求金額', '摘要', '処税率'].map(H), ['', '伝票No', '', '', '', '', '', '', ''].map(H));   // 発注残金額は現行に無いため削除（2026-11-20 ユーザー指示）
       for (const c of ['A', 'C', 'D', 'E', 'F', 'G', 'H', 'I']) merges.push(`${c}${r1}:${c}${r1 + 1}`);
       for (const v of dp.vendors) {
-        // 業者の行に住所（科目名の列から。住所1＋住所2 を続けて 1 セル）
-        out.push([v.vendor, v.name, '', '', v.address]);   // 住所は 住所1＋住所2 を続けて 1 セル（右の空きセルにはみ出して表示）
+        // 業者の行（業者マスタの内容：業者・業者名・住所1＋住所2）は表の幅いっぱいを 1 セルに結合（縦の罫線なし。2026-11-20 ユーザー指示）
+        out.push([`${v.vendor}　${v.name}　${v.address}`.trim()]); merges.push(`A${out.length}:${String.fromCharCode(64 + PAYIN_W.length)}${out.length}`);
         for (const x of v.docs) {
           for (const r of x.rows) out.push(['', r.docNo, r.account, r.sub, r.accountName, r.subName, r.amount, r.memo, r.tax]);
           out.push(['', '', '', '', '', '', x.total, `（ ${x.term} ）`]);
