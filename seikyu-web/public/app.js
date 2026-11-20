@@ -284,7 +284,7 @@ const HIDDEN_MENUS = new Set(['dashboard']);
 // サイドバー最下部に固定表示するメニュー（表示名）と、クリックで開閉するグループ（アイコン）
 const PINNED_MENUS = { migration: '前提・確認事項' };
 const FOLD_GROUPS = { '財務会計': '¥' };
-const USER01_HIDE = new Set(['audit', 'users']);   // user01 は財務会計・操作履歴・利用者管理のメニューを出さない（2026-11-20 ユーザー指示）
+const USER01_HIDE = new Set(['audit', 'users', 'external', 'migration']);   // user01 は財務会計・操作履歴・利用者管理・外部システム・前提・確認事項のメニューを出さない（2026-11-20 ユーザー指示）
 const foldOpen = new Set((() => { try { return JSON.parse(localStorage.getItem('navFold') || '[]'); } catch { return []; } })());
 const home = () => Object.keys(TITLES).find(k => !PINNED_MENUS[k]) || 'shipments';
 function nav() {
@@ -298,6 +298,7 @@ function nav() {
     ? `<button type="button" class="nav-link nav-fold" data-fold="${esc(g.name)}"><i>${esc(FOLD_GROUPS[g.name])}</i>${esc(g.name)}<b class="nav-caret">▸</b></button><div class="nav-fold-body" data-fold-body="${esc(g.name)}" hidden>${g.items.map(link).join('')}</div>`
     : `${g.items.length === 1 && g.items[0].title === g.name ? '<div class="nav-group"></div>' : `<div class="nav-group">${esc(g.name)}</div>`}${g.items.map(link).join('')}`).join(''); // 見出しとメニュー名が同じ（外部システム）なら見出しの文字は出さない
   const pin = $('#nav-pin'); if (pin) pin.innerHTML = list.filter(m => PINNED_MENUS[m.url.slice(1)]).map(m => `<a class="nav-link nav-pin" href="${esc(m.url)}" data-nav="${esc(m.url.slice(1))}"><i>${esc(m.icon)}</i>${esc(PINNED_MENUS[m.url.slice(1)])}</a>`).join('');
+  const foot = $('.sidebar-foot'); if (foot) foot.hidden = isUser01();   // 「PostgreSQL 業務テーブル接続 v…」も user01 は出さない（2026-11-20）
   const brand = $('.brand'); if (brand) brand.href = '#' + home();
 }
 // 開閉グループ：開いている画面がグループ内なら開く。それ以外は利用者の開閉を記憶
