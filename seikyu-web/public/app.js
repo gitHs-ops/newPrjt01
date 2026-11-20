@@ -391,8 +391,9 @@ async function render({ fresh = false } = {}) {
       }
     }
     // 検索条件（data-filter）の並びの後ろに「検索」ボタン。条件を変えただけでは読み込まない
-    for (const g of new Set($$('[data-filter]', content).map(el => el.closest('.filters') || el.parentElement))) {
-      const last = $$('[data-filter]', g).pop(); (last.closest('label') && g.contains(last.closest('label')) ? last.closest('label') : last).insertAdjacentHTML('afterend', '<button type="button" class="primary" data-search>検索</button>');
+    for (const g of new Set($$('[data-filter]', content).map(el => el.closest('.filters') || (el.closest('label') || el).parentElement))) {
+      // data-after-search の条件は「検索」の右に置く（2026-11-21 自動仕訳リストの状態）
+      const last = $$('[data-filter]:not([data-after-search])', g).pop(); if (!last) continue; (last.closest('label') && g.contains(last.closest('label')) ? last.closest('label') : last).insertAdjacentHTML('afterend', '<button type="button" class="primary" data-search>検索</button>');
     }
     // メニューで開いただけ（DB 未読込）の一覧：検索系ボタンで表示する旨を出す。画面に検索ボタンが無いときはここに置く
     if (emptyShown) {
@@ -2394,7 +2395,9 @@ async function journalListsView(q, bankOnly = false) {
   const pFrom = closing ? addMonths(closing.slice(0, 7), -1) + '-21' : '', from = pFrom || q.from || monthStart(), to = closing || q.to || today();
   A.tab = d => go('journals', { tab: d.tab });
   A.print = () => { $('#print-area').innerHTML = `<section class="invoice-doc report-doc journal-doc"><h2>${esc(meta.journalLists[kind].title)}</h2><p>${closing ? `締日 ${closing} ／ ` : kind === 'B01' ? '' : `期間 ${from} 〜 ${to} ／ `}出力日 ${today()}</p>${$('#jl-body').innerHTML}</section>`; setTimeout(() => window.print(), 200); };
-  const url = kind === 'BANK' ? '/api/reports/bank-payments?' + qs({ from, to }) : '/api/reports/journal-list?' + qs({ pattern: kind, from, to });
+  // 状態の絞込（2026-11-21 ユーザー指示：在庫計上 → 取消 → 再計上 の履歴がすべて並び、見たい有効な仕訳が最後になるため）。既定は すべて
+  const JL_STATUS = [['', 'すべて'], ['valid', '有効（取消・逆仕訳を除く）'], ['void', '取消済'], ['rev', '逆仕訳']], jst = JL_STATUS.some(([k]) => k === q.status) ? q.status || '' : '';
+  const url = kind === 'BANK' ? '/api/reports/bank-payments?' + qs({ from, to }) : '/api/reports/journal-list?' + qs({ pattern: kind, from, to, ...(jst ? { status: jst } : {}) });
   const d = await api(url);
   let body;
   if (kind === 'BANK') {
@@ -2425,7 +2428,7 @@ async function journalListsView(q, bankOnly = false) {
   const kinds = Object.entries(meta.journalLists).filter(([code]) => !bankOnly || code === 'BANK').map(([code, v]) => ({ code, name: v.title }));
   return page('仕訳・会計連携', '自動仕訳リストは現行帳票（⑥⑦⑨・資料ア〜エ）と同じ項目・2段の並びで表示・Excel出力します（削減案5：同一フォーマット）。',
     `<select name="list" data-filter>${options(kinds, kind, { label: r => r.name })}</select>${closing ? `<label class="field">締日<span style="display:flex;align-items:center;gap:4px"><input type="month" name="closing" value="${closing.slice(0, 7)}" data-filter style="width:140px">20日</span></label>`
-       : `<input type="date" name="from" value="${from}" data-filter><input type="date" name="to" value="${to}" data-filter>`}${bankOnly ? '' : '<input type="hidden" name="tab" value="lists" data-filter>'}
+       : `<input type="date" name="from" value="${from}" data-filter><input type="date" name="to" value="${to}" data-filter>`}${bankOnly ? '' : '<input type="hidden" name="tab" value="lists" data-filter>'}${kind === 'BANK' ? '' : `<label class="field">状態<select name="status" data-filter data-after-search>${JL_STATUS.map(([k, l]) => `<option value="${k}"${k === jst ? ' selected' : ''}>${l}</option>`).join('')}</select></label>`}
      <a class="button" href="${url}&format=xlsx" download>⇩ Excel</a>`,
     `<section class="card glass"><div class="card-head"><h2>${esc(d.title)}</h2><span class="muted small">${closing ? `締日 ${closing}（${pFrom} 〜 ${to}）` : `${from} 〜 ${to}`}</span></div><div id="jl-body">${body}</div></section>`);
 }

@@ -135,6 +135,9 @@ export async function journalList(c, q) {
     }
     slips.splice(0, slips.length, ...merged);
   }
+  // 状態の絞込（2026-11-21）：valid＝取消・逆仕訳を除く（A01 の「取消済 N件を含む」は有効に含める）、void＝取消済、rev＝逆仕訳
+  const stOk = { valid: s => !s.status || s.status.endsWith('を含む'), void: s => s.status.startsWith('取消済') && !s.status.endsWith('を含む'), rev: s => s.status.startsWith('逆仕訳') }[q.status];
+  if (stOk) slips.splice(0, slips.length, ...slips.filter(stOk));
   const dates = [...new Set(slips.map(s => s.date))].map(date => ({ date, total: slips.filter(s => s.date === date).reduce((n, s) => n + s.total, 0) }));
   return { pattern: q.pattern, ...def, from, to, slips, dates, total: slips.reduce((n, s) => n + s.total, 0) };
 }
