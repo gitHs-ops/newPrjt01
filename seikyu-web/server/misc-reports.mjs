@@ -377,26 +377,30 @@ export async function miscBook(c, kind, q) {
   // 合計表：現行 HJR011 の見出し（支払日・科目名・支払金額・支払本体・支払消費税、構成員ごとに「** 構成員名 **」の下に出資金額・出資本体・出資消費税。2026-11-02）
   const summarySheet = (d, out) => {
     const m3 = (p, n, t) => p.flatMap((v, k) => [v, n[k], t[k]]), r0 = out.length;
-    out.push(['', '', '', '', '', ...d.members.flatMap(m => [`**　${m.name}　**`, '', ''])].map(H));
-    out.push(['支払日', '科目名', '支払金額', '支払本体', '支払消費税', ...d.members.flatMap(() => ['出資金額', '出資本体', '出資消費税'])].map(H));
+    // 上段が空の見出し（支払日〜支払消費税）は 2 段を縦に結合（2026-11-21 ユーザー指示）
+    out.push(['支払日', '科目名', '支払金額', '支払本体', '支払消費税', ...d.members.flatMap(m => [`**　${m.name}　**`, '', ''])].map(H));
+    out.push(['', '', '', '', '', ...d.members.flatMap(() => ['出資金額', '出資本体', '出資消費税'])].map(H));
     // 現行どおり支払日計は出さず、＊合計＊の下に税率別の行（2026-11-04）
     for (const a of d.accounts) out.push([a.due, a.name, a.gross, a.net, a.tax, ...m3(a.parts, a.netParts, a.taxParts)]);
     out.push(['', S('＊合計＊'), S(d.totals.gross), S(d.totals.net), S(d.totals.tax), ...m3(d.totals.parts, d.totals.netParts, d.totals.taxParts).map(S)], []);
     for (const g of d.rates) out.push(['', { v: g.rate, s: 'right' }, g.gross, g.net, g.tax, ...m3(g.parts, g.netParts, g.taxParts)]);
     const col = i => { let n = i + 1, t = ''; while (n) { t = String.fromCharCode(65 + (n - 1) % 26) + t; n = Math.floor((n - 1) / 26); } return t; };
-    const merges = d.members.map((_, k) => `${col(5 + k * 3)}${r0 + 1}:${col(7 + k * 3)}${r0 + 1}`);
+    const merges = [...['A', 'B', 'C', 'D', 'E'].map(c => `${c}${r0 + 1}:${c}${r0 + 2}`), ...d.members.map((_, k) => `${col(5 + k * 3)}${r0 + 1}:${col(7 + k * 3)}${r0 + 1}`)];
     return { name: d.title.slice(0, 28), rows: out, merges, widths: [11, 18, 13, 13, 12, ...d.members.flatMap(() => [13, 13, 12])] };
   };
   if (kind === 'jv-expenses' || kind === 'jv-receipts') {
     const d = kind === 'jv-expenses' ? await jvExpenses(c, q) : await jvReceipts(c, q), out = head(d, `期間 ${d.from} 〜 ${d.to}`);
+    let dMerges = [];
     if (kind === 'jv-expenses') {
       // 見出しは現行の出資金請求明細表と同じ：税率・支払金額・支払額本体・支払消費税、構成員は2段（構成員名／出資金額）（2026-11-02）
       const detail = d.layout === 'detail';
       if (!detail) return { name: `${d.title}_${d.from}_${d.to}.xlsx`, body: xlsx([summarySheet(d, out)]) };
       // 現行 HJR011 の並び（2026-11-04）：支払日は支払日の 1 行目、科目は科目の 1 行目だけ。＊科目計＊ → ＊支払日計＊ → ＊合計＊ → 税率別（10%・0%）。伝票No は出さない
       const pre = ['支払日', '科目名', '支払先', '摘要', '税率'], amt = x => [x.gross, x.net, x.tax, ...x.parts], sum = x => amt(x).map(S);
-      out.push([...pre.map(() => ''), '', '', '', ...d.members.map(m => m.name)].map(H));
-      out.push([...pre, '支払金額', '支払額本体', '支払消費税', ...d.members.map(() => '出資金額')].map(H));
+      // 上段が空の見出し（支払日〜支払消費税）は 2 段を縦に結合（2026-11-21 ユーザー指示）
+      const dh = out.length + 1; dMerges = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'].map(c => `${c}${dh}:${c}${dh + 1}`);
+      out.push([...pre, '支払金額', '支払額本体', '支払消費税', ...d.members.map(m => m.name)].map(H));
+      out.push([...pre.map(() => ''), '', '', '', ...d.members.map(() => '出資金額')].map(H));
       for (const day of d.days) {
         d.accounts.filter(x => x.due === day.due).forEach((ac, i) => {
           ac.rows.forEach((r, k) => out.push([!i && !k ? day.due : '', k ? '' : `${ac.account} ${ac.name}`, r.vendor, r.memo, r.rate, r.gross, r.net, r.tax || '', ...r.parts]));
@@ -423,7 +427,10 @@ export async function miscBook(c, kind, q) {
     out.push([], [], [T(ds.title)], []);
     const sm = summarySheet(ds, out), dw = [11, 20, 30, 24, 7, 13, 13, 12, ...d.members.map(() => 14)];
     const widths = Array.from({ length: Math.max(dw.length, sm.widths.length) }, (_, i) => Math.max(dw[i] || 0, sm.widths[i] || 0));
-    return { name: `${d.title}_${d.from}_${d.to}.xlsx`, body: xlsx([{ ...sm, name: d.title.slice(0, 28), widths }]) };
+    // 明細表の見出しの右（合計表の幅に合わせて出る空の列）も 2 段を縦に結合（2026-11-21）
+    const xc = i => { let n = i + 1, t = ''; while (n) { t = String.fromCharCode(65 + (n - 1) % 26) + t; n = Math.floor((n - 1) / 26); } return t; }, dh0 = Number(dMerges[0]?.match(/\d+/)?.[0] || 0);
+    if (dh0) for (let i = 8 + d.members.length; i < widths.length; i++) dMerges.push(`${xc(i)}${dh0}:${xc(i)}${dh0 + 1}`);
+    return { name: `${d.title}_${d.from}_${d.to}.xlsx`, body: xlsx([{ ...sm, merges: [...dMerges, ...sm.merges], name: d.title.slice(0, 28), widths }]) };
   }
   check(false, '帳票の種類が不正です');
 }
