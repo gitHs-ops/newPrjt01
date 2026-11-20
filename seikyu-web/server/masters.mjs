@@ -87,14 +87,16 @@ export const MASTERS = {
   },
   items: {
     label: '商品', table: 'item_m',
-    fields: [F('code', '商品コード', { max: 5, key: true }), F('name', '商品名', { max: 22 }), F('unit', '単位', { type: 'ref', ref: 'units' }), F('price', '標準単価', { type: 'int' }), F('kind', '製品・材料区分', { type: 'select', options: [['', '共通'], ['2', '製品（自社製品）'], ['1', '材料・仕入品']], optional: true, hint: '2=製品・1=材料' }), F('countFlag', '実在庫登録に表示', { type: 'bool', check: '表示する', def: false, hint: '実在庫登録の画面に出す商品（11/04 打合せ No.20）' }), F('active', '有効', { type: 'bool' })],
+    fields: [F('code', '商品コード', { max: 5, key: true }), F('name', '商品名', { max: 22 }), F('unit', '単位', { type: 'ref', ref: 'units' }), F('price', '標準単価', { type: 'int' }), F('kind', '製品・材料区分', { type: 'select', options: [['', '共通'], ['2', '製品（自社製品）'], ['1', '材料・仕入品']], optional: true, hint: '2=製品・1=材料' }), F('countFlag', '実在庫登録に表示', { type: 'bool', check: '表示する', def: false, hint: '実在庫登録の画面に出す商品（11/04 打合せ No.20）' }),
+      // 機能一覧 No.11・D-052：商品仕入登録で使う商品の使用／未使用の区分。使用の商品だけ商品仕入登録の候補に出す（2026-11-20 ユーザー指示）
+      F('purchaseFlag', '商品仕入に使用', { type: 'bool', check: '使用する', def: true, hint: '未使用にすると商品仕入登録の候補に出さない（機能一覧 No.11）' }), F('active', '有効', { type: 'bool' })],
     select: 'SELECT * FROM item_m', where: 'item_cd=?', keyOf: r => [r.code],
-    decode: r => ({ code: r.item_cd, name: r.item_nam, unit: r.unit, price: Number(r.tanka), kind: r.item_product_kb || '', countFlag: r.stock_count_f === '1', active: live(r) }),
-    validate: r => ({ code: text(r.code, '商品コード', 5, { pattern: CODE }), name: text(r.name, '商品名', 22), unit: text(r.unit || '01', '単位', 2, { pattern: /^\d{2}$/ }), price: yen(r.price ?? 0, '標準単価', { max: 9999999 }), kind: ['1', '2'].includes(String(r.kind || '')) ? String(r.kind) : '', countFlag: bool(r.countFlag ?? false), active: bool(r.active ?? true) }),
+    decode: r => ({ code: r.item_cd, name: r.item_nam, unit: r.unit, price: Number(r.tanka), kind: r.item_product_kb || '', countFlag: r.stock_count_f === '1', purchaseFlag: r.purchase_use_f === '1', active: live(r) }),
+    validate: r => ({ code: text(r.code, '商品コード', 5, { pattern: CODE }), name: text(r.name, '商品名', 22), unit: text(r.unit || '01', '単位', 2, { pattern: /^\d{2}$/ }), price: yen(r.price ?? 0, '標準単価', { max: 9999999 }), kind: ['1', '2'].includes(String(r.kind || '')) ? String(r.kind) : '', countFlag: bool(r.countFlag ?? false), purchaseFlag: bool(r.purchaseFlag ?? true), active: bool(r.active ?? true) }),
     async write(c, r, old) {
       check(await one(c, "SELECT 1 x FROM code_m WHERE code_key='A0003' AND code_dtl=?", [r.unit]), '単位は単位マスタから選択してください');
-      if (!old) await c.query("INSERT INTO item_m (item_cd,item_nam,item_abr,item_kana,item_bunrui_cd,tanka,freight,unit,base_temp,vary_temp,credit_discount_rate,delete_f,item_product_kb,stock_count_f) VALUES (?,?,'','','',?,0,?,0,0,0,?,?,?)", [r.code, r.name, r.price, r.unit, del(r.active), r.kind, r.countFlag ? '1' : '']);
-      else await c.query('UPDATE item_m SET item_nam=?,tanka=?,unit=?,item_product_kb=?,delete_f=?,stock_count_f=? WHERE item_cd=?', [r.name, r.price, r.unit, r.kind, del(r.active), r.countFlag ? '1' : '', r.code]);
+      if (!old) await c.query("INSERT INTO item_m (item_cd,item_nam,item_abr,item_kana,item_bunrui_cd,tanka,freight,unit,base_temp,vary_temp,credit_discount_rate,delete_f,item_product_kb,stock_count_f,purchase_use_f) VALUES (?,?,'','','',?,0,?,0,0,0,?,?,?,?)", [r.code, r.name, r.price, r.unit, del(r.active), r.kind, r.countFlag ? '1' : '', r.purchaseFlag ? '1' : '']);
+      else await c.query('UPDATE item_m SET item_nam=?,tanka=?,unit=?,item_product_kb=?,delete_f=?,stock_count_f=?,purchase_use_f=? WHERE item_cd=?', [r.name, r.price, r.unit, r.kind, del(r.active), r.countFlag ? '1' : '', r.purchaseFlag ? '1' : '', r.code]);
     },
   },
   // 売上単価（現行 Java MA034/MA1000 と同じ）：通常単価・運賃と、適用期間内だけ使う適用単価・適用運賃。期間は両方入力か両方空。

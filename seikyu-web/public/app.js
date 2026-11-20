@@ -1656,7 +1656,7 @@ VIEWS.purchases = async q => {
   // 運賃（30001）も一般の商品コードと同じ扱い（数量×単価。数量を空欄にすれば金額のみ）。特別入力はやめた（2026-11-06 ユーザー指示）。isFreight はサンプル入力の除外だけに使う
   const isFreight = it => /運賃/.test(it?.name || '');
   // 値引き（88888 等）は商品仕入では使わない：候補に出さず、入力しても選べない（2026-10-29）
-  const noPurchase = it => /値引/.test(it?.name || ''), puItems = () => active('items').filter(i => !noPurchase(i));
+  const noPurchase = it => /値引/.test(it?.name || ''), puItems = () => active('items').filter(i => i.purchaseFlag && !noPurchase(i));   // 商品マスタの「商品仕入に使用」が使用の商品だけ（機能一覧 No.11、2026-11-20）
   // 単位のガイダンスは明細の単位の列の下に縦に並べる（現行 HAW010 と同じ位置。2026-11-03）
   const PU_UNITS = meta.purchaseUnits || {}, unitGuide = `<div class="small" style="line-height:1.5">${Object.entries(PU_UNITS).map(([k, v]) => `${k}: ${esc(v)}`).join('<br>')}</div>`;
   const cols = [{ name: 'item', label: '商品コード', cell: () => '<input name="item" list="dl-pu-items" maxlength="12" style="width:90px" autocomplete="off">' }, { name: 'iname', label: '商品名', cell: () => '<span data-iname class="muted small">商品コードを入力</span>' },
@@ -2523,7 +2523,7 @@ VIEWS.masters = async q => {
 // 新規でも最初から入っている値（現場2 で選んだ得意先）は無効のマスタでも選択肢に残す（2026-11-06）
 function masterInput(f, r, isNew) {
   const v = r?.[f.name] ?? (f.type === 'bool' ? f.def ?? true : ''), dis = f.key && !isNew ? 'disabled' : '';
-  // チェックの文言と項目名が同じ（「有効」）なら上の項目名は出さない（2026-11-06 ユーザー指示）。実在庫登録に表示・引取 は項目名を残す
+  // チェックの文言と項目名が同じ（「有効」）なら上の項目名は出さない（2026-11-06 ユーザー指示）。実在庫登録に表示・商品仕入に使用・引取 は項目名を残す
   if (f.type === 'bool') { const txt = f.check || '有効'; return `<label class="field">${txt === f.label ? '' : `<span>${esc(f.label)}</span>`}<span><input type="checkbox" name="${f.name}" ${v ? 'checked' : ''}> ${esc(txt)}</span></label>`; }
   let input;
   if (f.readonly) return field(f.label, `<input value="${esc(v)}" disabled>`, { hint: f.hint });

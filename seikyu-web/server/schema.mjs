@@ -178,6 +178,11 @@ export async function prepare(pool, env = process.env) {
   await pool.query(`ALTER TABLE purchase ADD COLUMN IF NOT EXISTS purchase_kb varchar(1) COLLATE "C" NOT NULL DEFAULT '1'`);
   await pool.query(`ALTER TABLE purchase ADD COLUMN IF NOT EXISTS line_kind varchar(1) COLLATE "C" NOT NULL DEFAULT '1'`);
   // 実在庫登録の表示フラグ（11/04 打合せ No.20）。列を作ったときだけ、実在庫を登録したことのある商品を 1 にする（それ以外はマスタで付ける）
+  // 商品仕入の使用／未使用（機能一覧 No.11・D-052、2026-11-20）。初回は商品仕入で使ったことのある商品と運賃を「使用」にする
+  if (!(await rows(pool, "SELECT 1 x FROM information_schema.columns WHERE table_schema=current_schema() AND table_name='item_m' AND column_name='purchase_use_f'")).length) {
+    await pool.query(`ALTER TABLE item_m ADD COLUMN IF NOT EXISTS purchase_use_f varchar(1) COLLATE "C" NOT NULL DEFAULT ''`);
+    await pool.query("UPDATE item_m SET purchase_use_f='1' WHERE item_cd IN (SELECT DISTINCT item_cd FROM purchase WHERE item_cd IS NOT NULL) OR item_nam LIKE '%運賃%'");
+  }
   if (!(await rows(pool, "SELECT 1 x FROM information_schema.columns WHERE table_schema=current_schema() AND table_name='item_m' AND column_name='stock_count_f'")).length) {
     await pool.query(`ALTER TABLE item_m ADD COLUMN IF NOT EXISTS stock_count_f varchar(1) COLLATE "C" NOT NULL DEFAULT ''`);
     await pool.query("UPDATE item_m SET stock_count_f='1' WHERE item_cd IN (SELECT DISTINCT item_cd FROM inventory_count)");
