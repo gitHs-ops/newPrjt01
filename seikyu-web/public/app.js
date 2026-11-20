@@ -253,7 +253,8 @@ const SUBMENUS = {
   // 出荷予定・納品書発行は機能一覧の範囲外（推定実装）のため小メニューを無効表示（納品書発行は 2026-10-24）（2026-10-23、要否は大西さんに確認。画面・API は残す）
   // 売掛金計上は 2026-11-16 に先頭へ追加（2026-11-17 名称を 売上計上 → 売掛金計上 に訂正。同日、出荷伝票一覧と同じ画面 → 専用画面：締日20日固定・実行・自動仕訳リスト Excel）
   shipments: [{ k: 'slips', l: '出荷伝票一覧', tools: true }, { k: 'sales', l: '売掛金計上', tools: false }, // 10/27 打合せ：画面の題名を「出荷伝票一覧」に。2026-11-18 ユーザー指示：出荷伝票一覧 → 売掛金計上 の順
-    /* 出荷予定・納品書発行・出荷・売上帳票は 2026-11-17 にメニューから削除（ユーザー指示。画面の部品・API は残す） */],
+    /* 出荷予定・納品書発行・出荷・売上帳票は 2026-11-17 にメニューから削除（ユーザー指示。画面の部品・API は残す） */
+    { k: 'reports', l: '出荷・売上帳票', hidden: true, showUser01: true }],   // 出荷・売上帳票は user01 だけ表示（2026-11-20 ユーザー指示）
   // 発行前確認一覧は 2026-10-25 非表示 → 2026-10-27 再表示（確認事項 F）→ 2026-10-27 再び非表示（画面・API は残す）
   // 請求書発行は 2026-10-27 に請求一覧照会から分けた（10/26 打合せ・提案書 P13。照会は確認と発行確認表の出力だけ）
   invoices: [{ k: 'precheck', l: '発行前確認一覧', q: { view: 'precheck' }, hidden: true }, { k: 'create', l: '請求データ作成', tools: false }, { k: 'list', l: '請求一覧照会', tools: true }, { k: 'issue', l: '請求書発行', q: { view: 'issue' } }, /* 請求帳票は 2026-11-17 ユーザー指示でメニューから削除（画面の部品・API は残す） */ { k: 'balance', l: '得意先別残高照会', q: { view: 'balance' }, noUser01: true }, { k: 'ledger', l: '請求残高照会', q: { view: 'ledger' }, noUser01: true }],   // noUser01：user01 のときはメニューに出さない（2026-11-17 ユーザー指示）
@@ -267,7 +268,7 @@ const SUBMENUS = {
   // 10/21 打合せの処理順（実在庫登録 → 配合計算 → 材料受払表 → 在庫計上）に並べる
   // 在庫登録リスト・配合計算・材料受払表は 2026-11-02 にそれぞれ小メニューに分けた（ユーザー指示）
   // 配合計算は自分の画面を出す（2026-11-04 ユーザー指示。以前は材料受払表の画面へ移っていた）。現行の配合計算処理は配合マスタ・配合単価と無関係で、結果が材料受払表（2026-11-02 ユーザー回答）
-  inventory: [{ k: 'count', l: '実在庫登録', tools: false }, { k: 'register', l: '在庫登録リスト' }, { k: 'mix', l: '配合計算' }, { k: 'ledger', l: '材料受払表' }, { k: 'post', l: '在庫計上', tools: false }, { k: 'list', l: '在庫一覧', tools: true, hidden: true }],   // 在庫一覧は 2026-11-08 小メニュー非表示（ユーザー指示。画面は残す）
+  inventory: [{ k: 'count', l: '実在庫登録', tools: false }, { k: 'register', l: '在庫登録リスト' }, { k: 'mix', l: '配合計算' }, { k: 'ledger', l: '材料受払表' }, { k: 'post', l: '在庫計上', tools: false }, { k: 'list', l: '在庫一覧', tools: true, hidden: true, showUser01: true }],   // 在庫一覧は 2026-11-08 小メニュー非表示（ユーザー指示。画面は残す）。user01 は表示（2026-11-20 ユーザー指示）
   purchases: [{ k: 'list', l: '商品仕入一覧・登録' }, { k: 'reports', l: '商品仕入登録リスト' }], // 2026-10-29 帳票を小メニューに分けた
   payables: [{ k: 'list', l: '定時請求一覧・入力' }, { k: 'reports', l: '定時請求入力明細表' }],
   cash: [{ k: 'list', l: '小口現金出納登録' }, { k: 'book', l: '小口現金出納簿' }],   // 名称「出納簿・定額資金・現金補充」→「小口現金出納簿」（2026-11-20 ユーザー指示）
@@ -287,6 +288,7 @@ const HIDDEN_MENUS = new Set(['dashboard']);
 const PINNED_MENUS = { migration: '前提・確認事項' };
 const FOLD_GROUPS = { '財務会計': '¥' };
 const USER01_HIDE = new Set(['audit', 'users', 'external', 'migration']);   // user01 は財務会計・操作履歴・利用者管理・外部システム・前提・確認事項のメニューを出さない（2026-11-20 ユーザー指示）
+const subHidden = s => (s.hidden && !(s.showUser01 && isUser01())) || (s.noUser01 && isUser01());   // showUser01：非表示の小メニューを user01 には出す（2026-11-20）
 const noEditU01 = k => isUser01() && ['accounts', 'subaccounts'].includes(k);   // user01 は勘定科目・内訳科目マスタを照会だけ（編集・新規・CSV取込を出さない。2026-11-20 ユーザー指示）
 const foldOpen = new Set((() => { try { return JSON.parse(localStorage.getItem('navFold') || '[]'); } catch { return []; } })());
 const home = () => Object.keys(TITLES).find(k => !PINNED_MENUS[k]) || 'shipments';
@@ -325,7 +327,7 @@ function navSubs() {
   const subs = subsOf(route.name), link = $(`.nav-link[data-nav="${route.name}"]`);
   if (!subs || !link) return;
   link.classList.add('open');
-  link.insertAdjacentHTML('afterend', `<div class="nav-subs">${subs.filter(s => !s.hidden && !(s.noUser01 && isUser01())).map(s => (s.disabled ? `<span class="nav-sub disabled" aria-disabled="true" title="現在は使用できません">${esc(s.l)}</span>` : `<a class="nav-sub ${s.k === route.sub ? 'active' : ''}" href="#${route.name}/${s.to || s.k}">${esc(s.l)}</a>`)).join('')}</div>`);
+  link.insertAdjacentHTML('afterend', `<div class="nav-subs">${subs.filter(s => !subHidden(s)).map(s => (s.disabled ? `<span class="nav-sub disabled" aria-disabled="true" title="現在は使用できません">${esc(s.l)}</span>` : `<a class="nav-sub ${s.k === route.sub ? 'active' : ''}" href="#${route.name}/${s.to || s.k}">${esc(s.l)}</a>`)).join('')}</div>`);
 }
 function parseHash() {
   const [path, q] = location.hash.slice(1).split('?'), [name, sub] = (path || '').split('/');
@@ -334,7 +336,7 @@ function parseHash() {
 // 小メニューの決定：明示 → 条件（従来タブのURL）一致 → 先頭。小メニューの q を条件に足す
 function resolveSub(r) {
   const subs = subsOf(r.name); if (!subs) return r;
-  const usable = subs.filter(s => !s.disabled && !(s.noUser01 && isUser01())), hit = usable.find(s => s.k === r.sub), item = (hit?.to && usable.find(s => s.k === hit.to)) || hit || (!r.sub && usable.find(s => s.q && Object.entries(s.q).every(([k, v]) => r.q[k] === v))) || usable.find(s => !s.hidden);
+  const usable = subs.filter(s => !s.disabled && !(s.noUser01 && isUser01())), hit = usable.find(s => s.k === r.sub), item = (hit?.to && usable.find(s => s.k === hit.to)) || hit || (!r.sub && usable.find(s => s.q && Object.entries(s.q).every(([k, v]) => r.q[k] === v))) || usable.find(s => !subHidden(s));
   return { ...r, sub: item.k, subItem: item, subTools: item.tools ?? (item === subs[0] || !!item.q), q: { ...r.q, ...(item.q || {}) } };
 }
 // freshNext：次の描画で DB を読む。画面のボタン（検索・タブ切替など）から go() したときは読み、サイドバーのメニュー・小メニューは読まない
