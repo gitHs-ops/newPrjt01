@@ -2147,15 +2147,23 @@ const pettyReportsCard = () => miscCard('小口現金出納簿', '定額資金�
 const receiptScheduleCard = () => miscCard('入金予定チェックリスト', '得意先別・工事（現場）別', `<label class="field">入金予定日（から）<input type="date" id="rs-from" value="${addMonths(thisMonth(), -6)}-01"></label><label class="field">入金予定日（まで）<input type="date" id="rs-to" value="${today()}"></label><label class="field"><span>超過分のみ</span><span><input type="checkbox" id="rs-over"> 予定日を過ぎた未入金</span></label><button data-act="misc" data-kind="receipt-schedule" data-src="rs">入金予定チェックリスト</button>`,
   '', '残高のある請求が対象（未発行を含み、発行の有無を表示）。入金方法・入金先は過去の入金実績から推定します。'); // 条件とボタンを1行に（2026-10-27）
 const accountingCard = () => miscCard('会計連携データ', '会計システムは勘定奉行（奉行クラウド）。受入は CSV／Excel（QA回答 2026-10-08）', rangeInputs('ac', '仕訳日'),
-  '<button class="primary" data-act="acct" data-format="bugyo">⇩ 勘定奉行 受入CSV</button><button data-act="acct" data-format="generic">⇩ 汎用CSV（借貸併記・UTF-8）</button><button data-act="acct" data-format="yayoi">⇩ 弥生会計形式（Shift_JIS）</button><div class="filters-break"></div><span class="small muted">マスタ（勘定奉行形式）</span><button data-act="acctMaster" data-kind="partners">⇩ 取引先</button><button data-act="acctMaster" data-kind="depts">⇩ 部門</button><button data-act="acctMaster" data-kind="accounts">⇩ 勘定科目</button><button data-act="acctMaster" data-kind="subaccounts">⇩ 補助科目</button>',
-  '作成すると、期間に入る締日（毎月20日）は会計連携済みになり、売掛金計上は次の締日に進みます（元に戻せません。2026-11-17）。補助科目は内訳科目だけ、得意先・業者は取引先コードで連携します（カナを含むコードは「マスタ管理 → 取引先コード変換表」で会計の取引先コードを登録。未登録があると勘定奉行CSVは出力しません）。勘定奉行CSVの見出しは「財務会計 → 会計設定 → 勘定奉行連携」で登録した OBC受入記号（未登録は項目名）、税区分は処税率→奉行税区分の対応表で変換します。受入記号・税区分コードは「データ受入形式一覧表」で確定予定（Q14/Q19）。出力は操作履歴に記録されます。');
+  '<button class="primary" data-act="acct" data-format="bugyo">⇩ 勘定奉行 受入CSV</button><button data-act="acct" data-format="generic">⇩ 汎用CSV（借貸併記・UTF-8）</button><button data-act="acct" data-format="yayoi">⇩ 弥生会計形式（Shift_JIS）</button><div class="filters-break"></div><span class="small muted">マスタ（勘定奉行へ送る）</span><button data-act="acctMaster" data-kind="partners">⇩ 取引先</button><button data-act="acctMaster" data-kind="depts">⇩ 部門</button><button data-act="acctMaster" data-kind="tekiyo">⇩ 摘要</button><div class="filters-break"></div><span class="small muted">マスタ（勘定奉行から受け取る）</span><button data-act="acctMasterIn" data-kind="accounts">⇧ 勘定科目 受入</button><button data-act="acctMasterIn" data-kind="subaccounts">⇧ 補助科目 受入</button>',
+  '作成すると、期間に入る締日（毎月20日）は会計連携済みになり、売掛金計上は次の締日に進みます（元に戻せません。2026-11-17）。マスタは 取引先・部門・摘要 を勘定奉行へ送り、勘定科目・補助科目は勘定奉行から受け取ります（11/11 打合せ No.3）。補助科目は内訳科目だけ、得意先・業者は取引先コードで連携します（カナを含むコードは「マスタ管理 → 取引先コード変換表」で会計の取引先コードを登録。未登録があると勘定奉行CSVは出力しません）。勘定奉行CSVの見出しは「財務会計 → 会計設定 → 勘定奉行連携」で登録した OBC受入記号（未登録は項目名）、税区分は処税率→奉行税区分の対応表で変換します。受入記号・税区分コードは「データ受入形式一覧表」で確定予定（Q14/Q19）。出力は操作履歴に記録されます。');
 // マスタの勘定奉行形式（取引先・部門・勘定科目・補助科目）。取引先コードは取引先コード変換表で置き換え（2026-11-12 結合テスト IT-13）
 async function accountingMasterDownload(kind) {
   const res = await fetch('/api/accounting/masters?' + qs({ kind }), { cache: 'no-store' });
   if (!res.ok) return toast((await res.json().catch(() => ({}))).error || '出力できません', true);
   const href = URL.createObjectURL(await res.blob()), el = document.createElement('a');
-  el.href = href; el.download = `会計連携_勘定奉行_${{ partners: '取引先', depts: '部門', accounts: '勘定科目', subaccounts: '補助科目' }[kind]}マスタ.csv`; el.click(); setTimeout(() => URL.revokeObjectURL(href), 2000);
+  el.href = href; el.download = `会計連携_勘定奉行_${{ partners: '取引先', depts: '部門', tekiyo: '摘要' }[kind]}マスタ.csv`; el.click(); setTimeout(() => URL.revokeObjectURL(href), 2000);
   toast('マスタを出力しました');
+}
+// 勘定奉行から勘定科目・補助科目を受け取る（11/11 打合せ No.3、2026-11-20）。勘定奉行のマスタ出力 CSV を取り込む
+function accountingMasterUpload(kind) {
+  const label = { accounts: '勘定科目', subaccounts: '補助科目' }[kind];
+  modal({ title: `${label} 受入（勘定奉行から）`, submit: '取込む', body: `<p class="small">勘定奉行から出力した${label}の CSV（Shift_JIS／UTF-8）を選んでください。1 行目は列名（${kind === 'accounts' ? '勘定科目コード、勘定科目名' : '勘定科目コード、補助科目コード、補助科目名'}）。<b>1 件でもエラーがあれば全件取消</b>します。既存コードは更新、新しいコードは登録します。${kind === 'subaccounts' ? '上位の勘定科目は先に受け入れてください。' : ''}</p><input type="file" name="file" accept=".csv,text/csv" required>`,
+    onSubmit: async (v, f) => { const file = f.file.files[0]; if (!file) throw Error('ファイルを選択してください'); const buf = await file.arrayBuffer();
+      let csv; try { csv = new TextDecoder('utf-8', { fatal: true }).decode(buf); } catch { csv = new TextDecoder('shift_jis').decode(buf); }
+      const r = await post('/api/accounting/masters/import', { kind, csv }); toast(`${label}：登録 ${r.created}件・更新 ${r.updated}件`); await loadMasters(); } });
 }
 async function accountingDownload(format) {
   const url = '/api/accounting/export?' + qs({ from: $('#ac-from').value, to: $('#ac-to').value, format }), res = await fetch(url, { cache: 'no-store' });
@@ -2324,7 +2332,7 @@ async function pettyRefillDialog() {
 // ----- 仕訳・会計連携 -----
 VIEWS.journals = async q => {
   const A = actions;
-  A.acct = d => accountingDownload(d.format).catch(e => toast(e.message, true)); A.acctMaster = d => accountingMasterDownload(d.kind).catch(e => toast(e.message, true));
+  A.acct = d => accountingDownload(d.format).catch(e => toast(e.message, true)); A.acctMaster = d => accountingMasterDownload(d.kind).catch(e => toast(e.message, true)); A.acctMasterIn = d => accountingMasterUpload(d.kind);
   const month = q.month || thisMonth(), tab = q.tab || 'list';
   A.tab = d => go('journals', { ...route.q, tab: d.tab });
   let body;
@@ -2393,7 +2401,7 @@ async function journalListsView(q, bankOnly = false) {
 // ----- 帳票・データ出力 -----
 VIEWS.reports = async q => {
   const A = actions;
-  A.acct = d => accountingDownload(d.format).catch(e => toast(e.message, true)); A.acctMaster = d => accountingMasterDownload(d.kind).catch(e => toast(e.message, true));
+  A.acct = d => accountingDownload(d.format).catch(e => toast(e.message, true)); A.acctMaster = d => accountingMasterDownload(d.kind).catch(e => toast(e.message, true)); A.acctMasterIn = d => accountingMasterUpload(d.kind);
   A.misc = d => miscReport(d.kind, d.src).catch(e => toast(e.message, true)); A.jvAlloc = () => jvAllocDialog().catch(e => toast(e.message, true));
   // 売掛金残高一覧・未払残高一覧：「検索」は Excel と同じ行に置く（2026-11-06 ユーザー指示。以前は空欄の案内文の横に出ていた）
   const month = q.month || thisMonth(), [ar, ap] = await Promise.all([api('/api/reports/ar'), api('/api/reports/ap')]);

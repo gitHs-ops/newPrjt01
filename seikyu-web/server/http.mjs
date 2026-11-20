@@ -16,7 +16,7 @@ import * as PR from './payment-reports.mjs';
 import * as MR from './misc-reports.mjs';
 import * as XR from './extra-reports.mjs';
 import { invoiceBook } from './invoice-book.mjs';
-import { accountingExport, accountingMasters } from './accounting-export.mjs';
+import { accountingExport, accountingMasters, accountingMasterImport } from './accounting-export.mjs';
 import * as KB from './kb.mjs';
 import { NEW_REPORTS, genericBook } from './new-reports.mjs';
 import { bugyoSettings, saveBugyoSettings, BUGYO_ITEMS } from './bugyo.mjs';
@@ -103,6 +103,7 @@ export async function createApp({ pool, publicDir, secureCookies = process.env.N
   w('/api/tax-settings', (c, x, b) => M.saveTaxSettings(c, x, b));
   w('/api/masters/:kind', (c, x, b) => M.save(c, x, x.params.kind, b.record, b.mode === 'create' ? 'create' : 'update'));
   w('/api/masters/:kind/import', (c, x, b) => M.importCsv(c, x, x.params.kind, b.csv));
+  w('/api/accounting/masters/import', (c, x, b) => accountingMasterImport(c, x, b));   // 勘定奉行 → 勘定科目・補助科目（11/11 No.3）
   w('/api/jv-members/batch', (c, x, b) => M.saveJvBatch(c, x, b)); // 出資比率の一括登録（D-050。2026-11-12）
   w('/api/jv-members/delete-month', (c, x, b) => M.deleteJvMonth(c, x, b), 'admin'); // 適用開始月度の行をまとめて削除（管理者だけ）
   w('/api/masters/:kind/delete', (c, x, b) => M.remove(c, x, x.params.kind, b.record), 'admin'); // マスタの削除は管理者だけ（2026-11-06）

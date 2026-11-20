@@ -5,7 +5,8 @@
 // 補助科目は内訳科目だけ。得意先・業者は取引先コードで連携し、取引先コード変換表（code_m PCNV）があれば会計の取引先コードに置き換える（2026-11-03）。
 // 勘定奉行の取引先コードは半角英数のため、カナを含むコードが変換表に無いと勘定奉行CSVは出力しない
 import iconv from 'iconv-lite';
-import { check, isoDate, csv, DomainError } from './domain.mjs';
+import { check, isoDate, csv, parseCsv, DomainError } from './domain.mjs';
+import { importCsv as masterImport } from './masters.mjs';
 import { audit, rows as dbRows } from './db.mjs';
 import { journalList, LISTS, markAcctLinked } from './journal-lists.mjs';
 import { decode, NON_TAX } from './taxcode.mjs';
@@ -73,9 +74,10 @@ export async function accountingExport(c, ctx, q) {
   return { file };
 }
 
-// マスタの会計システム（勘定奉行）形式の出力（D-059・D-060。2026-11-12 結合テスト IT-13）：取引先（得意先・業者）・部門・勘定科目・補助科目（内訳科目＝銀行・内訳）。
+// マスタの会計システム（勘定奉行）形式の出力（D-059・D-060。2026-11-12 結合テスト IT-13）：取引先（得意先・業者）・部門・摘要。
+// 11/11 打合せ No.3（課題管理表 No.1）：勘定科目・補助科目は勘定奉行 → APLink（受入は accountingMasterImport）、取引先・部門・摘要は APLink → 勘定奉行（2026-11-20 ユーザー指示）
 // 取引先コードは取引先コード変換表で会計の取引先コードに置き換える（変換表に無いカナ付きコードがあると出力しない。仕訳の勘定奉行CSVと同じ）。有効なものだけ。文字コードは勘定奉行連携の設定
-export const BUGYO_MASTERS = { partners: '取引先', depts: '部門', accounts: '勘定科目', subaccounts: '補助科目' };
+export const BUGYO_MASTERS = { partners: '取引先', depts: '部門', tekiyo: '摘要' };
 export async function accountingMasters(c, ctx, q) {
   const kind = String(q.kind || ''); check(BUGYO_MASTERS[kind], '出力するマスタが不正です');
   let out;
@@ -86,9 +88,26 @@ export async function accountingMasters(c, ctx, q) {
     out = [['取引先コード', '取引先名称'], ...list.map(r => { const code = conv.get(`${r.kind}:${r.code}`) || r.code; if (!/^[0-9A-Za-z]+$/.test(code)) missing.push(`${r.kind === 'C' ? '得意先' : '業者'} ${r.code} ${r.name}`); return [code, r.name]; })];
     if (missing.length) throw new DomainError(`取引先コードに半角英数以外の文字がある得意先・業者が ${missing.length} 件あります。マスタ管理の「取引先コード変換表」で会計の取引先コードを登録してください: ${missing.slice(0, 10).join(' / ')}${missing.length > 10 ? ' ほか' : ''}`);
   } else if (kind === 'depts') out = [['部門コード', '部門名称'], ...(await dbRows(c, "SELECT code_dtl, code_dtl_nam FROM code_m WHERE code_key='DEPT' AND COALESCE(category1,'')<>'0' ORDER BY code_dtl")).map(r => [r.code_dtl, r.code_dtl_nam])];
-  else if (kind === 'accounts') out = [['勘定科目コード', '勘定科目名称'], ...(await dbRows(c, 'SELECT account_code, account_name FROM account_subject WHERE active ORDER BY account_code')).map(r => [r.account_code, r.account_name])];
-  else out = [['勘定科目コード', '補助科目コード', '補助科目名称'], ...(await dbRows(c, 'SELECT s.account_code, s.sub_code, s.sub_name FROM account_subsubject s JOIN account_subject a ON a.account_code=s.account_code AND a.active WHERE s.active ORDER BY s.account_code, s.sub_code')).map(r => [r.account_code, r.sub_code, r.sub_name])];
+  else out = [['摘要コード', '摘要名称'], ...(await dbRows(c, "SELECT code_dtl, code_dtl_nam FROM code_m WHERE code_key='TKYO' AND COALESCE(category1,'')<>'0' ORDER BY LENGTH(code_dtl), code_dtl")).map(r => [r.code_dtl, r.code_dtl_nam])];   // 摘要マスタ（2026-11-20）
   const { encoding } = await bugyoSettings(c), text = csv(out), name = `会計連携_勘定奉行_${BUGYO_MASTERS[kind]}マスタ.csv`;
   await audit(c, ctx, 'master', kind, 'accounting.masters', { kind, rows: out.length - 1 });
   return { file: { name, body: encoding === 'utf-8' ? Buffer.from(text, 'utf8') : iconv.encode(text.replace(/^\uFEFF/, ''), 'Shift_JIS'), type: `text/csv; charset=${encoding === 'utf-8' ? 'utf-8' : 'Shift_JIS'}` } };
+}
+
+// 勘定奉行から受け取る勘定科目・補助科目（11/11 打合せ No.3。2026-11-20 ユーザー指示）。勘定奉行のマスタ出力 CSV（Shift_JIS／UTF-8）を見出しで判定して取り込む。
+// 列名は「勘定科目コード／科目コード」「勘定科目名／科目名」「補助科目コード」「補助科目名」（末尾の「称」「名称」は有無とも可）。既存コードは更新、新しいコードは登録。1 件でもエラーなら全件取消
+// 勘定奉行の受入・出力形式（データ受入形式一覧表）が確定したら列名を合わせる（U-01）
+export const BUGYO_IMPORTS = { accounts: '勘定科目', subaccounts: '補助科目' };
+export async function accountingMasterImport(c, ctx, b) {
+  const kind = String(b.kind || ''); check(BUGYO_IMPORTS[kind], '受け取るマスタが不正です');
+  const table = parseCsv(String(b.csv || '')).filter(r => r.some(v => String(v).trim())); check(table.length >= 2, 'CSV にデータがありません（1 行目は列名）');
+  const head = table[0].map(h => String(h).replace(/^\uFEFF/, '').replace(/\s/g, '')), col = re => head.findIndex(h => re.test(h));
+  const acc = col(/^(勘定)?科目(コード|CD|ｺｰﾄﾞ)$/i), accName = col(/^(勘定)?科目名(称)?$/), sub = col(/^補助(科目)?(コード|CD|ｺｰﾄﾞ)$/i), subName = col(/^補助(科目)?名(称)?$/);
+  check(acc >= 0, `勘定科目コードの列がありません（列名：${head.join('、')}）`);
+  let out;
+  if (kind === 'accounts') { check(accName >= 0, `勘定科目名の列がありません（列名：${head.join('、')}）`); out = [['code', 'name', 'active'], ...table.slice(1).map(r => [r[acc], r[accName], '1'])]; }
+  else { check(sub >= 0 && subName >= 0, `補助科目コード・補助科目名の列がありません（列名：${head.join('、')}）`); out = [['account', 'code', 'name', 'active'], ...table.slice(1).map(r => [r[acc], r[sub], r[subName], '1'])]; }
+  const r = await masterImport(c, ctx, kind, csv(out).replace(/^\uFEFF/, ''));
+  await audit(c, ctx, 'master', kind, 'accounting.masters.import', { kind, created: r.created, updated: r.updated });
+  return r;
 }
