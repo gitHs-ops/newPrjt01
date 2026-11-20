@@ -1931,9 +1931,13 @@ function expenseView(kind) {
     A.lineDel = d => { const [R, L] = lineOf(d); if (!L) return toast('再表示してください', true);
       confirmBox('行の取消', `${R.no}-${String(L.no).padStart(2, '0')}（${L.payee || ''} ${yen(L.amount)}円）を取消します。${R.lines.length === 1 ? '伝票の最後の行のため伝票ごと削除します。' : '同じ支払日の他の行はそのままです。'}自動仕訳（E01）を作り直します。`,
         () => post('/api/expenses/line', { id: R.id, line: L.no, remove: true }).then(() => { toast('取消しました'); render(); })); };
+    // 定時請求一覧の並べ替え（2026-11-20 ユーザー指示）：業者（コード順）・支払予定日・支払状態（reviewer だけ。未払→一部支払→支払済→取消済）。同じボタンをもう一度で逆順。検索済みの結果を並べるだけ
+    A.listSort = listSortAct;
+    const payState = r => (r.status !== 'POSTED' ? 3 : r.balance === 0 ? 2 : r.paid === 0 ? 0 : 1);
+    const PY_SORT_FNS = { vendor: (x, y) => jaCmp(x.vendor, y.vendor) || jaCmp(x.due, y.due) || jaCmp(x.no, y.no), due: (x, y) => jaCmp(x.due, y.due) || jaCmp(x.vendor, y.vendor) || jaCmp(x.no, y.no), pst: (x, y) => payState(x) - payState(y) || jaCmp(x.due, y.due) || jaCmp(x.no, y.no) };
     return page(payable ? '定時請求' : '小口現金出納登録', payable ? '業者からの請求（買掛金）を伝票＋明細で計上します（expense_document / expense_line、仕訳 D01）。' : '小口現金での経費支出を伝票＋明細で計上します（仕訳 E01）。',
       `${monthInput('month', month)}${payable ? filterSelect('vendor', masters.vendors, q.vendor, 'すべての業者') : ''}${csvLink('expenses', { month })}${canWrite() ? '<button class="primary" data-act="new">＋ 登録</button>' : ''}`,
-      `<section class="card glass" data-sub="list">${payable ? table(cols2, list, { rowClass: r => r.status === 'REVERSED' ? 'reversed' : '' }) : table(colsP, pettyRows)}</section><div data-sub="${payable ? 'reports' : 'book'}">${payable ? payableReportsCard() : pettyReportsCard()}</div>`);
+      `<section class="card glass" data-sub="list">${payable ? (list.length ? sortBarOf('payables', [['vendor', '業者'], ['due', '支払予定日'], ...(isReviewer() ? [['pst', '支払状態']] : [])]) : '') + table(cols2, sortedBy('payables', list, PY_SORT_FNS), { rowClass: r => r.status === 'REVERSED' ? 'reversed' : '' }) : table(colsP, pettyRows)}</section><div data-sub="${payable ? 'reports' : 'book'}">${payable ? payableReportsCard() : pettyReportsCard()}</div>`);
   };
 }
 VIEWS.payables = expenseView('PAYABLE');
