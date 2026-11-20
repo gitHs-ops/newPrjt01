@@ -1084,7 +1084,7 @@ function proposalInvoice(s) {
   const no = s.invoiceNo || 'K' + String(s.closing).slice(0, 7).replace('-', '') + String(s.invoiceId).padStart(5, '0');
   const banks = s.company.banks || (s.company.bankText ? [s.company.bankText] : []);
   return `<section class="invoice-doc prop-inv">
-    <div class="inv-top"><div style="flex:1"></div><h1 style="flex:0 0 auto">請 求 書</h1><div style="flex:1;text-align:right"><p>請求書番号: ${esc(no)}${s.copy ? `<br><span class="reissue">控え（${siteNo(s)}回目の発行分）</span>` : ''}</p><p>${esc(jpDate(s.issuedOn || today()))}</p></div></div>
+    <div class="inv-top"><div style="flex:1"></div><h1 style="flex:0 0 auto">請 求 書${editionTag(s)}</h1><div style="flex:1;text-align:right"><p>請求書番号: ${esc(no)}${s.copy ? `<br><span class="reissue">控え（${siteNo(s)}回目の発行分）</span>` : ''}</p><p>${esc(jpDate(s.issuedOn || today()))}</p></div></div>
     <div class="inv-top"><div><p>${esc(s.customer.address)}</p><p class="to">${esc(s.customer.name)} 御中</p>
         <p>毎度ありがとうございます。<br>下記のとおり御請求申し上げます。</p><p>${esc(jpDate(s.periodStart))} 〜 ${esc(jpDate(s.closing))}</p>${s.siteName ? `<p class="site-name">現場：<b>${esc(s.siteName)}</b>${s.pages > 1 ? `（${s.page}/${s.pages}）` : ''}</p>` : ''}</div>
       <div><p><b>${esc(s.company.name)}</b><br>${esc(s.company.address)}<br>TEL ${esc(s.company.tel)}${s.company.fax ? ' FAX ' + esc(s.company.fax) : ''}${s.company.invoiceNo ? `<br>登録番号: ${esc(s.company.invoiceNo)}` : ''}</p>
@@ -1100,11 +1100,13 @@ function proposalInvoice(s) {
 // 現行の請求書（帳票③④⑤、2026-11-04）：A4 横。左に得意先の〒・住所・名称 御中、右に発行元（〒・住所・会社名・登録番号・共同企業体・TEL・振込先・口座名義）、
 // 請求年月日・得意先コード・締日、工事名・当月御買上額・消費税額・当月御請求額（当月値引額の欄は設けない。D-022・D-006、2026-11-16）、明細（年月日・伝票番号・商品名・数量・単位・単価・金額・備考）、末尾に税率別の金額と税
 const zipOf = z => (z ? `〒 ${String(z).replace(/^(\d{3})-?(\d{4})$/, '$1-$2')}` : '');
+// 版の表示（2026-11-20 ユーザー指示）：④ 訂正分・⑤ 修正版は表題の横に【訂正分】【修正版】（③ 初回発行版は出さない）
+const editionTag = s => ({ diff: '訂正分', all: '修正版' }[s.kind] ? `<span style="font-size:.6em;margin-left:.6em;letter-spacing:0">【${{ diff: '訂正分', all: '修正版' }[s.kind]}】</span>` : '');
 function legacyInvoice(s) {
   const c = s.company, u = s.customer, ymd = d => String(d || '').slice(2).replaceAll('-', '/'), day = Number(String(s.closing).slice(8)), banks = c.banks || (c.bankText ? [c.bankText] : []);
   const uAddr = [[u.pref, u.addr1].filter(Boolean).join('　'), u.addr2].filter(x => x !== undefined), cAddr = [c.pref, c.addr1].filter(Boolean).join('') + (c.addr2 ? ' ' + c.addr2 : '');
   return `<section class="invoice-doc legacy-inv">
-    <h1>請　求　書</h1>${s.copy ? `<p style="text-align:right"><span class="reissue">控え（${siteNo(s)}回目の発行分）</span></p>` : ''}
+    <h1>請　求　書${editionTag(s)}</h1>${s.copy ? `<p style="text-align:right"><span class="reissue">控え（${siteNo(s)}回目の発行分）</span></p>` : ''}
     <div class="inv-top"><div class="lg-to"><p>${esc(zipOf(u.postcode))}</p>${u.postcode === undefined ? `<p>${esc(u.address || '')}</p>` : uAddr.map(x => `<p>${esc(x)}</p>`).join('')}<p class="lg-name">${esc(u.name)}<span>御中</span></p></div>
       <div class="lg-from"><p>${esc(zipOf(c.postcode))}</p><p>${esc(cAddr || c.address || '')}</p><p>${esc(c.name1 || c.name)}</p>${c.invoiceNo ? `<p>${esc(c.invoiceNo)}</p>` : ''}${c.name2 ? `<p class="lg-jv"><span>${esc(c.name2)}</span><span>TEL. ${esc(c.tel)}</span></p>` : `<p>TEL. ${esc(c.tel)}</p>`}
         ${banks.length ? `<p class="lg-bank">${banks.map(esc).join('<br>')}</p><p class="lg-holder">${esc(c.name1 || c.name)}</p>` : ''}</div></div>
@@ -1342,7 +1344,7 @@ const lrBlank = () => ({ acc: '', sub: '', amount: '', due: '', tax: '', sub2: '
 // 1 行目の科目の初期値は当座預金（D-071。2026-11-12 結合テスト IT-04）
 // 入金日の初期値は当月 20 日（変更可。2026-11-17 ユーザー指示）。メニューから開くと入力画面（open: true）、［一覧］で入金の一覧
 const lr20 = () => `${today().slice(0, 7)}-20`;
-const lrNew = () => ({ step: 1, date: lr20(), customer: '', lines: [{ ...lrBlank(), acc: '1112' }, lrBlank(), lrBlank()],   /* 初期表示は 3 行（2026-11-18 ユーザー指示で 2 行→3 行。足りなければ［＋ 行追加］） */ billTo: '', billInput: '', invoices: [], deposit: 0, from: '', to: '', key: uuid(), open: true, editId: 0, editNo: '', editPays: null });
+const lrNew = () => ({ step: 1, date: lr20(), customer: '', lines: [{ ...lrBlank(), acc: '1112', sub: '041' /* 口座の初期値は 041 名古屋銀行 刈谷支店（2026-11-20 ユーザー指示） */ }, lrBlank(), lrBlank()],   /* 初期表示は 3 行（2026-11-18 ユーザー指示で 2 行→3 行。足りなければ［＋ 行追加］） */ billTo: '', billInput: '', invoices: [], deposit: 0, from: '', to: '', key: uuid(), open: true, editId: 0, editNo: '', editPays: null });
 let lr = lrNew();
 const lrNum = v => { const n = Number(String(v ?? '').replace(/,/g, '').trim()); return Number.isFinite(n) ? n : NaN; };
 const lrSub = l => LR_ACC[l.acc]?.subs?.find(s => s[0] === l.sub);
