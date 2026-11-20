@@ -232,6 +232,8 @@ function comboize(sel) {
   inp.addEventListener('input', () => { inp.classList.remove('combo-ng'); const t = inp.value.trim(), o = opts().find(x => text(x) === t); if (o) pick(o, false); });
   inp.addEventListener('focus', () => { if (inp.value) { inp.placeholder = inp.value; inp.value = ''; } });
   inp.addEventListener('blur', () => { if (!inp.value && inp.placeholder && cur()?.value !== '') return sync(); pick(find(inp.value), true); });
+  // Enter でも確定して表示を直す（「27」→「27日」。次の項目が無くフォーカスが残る場合も。2026-11-20 ユーザー指示）
+  inp.addEventListener('keydown', e => { if (e.key !== 'Enter' || e.isComposing || e.keyCode === 229) return; if (!inp.value && inp.placeholder && cur()?.value !== '') return sync(); pick(find(inp.value), true); });
   build();
 }
 const comboizeIn = root => { if (root.matches?.(COMBO_SELECT)) comboize(root); root.querySelectorAll?.(COMBO_SELECT).forEach(comboize); };
