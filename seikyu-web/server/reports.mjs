@@ -29,7 +29,7 @@ export async function billingListBook(c, q) {
     ['得意先名', '', '現場名', '売上額', '税額', '値引額', '請求額'].map(H)];
   // 現行 HAR431（2026-11-03）：得意先ごとに 1 行（現場別発行の得意先だけ現場ごと）。得意先計は 2 行以上のときだけ。状態は出さない
   // 2026-11-04：得意先はコード＋名称を 1 列、現場別の 2 行目から現場No（2・3…）、計は「得意先合計」「会社　合計」（現行 HAR431 の表記）
-  for (const x of d.rows) { if (!x.bookRows.length) continue; x.bookRows.forEach((s, i) => out.push([i ? '' : `${x.customer} ${x.name || ''}`, i ? i + 1 : '', s.siteName, s.net, s.tax, 0, s.total])); if (x.bookRows.length > 1) out.push(['', '', S('得意先合計'), S(x.net), S(x.tax), S(0), S(x.current)]); }
+  for (const x of d.rows) { if (!x.bookRows.length) continue; x.bookRows.forEach((s, i) => out.push([i ? '' : `${x.customer} ${x.name || ''}`, '' /* 2 行目以降の現場No（2・3…）は出さない（2026-11-20 ユーザー指示） */, s.siteName, s.net, s.tax, 0, s.total])); if (x.bookRows.length > 1) out.push(['', '', S('得意先合計'), S(x.net), S(x.tax), S(0), S(x.current)]); }
   const sum = k => d.rows.reduce((n, x) => n + x[k], 0);
   out.push([], ['', '', S('会社　合計'), S(sum('net')), S(sum('tax')), S(0), S(sum('current'))]); // 今回の請求が無い得意先（繰越・入金だけ）は行を出さない
   return { name: `請求一覧表_${d.month}_${d.closing}日締.xlsx`, body: xlsx([{ name: '請求一覧表', rows: out, widths: [34, 5, 24, 13, 12, 10, 13] }]) };
@@ -63,8 +63,10 @@ export async function receiptPlanBook(c, q) {
     // 見出し「得意先CD」→「得意先」（2026-11-18 ユーザー指示）
     ['得意先', '得意先名', '請求年月', '請求金額', 'サイト', '入金予定日', '入金予定金額', '入金金額', '残高'].map(H)];
   for (const r of d.rows) out.push([r.customer, r.name, r.closing, r.total, r.site, r.due, r.planned, r.paid, r.balance]);
-  out.push([S('合計'), `${d.rows.length}件`, '', '', '', '', S(t.planned), S(t.paid), S(t.balance)]);
-  return { name: `入金予定一覧_${d.from || '過去'}_${d.to || '指定なし'}.xlsx`, body: xlsx([{ name: '入金予定一覧', rows: out, widths: [10, 30, 13, 13, 16, 12, 14, 13, 13] }]) };
+  // 総合計（帳票規約 8。2026-11-20 ユーザー指示）：件数は「総　合　計　　N件」に入れ、請求金額も合計する。文字の無い列は結合して縦線を出さない（得意先〜請求年月・サイト〜入金予定日）
+  const g = out.length + 1;
+  out.push([S(`合計　${d.rows.length}件`), '', '', S(d.rows.reduce((n, r) => n + Number(r.total || 0), 0)), '', '', S(t.planned), S(t.paid), S(t.balance)]);
+  return { name: `入金予定一覧_${d.from || '過去'}_${d.to || '指定なし'}.xlsx`, body: xlsx([{ name: '入金予定一覧', rows: out, widths: [10, 30, 13, 13, 16, 12, 14, 13, 13], merges: [`A${g}:C${g}`, `E${g}:F${g}`] }]) };
 }
 
 // 得意先別残高照会（画面と同じ項目）：前回請求額・御入金額・差引繰越額・今回お買上額・消費税・今回請求額・支払期日・請求書状況
