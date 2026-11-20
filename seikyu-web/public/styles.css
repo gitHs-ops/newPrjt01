@@ -609,3 +609,6 @@ dialog .table-wrap:has(> table.one-line) { max-height: none; overflow-y: visible
 /* クリックで登録などを開く行（支払一覧の未払） */
 tr.row-link { cursor: pointer; }
 tr.row-link:hover td { background: rgba(99,102,241,.07); }
+/* 未払残高一覧：業者の列が広がりすぎないよう表の幅を内容に合わせる（2026-11-21 ユーザー指示） */
+[data-sub="ap"] table { width: auto; }
+[data-sub="ap"] table :is(th, td).num { padding-left: 48px; }
