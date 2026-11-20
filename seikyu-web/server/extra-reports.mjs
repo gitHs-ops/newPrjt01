@@ -58,8 +58,8 @@ export async function payableInputList(c, q) {
     dp.paid = dp.total - dp.tax; dp.cumPaid = mine.reduce((n, r) => n + num(r.gross_amount) - num(r.tax_amount), 0); dp.done = 0; dp.cumDone = 0;
   }
   const vendorLabel = none ? '未入力（出力しない）' : all ? '全業者（9999999）' : vFrom === vTo ? vFrom : `${vFrom || '（最初）'} 〜 ${vTo}`;
-  return { title: `定時請求データ入力明細表（${kb ? '組織' : '工事'}別）`, ref: 'NO30 / 添付帳票⑩（HAR136）', month, from, to, depts, total: depts.reduce((n, x) => n + x.total, 0),
-    kb, groupLabel: kb ? '部門' : '工事', dept: dept ? `${dept} ${deptNames[dept] || ''}`.trim() : '全部門', vendor: vendorLabel,
+  return { title: '定時請求データ入力明細表' /* 現行の帳票名どおり（組織別／工事別）は付けない。部門は表題の下に（2026-11-20 ユーザー指示） */, ref: 'NO30 / 添付帳票⑩（HAR136）', month, from, to, depts, total: depts.reduce((n, x) => n + x.total, 0),
+    kb, allVendors: !!all, groupLabel: kb ? '部門' : '工事', dept: dept ? `${dept} ${deptNames[dept] || ''}`.trim() : '全部門', vendor: vendorLabel,
     note: '月度は20日締め（現行と同じ）。区分 1＝組織（部門別）、ブランク＝工事（摘要コード＝工事コード別）。業者コードはブランクなら出力しない・From〜To で範囲・To に 9999999 で全業者（10/21）。請求No は業者ごとの4桁連番。発注残金額は発注管理が対象外のため0、相殺金額は定時請求時点では0（支払時に相殺）。現比は振込のみのため削除（10/19）。' };
 }
 // ---------- NO33 小口現金出納簿（定額資金前渡制を仮定） ----------
@@ -172,7 +172,7 @@ export async function extraBook(c, kind, q) {
   if (kind === 'payable-input') {
     // 現行 HAR136 の並び（2026-11-04）：見出し 2 段（業者CD 業者名／請求No 科目 内訳 科目名 内訳名 発注残金額 請求金額 相殺金額 摘要 処税率 相殺（支払）業者）
     // 業者の行 → 明細 → 請求金額の計と支払条件 → 業者合計・（内消費税）。部門（工事）の末尾に 工事合計・（内消費税）と 当月／累計の支払額・出来高・支払率
-    const d = await payableInputList(c, q), out = head(d, `${d.month} 月度　区分 ${d.kb ? '1 組織' : 'ブランク 工事'}　業者 ${d.vendor}`);
+    const d = await payableInputList(c, q), out = head(d, `部門 ${d.dept}　${d.month} 月度　区分 ${d.kb ? '1 組織' : 'ブランク 工事'}${d.allVendors ? '' : '　業者 ' + d.vendor}`);   // 全業者（9999999）は表示しない（2026-11-20 ユーザー指示）
     // （内消費税）の行の下は実線（業者・工事の区切り。2026-11-17 ユーザー指示）：12 列すべて jEnd
     const taxEnd = t => ['', '', '', '', '', '（内消費税', '', t, 0, `${t.toLocaleString('ja-JP')} ）`, ''].map(v => ({ v, s: 'jEnd' }));
     // 見出し 2 段（2026-11-18 ユーザー指示「헤더 디자인 개선」）：2 段に分かれるのは 業者名／伝票No だけ。ほかの列は上下の 2 行を結合して 1 つの見出しにする
