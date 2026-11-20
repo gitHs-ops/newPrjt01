@@ -268,7 +268,7 @@ const SUBMENUS = {
   // 10/21 打合せの処理順（実在庫登録 → 配合計算 → 材料受払表 → 在庫計上）に並べる
   // 在庫登録リスト・配合計算・材料受払表は 2026-11-02 にそれぞれ小メニューに分けた（ユーザー指示）
   // 配合計算は自分の画面を出す（2026-11-04 ユーザー指示。以前は材料受払表の画面へ移っていた）。現行の配合計算処理は配合マスタ・配合単価と無関係で、結果が材料受払表（2026-11-02 ユーザー回答）
-  inventory: [{ k: 'count', l: '実在庫登録', tools: false }, { k: 'register', l: '在庫登録リスト' }, { k: 'mix', l: '配合計算' }, { k: 'ledger', l: '材料受払表' }, { k: 'post', l: '在庫計上', tools: false }, { k: 'list', l: '在庫一覧', tools: true, hidden: true, showUser01: true }],   // 在庫一覧は 2026-11-08 小メニュー非表示（ユーザー指示。画面は残す）。user01 は表示（2026-11-20 ユーザー指示）
+  inventory: [{ k: 'count', l: '実在庫登録', tools: false }, { k: 'register', l: '在庫登録リスト' }, { k: 'mix', l: '配合計算' }, { k: 'ledger', l: '材料受払表' }, { k: 'post', l: '在庫計上', tools: false }, { k: 'list', l: '在庫一覧', tools: true }],   // 在庫一覧は 2026-11-08 小メニュー非表示 → 2026-11-20 user01 だけ表示 → 同日ユーザー指示「user01 に出るメニューは全ログインに」で全ログインに表示
   purchases: [{ k: 'list', l: '商品仕入一覧・登録' }, { k: 'reports', l: '商品仕入登録リスト' }], // 2026-10-29 帳票を小メニューに分けた
   payables: [{ k: 'list', l: '定時請求一覧・入力' }, { k: 'reports', l: '定時請求入力明細表' }],
   cash: [{ k: 'list', l: '小口現金出納登録' }, { k: 'book', l: '小口現金出納簿' }],   // 名称「出納簿・定額資金・現金補充」→「小口現金出納簿」（2026-11-20 ユーザー指示）
@@ -2177,7 +2177,7 @@ async function accountingDownload(format) {
 }
 const jvReportsCard = () => miscCard('出資金（JV）帳票', 'JV構成員・出資比率で配分（10/21 打合せ：締切日＝対象月20日で指示）', `<label class="field">締切日<input type="date" id="jv-closing" value="${lastClosing()}"></label>`,
 // 出資金請求合計表のボタンを戻す（要件定義 最終版：画面から合計表を単独で出力。明細表の Excel の 2 枚目の合計表は残す。2026-11-20 ユーザー指示）
-  '<button data-act="misc" data-kind="jv-expenses" data-src="jv">出資金請求明細表（定時請求分）</button>' + (isUser01() ? '' /* user01 は合計表ボタンを出さない（2026-11-20 ユーザー指示） */ : '<button data-act="misc" data-kind="jv-expenses" data-src="jvs">出資金請求合計表（定時請求分）</button>') + '<button data-act="misc" data-kind="jv-receipts" data-src="jv">入金明細及び配分表</button>',
+  '<button data-act="misc" data-kind="jv-expenses" data-src="jv">出資金請求明細表（定時請求分）</button>' + /* 合計表：2026-11-20 user01 は非表示 → 同日ユーザー指示で user01 にも表示（機能一覧 9-2 開発対象） */ '<button data-act="misc" data-kind="jv-expenses" data-src="jvs">出資金請求合計表（定時請求分）</button>' + '<button data-act="misc" data-kind="jv-receipts" data-src="jv">入金明細及び配分表</button>',
   '構成員と出資比率は「マスタ管理 → JV構成員・出資比率」で登録します（適用開始月度ごと。有効な構成員の合計100%）。帳票は締切日の月度で有効な比率で配分します。配分は各社切捨て、端数は第1構成員。出資金請求明細表の Excel には同じシートの明細の下に合計表が付きます。端数を調整するときは小メニュー「入金分配端数調整登録」で入金ごとに構成員別の金額を直し、入金明細及び配分表はその金額で出力します。');
 const jvAllocCard = () => miscCard('入金分配端数調整登録', '現行 HJW030：締切日の月度の入金ごとに構成員別の配分額を調整', `<label class="field">締切日<input type="date" id="jva-closing" value="${lastClosing()}"></label>`,
   canWrite() ? '<button class="primary" data-act="jvAlloc">入金分配端数調整登録</button>' : '');
