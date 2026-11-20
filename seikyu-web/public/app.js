@@ -1707,11 +1707,15 @@ VIEWS.purchases = async q => {
   A.new = () => puForm(null);
   A.edit = d => { const ls = list.filter(r => r.no === d.no).sort((a, b) => a.line - b.line); if (ls.length) { puForm({ id: ls[0].id, no: ls[0].no, date: ls[0].date, vendor: ls[0].vendor, kind: ls[0].kind, lines: ls }); footFirst(`<button type="button" class="danger" data-act="del" data-id="${ls[0].id}" data-no="${esc(ls[0].no)}">取消</button>`); } };
   A.del = d => confirmBox('仕入の取消', `仕入伝票 ${pNo(d.no)} の全明細を削除します。`, () => post('/api/purchases/delete', { id: Number(d.id) }).then(() => { toast('取消しました'); render(); }), '取消する');
+  // 並べ替え（2026-11-20 ユーザー指示）：仕入日・区分・業者（コード順）。同じなら伝票No.・行番号
+  A.listSort = listSortAct;
+  const puTie = (x, y) => jaCmp(x.no, y.no) || x.line - y.line;
+  const puRows = sortedBy('purchases', list, { date: (x, y) => jaCmp(x.date, y.date) || jaCmp(x.vendor, y.vendor) || puTie(x, y), kind: (x, y) => jaCmp(x.kind, y.kind) || jaCmp(x.date, y.date) || puTie(x, y), vendor: (x, y) => jaCmp(x.vendor, y.vendor) || jaCmp(x.date, y.date) || puTie(x, y) });
   return page('商品仕入', '業者からの商品仕入を伝票（複数明細）で記録します（purchase）。区分 1=仕入／2=他社納入、運賃行あり。', `${monthInput('month', month)}${filterSelect('vendor', masters.vendors, q.vendor, 'すべての業者')}${csvLink('purchases', { month })}${canWrite() ? '<button class="primary" data-act="new">＋ 仕入登録</button>' : ''}`,
-    `<section class="card glass" data-sub="list">${table([{ label: '伝票No.', value: r => pNo(r.no, r.line) }, { label: '仕入日', value: r => r.date }, { label: '区分', value: r => r.kindName }, { label: '業者', value: r => r.vendorName },
+    `<section class="card glass" data-sub="list">${list.length ? sortBarOf('purchases', [['date', '仕入日'], ['kind', '区分'], ['vendor', '業者']]) : ''}${table([{ label: '伝票No.', value: r => pNo(r.no, r.line) }, { label: '仕入日', value: r => r.date }, { label: '区分', value: r => r.kindName }, { label: '業者', value: r => [r.vendor, r.vendorName].filter(Boolean).join(' ') } /* 業者コード＋業者名（2026-11-20） */,
       { label: '商品', value: r => `${r.itemName || r.item}${r.lineKind === '2' && !/運賃/.test(r.itemName || '') ? (r.memo === '運賃' ? '（運賃）' : '（金額のみ）') : ''}` }, { label: '数量', num: 1, value: r => (r.lineKind === '2' ? '' : `${r.quantity} ${r.unit || ''}`) },
       { label: '単価', num: 1, value: r => (r.lineKind === '2' ? '' : Number(r.price).toLocaleString('ja-JP', { minimumFractionDigits: 2, maximumFractionDigits: 2 })) }, { label: '金額', num: 1, value: r => yen(r.net) }, { label: '処税率', value: r => r.taxCode },
-      { label: '', html: r => canWrite() && r.line === 1 ? `<button class="mini" data-act="edit" data-no="${esc(r.no)}">詳細</button>` : '' }], list, { foot: ['合計', '', '', '', '', '', '', yen(list.reduce((n, r) => n + r.net, 0)), '', ''] })}</section>
+      { label: '', html: r => canWrite() && r.line === 1 ? `<button class="mini" data-act="edit" data-no="${esc(r.no)}">詳細</button>` : '' }], puRows, { foot: ['合計', '', '', '', '', '', '', yen(list.reduce((n, r) => n + r.net, 0)), '', ''] })}</section>
     <div data-sub="reports">${miscCard('商品仕入登録リスト', '仕入先別・仕入日ごと', `<label class="field">対象月（前月21日〜当月20日）<input type="month" id="pl-month" value="${thisMonth()}"></label>`, '<button data-act="misc" data-kind="purchase-register" data-src="pl">⇩ Excel</button>')}${dailyCard('商品別仕入日報', 'pd', '<button data-act="misc" data-kind="item-purchase-daily" data-src="pd">商品別仕入日報</button>')}</div>`);   // 2026-11-17 に user01 は非表示 → 2026-11-20 ユーザー指示で user01 にも表示（機能要件 帳6）
 };
 
