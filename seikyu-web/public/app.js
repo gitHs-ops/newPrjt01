@@ -277,7 +277,7 @@ const SUBMENUS = {
   payments: [{ k: 'transfer', l: '振込先一覧', tools: false }, { k: 'zengin', l: '支払データ作成（全銀）' }, { k: 'list', l: '支払一覧・支払内訳入力', tools: true }, { k: 'reports', l: '支払帳票', noUser01: true /* user01 は出さない（2026-11-20 ユーザー指示） */ }, { k: 'bank', l: '銀行別随時支払一覧表', q: { list: 'BANK' } }],   // 銀行別随時支払一覧表は自動仕訳リスト（帳票）の画面を支払メニューのまま表示（2026-11-19 ユーザー指示：メニューは移らない）,
   journals: [{ k: 'list', l: '仕訳一覧' }, { k: 'tb', l: '月次残高試算', q: { tab: 'tb' } }, { k: 'lists', l: '自動仕訳リスト（帳票）', q: { tab: 'lists' } }, { k: 'export', l: '会計連携データ' }],
   external: [{ k: 'gslink', l: 'gsLink' }], // 2026-11-05 ユーザー指示
-  reports: [{ k: 'csv', l: 'CSV出力', tools: true }, { k: 'ar', l: '売掛金残高一覧' }, { k: 'ap', l: '未払残高一覧' }, { k: 'jv', l: '出資金（JV）帳票' }, { k: 'jvalloc', l: '入金分配端数調整登録' }], // 入金分配端数調整登録は 2026-11-03 に小メニューへ
+  reports: [{ k: 'csv', l: 'CSV出力', tools: true }, { k: 'ar', l: '売掛金残高一覧' }, { k: 'ap', l: '未払残高一覧' }, { k: 'jv', l: '出資金（JV）帳票' }, { k: 'jvalloc', l: '入金分配端数調整登録' }, { k: 'daily', l: '日報出力' }], // 入金分配端数調整登録は 2026-11-03 に小メニューへ。日報出力は 2026-11-20 ユーザー指示（日報をまとめて出す）
 };
 // 1:n 入力画面（現場2・内訳科目2、2026-11-06 ／得意先別単価2、2026-11-07 ユーザー指示）は元のマスタの次に置く（元のマスタの画面はそのまま）。定義は ONE_TO_MANY
 const subsOf = name => (name === 'masters' && meta?.masters ? Object.entries(meta.masters).flatMap(([k, x]) => [{ k, l: x.label, q: { kind: k } }, ...Object.entries(ONE_TO_MANY).filter(([, x]) => x.after === k).map(([k2, x]) => ({ k: k2, l: x.label, q: { kind: k2 } }))]) : SUBMENUS[name] || null);
@@ -2147,6 +2147,8 @@ const shipmentReportsCard = () => miscCard('出荷・売上帳票', 'Excel で�
   '期間は締日単位（例: 前月21日〜当月20日）で指定できます。<span id="ms-range"></span>');
 // ㉖㉗㉘ 日報（現行 MEN120 日次業務 16・17・18。2026-11-08 追加）：指定日の 前日累計・当日・累計（月度は前月21日〜）
 const dailyCard = (title, id, buttons) => miscCard(title, '指定日の前日累計・当日・累計', `<label class="field">日付<input type="date" id="${id}-date" value="${today()}"></label>`, buttons);
+// 日報出力（2026-11-20 ユーザー指示）：帳票・データ出力 → 日報出力 に日報をまとめる（出荷・売上帳票、商品仕入登録リストの日報カードはそのまま）
+const dailyReportsCard = () => dailyCard('日報出力', 'dr', '<button data-act="misc" data-kind="item-ship-daily" data-src="dr">商品別出荷日報</button><button data-act="misc" data-kind="customer-ship-daily" data-src="dr">得意先別出荷日報</button><button data-act="misc" data-kind="item-purchase-daily" data-src="dr">商品別仕入日報</button>');
 const shipDailyCard = () => dailyCard('出荷日報', 'sd', '<button data-act="misc" data-kind="item-ship-daily" data-src="sd">商品別出荷日報</button><button data-act="misc" data-kind="customer-ship-daily" data-src="sd">得意先別出荷日報</button>');
 const invPeriod = p => `<label class="field">処理年月（計算年月）<input type="month" id="${p}-month" value="${lastClosing().slice(0, 7)}"></label><label class="field">締日<select id="${p}-closing"><option value="20" selected>20日</option><option value="10">10日</option><option value="31">月末（暦月）</option></select></label>`;
 // 配合計算の画面（2026-11-04）。2026-11-12 から［配合計算を実行］で結果を保存し（材料受払の計算結果・原価）、材料受払表はその結果を出力する（D-072・機能一覧 9-3・10-3）
@@ -2241,7 +2243,7 @@ function miscParams(kind, src) {
   if (src === 'rs') return { from: $('#rs-from').value, to: $('#rs-to').value, overdue: $('#rs-over').checked ? '1' : '' };
   if (src === 'ir') return { month: $('#ir-month').value };
   if (src === 'pl') return { month: $('#pl-month').value };
-  if (src === 'sd' || src === 'pd') return { date: $(`#${src}-date`).value };
+  if (src === 'sd' || src === 'pd' || src === 'dr') return { date: $(`#${src}-date`).value };
   if (src === 'tl') return { to: $('#tl-to').value };
   return { from: $(`#${src}-from`).value, to: $(`#${src}-to`).value };
 }
@@ -2431,7 +2433,7 @@ VIEWS.reports = async q => {
     <section class="card glass" data-sub="ar"><div class="card-head"><h2>売掛金残高一覧</h2></div><div class="filters" style="margin-bottom:10px"><button type="button" class="primary" data-search>検索</button><a class="button" href="/api/reports/ar?format=xlsx" download>⇩ Excel</a></div>${table([{ label: '得意先', value: r => `${r.customer} ${r.name}` }, { label: '締日', num: 1, value: r => r.closing === 31 ? '月末' : r.closing + '日' }, { label: '開始残高', num: 1, value: r => yen(r.opening) },
       { label: '請求累計', num: 1, value: r => yen(r.billed) }, { label: '消込累計', num: 1, value: r => yen(r.received) }, { label: '売掛残高', num: 1, value: r => yen(r.balance) }, { label: '期日超過', num: 1, html: r => r.overdue ? `<span class="check-ng">${yen(r.overdue)}</span>` : '0' }, { label: '未請求(税抜)', num: 1, value: r => yen(r.unbilled) }], ar,
       { foot: ['合計', '', yen(ar.reduce((n, r) => n + r.opening, 0)), yen(ar.reduce((n, r) => n + r.billed, 0)), yen(ar.reduce((n, r) => n + r.received, 0)), yen(ar.reduce((n, r) => n + r.balance, 0)), yen(ar.reduce((n, r) => n + r.overdue, 0)), yen(ar.reduce((n, r) => n + r.unbilled, 0))] })}</section>
-    <section class="card glass" data-sub="ap"><div class="card-head"><h2>未払残高一覧</h2></div><div class="filters" style="margin-bottom:10px"><button type="button" class="primary" data-search>検索</button><a class="button" href="/api/reports/ap?format=xlsx" download>⇩ Excel</a></div>${table([{ label: '業者', value: r => `${r.vendor} ${r.name}` }, { label: '計上累計', num: 1, value: r => yen(r.billed) }, { label: '支払累計', num: 1, value: r => yen(r.paid) }, { label: '未払残高', num: 1, value: r => yen(r.balance) }], ap)}</section><div data-sub="csv">${accountingCard()}</div><div data-sub="jv">${jvReportsCard()}</div><div data-sub="jvalloc">${jvAllocCard()}</div>`);
+    <section class="card glass" data-sub="ap"><div class="card-head"><h2>未払残高一覧</h2></div><div class="filters" style="margin-bottom:10px"><button type="button" class="primary" data-search>検索</button><a class="button" href="/api/reports/ap?format=xlsx" download>⇩ Excel</a></div>${table([{ label: '業者', value: r => `${r.vendor} ${r.name}` }, { label: '計上累計', num: 1, value: r => yen(r.billed) }, { label: '支払累計', num: 1, value: r => yen(r.paid) }, { label: '未払残高', num: 1, value: r => yen(r.balance) }], ap)}</section><div data-sub="csv">${accountingCard()}</div><div data-sub="jv">${jvReportsCard()}</div><div data-sub="jvalloc">${jvAllocCard()}</div><div data-sub="daily">${dailyReportsCard()}</div>`);
 };
 
 // ----- 月次確定 -----
