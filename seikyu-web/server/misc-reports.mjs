@@ -349,13 +349,14 @@ export async function miscBook(c, kind, q) {
       ['' /* 帳票ID「HAR491」は出さない（2026-11-21 ユーザー指示） */, ...Array(11).fill(''), { v: `作成日 ${yy(jst)} ${jst.slice(11, 19)}`, s: 'right' }],
       [{ v: `${yy(d.period.to)} 締`, s: 'center' }, '', '', '', { v: '材　料　受　払　表', s: 'titleC' }, ...Array(7).fill(''), { v: d.company, s: 'right' }],
       [],
-      ['', '', ...['期　首　残　高', '前　月　末　在　庫', '当　月　仕　入　高', '当　月　使　用　高', '当　月　末　在　庫'].flatMap(label => [{ v: label, s: 'center' }, { v: '', s: 'center' }])],
+      // 見出しの「商　　品」は コード・名称の 2 列 × 見出し 2 段を結合（2026-11-21 ユーザー指示の見本）
+      [{ v: '商　　品', s: 'center' }, { v: '', s: 'center' }, ...['期　首　残　高', '前　月　末　在　庫', '当　月　仕　入　高', '当　月　使　用　高', '当　月　末　在　庫'].flatMap(label => [{ v: label, s: 'center' }, { v: '', s: 'center' }])],
       ['', '', ...Array(5).fill([{ v: '数　量', s: 'center' }, { v: '金　額', s: 'center' }]).flat(), { v: '単　価', s: 'center' }],
     ];
     const parts = x => [x.opening, x.prev, x.purchase, x.used, x.end];
     for (const x of d.items.filter(x => parts(x).some(o => o && (o.qty || o.value)))) out.push([x.item, x.name, ...parts(x).flatMap(o => [Q(o?.qty), A(o?.value)]), { v: x.price || '', s: 'price1' }]);
     const t = d.totals; out.push([{ v: '【合計】', s: 'sumBox' }, { v: '', s: 'sumBox' }, Q(t.openingQty), A(t.opening), Q(t.prevQty), A(t.prev), Q(t.purchaseQty), A(t.purchase), Q(t.usedQty), A(t.used), Q(t.endQty), A(t.end)]);
-    const merges = ['A2:D2', 'E2:I2', 'C4:D4', 'E4:F4', 'G4:H4', 'I4:J4', 'K4:L4'];
+    const merges = ['A2:D2', 'E2:I2', 'A4:B5', 'C4:D4', 'E4:F4', 'G4:H4', 'I4:J4', 'K4:L4'];
     // 行の高さは一覧の様式（帳票イメージ_20261108）にそろえる（2026-11-17。以前は 18／24 の固定）
     return { name: `材料受払表_${d.month}.xlsx`, body: xlsx([{ name: '材料受払表', rows: out, merges, gridlines: false, printTitles: '4:5', header: '&RPAGE: &P', widths: [8, 24, 14, 13, 14, 13, 14, 13, 14, 13, 14, 13, 13] }]) };
   }
