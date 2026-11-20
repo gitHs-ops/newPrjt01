@@ -346,7 +346,7 @@ export async function miscBook(c, kind, q) {
     const d = await savedMaterialLedger(c, q), jst = new Date(Date.now() + 9 * 3600e3).toISOString(), yy = v => `${v.slice(2, 4)}/${v.slice(5, 7)}/${v.slice(8, 10)}`;
     const Q = v => ({ v: v || '', s: 'qty3' }), A = v => ({ v: v || '', s: 'num' });
     const out = [
-      ['HAR491', ...Array(11).fill(''), { v: `作成日 ${yy(jst)} ${jst.slice(11, 19)}`, s: 'right' }],
+      ['' /* 帳票ID「HAR491」は出さない（2026-11-21 ユーザー指示） */, ...Array(11).fill(''), { v: `作成日 ${yy(jst)} ${jst.slice(11, 19)}`, s: 'right' }],
       [{ v: `${yy(d.period.to)} 締`, s: 'center' }, '', '', '', { v: '材　料　受　払　表', s: 'titleC' }, ...Array(7).fill(''), { v: d.company, s: 'right' }],
       [],
       ['', '', ...['期　首　残　高', '前　月　末　在　庫', '当　月　仕　入　高', '当　月　使　用　高', '当　月　末　在　庫'].flatMap(label => [{ v: label, s: 'center' }, { v: '', s: 'center' }])],
