@@ -2024,8 +2024,9 @@ VIEWS.payments = async q => {
   A.prep = d => paymentReport(d.kind).catch(e => toast(e.message, true)); A.zengin = () => zenginDialog().catch(e => toast(e.message, true));
   A.tlSearch = () => miscReport('transfer-list', 'tl', 'tl-result').catch(e => toast(e.message, true));   // 振込先一覧：［検索］は画面に表示、［Excel］は出力（2026-11-19 ユーザー指示）
   // 状態で絞り込み（2026-11-19 ユーザー指示）：未払（定時請求）・計上済・取消済
-  const PY_ST = [{ code: 'unpaid', name: '未払' }, { code: 'POSTED', name: '計上済' }, { code: 'REVERSED', name: '取消済' }];
-  const shown = [...unpaid, ...list].filter(r => !q.status || (q.status === 'unpaid' ? r.unpaid : !r.unpaid && r.status === q.status));
+  // user01 は未払の行を出さない（2026-11-20 ユーザー指示）
+  const PY_ST = [...(isUser01() ? [] : [{ code: 'unpaid', name: '未払' }]), { code: 'POSTED', name: '計上済' }, { code: 'REVERSED', name: '取消済' }];
+  const shown = [...(isUser01() ? [] : unpaid), ...list].filter(r => !q.status || (q.status === 'unpaid' ? r.unpaid : !r.unpaid && r.status === q.status));
   return page('支払', '定時請求（買掛金）の支払の一覧です。支払はメニュー「支払データ作成（全銀）」で支払日・振込元口座の未払から自動作成し、立替金・手数料・安全協力費は［詳細］の支払内訳入力（修正）で直します（現行 HJW200）。未払の行の［支払］で業者ごとに登録することもできます。', `${monthInput('month', month)}<select name="status" data-filter>${options(PY_ST, q.status || '', { blank: 'すべての状態', label: r => r.name })}</select>${csvLink('payments', { month })}`,
     `<section class="card glass" data-sub="list">${table([{ label: '支払No', value: r => r.no }, { label: '支払日', value: r => r.date }, { label: '業者', value: r => [r.vendor, r.vendorName].filter(Boolean).join(' ') }, { label: '支払額', num: 1, value: r => yen(r.amount) }, { label: '支払元', value: r => (r.unpaid ? '' : nameOf('banks', r.fromBank)) }, { label: '振込方法', value: r => (r.unpaid ? '' : r.transferMethod === '1' ? '1 文書' : '0 電信') },
       { label: '振込先', value: r => (r.unpaid ? '' : r.payee ? `${r.payee.bank}-${r.payee.branch} ${r.payee.account}` : '未登録') }, { label: '対象伝票', value: r => (r.unpaid ? r.docNo : r.allocations.map(a => a.no).join(', ')) }, { label: '状態', html: r => (r.unpaid ? badge('未払', 'amber') : status(r.status)) },

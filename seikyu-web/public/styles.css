@@ -114,7 +114,7 @@ option { background: #fff; color: var(--text-primary); }
 .filters select[name=list], .filters select[name=pattern] { max-width: 260px; }
 .filters input[type=month], .filters input[type=date], .filters input.flatpickr-input, .filters input[name=month] { min-width: 0; width: 124px; }
 .filters input[type=checkbox], .filters input[type=radio] { min-width: 0; width: auto; }
-label.field { display: grid; gap: 4px; font-size: 12px; font-weight: 600; color: #334155; }
+label.field { display: grid; gap: 4px; font-size: 12px; font-weight: 600; color: #334155; align-content: start; }   /* 隣の項目に説明文があっても入力欄が下にずれないよう上詰め（2026-11-20） */
 /* 検索条件の行：ラベルは入力欄の左に置き、ボタンと同じ行に並べる */
 .filters label.field { display: inline-flex; align-items: center; gap: 8px; white-space: nowrap; }
 .filters .filters-break { flex-basis: 100%; height: 0; } /* 条件の途中で改行（2026-11-06 定時請求入力明細表：業者コードから 2 行目） */
