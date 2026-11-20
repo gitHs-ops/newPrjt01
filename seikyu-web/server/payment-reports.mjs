@@ -192,14 +192,14 @@ export async function paymentBook(c, kind, q) {
     const d = await payableCarryover(c, q), m = d.months, out = [[T(d.title), '', '', '', '', '', `${ymdJ(d.date)}現在`], [`出力日 ${today()}`], []];
     const ms = [mon(m.m3 + '-'), mon(m.m2), mon(m.m1)];
     // 見出し 2 段の空きセルは結合（2026-11-19 ユーザー指示「헤더 빈칸 병합」）：業者CD・業者名・差引繰越額は上下、支払繰越額・相殺繰越額は左右（4 列）
-    out.push(['業者CD', '業　者　名', '支　払　繰　越　額', '', '', '', '相　殺　繰　越　額', '', '', '', '差引繰越額'].map(H), ['', '', ...ms, '合　計', ...ms, '合　計', ''].map(H));
-    const merges = ['A4:A5', 'B4:B5', 'C4:F4', 'G4:J4', 'K4:K5'];
+    out.push(['業　者', '業　者　名', '支　払　繰　越　額', '', '', '', '相　殺　繰　越　額', '', '', '', '差引繰越額'].map(H), ['', '', ...ms, '合　計', ...ms, '合　計', ''].map(H));
+    const merges = ['A4:A5', 'B4:B5', 'C4:F4', 'G4:J4', 'K4:K5'];   // 見出し「業者CD」→「業　者」（2026-11-20 ユーザー指示）
     for (const v of d.vendors) out.push([v.vendor, v.name, v.m3, v.m2, v.l1, v.total, v.o3, v.o2, v.o1, v.offset, v.net]);
     const t = d.totals; out.push([], ['', S('合　　計'), S(t.m3), S(t.m2), S(t.l1), S(t.total), S(0), S(0), S(t.offset), S(t.offset), S(t.net)]);
     // 追加シート「支払繰越照合」（2026-11-20 ユーザー指示）：期間（開始〜終了）で 前回繰越＋今回計上−今回支払＝今回繰越。今回支払の合計は業者別支払内訳表の合計と一致
     const r = await carryoverRecon(c, q), md = x => `${Number(x.slice(5, 7))}/${Number(x.slice(8, 10))}`;
     const o2 = [[T('支払繰越照合表'), '', '', '', '', `${ymdJ(r.from)} 〜 ${ymdJ(r.to)}`], [`出力日 ${today()}`], []];
-    o2.push(['業者CD', '業　者　名', `前回繰越（${md(r.prev)}現在）`, '今回計上', '今回支払', `今回繰越（${md(r.to)}現在）`].map(H));
+    o2.push(['業　者', '業　者　名', `前回繰越（${md(r.prev)}現在）`, '今回計上', '今回支払', `今回繰越（${md(r.to)}現在）`].map(H));
     for (const v of r.vendors) o2.push([v.vendor, v.name, v.before, v.booked, v.paid, v.after]);
     const t2 = r.totals; o2.push([], ['', S('合　　計'), S(t2.before), S(t2.booked), S(t2.paid), S(t2.after)]);
     o2.push([]); const g = o2.length + 1;   // 説明の行は横に結合（文字がセルで切れないように）
