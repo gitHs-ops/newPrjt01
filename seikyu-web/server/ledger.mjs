@@ -49,8 +49,12 @@ export async function closeCheckDetail(c, month) {
     const r = await one(c, "SELECT COUNT(*) n FROM sales_trn WHERE customers_cd=? AND process_status='0' AND payment_method_cd=2 AND sales_date BETWEEN ? AND ?", [cu.customers_cd, toNum(month + '-01'), toNum(limit)]);
     if (Number(r.n)) unbilled.push({ customer: cu.customers_cd, name: cu.customers_name, closing: limit, count: Number(r.n) });
   }
-  const draft = await one(c, "SELECT COUNT(*) n FROM billing_head h WHERE h.closing_date BETWEEN ? AND ? AND NOT EXISTS (SELECT 1 FROM invoice_issue i WHERE i.invoice_id=h.invoice_id)", [toNum(month + '-01'), toNum(end)]);
-  return { month, unbilled, unbilledCount: unbilled.reduce((n, r) => n + r.count, 0), drafts: Number(draft.n) };
+  // 未発行の請求書は件数だけでなく明細（締日・得意先・現場・金額）も返す（確定前チェックの［詳細］。2026-11-21 ユーザー指示）
+  const draftList = (await rows(c, `SELECT h.invoice_id, h.closing_date, h.customers_cd, c.customers_name, h.field_cd, h.field_suffix, f.field_name1, h.money, h.consumption_tax
+    FROM billing_head h LEFT JOIN client_m c ON c.customers_cd=h.customers_cd LEFT JOIN field_name_m f ON f.customers_cd=h.customers_cd AND f.field_cd=h.field_cd AND f.field_suffix=h.field_suffix
+    WHERE h.closing_date BETWEEN ? AND ? AND NOT EXISTS (SELECT 1 FROM invoice_issue i WHERE i.invoice_id=h.invoice_id) ORDER BY h.closing_date, h.customers_cd, h.field_cd, h.field_suffix`, [toNum(month + '-01'), toNum(end)]))
+    .map(r => ({ id: Number(r.invoice_id), closing: fromNum(r.closing_date), customer: r.customers_cd, name: r.customers_name || '', field: r.field_cd + (r.field_suffix ? '-' + r.field_suffix : ''), fieldName: r.field_name1 || '', amount: Number(r.money || 0) + Number(r.consumption_tax || 0) }));
+  return { month, unbilled, unbilledCount: unbilled.reduce((n, r) => n + r.count, 0), drafts: draftList.length, draftList };
 }
 export async function closeCheck(c, month) {
   const d = await closeCheckDetail(c, month);
