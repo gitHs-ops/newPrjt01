@@ -166,30 +166,31 @@ export async function receiptSchedule(c, q) {
 
 // ---------- Excel ----------
 const head = (d, sub) => [[T(d.title)], [`${sub}　出力日 ${today()}`], []];
-const PAYIN_W = [9, 30, 7, 6, 16, 16, 11, 13, 11, 26, 9, 14], SALES_REG_W = [11, 6, 13, 7, 22, 9, 4, 10, 12, 7, 9, 7, 30, 24, 11];
+// 相殺（支払）業者の列は出さない（2026-11-20 ユーザー指示）
+const PAYIN_W = [9, 30, 7, 6, 16, 16, 11, 13, 11, 26, 9], SALES_REG_W = [11, 6, 13, 7, 22, 9, 4, 10, 12, 7, 9, 7, 30, 24, 11];
 export async function extraBook(c, kind, q) {
   if (kind === 'payable-input') {
     // 現行 HAR136 の並び（2026-11-04）：見出し 2 段（業者CD 業者名／請求No 科目 内訳 科目名 内訳名 発注残金額 請求金額 相殺金額 摘要 処税率 相殺（支払）業者）
     // 業者の行 → 明細 → 請求金額の計と支払条件 → 業者合計・（内消費税）。部門（工事）の末尾に 工事合計・（内消費税）と 当月／累計の支払額・出来高・支払率
-    const d = await payableInputList(c, q), out = head(d, `${d.month} 月度　区分 ${d.kb ? '1 組織' : 'ブランク 工事'}　業者 ${d.vendor}`), pct = (a, b) => `${b ? (Math.floor(a / b * 10000) / 100).toFixed(2) : '0.00'} %`;
+    const d = await payableInputList(c, q), out = head(d, `${d.month} 月度　区分 ${d.kb ? '1 組織' : 'ブランク 工事'}　業者 ${d.vendor}`);
     // （内消費税）の行の下は実線（業者・工事の区切り。2026-11-17 ユーザー指示）：12 列すべて jEnd
-    const taxEnd = t => ['', '', '', '', '', '（内消費税', '', t, 0, `${t.toLocaleString('ja-JP')} ）`, '', ''].map(v => ({ v, s: 'jEnd' }));
-    // 見出し 2 段（2026-11-18 ユーザー指示「헤더 디자인 개선」）：2 段に分かれるのは 業者名／請求No. だけ。ほかの列は上下の 2 行を結合して 1 つの見出しにする
+    const taxEnd = t => ['', '', '', '', '', '（内消費税', '', t, 0, `${t.toLocaleString('ja-JP')} ）`, ''].map(v => ({ v, s: 'jEnd' }));
+    // 見出し 2 段（2026-11-18 ユーザー指示「헤더 디자인 개선」）：2 段に分かれるのは 業者名／伝票No だけ。ほかの列は上下の 2 行を結合して 1 つの見出しにする
     const merges = [];
     for (const dp of d.depts) {
       // 部門の行は表の幅いっぱいに結合する（右の空きセルを残さない。2026-11-19 ユーザー指示）
       out.push(Object.assign(band(PAYIN_W, [`${d.groupLabel} : ${dp.dept} ${dp.name}`]), { span: PAYIN_W.length, start: 0, max: PAYIN_W.length }));
       const r1 = out.length + 1;
-      out.push(['業者', '業者名', /* 業者CD → 業者（2026-11-19 ユーザー指示） */ '科目', '内訳', '科目名', '内訳名', '発注残金額', '請求金額', '相殺金額', '摘要', '処税率', '相殺（支払）業者'].map(H), ['', '請求No.', '', '', '', '', '', '', '', '', '', ''].map(H));
-      for (const c of ['A', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L']) merges.push(`${c}${r1}:${c}${r1 + 1}`);
+      out.push(['業者', '業者名', /* 業者CD → 業者（2026-11-19 ユーザー指示） */ '科目', '内訳', '科目名', '内訳名', '発注残金額', '請求金額', '相殺金額', '摘要', '処税率'].map(H), ['', '伝票No', '', '', '', '', '', '', '', '', ''].map(H) /* 請求No.（業者ごと4桁）→ 伝票No（T…）（2026-11-20 ユーザー指示） */);
+      for (const c of ['A', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K']) merges.push(`${c}${r1}:${c}${r1 + 1}`);
       for (const v of dp.vendors) {
         out.push([v.vendor, v.name]);
-        for (const r of v.rows) out.push(['', r.no, r.account, r.sub, r.accountName, r.subName, r.orderRemain, r.amount, r.offset, r.memo, r.tax, '']);
+        for (const r of v.rows) out.push(['', r.docNo, r.account, r.sub, r.accountName, r.subName, r.orderRemain, r.amount, r.offset, r.memo, r.tax]);
         out.push(['', '', '', '', '', '', '', v.total, '', `（ ${v.term} ）`], ['', '', '', '', '', S('業者合計'), '', S(v.total), S(v.offset), S(v.total - v.offset)], taxEnd(v.tax), []);
       }
-      out.push(['', '', '', '', '', S('工事合計'), '', S(dp.total), S(dp.offset), S(dp.total - dp.offset)], taxEnd(dp.tax), []);
-      out.push(['', '', '', '', '', '', '', '', '', H('当月支払額'), H('当月出来高'), H('支払率')], ['', '', '', '', '', '', '', '', '', dp.paid, dp.done, pct(dp.paid, dp.done)]);
-      out.push(['', '', '', '', '', '', '', '', '', H('累計支払額'), H('累計出来高'), H('支払率')], ['', '', '', '', '', '', '', '', '', dp.cumPaid, dp.cumDone, pct(dp.cumPaid, dp.cumDone)], []);
+      out.push(['', '', '', '', '', S('組織合計') /* 工事合計 → 組織合計（2026-11-20 ユーザー指示） */, '', S(dp.total), S(dp.offset), S(dp.total - dp.offset)], taxEnd(dp.tax), []);
+      out.push(['', '', '', '', '', '', '', '', '', H('当月支払額'), H('当月出来高')], ['', '', '', '', '', '', '', '', '', dp.paid, dp.done]   /* 支払率は出さない（2026-11-20 ユーザー指示） */);
+      out.push(['', '', '', '', '', '', '', '', '', H('累計支払額'), H('累計出来高')], ['', '', '', '', '', '', '', '', '', dp.cumPaid, dp.cumDone], []);
     }
     return { name: `定時請求入力明細表_${d.month}.xlsx`, body: xlsx([{ name: '定時請求入力明細表', rows: out, widths: PAYIN_W, merges }]) };
   }
