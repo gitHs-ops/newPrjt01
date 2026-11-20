@@ -900,14 +900,15 @@ export async function arLedger(c, q = {}) {
   return { rows: rowsOut, totals: { current: rowsOut.reduce((n, r) => n + r.current, 0), claim: rowsOut.reduce((n, r) => n + r.claim, 0), cleared: rowsOut.reduce((n, r) => n + r.cleared, 0), remain: rowsOut.filter(r => r.latest).reduce((n, r) => n + r.remain, 0) } };
 }
 // 2026-10-27 削除 → 2026-11-01 復元（確認事項 P の回答③）
-// 入金予定一覧（提案書 スライド18）：入金予定月（＝支払期日の月）・得意先（部分一致）で、請求金額・サイト・入金予定日・入金予定金額・入金金額・残高
-// 10/14 打合せ：入金予定月は範囲（過去年月〜現在）で指定でき、入金予定日を過ぎても未入金の請求（得意先・残高・経過日数）を表示する。overdue=1 で経過・未入金のみ
+// 入金予定一覧（提案書 スライド18）：請求年月の範囲・得意先（部分一致）で、請求金額・サイト・入金予定日・入金予定金額・入金金額・残高
+// 10/14 打合せ：範囲（過去年月〜現在）で指定でき、入金予定日を過ぎても未入金の請求（得意先・残高・経過日数）を表示する。overdue=1 で経過・未入金のみ
+// 範囲は請求年月（2026-11-20 ユーザー指示：11/18 打合せ No.26「目的は消込漏れ（未入金）の確認。請求年月の範囲と得意先を指定して出す」。以前は入金予定月＝支払期日の月）
 export async function receiptPlan(c, q = {}) {
-  const t = String(q.customer || '').trim(), month = q.month ? isoMonth(q.month, '入金予定月') : '';
-  const from = month || (q.from ? isoMonth(q.from, '入金予定月（から）') : ''), to = month || (q.to ? isoMonth(q.to, '入金予定月（まで）') : '');
-  check(!from || !to || from <= to, '入金予定月の範囲が不正です（から ≦ まで）');
+  const t = String(q.customer || '').trim(), month = q.month ? isoMonth(q.month, '請求年月') : '';
+  const from = month || (q.from ? isoMonth(q.from, '請求年月（から）') : ''), to = month || (q.to ? isoMonth(q.to, '請求年月（まで）') : '');
+  check(!from || !to || from <= to, '請求年月の範囲が不正です（から ≦ まで）');
   const overdueOnly = q.overdue === '1', now = today(), days = due => Math.round((Date.parse(now) - Date.parse(due)) / 86400000);
-  const list = (await listInvoices(c, {})).filter(i => (!from || (i.due && i.due.slice(0, 7) >= from)) && (!to || (i.due && i.due.slice(0, 7) <= to)) && (!overdueOnly || i.overdue)
+  const list = (await listInvoices(c, {})).filter(i => (!from || i.month >= from) && (!to || i.month <= to) && (!overdueOnly || i.overdue)
     && (!t || i.customer.includes(t) || String(i.customerName || '').includes(t)));
   const label = s => (!s.set ? '翌月末' : /* 「（未設定）」は出さない（2026-11-17 ユーザー指示） */ `${['当月', '翌月', '翌々月'][s.months] || s.months + 'か月後'}${s.day >= 31 ? '末' : s.day + '日'}`);
   const sites = {};

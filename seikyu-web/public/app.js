@@ -1173,7 +1173,8 @@ VIEWS.receipts = async q => {
   A.clear = d => receiptForm(d.customer, Number(d.receipt) || 0);
   if (tab === 'plan') {
     // 2026-11-01 復元（2026-10-27 に削除）：確認事項 P の回答③「入金予定一覧で予定日を過ぎたものを確認」
-    // 提案書 スライド18：入金予定月・得意先（部分一致）。10/14 打合せ：入金予定月を範囲（過去年月〜現在）で指定し、予定日を過ぎても未入金の請求を表示
+    // 提案書 スライド18：得意先（部分一致）。10/14 打合せ：範囲（過去年月〜現在）で指定し、予定日を過ぎても未入金の請求を表示
+    // 範囲は請求年月（2026-11-20 ユーザー指示：11/18 打合せ No.26。以前は入金予定月）
     // r=1 は利用者が条件を指定した印（「から」を空欄＝過去すべて にできるようにするため）。旧リンクの planMonth は単月として扱う
     const cur = thisMonth(), set = q.r === '1', from = set ? q.from || '' : q.planMonth || cur, to = set ? q.to || '' : q.planMonth || cur, overdue = q.overdue === '1';
     const d = await api('/api/receipt-plan?' + qs({ from, to, customer: q.customer, overdue: overdue ? '1' : '' }));
@@ -1193,10 +1194,10 @@ VIEWS.receipts = async q => {
     A.listSort = listSortAct;   // 並べ替え：得意先順・請求年月（締日）順・入金予定日順
     const prow = sortedBy('plan', d.rows, { cust: (a, b) => jaCmp(a.customer, b.customer) || jaCmp(a.closing, b.closing), closing: (a, b) => jaCmp(a.closing, b.closing) || jaCmp(a.customer, b.customer), due: (a, b) => jaCmp(a.due, b.due) || jaCmp(a.customer, b.customer) });
     const tt = d.totals, range = `${d.from || '過去すべて'} 〜 ${d.to || '指定なし'}`;
-    const summary = `<div class="filters small" style="margin-bottom:8px"><span>入金予定月 <b>${esc(range)}</b>${d.overdueOnly ? '（予定日経過・未入金のみ）' : ''}</span></div>`;
-    return page('入金・消込', '入金予定一覧：支払期日（得意先のサイト）が入金予定月の範囲に入る請求。入金予定日を過ぎても未入金の請求は赤で表示します。',
-      `<label class="field">入金予定月（から）<input type="month" id="rp-from" value="${esc(from)}"></label><label class="field">（まで）<input type="month" id="rp-to" value="${esc(to)}"></label><input id="rp-cust" list="dl-pcust" autocomplete="off" placeholder="得意先（部分一致）" value="${esc(q.customer || '')}" style="width:200px">${custHints()}
-       <label class="small"><input type="checkbox" id="rp-over" ${overdue ? 'checked' : ''}> 予定日経過・未入金のみ</label><button class="primary" data-act="search">検索</button><button data-act="late" title="入金予定月：過去すべて〜今月">予定日経過・未入金（過去〜現在）</button><button data-act="planXlsx" title="画面の検索条件のまま出力">⇩ Excel</button>`,
+    const summary = `<div class="filters small" style="margin-bottom:8px"><span>請求年月 <b>${esc(range)}</b>${d.overdueOnly ? '（予定日経過・未入金のみ）' : ''}</span></div>`;
+    return page('入金・消込', '入金予定一覧：請求年月の範囲・得意先で請求の入金状況（消込漏れ）を確認します。入金予定日を過ぎても未入金の請求は赤で表示します。',
+      `<label class="field">請求年月（から）<input type="month" id="rp-from" value="${esc(from)}"></label><label class="field">（まで）<input type="month" id="rp-to" value="${esc(to)}"></label><input id="rp-cust" list="dl-pcust" autocomplete="off" placeholder="得意先（部分一致）" value="${esc(q.customer || '')}" style="width:200px">${custHints()}
+       <label class="small"><input type="checkbox" id="rp-over" ${overdue ? 'checked' : ''}> 予定日経過・未入金のみ</label><button class="primary" data-act="search">検索</button><button data-act="late" title="請求年月：過去すべて〜今月">予定日経過・未入金（過去〜現在）</button><button data-act="planXlsx" title="画面の検索条件のまま出力">⇩ Excel</button>`,
       `<section class="card glass plan-list">${summary}${sortBarOf('plan', [['cust', '得意先'], ['closing', '請求年月'], ['due', '入金予定日']])}${table([{ label: '得意先', value: r => `${r.customer} ${r.name}` }, { label: '請求年月', value: r => r.closing }, { label: '請求金額', num: 1, value: r => yen(r.total) }, { label: 'サイト', value: r => r.site } /* 見出しは「サイト」（2026-11-17） */,
         { label: '入金予定日', html: r => (r.overdue ? `<span class="check-ng">${esc(r.due)} 超過</span>` : esc(r.due)) }, /* 経過日数の列は 2026-11-17 ユーザー指示で削除 */ { label: '入金予定金額', num: 1, value: r => yen(r.planned) }, { label: '入金金額', num: 1, value: r => yen(r.paid) }, { label: '残高', num: 1, value: r => yen(r.balance) }],
         prow, { empty: 'この条件で入金予定の請求はありません', rowClass: r => (r.overdue ? 'overdue' : ''), foot: ['入金予定合計', '', '', '', '', yen(tt.planned), yen(tt.paid), yen(tt.balance)] })}</section>`);

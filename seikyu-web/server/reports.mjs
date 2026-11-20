@@ -57,7 +57,7 @@ export async function billingConfirmBook(c, q) {
 // 入金予定一覧（提案書 スライド18・10/14 打合せ）— 画面と同じ条件・項目
 export async function receiptPlanBook(c, q) {
   const d = await receiptPlan(c, q), range = `${d.from || '過去すべて'} 〜 ${d.to || '指定なし'}`, t = d.totals;
-  const out = [[T('入金予定一覧')], [`入金予定月 ${range}${d.overdueOnly ? '（予定日経過・未入金のみ）' : ''}${q.customer ? `　得意先 ${q.customer}` : ''}　基準日 ${d.today}　出力日 ${today()}`], [],
+  const out = [[T('入金予定一覧')], [`請求年月 ${range}${d.overdueOnly ? '（予定日経過・未入金のみ）' : ''}${q.customer ? `　得意先 ${q.customer}` : ''}　基準日 ${d.today}　出力日 ${today()}`], [],
     // 2026-11-17 ユーザー指示：見出し「回収サイト」→「サイト」、「経過日数」「状態」の列は削除
     // 見出し「請求年月（締日）」→「請求年月」（2026-11-17 ユーザー指示）
     // 見出し「得意先CD」→「得意先」（2026-11-18 ユーザー指示）
