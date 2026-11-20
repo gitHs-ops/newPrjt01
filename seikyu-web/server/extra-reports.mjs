@@ -169,7 +169,7 @@ export async function extraBook(c, kind, q) {
   if (kind === 'payable-input') {
     // 現行 HAR136 の並び（2026-11-20 ユーザー指示）：業者の行（業者・業者名・住所）→ 伝票ごとに 明細・請求金額の計・支払条件 → 業者計・（内消費税） → 部門計（工事計）→ 最後に 総　合　計
     // 相殺の 2 列・当月／累計の支払額・出来高・支払率は出さない（帳票イメージ 11/08 変更点 No.19）
-    const d = await payableInputList(c, q), out = head(d, `部門 ${d.dept}　${d.month} 月度　区分 ${d.kb ? '1 組織' : 'ブランク 工事'}${d.allVendors ? '' : '　業者 ' + d.vendor}`);   // 全業者（9999999）は表示しない（2026-11-20 ユーザー指示）
+    const d = await payableInputList(c, q), out = head(d, `${d.dept === '全部門' ? '' : '部門 ' + d.dept + '　'}${d.month} 月度　区分 ${d.kb ? '組織' : '工事'}${d.allVendors ? '' : '　業者 ' + d.vendor}`);   // 全業者（9999999）・全部門は表示しない、区分は 組織／工事 だけ（2026-11-20 ユーザー指示）
     // （内消費税）の行の下は実線（業者・部門の区切り。2026-11-17 ユーザー指示）
     const taxEnd = t => ['', '', '', '', '', '（内消費税', '', t, `${t.toLocaleString('ja-JP')} ）`, ''].map(v => ({ v, s: 'jEnd' }));
     const sumRow = (label, n) => ['', '', '', '', '', S(label), '', S(n)];
