@@ -404,7 +404,7 @@ document.addEventListener('click', e => {
 // 検索条件を変えたら「検索」ボタンを目立たせる。読込は「検索」（入力欄で Enter）を押したとき
 const search = () => { const q = { ...route.q }; for (const el of $$('[data-filter]')) { const v = el.dataset.combo ? comboCode(el) : el.value; if (v === null) return; q[el.name] = v; } freshNext = true; go(route.name, q); };
 // 定時請求入力明細表：ボタンの「（組織別）／（工事別）」は区分に合わせる（2026-11-20）
-document.addEventListener('change', e => { if (e.target.id === 'pi-kb' && $('#pi-kb-label')) $('#pi-kb-label').textContent = e.target.value ? '組織' : '工事'; });
+document.addEventListener('change', e => { if (e.target.id === 'pi-kb' && $('#pi-btn')) $('#pi-btn').textContent = `定時請求データ入力明細表（${e.target.value ? '組織' : '工事'}別）`; });   // ボタンの中に要素を入れると flex で改行されるため文字だけ入れ替える
 document.addEventListener('change', e => { if (e.target.matches('[data-filter]')) $$('[data-search]').forEach(b => b.classList.add('pending')); });
 document.addEventListener('keydown', e => { if (e.key === 'Enter' && e.target.matches('input[data-filter]')) { e.preventDefault(); search(); } });
 // Enter で次の入力項目へ（Tab と同じ。Shift+Enter で前へ）。最後の項目からは登録ボタンへ移り、もう一度 Enter で登録（2026-10-29）
@@ -2137,7 +2137,7 @@ const ledgerCard = () => miscCard('材料受払表', '配合計算で保存し�
 const payableReportsCard = () => miscCard('定時請求入力明細表', '部門（工事）→業者→請求明細', `<label class="field">月度<input type="month" id="pi-month" value="${lastClosing().slice(0, 7)}"></label><label class="field">締日<select id="pi-closing"><option value="20" selected>20日</option><option value="31">月末（暦月）</option></select></label>
   <label class="field">部門コード<select id="pi-dept">${options(masters.depts || [], '', { blank: '全部門' })}</select></label><label class="field">区分<select id="pi-kb"><option value="1" selected>1：組織</option><option value="">ブランク：工事</option></select></label>
   <div class="filters-break"></div><label class="field">業者コード（From）<input id="pi-vfrom" list="pi-vlist" maxlength="7" style="width:110px"></label><label class="field">業者コード（To）<input id="pi-vto" list="pi-vlist" maxlength="7" style="width:110px" value="9999999"></label><datalist id="pi-vlist">${(masters.vendors || []).map(v => `<option value="${esc(v.code)}">${esc(v.name)}</option>`).join('')}</datalist>`,
-  '<button data-act="misc" data-kind="payable-input" data-src="pi">定時請求データ入力明細表（<span id="pi-kb-label">組織</span>別）</button>', '業者コード：ブランク＝出力しない／From〜To＝範囲の業者／To に 9999999＝全業者（10/21 打合せ）。発注残・相殺は未確定（Q03）のため0。削減案6では画面照会で代用可とされていますが、帳票としても出力できます。');
+  '<button data-act="misc" data-kind="payable-input" data-src="pi" id="pi-btn">定時請求データ入力明細表（組織別）</button>', '業者コード：ブランク＝出力しない／From〜To＝範囲の業者／To に 9999999＝全業者（10/21 打合せ）。発注残・相殺は未確定（Q03）のため0。削減案6では画面照会で代用可とされていますが、帳票としても出力できます。');
 const pettyReportsCard = () => miscCard('小口現金出納簿', '定額資金前渡制（推定）', rangeInputs('pc', '期間', ...closingRange()),
   '<button data-act="misc" data-kind="petty-book" data-src="pc">小口現金出納簿</button>' + (canWrite() ? '<button data-act="fund">定額資金の設定</button><button data-act="refill">現金補充を登録</button>' : ''), '期首に定額資金を受入、支払ごとに残高を表示し、支払合計を次期補充額とします。JV構成員が登録済みなら出資比率で配分列を表示します。');
 const receiptScheduleCard = () => miscCard('入金予定チェックリスト', '得意先別・工事（現場）別', `<label class="field">入金予定日（から）<input type="date" id="rs-from" value="${addMonths(thisMonth(), -6)}-01"></label><label class="field">入金予定日（まで）<input type="date" id="rs-to" value="${today()}"></label><label class="field"><span>超過分のみ</span><span><input type="checkbox" id="rs-over"> 予定日を過ぎた未入金</span></label><button data-act="misc" data-kind="receipt-schedule" data-src="rs">入金予定チェックリスト</button>`,
