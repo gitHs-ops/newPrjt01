@@ -148,7 +148,7 @@ dialog.modal.wide:has(.py-form) { width: min(960px, calc(100vw - 24px)); }
 .py-form .py-stack label.field { align-content: start; }
 .form-grid .wide { grid-column: 1 / -1; }
 /* 商品仕入の登録：伝票No・仕入日・仕入先・区分を1行に（2026-10-31） */
-.form-grid.pu-head { grid-template-columns: 170px 170px minmax(0, 1fr) 170px; }
+.form-grid.pu-head { grid-template-columns: 170px 170px minmax(0, 1fr) 170px 170px; }
 /* 入力ダイアログの見出し行：ラベルを入力欄の左に置き、複数項目を一行に並べる */
 .inline-fields { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 28px; }
 .inline-fields label.field { display: inline-flex; align-items: center; gap: 8px; white-space: nowrap; }

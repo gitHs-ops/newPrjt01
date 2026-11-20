@@ -1659,6 +1659,8 @@ VIEWS.purchases = async q => {
   // 単位は現行画面（HAW010）の下のガイダンスどおり 1〜3 で入力し、右に単位名（単位マスタからの取得は保留。2026-11-03）
   const calc = tr => { const f = n => tr.querySelector(`[name=${n}]`), code = f('item').value.trim(), hit = masters.items.find(i => i.code === code && !noPurchase(i)), fr = false, nm = tr.querySelector('[data-iname]'), un = tr.querySelector('[data-unit]');
     nm.innerHTML = code && !hit ? `<span class="check-ng">${masters.items.some(i => i.code === code) ? '仕入では使えない商品' : '該当なし'}</span>` : hit ? esc(hit.name) : '商品コードを入力'; nm.classList.toggle('muted', !hit);
+    // 運賃「1: 運賃の登録」（現行 HAW010。2026-11-20 ユーザー指示）：全行 金額だけ入力（数量・単位・単価は入力しない）。商品コードは任意（空欄は「運賃」）
+    if (tr.closest('form')?.querySelector('[name=freight]')?.value === '1') { for (const n of ['quantity', 'unit', 'price']) { f(n).value = ''; f(n).disabled = true; } un.textContent = ''; if (f('amount').readOnly) f('amount').value = ''; f('amount').readOnly = false; f('amount').placeholder = '運賃の金額'; f('amount').title = ''; if (!code) { nm.textContent = '運賃'; nm.classList.remove('muted'); } return Number(String(f('amount').value).replace(/,/g, '') || 0); }
     // 材料の運賃（現行⑭「10900 アスファルト 0.00 t 0.00 1,108,214- 運賃」）：数量を空欄（0）にすると金額を直接入力でき、その行は運賃（2026-11-01）
     const byAmt = !fr && hit && !Number(f('quantity').value || 0);
     // 商品コードなし・数量 0 は運賃：金額だけ入力し、商品名は「運賃」（2026-11-03）
@@ -1674,19 +1676,23 @@ VIEWS.purchases = async q => {
   // サンプル入力は通常の商品から選ぶ（値引き・運賃は選ばない）
   const pickItem = f => { const it = puItems().filter(i => !isFreight(i)), tr = f.querySelector('#pu-lines tbody tr'), el = tr?.querySelector('[name=item]'); if (el && it.length && !hit(el.value)) { el.value = it[Math.floor(Math.random() * it.length)].code; const un = tr.querySelector('[name=unit]'); if (un && !un.value) un.value = '1'; el.dispatchEvent(new Event('input', { bubbles: true })); } };
   const hit = code => puItems().some(i => i.code === String(code || '').trim());
+  // 修正：全明細が金額だけ・摘要「運賃」の伝票は「1: 運賃の登録」で開く
+  const frOld = old => !!old && old.lines.length > 0 && old.lines.every(l => l.lineKind === '2' && l.memo === '運賃');
   // 登録と修正は同じ画面（2026-11-08 ユーザー指示「一覧で、あれば修正、なければ新規」）。修正は伝票No そのままで明細をすべて入れ替える
   const puForm = old => modal({ title: old ? '商品仕入の詳細' : '商品仕入の登録', submit: old ? '更新する' : '登録する', wide: true, sample: old ? undefined : pickItem, body: `<div class="form-grid pu-head">${field('伝票No', `<input value="${old ? esc(old.no) : '（登録時に自動採番）'}" disabled>`)}${field('仕入日（納入日）', `<input type="date" name="date" value="${esc(old ? String(old.date).slice(0, 10) : today())}">`, { req: 1 })}${field('仕入先（業者）', `<select name="vendor">${options(old ? masters.vendors.filter(x => x.active || x.code === old.vendor) : active('vendors'), old?.vendor || '', { blank: '選択してください' })}</select>`, { req: 1 })}
-      ${field('区分', `<select name="kind">${Object.entries(meta.purchaseKinds).map(([k, v]) => `<option value="${k}" ${old && old.kind === k ? 'selected' : ''}>${k} ${esc(v)}</option>`).join('')}</select>`)}</div>
+      ${field('区分', `<select name="kind">${Object.entries(meta.purchaseKinds).map(([k, v]) => `<option value="${k}" ${old && old.kind === k ? 'selected' : ''}>${k} ${esc(v)}</option>`).join('')}</select>`)}${field('運賃', `<select name="freight"><option value="">（なし）</option><option value="1" ${frOld(old) ? 'selected' : ''}>1 運賃の登録</option></select>`)}</div>
       <datalist id="dl-pu-items">${puItems().map(i => `<option value="${esc(i.code)}">${esc(i.name)}</option>`).join('')}</datalist>
       ${lineGrid('pu-lines', cols, old ? Array.from({ length: Math.max(3, old.lines.length) }, () => ({})) : undefined, { lineNo: true })}`,
-    onOpen: f => { const g = $('#pu-lines'); g.addEventListener('input', e => { if (e.target.name === 'unit') e.target.value = e.target.value.replace(/[^123]/g, '').slice(0, 1); }, true); g.addEventListener('input', () => lineTotal('pu-lines', 'amount', calc)); g.addEventListener('change', () => lineTotal('pu-lines', 'amount', calc));
+    onOpen: f => { const g = $('#pu-lines'); f.querySelector('[name=freight]').addEventListener('change', () => lineTotal('pu-lines', 'amount', calc)); g.addEventListener('input', e => { if (e.target.name === 'unit') e.target.value = e.target.value.replace(/[^123]/g, '').slice(0, 1); }, true); g.addEventListener('input', () => lineTotal('pu-lines', 'amount', calc)); g.addEventListener('change', () => lineTotal('pu-lines', 'amount', calc));
       if (!old) return;
       const trs = $$('#pu-lines tbody tr'), put = (tr, n, v) => { const el = tr.querySelector(`[name=${n}]`); if (el) el.value = v; };
       old.lines.forEach((l, i) => { const tr = trs[i], amt = l.lineKind === '2'; put(tr, 'item', l.item); put(tr, 'quantity', amt ? (l.item ? '' : '0') : String(l.quantity)); put(tr, 'unit', amt ? '' : l.unitCode); put(tr, 'price', amt ? '' : Number(l.price).toFixed(2)); put(tr, 'taxCode', l.taxCode); });
       lineTotal('pu-lines', 'amount', calc);
       old.lines.forEach((l, i) => { if (l.lineKind === '2') put(trs[i], 'amount', String(l.net)); });
+      if (frOld(old)) old.lines.forEach((l, i) => put(trs[i], 'quantity', ''));
       lineTotal('pu-lines', 'amount', calc); },
-    onSubmit: async v => { const lines = readLines('pu-lines').map(l => { const item = String(l.item || '').trim(), byAmt = !Number(l.quantity || 0) && String(l.amount || '').trim() !== ''; return { ...l, item, lineKind: byAmt ? '2' : '1' }; });
+    onSubmit: async v => { const fr = v.freight === '1', lines = readLines('pu-lines').map(l => { const item = String(l.item || '').trim(), byAmt = !Number(l.quantity || 0) && String(l.amount || '').trim() !== '';
+        return fr ? { item, amount: l.amount, taxCode: l.taxCode, quantity: '', unit: '', price: '', lineKind: '2', memo: '運賃' } : { ...l, item, lineKind: byAmt ? '2' : '1' }; });   // 運賃の登録は全行 金額だけ・摘要「運賃」
       const body = { date: v.date, vendor: v.vendor, kind: v.kind, memo: v.memo, lines }, r = await post(old ? '/api/purchases/update' : '/api/purchases', old ? { ...body, id: old.id } : body);
       toast(`仕入 ${pNo(r.no)}（${r.lines}行・${yen(r.net)}円）を${old ? '修正' : '登録'}しました`); render(); } });
   A.new = () => puForm(null);
@@ -1694,7 +1700,7 @@ VIEWS.purchases = async q => {
   A.del = d => confirmBox('仕入の取消', `仕入伝票 ${pNo(d.no)} の全明細を削除します。`, () => post('/api/purchases/delete', { id: Number(d.id) }).then(() => { toast('取消しました'); render(); }), '取消する');
   return page('商品仕入', '業者からの商品仕入を伝票（複数明細）で記録します（purchase）。区分 1=仕入／2=他社納入、運賃行あり。', `${monthInput('month', month)}${filterSelect('vendor', masters.vendors, q.vendor, 'すべての業者')}${csvLink('purchases', { month })}${canWrite() ? '<button class="primary" data-act="new">＋ 仕入登録</button>' : ''}`,
     `<section class="card glass" data-sub="list">${table([{ label: '伝票No.', value: r => pNo(r.no, r.line) }, { label: '仕入日', value: r => r.date }, { label: '区分', value: r => r.kindName }, { label: '業者', value: r => r.vendorName },
-      { label: '商品', value: r => `${r.itemName || r.item}${r.lineKind === '2' && !/運賃/.test(r.itemName || '') ? '（金額のみ）' : ''}` }, { label: '数量', num: 1, value: r => (r.lineKind === '2' ? '' : `${r.quantity} ${r.unit || ''}`) },
+      { label: '商品', value: r => `${r.itemName || r.item}${r.lineKind === '2' && !/運賃/.test(r.itemName || '') ? (r.memo === '運賃' ? '（運賃）' : '（金額のみ）') : ''}` }, { label: '数量', num: 1, value: r => (r.lineKind === '2' ? '' : `${r.quantity} ${r.unit || ''}`) },
       { label: '単価', num: 1, value: r => (r.lineKind === '2' ? '' : Number(r.price).toLocaleString('ja-JP', { minimumFractionDigits: 2, maximumFractionDigits: 2 })) }, { label: '金額', num: 1, value: r => yen(r.net) }, { label: '処税率', value: r => r.taxCode },
       { label: '', html: r => canWrite() && r.line === 1 ? `<button class="mini" data-act="edit" data-no="${esc(r.no)}">詳細</button>` : '' }], list, { foot: ['合計', '', '', '', '', '', '', yen(list.reduce((n, r) => n + r.net, 0)), '', ''] })}</section>
     <div data-sub="reports">${miscCard('商品仕入登録リスト', '仕入先別・仕入日ごと', `<label class="field">対象月（前月21日〜当月20日）<input type="month" id="pl-month" value="${thisMonth()}"></label>`, '<button data-act="misc" data-kind="purchase-register" data-src="pl">⇩ Excel</button>')}${isUser01() ? '' : dailyCard('商品別仕入日報', 'pd', '<button data-act="misc" data-kind="item-purchase-daily" data-src="pd">商品別仕入日報</button>')}</div>`);   // user01 は商品別仕入日報を出さない（2026-11-17）
