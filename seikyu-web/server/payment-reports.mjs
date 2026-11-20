@@ -196,6 +196,8 @@ export async function paymentBook(c, kind, q) {
     const merges = ['A4:A5', 'B4:B5', 'C4:F4', 'G4:J4', 'K4:K5'];   // 見出し「業者CD」→「業　者」（2026-11-20 ユーザー指示）
     for (const v of d.vendors) out.push([v.vendor, v.name, v.m3, v.m2, v.l1, v.total, v.o3, v.o2, v.o1, v.offset, v.net]);
     const t = d.totals; out.push([], ['', S('合　　計'), S(t.m3), S(t.m2), S(t.l1), S(t.total), S(0), S(0), S(t.offset), S(t.offset), S(t.net)]);
+    const main = { name: '支払繰越一覧表', rows: out, widths: [10, 34, 13, 13, 13, 14, 12, 12, 12, 12, 14], merges };
+    if (q.noRecon) return { name: `支払繰越一覧表_${d.date}.xlsx`, body: xlsx([main]) };   // user01 は照合シートなし（2026-11-20 ユーザー指示）
     // 追加シート「支払繰越照合」（2026-11-20 ユーザー指示）：期間（開始〜終了）で 前回繰越＋今回計上−今回支払＝今回繰越。今回支払の合計は業者別支払内訳表の合計と一致
     const r = await carryoverRecon(c, q), md = x => `${Number(x.slice(5, 7))}/${Number(x.slice(8, 10))}`;
     const o2 = [[T('支払繰越照合表'), '', '', '', '', `${ymdJ(r.from)} 〜 ${ymdJ(r.to)}`], [`出力日 ${today()}`], []];
@@ -205,7 +207,7 @@ export async function paymentBook(c, kind, q) {
     o2.push([]); const g = o2.length + 1;   // 説明の行は横に結合（文字がセルで切れないように）
     o2.push(['', '業者別支払内訳表（同じ期間）の支払額 合計', '', '', r.listTotal, ''], ['', '前回繰越 ＋ 今回計上 − 今回支払 ＝ 今回繰越（今回支払＝振込＋手数料＋相殺＋安全協力費）']);
     const m2 = [`B${g}:D${g}`, `B${g + 1}:F${g + 1}`];
-    return { name: `支払繰越一覧表_${d.date}.xlsx`, body: xlsx([{ name: '支払繰越一覧表', rows: out, widths: [10, 34, 13, 13, 13, 14, 12, 12, 12, 12, 14], merges }, { name: '支払繰越照合', rows: o2, widths: [10, 40, 18, 14, 14, 18], merges: m2 }]) };
+    return { name: `支払繰越一覧表_${d.date}.xlsx`, body: xlsx([main, { name: '支払繰越照合', rows: o2, widths: [10, 40, 18, 14, 14, 18], merges: m2 }]) };
   }
   if (kind === 'notices') {
     // 現行 支払案内書の並び（2026-11-04）：宛先（〒・住所・業者名 御中・（業者コード））と発行元（〒・住所・会社名・共同企業体・TEL・FAX・登録番号）、

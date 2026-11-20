@@ -65,7 +65,7 @@ export async function createApp({ pool, publicDir, secureCookies = process.env.N
   route('GET', '/api/reports/payments/:kind', 'read', x => {
     const fn = { 'vendor-payments': PR.vendorPayments, 'transfer-request': PR.transferRequest, carryover: PR.payableCarryover, notices: PR.paymentNotices }[x.params.kind];
     if (!fn) throw new DomainError('帳票の種類が不正です');
-    return x.q.format === 'xlsx' ? db(c => PR.paymentBook(c, x.params.kind, x.q)).then(b => ({ file: b })) : db(c => fn(c, x.q));
+    return x.q.format === 'xlsx' ? db(c => PR.paymentBook(c, x.params.kind, { ...x.q, noRecon: x.user.login_id === 'user01' ? '1' : '' })).then(b => ({ file: b })) : db(c => fn(c, x.q));   // user01 は支払繰越照合シートを出さない（2026-11-20）
   });
   route('GET', '/api/reports/misc/:kind', 'read', x => {
     const k = x.params.kind, fn = MR.MISC[k] || XR.EXTRA[k] || NEW_REPORTS[k]; if (!fn) throw new DomainError('帳票の種類が不正です');
