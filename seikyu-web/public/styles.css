@@ -578,7 +578,7 @@ input:disabled, select:disabled, textarea:disabled { background: rgba(120,130,15
 .lr-pay .neg { color: #c62828; }
 .lr-pay .lr-deprow td { background: #fff7ed; }
 /* 入金分配端数調整登録：構成員名・得意先などが 2 行にならないよう広げる（2026-11-08） */
-dialog.modal.wide:has(#jva) { width: min(1480px, calc(100vw - 24px)); }
+dialog.modal.wide:has(#jva) { width: fit-content; min-width: min(760px, calc(100vw - 24px)); max-width: calc(100vw - 24px); } /* 表の幅に合わせ右の空白を出さない（2026-11-21 ユーザー指示） */
 #jva th, #jva td { white-space: nowrap; }
 /* 請求締日の範囲（〜）は 2 行にして、幅 1024 でも横スクロールしない（2026-11-09） */
 #jva td, #jva th { padding-left: 8px; padding-right: 8px; }

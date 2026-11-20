@@ -2475,7 +2475,7 @@ VIEWS.reports = async q => {
 VIEWS.periods = async () => {
   const A = actions;
   const p = await api('/api/periods');
-  A.check = async d => { const issues = await api('/api/periods/check?month=' + d.month); $(`#chk-${d.month}`).innerHTML = issues.length ? `<ul class="list check-ng small">${issues.map(i => `<li>${esc(i)}</li>`).join('')}</ul><button class="mini" data-act="checkDetail" data-month="${d.month}">詳細</button>` : '<span class="check-ok small">確定可能です</span>'; };
+  A.check = async d => { const issues = await api('/api/periods/check?month=' + d.month); $(`#chk-${d.month}`).innerHTML = issues.length ? `<div style="display:flex;align-items:center;gap:12px"><ul class="list check-ng small" style="margin:0">${issues.map(i => `<li>${esc(i)}</li>`).join('')}</ul><button class="mini" data-act="checkDetail" data-month="${d.month}">詳細</button></div>` : '<span class="check-ok small">確定可能です</span>'; };
   // 確定前チェックの結果を明細で表示（未請求の出荷がある得意先・未発行の請求書。2026-11-21 ユーザー指示）
   A.checkDetail = async d => {
     const k = await api('/api/periods/check?' + qs({ month: d.month, detail: 1 }));
