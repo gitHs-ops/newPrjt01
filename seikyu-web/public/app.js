@@ -1725,6 +1725,7 @@ const lastClosing = () => { const [y, m, d] = today().split('-').map(Number); re
 VIEWS.inventory = async q => {
   const A = actions;
   A.misc = d => miscReport(d.kind, d.src).catch(e => toast(e.message, true)); A.mix = () => mixDialog().catch(e => toast(e.message, true));
+  A.icSort = d => { const st = listSort.ic; listSort.ic = st?.k === d.k ? { k: d.k, dir: -st.dir } : { k: d.k, dir: 1 }; icApplySort(); };   // 入力中の数量を消さないよう再描画せずに行を並べ替える（2026-11-21）
   const [list, cnt] = await Promise.all([api('/api/inventory?' + qs({ month: q.month || thisMonth() })), api('/api/inventory/counts?' + qs({ date: q.date || lastClosing() }))]);
   A.countSave = async (_, btn) => {
     const lines = $$('.ic-qty').filter(x => x.value.trim() !== x.dataset.orig).map(x => ({ item: x.dataset.item, quantity: x.value.trim().replace(/,/g, '') }));
@@ -1757,12 +1758,13 @@ VIEWS.inventory = async q => {
     <div class="filters"><label class="field">調査日<input type="date" id="ic-date" name="date" data-filter value="${esc(cnt.date)}"></label><span>月度 <b>${esc(cnt.month)}</b></span>${cnt.no ? `<span>伝票No <b>${esc(cnt.no)}</b></span>` : ''}${cnt.posted ? badge('在庫計上済', 'green') : badge(`登録 ${cnt.registered}品目`, cnt.registered ? '' : 'gray')}
       <label class="field">区分<select id="ic-kind"><option value="">すべて</option><option>製品</option><option>商品・材料</option></select></label>${!canWrite() ? '' : cnt.posted ? '<button class="primary" disabled title="この月度は在庫計上済みです。「在庫計上」で取消すと登録できます">登録</button><span class="muted small">（在庫計上済みのため登録できません）</span>' : '<button class="primary" data-act="countSave">登録</button>'}<button type="button" data-act="misc" data-kind="inventory-register" data-src="ir" ${icSaved.has(cnt.month) ? '' : 'disabled'} title="［登録］すると使えます。この月度の在庫登録リストを表示">在庫登録リスト</button></div>
     ${cnt.posted ? `<p class="note small">この月度は在庫計上済みのため変更できません（入力欄はロック）。${isUser01() ? '' /* 取消は設けない（2026-11-20） */ : '未計上の月度は上の「調査日」を変えて［検索］すると入力できます。'}</p>` : isUser01() ? '' /* user01 は案内文を出さない（2026-11-17） */ : '<p class="note small">表示するのは商品マスタの「実在庫登録に表示」に○がある商品だけです（この月度に登録済みの商品は○が無くても表示）。<br>① ここで品目ごとの在庫数量を入力して［登録］ → ② <a href="#inventory/mix">配合計算</a>・<a href="#inventory/ledger">材料受払表</a> → ③ <a href="#inventory/post">在庫計上</a> で［在庫計上］（月度ごとに1回）。</p>'}
+    <div id="ic-sort">${icSortBar()}</div>
     <div class="table-wrap" style="max-height:60vh;overflow:auto"><table id="ic-grid"><thead><tr><th>区分</th><th>コード</th><th>商品名／製品名</th><th class="num">在庫数量</th><th>単位</th><th style="width:40%"></th></tr></thead><tbody>
-    ${cnt.items.length || emptyShown ? '' : '<tr><td colspan="6" class="muted">表示する商品がありません。商品マスタで「実在庫登録に表示」に○を付けてください。</td></tr>'}${cnt.items.map(r => `<tr data-text="${esc((r.code + ' ' + r.name).toLowerCase())}" data-kind="${esc(r.kind)}"><td class="small muted">${esc(r.kind)}</td><td>${esc(r.code)}</td><td>${esc(r.name)}</td><td class="num"><input class="num ic-qty" data-item="${esc(r.code)}" data-orig="${esc(qtyOf(r.quantity))}" value="${esc(qtyOf(r.quantity))}" inputmode="decimal" style="width:130px" ${ro ? 'disabled' : ''}></td><td>${esc(r.unit)}</td><td></td></tr>`).join('')}
+    ${cnt.items.length || emptyShown ? '' : '<tr><td colspan="6" class="muted">表示する商品がありません。商品マスタで「実在庫登録に表示」に○を付けてください。</td></tr>'}${sortedBy('ic', cnt.items, IC_SORT_FNS).map(r => `<tr data-text="${esc((r.code + ' ' + r.name).toLowerCase())}" data-kind="${esc(r.kind)}" data-code="${esc(r.code)}" data-name="${esc(r.name)}"><td class="small muted">${esc(r.kind)}</td><td>${esc(r.code)}</td><td>${esc(r.name)}</td><td class="num"><input class="num ic-qty" data-item="${esc(r.code)}" data-orig="${esc(qtyOf(r.quantity))}" value="${esc(qtyOf(r.quantity))}" inputmode="decimal" style="width:130px" ${ro ? 'disabled' : ''}></td><td>${esc(r.unit)}</td><td></td></tr>`).join('')}
     </tbody></table></div>
-    <div class="filters" style="margin-top:10px"><span class="muted small">空欄は未登録。登録済みの数量を消して登録すると、その品目の実在庫を取り消します。数量は小数2桁まで。</span></div></section>`;
+    </section>`;   // 下の案内文「空欄は未登録。…数量は小数2桁まで。」は削除（2026-11-21 ユーザー指示）
   const postCard = `<section class="card glass" data-sub="post"><div class="card-head"><h2>在庫計上（月次1回）</h2></div>
-    <div class="filters"><label class="field">計上月度<input type="month" id="ip-month" value="${esc(cnt.month)}"></label>${canWrite() ? '<button class="primary" data-act="post">在庫計上</button>' : ''}${isUser01() ? '<button data-act="simulate" title="テスト用：在庫計上と同じ計算をして結果を表示します。保存しないので何度でも実行できます">模擬実行</button>' : ''}${'' /* ［在庫計上の取消］は設けない（2026-11-20 ユーザー指示：user01 にも出さない） */}</div>
+    <div class="filters"><label class="field">計上月度<input type="month" id="ip-month" value="${esc(cnt.month)}"></label>${canWrite() ? '<button class="primary" data-act="post">在庫計上</button>' : ''}${isUser01() ? '<button data-act="simulate" title="テスト用：在庫計上と同じ計算をして結果を表示します。保存しないので何度でも実行できます">模擬実行</button>' : ''}<a class="button" href="#inventory/list">在庫一覧</a>${'' /* ［在庫一覧］（メニュー画面を開く）は［模擬実行］の右（2026-11-21 ユーザー指示） */}${'' /* ［在庫計上の取消］は設けない（2026-11-20 ユーザー指示：user01 にも出さない） */}</div>
     </section>`;
   return page('在庫', '実在庫登録 → 配合計算 → 材料受払表 → 在庫計上（月次1回）の順に処理します（10/21 打合せ）。', `${monthInput('month', q.month || thisMonth())}${csvLink('inventory', { month: q.month || thisMonth() })}`,
     `${countCard}${postCard}<section class="card glass" data-sub="list"><h2>在庫一覧</h2>${table([{ label: '月度', value: r => r.month }, { label: '調査日', value: r => String(r.countedOn || '').slice(0, 10) }, { label: '商品', value: r => `${r.item} ${r.itemName}` }, { label: '数量', num: 1, value: r => `${r.quantity} ${r.unit || ''}` },
@@ -1775,6 +1777,10 @@ const icSaved = new Set();
 // コード・名称の絞込と「入力済みのみ」は 2026-11-03 ユーザー指示で非表示（区分のみ残す）
 document.addEventListener('input', e => { if (e.target.id === 'ic-search') icFilter(); });
 document.addEventListener('change', e => { if (e.target.id === 'ic-only' || e.target.id === 'ic-kind') icFilter(); });
+// 実在庫登録のソート（区分・コード・商品名／製品名。2026-11-21 ユーザー指示）
+const IC_SORT_FNS = { kind: (a, b) => jaCmp(a.kind, b.kind) || jaCmp(a.code, b.code), code: (a, b) => jaCmp(a.code, b.code), name: (a, b) => jaCmp(a.name, b.name) || jaCmp(a.code, b.code) };
+const icSortBar = () => sortBarOf('ic', [['kind', '区分'], ['code', 'コード'], ['name', '商品名／製品名']]).replace(/data-act="listSort"/g, 'data-act="icSort"');
+function icApplySort() { const tb = $('#ic-grid tbody'); if (!tb) return; const trs = [...tb.querySelectorAll('tr[data-code]')], of = tr => ({ kind: tr.dataset.kind, code: tr.dataset.code, name: tr.dataset.name }); sortedBy('ic', trs, Object.fromEntries(Object.entries(IC_SORT_FNS).map(([k, f]) => [k, (x, y) => f(of(x), of(y))]))).forEach(tr => tb.appendChild(tr)); const bar = $('#ic-sort'); if (bar) bar.innerHTML = icSortBar(); }
 function icFilter() { const t = ($('#ic-search')?.value || '').trim().toLowerCase(), only = $('#ic-only')?.checked, kind = $('#ic-kind')?.value; $$('#ic-grid tbody tr').forEach(tr => { const v = tr.querySelector('.ic-qty')?.value.trim(); tr.hidden = (t && !tr.dataset.text.includes(t)) || (only && !v) || (kind && tr.dataset.kind !== kind); }); }
 
 // 当月度の締切日（20日締め：21日以降は翌月20日）
@@ -2156,7 +2162,7 @@ const dailyReportsCard = () => dailyCard('日報出力', 'dr', '<button data-act
 const shipDailyCard = () => dailyCard('出荷日報', 'sd', '<button data-act="misc" data-kind="item-ship-daily" data-src="sd">商品別出荷日報</button><button data-act="misc" data-kind="customer-ship-daily" data-src="sd">得意先別出荷日報</button>');
 const invPeriod = p => `<label class="field">処理年月（計算年月）<input type="month" id="${p}-month" value="${lastClosing().slice(0, 7)}"></label><label class="field">締日<select id="${p}-closing"><option value="20" selected>20日</option><option value="10">10日</option><option value="31">月末（暦月）</option></select></label>`;
 // 配合計算の画面（2026-11-04）。2026-11-12 から［配合計算を実行］で結果を保存し（材料受払の計算結果・原価）、材料受払表はその結果を出力する（D-072・機能一覧 9-3・10-3）
-const mixCard = () => miscCard('配合計算', '月次（実在庫登録・商品仕入登録の後に実行）。計算年月を指定して実行し、結果を保存して材料受払表に使う', invPeriod('mx'), canWrite() ? '<button class="primary" data-act="mix">配合計算を実行</button>' : '');
+const mixCard = () => miscCard('配合計算', '月次（実在庫登録・商品仕入登録の後に実行）。計算年月を指定して実行し、結果を保存して材料受払表に使う', invPeriod('mx'), `${canWrite() ? '<button class="primary" data-act="mix">配合計算を実行</button>' : ''}<a class="button" id="mx-ledger" href="#inventory/ledger">材料受払表</a>`);   // ［材料受払表］（メニュー画面を開く）は［配合計算を実行］の右（2026-11-21 ユーザー指示）
 const ledgerCard = () => miscCard('材料受払表', '配合計算で保存した結果を出力（先に 在庫 → 配合計算 を実行）', invPeriod('mi'), '<button data-act="misc" data-kind="material-ledger" data-src="mi">⇩ Excel</button>'); // 「現行の配合計算処理＋材料受払表印刷」の注記は削除（2026-11-03）
 // 10/19 打合せ：出力指示＝締切日・部門コード（組織マスタ）・区分（ブランク＝工事、1＝組織）・業者コード From〜To（ブランク〜9999999＝全業者）
 const payableReportsCard = () => miscCard('定時請求入力明細表', '部門（工事）→業者→請求明細', `<label class="field">締切日<input type="date" id="pi-date" value="${lastClosing()}"></label>${/* 締日→締切日（定時請求データ入力の入力項目と同じ。2026-11-20 ユーザー指示） */ ''}
@@ -2323,7 +2329,7 @@ async function miscReport(kind, src, showIn) {
 // 実行後は［配合計算を実行］の右に結果の Excel を出す（2026-11-17 ユーザー指示）。年月・締日を変えたら消す（別条件の結果と取り違えないため）
 function mixResultLink(month, closing) {
   $('#mx-xl')?.remove();
-  $('[data-act="mix"]')?.insertAdjacentHTML('afterend', `<a class="button" id="mx-xl" href="/api/reports/misc/mix?${qs({ month, closing })}&format=xlsx" download>⇩ 配合計算結果（Excel）</a>`);
+  ($('#mx-ledger') || $('[data-act="mix"]'))?.insertAdjacentHTML('afterend', `<a class="button" id="mx-xl" href="/api/reports/misc/mix?${qs({ month, closing })}&format=xlsx" download>⇩ 配合計算結果（Excel）</a>`);
 }
 document.addEventListener('change', e => { if (['mx-month', 'mx-closing'].includes(e.target.id)) $('#mx-xl')?.remove(); });
 // 配合計算モーダル（配合マスタ×材料単価＋経費単価 → 原価）は 2026-11-02 から画面から開かない（現行の配合計算処理とは別物。API は残す）
