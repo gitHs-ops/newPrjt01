@@ -188,7 +188,7 @@ export async function extraBook(c, kind, q) {
         for (const r of v.rows) out.push(['', r.docNo, r.account, r.sub, r.accountName, r.subName, r.orderRemain, r.amount, r.offset, r.memo, r.tax]);
         out.push(['', '', '', '', '', '', '', v.total, '', `（ ${v.term} ）`], ['', '', '', '', '', S('業者合計'), '', S(v.total), S(v.offset), S(v.total - v.offset)], taxEnd(v.tax), []);
       }
-      out.push(['', '', '', '', '', S('組織合計') /* 工事合計 → 組織合計（2026-11-20 ユーザー指示） */, '', S(dp.total), S(dp.offset), S(dp.total - dp.offset)], taxEnd(dp.tax), []);
+      out.push(['', '', '', '', '', S(d.kb ? '組織合計' : '工事合計') /* 区分 1＝組織合計、ブランク＝工事合計（2026-11-20 ユーザー指示） */, '', S(dp.total), S(dp.offset), S(dp.total - dp.offset)], taxEnd(dp.tax), []);
       out.push(['', '', '', '', '', '', '', '', '', H('当月支払額'), H('当月出来高')], ['', '', '', '', '', '', '', '', '', dp.paid, dp.done]   /* 支払率は出さない（2026-11-20 ユーザー指示） */);
       out.push(['', '', '', '', '', '', '', '', '', H('累計支払額'), H('累計出来高')], ['', '', '', '', '', '', '', '', '', dp.cumPaid, dp.cumDone], []);
     }

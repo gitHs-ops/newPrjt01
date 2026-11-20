@@ -403,6 +403,8 @@ document.addEventListener('click', e => {
 });
 // 検索条件を変えたら「検索」ボタンを目立たせる。読込は「検索」（入力欄で Enter）を押したとき
 const search = () => { const q = { ...route.q }; for (const el of $$('[data-filter]')) { const v = el.dataset.combo ? comboCode(el) : el.value; if (v === null) return; q[el.name] = v; } freshNext = true; go(route.name, q); };
+// 定時請求入力明細表：ボタンの「（組織別）／（工事別）」は区分に合わせる（2026-11-20）
+document.addEventListener('change', e => { if (e.target.id === 'pi-kb' && $('#pi-kb-label')) $('#pi-kb-label').textContent = e.target.value ? '組織' : '工事'; });
 document.addEventListener('change', e => { if (e.target.matches('[data-filter]')) $$('[data-search]').forEach(b => b.classList.add('pending')); });
 document.addEventListener('keydown', e => { if (e.key === 'Enter' && e.target.matches('input[data-filter]')) { e.preventDefault(); search(); } });
 // Enter で次の入力項目へ（Tab と同じ。Shift+Enter で前へ）。最後の項目からは登録ボタンへ移り、もう一度 Enter で登録（2026-10-29）
@@ -2135,7 +2137,7 @@ const ledgerCard = () => miscCard('材料受払表', '配合計算で保存し�
 const payableReportsCard = () => miscCard('定時請求入力明細表', '部門（工事）→業者→請求明細', `<label class="field">月度<input type="month" id="pi-month" value="${lastClosing().slice(0, 7)}"></label><label class="field">締日<select id="pi-closing"><option value="20" selected>20日</option><option value="31">月末（暦月）</option></select></label>
   <label class="field">部門コード<select id="pi-dept">${options(masters.depts || [], '', { blank: '全部門' })}</select></label><label class="field">区分<select id="pi-kb"><option value="1" selected>1：組織</option><option value="">ブランク：工事</option></select></label>
   <div class="filters-break"></div><label class="field">業者コード（From）<input id="pi-vfrom" list="pi-vlist" maxlength="7" style="width:110px"></label><label class="field">業者コード（To）<input id="pi-vto" list="pi-vlist" maxlength="7" style="width:110px" value="9999999"></label><datalist id="pi-vlist">${(masters.vendors || []).map(v => `<option value="${esc(v.code)}">${esc(v.name)}</option>`).join('')}</datalist>`,
-  '<button data-act="misc" data-kind="payable-input" data-src="pi">定時請求データ入力明細表（組織別）</button>', '業者コード：ブランク＝出力しない／From〜To＝範囲の業者／To に 9999999＝全業者（10/21 打合せ）。発注残・相殺は未確定（Q03）のため0。削減案6では画面照会で代用可とされていますが、帳票としても出力できます。');
+  '<button data-act="misc" data-kind="payable-input" data-src="pi">定時請求データ入力明細表（<span id="pi-kb-label">組織</span>別）</button>', '業者コード：ブランク＝出力しない／From〜To＝範囲の業者／To に 9999999＝全業者（10/21 打合せ）。発注残・相殺は未確定（Q03）のため0。削減案6では画面照会で代用可とされていますが、帳票としても出力できます。');
 const pettyReportsCard = () => miscCard('小口現金出納簿', '定額資金前渡制（推定）', rangeInputs('pc', '期間', ...closingRange()),
   '<button data-act="misc" data-kind="petty-book" data-src="pc">小口現金出納簿</button>' + (canWrite() ? '<button data-act="fund">定額資金の設定</button><button data-act="refill">現金補充を登録</button>' : ''), '期首に定額資金を受入、支払ごとに残高を表示し、支払合計を次期補充額とします。JV構成員が登録済みなら出資比率で配分列を表示します。');
 const receiptScheduleCard = () => miscCard('入金予定チェックリスト', '得意先別・工事（現場）別', `<label class="field">入金予定日（から）<input type="date" id="rs-from" value="${addMonths(thisMonth(), -6)}-01"></label><label class="field">入金予定日（まで）<input type="date" id="rs-to" value="${today()}"></label><label class="field"><span>超過分のみ</span><span><input type="checkbox" id="rs-over"> 予定日を過ぎた未入金</span></label><button data-act="misc" data-kind="receipt-schedule" data-src="rs">入金予定チェックリスト</button>`,
@@ -2203,7 +2205,7 @@ async function jvAllocDialog() {
 }
 function miscParams(kind, src) {
   if (src === 'mi' || src === 'mx') return { month: $(`#${src}-month`).value, closing: $(`#${src}-closing`).value };
-  if (src === 'pi') return { month: $('#pi-month').value, closing: $('#pi-closing').value, dept: $('#pi-dept').value, kb: $('#pi-kb').value, vendorFrom: $('#pi-vfrom').value.trim().toUpperCase(), vendorTo: $('#pi-vto').value.trim().toUpperCase() };
+  if (src === 'pi') return { month: $('#pi-month').value, closing: $('#pi-closing').value, dept: $('#pi-dept').value, kb: $('#pi-kb').value || '0' /* ブランク（工事）は空文字だと送られずサーバの既定 1（組織）になっていた。2026-11-20 */, vendorFrom: $('#pi-vfrom').value.trim().toUpperCase(), vendorTo: $('#pi-vto').value.trim().toUpperCase() };
   if (src === 'jv') return { closing: $('#jv-closing').value };
   if (src === 'jvs') return { closing: $('#jv-closing').value, layout: 'summary' };
   if (src === 'pc') return { from: $('#pc-from').value, to: $('#pc-to').value };
@@ -2264,7 +2266,7 @@ async function miscReport(kind, src, showIn) {
     body = `<p class="small">部門 ${esc(d.dept)} ／ 区分 ${d.kb ? '1 組織' : 'ブランク 工事'} ／ 業者 ${esc(d.vendor)}</p>` + (d.depts.length ? d.depts.map(dp => `<h3 style="margin:10px 0 4px">${esc(d.groupLabel)} : ${esc(dp.dept)} ${esc(dp.name)}</h3><div class="table-wrap"><table><thead><tr><th>業者CD</th><th colspan="10">業者名</th></tr><tr><th></th><th>伝票No</th><th>科目</th><th>内訳</th><th>科目名</th><th>内訳名</th><th class="num">発注残金額</th><th class="num">請求金額</th><th class="num">相殺金額</th><th>摘要</th><th>処税率</th></tr></thead><tbody>`
       + dp.vendors.map(v => `<tr><td>${esc(v.vendor)}</td><td colspan="10">${esc(v.name)}</td></tr>` + v.rows.map(r => `<tr><td></td><td>${esc(r.docNo)}</td><td>${esc(r.account)}</td><td>${esc(r.sub)}</td><td>${esc(r.accountName)}</td><td>${esc(r.subName)}</td><td class="num">${yen(r.orderRemain)}</td><td class="num">${yen(r.amount)}</td><td class="num">${yen(r.offset)}</td><td>${esc(r.memo)}</td><td>${esc(r.tax)}</td></tr>`).join('')
         + `<tr><td colspan="7"></td><td class="num">${yen(v.total)}</td><td></td><td>（ ${esc(v.term)} ）</td><td></td></tr>` + sub('業者合計', yen(v.total), yen(v.offset), yen(v.total - v.offset)) + sub('（内消費税', yen(v.tax), 0, `${yen(v.tax)} ）`)).join('')
-      + `</tbody><tfoot>${sub('組織合計', yen(dp.total), yen(dp.offset), yen(dp.total - dp.offset))}${sub('（内消費税', yen(dp.tax), 0, `${yen(dp.tax)} ）`)}</tfoot></table></div>`
+      + `</tbody><tfoot>${sub(d.kb ? '組織合計' : '工事合計', yen(dp.total), yen(dp.offset), yen(dp.total - dp.offset))}${sub('（内消費税', yen(dp.tax), 0, `${yen(dp.tax)} ）`)}</tfoot></table></div>`
       + `<table style="margin-left:auto;width:auto"><tr><th>当月支払額</th><th>当月出来高</th></tr><tr><td class="num">${yen(dp.paid)}</td><td class="num">${yen(dp.done)}</td></tr><tr><th>累計支払額</th><th>累計出来高</th></tr><tr><td class="num">${yen(dp.cumPaid)}</td><td class="num">${yen(dp.cumDone)}</td></tr></table>`).join('') : '<div class="empty">この条件の定時請求はありません</div>'); }
   // 現行 HJR051 と同じ並び・表示（2026-10-29）。前期繰越・受入・残高は出さない
   if (kind === 'petty-book') { const ms = d.members || [], pay = d.rows.filter(r => r.amount); body = `<div class="table-wrap"><table><thead><tr><th>支払日</th><th>支払先</th><th>摘要</th><th>科目コード</th><th>科目名</th><th>税率</th><th class="num">支払額</th>${ms.map(m => `<th class="num">${esc(m.name)}<br><span class="small">${m.ratio}%</span></th>`).join('')}</tr></thead><tbody>`
