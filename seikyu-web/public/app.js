@@ -2037,7 +2037,8 @@ VIEWS.payments = async q => {
   A.edit = d => { const p = list.find(r => String(r.id) === String(d.id)); if (p) { pyForm(p); footFirst(`<button type="button" class="danger" data-act="rev" data-id="${p.id}" data-no="${esc(p.no)}" data-exported="${esc(p.exported || '')}">取消</button>`); } };
   A.rev = d => confirmBox('支払の取消', d.exported ? `⚠ 支払 ${d.no} は全銀データ作成済みです（${d.exported.slice(0, 16)}）。銀行へ送信済みなら振込の組戻しが必要です。それでも取消し、逆仕訳を計上しますか？` : `支払 ${d.no} を取消し、逆仕訳を計上します。`, () => post('/api/payments/reverse', { id: Number(d.id), force: !!d.exported }).then(() => { toast('取消しました'); render(); }), '取消する');
   A.prep = d => paymentReport(d.kind).catch(e => toast(e.message, true)); A.zengin = () => zenginDialog().catch(e => toast(e.message, true));
-  A.tlSearch = () => miscReport('transfer-list', 'tl', 'tl-result').catch(e => toast(e.message, true));   // 振込先一覧：［検索］は画面に表示、［Excel］は出力（2026-11-19 ユーザー指示）
+  A.tlSearch = () => miscReport('transfer-list', 'tl', 'tl-result').catch(e => toast(e.message, true));
+  A.tlSort = () => { tlSort = { k: 'code', dir: tlSort.k ? -tlSort.dir : 1 }; A.tlSearch(); };   // 振込先一覧の並べ替え：業者（2026-11-20 ユーザー指示）   // 振込先一覧：［検索］は画面に表示、［Excel］は出力（2026-11-19 ユーザー指示）
   // 状態で絞り込み（2026-11-19 ユーザー指示）：未払（定時請求）・計上済・取消済
   // user01 は未払の行を出さない（2026-11-20 ユーザー指示）
   const PY_ST = [...(isUser01() ? [] : [{ code: 'unpaid', name: '未払' }]), { code: 'POSTED', name: '計上済' }, { code: 'REVERSED', name: '取消済' }];
@@ -2244,9 +2245,11 @@ function miscParams(kind, src) {
   if (src === 'tl') return { to: $('#tl-to').value };
   return { from: $(`#${src}-from`).value, to: $(`#${src}-to`).value };
 }
+let tlSort = { k: '', dir: 1 };   // 振込先一覧（画面）の並び：'' はサーバーの並び、code は業者コード順（振込サイクルの中で並べる）
 async function miscReport(kind, src, showIn) {
   const params = miscParams(kind, src), url = `/api/reports/misc/${kind}?${qs(params)}`, d = await api(url);
   let body = '';
+  if (kind === 'transfer-list' && tlSort.k) d.groups.forEach(g => g.rows.sort((a, b) => jaCmp(a.code, b.code) * tlSort.dir));
   // 現行 HAR031 の並び：商品／製品の区分ごとに計、他社納入分は別の表、最後に総合計（2026-11-04）
   if (kind === 'shipment-summary') body = d.sections.length ? d.sections.map((sc, k) => (sc.other ? `<h3 style="margin:10px 0 4px">${esc(d.title + sc.title)}</h3>` : '') + `<div class="table-wrap"><table><thead><tr><th></th><th colspan="2">商品名・製品名</th><th class="num">数量</th><th class="num">金額</th></tr></thead><tbody>`
     + sc.groups.map(g => g.items.map((x, i) => `<tr><td>${i ? '' : esc(g.label)}</td><td>${esc(x.item)}</td><td>${esc(x.name)}</td><td class="num">${x.qty.toFixed(2)} ${esc(x.unit)}</td><td class="num">${yen(x.net)}</td></tr>`).join('') + `<tr class="subtotal"><td></td><td></td><td>【${esc(g.label)}計】</td><td></td><td class="num">${yen(g.net)}</td></tr>`).join('')
@@ -2306,7 +2309,8 @@ async function miscReport(kind, src, showIn) {
   if (d.columns) { const cell = (col, v) => (col.num && typeof v === 'number' ? (col.dec ? v.toLocaleString('ja-JP', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : yen(v)) : esc(v ?? '')); const tot = (label, t) => `<tr class="subtotal">${d.columns.map((col, i) => `<td class="${col.num ? 'num' : ''}">${i === 0 ? esc(label) : t[col.key] !== undefined ? yen(t[col.key]) : ''}</td>`).join('')}</tr>`;
     body = d.groups.length ? `<div class="table-wrap"><table class="jl"><thead><tr>${d.columns.map(col => `<th class="${col.num ? 'num' : ''}">${esc(col.label)}</th>`).join('')}</tr></thead><tbody>${d.groups.map(g => (g.head ? `<tr class="kb-group"><td colspan="${d.columns.length}" style="font-size:1.05em;padding-top:10px"><b>${esc(g.head)}</b></td></tr>` : '') + (g.title ? `<tr class="kb-group"><td colspan="${d.columns.length}"><b>${esc(g.title)}</b></td></tr>` : '')
       + g.rows.map(r => `<tr>${d.columns.map(col => `<td class="${col.num ? 'num' : ''}">${cell(col, r[col.key])}</td>`).join('')}</tr>`).join('') + (g.totals ? tot(g.label || '計', g.totals) : '') + (g.foot ? tot(g.foot.label, g.foot.totals) : '')).join('')}${d.totals ? tot('総合計', d.totals) : ''}</tbody></table></div>` : '<div class="empty">対象データがありません</div>'; }
-  if (showIn) { $('#' + showIn).innerHTML = `<section class="card glass">${body}</section>`; return; }   // ［検索］：画面に表示（Excel は出さない）
+  const tlBar = kind === 'transfer-list' && d.groups?.length ? `<div class="sort-bar small" style="display:flex;gap:6px;align-items:center;margin-bottom:8px"><span class="muted">ソート順</span><button type="button" class="mini${tlSort.k ? ' primary' : ''}" data-act="tlSort">業者${tlSort.k ? (tlSort.dir > 0 ? ' ▲' : ' ▼') : ''}</button></div>` : '';
+  if (showIn) { $('#' + showIn).innerHTML = `<section class="card glass">${tlBar}${body}</section>`; return; }   // ［検索］：画面に表示（Excel は出さない）
   if (reportCount(body)) { await saveXlsx(url + '&format=xlsx'); return toast(`${d.title} を Excel で出力しました`); } // 選択のポップアップは出さない（2026-10-27）
   modal({ title: `${d.title}`, body: reportConfirm(body, 'mr-body', d.sub || (d.from ? `${d.from} 〜 ${d.to}` : d.month), '') });
 }
