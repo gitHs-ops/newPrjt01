@@ -107,7 +107,16 @@ export async function accountingMasterImport(c, ctx, b) {
   let out;
   if (kind === 'accounts') { check(accName >= 0, `勘定科目名の列がありません（列名：${head.join('、')}）`); out = [['code', 'name', 'active'], ...table.slice(1).map(r => [r[acc], r[accName], '1'])]; }
   else { check(sub >= 0 && subName >= 0, `補助科目コード・補助科目名の列がありません（列名：${head.join('、')}）`); out = [['account', 'code', 'name', 'active'], ...table.slice(1).map(r => [r[acc], r[sub], r[subName], '1'])]; }
+  // 受入の結果を 1 行ずつ返す（2026-11-21 ユーザー指示：結果を一覧で表示）。取込む前のマスタと比べて 登録／更新（名称変更・有効化）／変更なし
+  const T = v => String(v ?? '').trim(), sub2 = kind === 'subaccounts';
+  const before = new Map((await dbRows(c, sub2 ? 'SELECT account_code a, sub_code s, sub_name n, active FROM account_subsubject' : 'SELECT account_code a, account_name n, active FROM account_subject')).map(x => [sub2 ? `${x.a}|${x.s}` : x.a, x]));
+  const names = new Map((await dbRows(c, 'SELECT account_code, account_name FROM account_subject')).map(x => [x.account_code, x.account_name]));
   const r = await masterImport(c, ctx, kind, csv(out).replace(/^\uFEFF/, ''));
   await audit(c, ctx, 'master', kind, 'accounting.masters.import', { kind, created: r.created, updated: r.updated });
-  return r;
+  const result = out.slice(1).map(x => {
+    const [account, code, name] = sub2 ? [T(x[0]), T(x[1]), T(x[2])] : [T(x[0]), '', T(x[1])], old = before.get(sub2 ? `${account}|${code}` : account);
+    const state = !old ? '登録' : T(old.n) !== name ? '更新（名称変更）' : !old.active ? '更新（有効化）' : '変更なし';
+    return { account, accountName: sub2 ? names.get(account) || '' : '', code, name, oldName: old && T(old.n) !== name ? T(old.n) : '', state };
+  });
+  return { ...r, rows: result };
 }

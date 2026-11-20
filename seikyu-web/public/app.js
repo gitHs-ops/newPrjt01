@@ -2192,7 +2192,15 @@ function accountingMasterUpload(kind) {
   modal({ title: `${label} 受入（勘定奉行から）`, submit: '取込む', body: `<p class="small">勘定奉行から出力した${label}の CSV（Shift_JIS／UTF-8）を選んでください。1 行目は列名（${kind === 'accounts' ? '勘定科目コード、勘定科目名' : '勘定科目コード、補助科目コード、補助科目名'}）。<b>1 件でもエラーがあれば全件取消</b>します。既存コードは更新、新しいコードは登録します。${kind === 'subaccounts' ? '上位の勘定科目は先に受け入れてください。' : ''}</p><input type="file" name="file" accept=".csv,text/csv" required>`,
     onSubmit: async (v, f) => { const file = f.file.files[0]; if (!file) throw Error('ファイルを選択してください'); const buf = await file.arrayBuffer();
       let csv; try { csv = new TextDecoder('utf-8', { fatal: true }).decode(buf); } catch { csv = new TextDecoder('shift_jis').decode(buf); }
-      const r = await post('/api/accounting/masters/import', { kind, csv }); toast(`${label}：登録 ${r.created}件・更新 ${r.updated}件`); await loadMasters(); } });
+      const r = await post('/api/accounting/masters/import', { kind, csv }); toast(`${label}：登録 ${r.created}件・更新 ${r.updated}件`); await loadMasters(); setTimeout(() => masterImportResult(kind, label, r), 0); } });
+}
+// 受入の結果の一覧（2026-11-21 ユーザー指示）：CSV の行ごとに 登録／更新（名称変更・有効化）／変更なし
+function masterImportResult(kind, label, r) {
+  const sub = kind === 'subaccounts', rows = r.rows || [], cnt = st => rows.filter(x => x.state.startsWith(st)).length;
+  const color = st => (st === '登録' ? 'green' : st.startsWith('更新') ? '' : 'gray');
+  modal({ title: `${label} 受入の結果`, wide: true, submit: '', body: `<p class="small">CSV ${rows.length} 行：登録 ${cnt('登録')} 件・更新 ${cnt('更新')} 件・変更なし ${cnt('変更なし')} 件</p>
+    ${table([{ label: '結果', html: x => badge(x.state, color(x.state)) }, { label: '勘定科目コード', value: x => x.account }, ...(sub ? [{ label: '勘定科目名', value: x => x.accountName }, { label: '補助科目コード', value: x => x.code }, { label: '補助科目名', value: x => x.name }] : [{ label: '勘定科目名', value: x => x.name }]),
+      { label: '変更前の名称', value: x => x.oldName }], rows, { empty: '取込んだ行はありません' })}` });
 }
 async function accountingDownload(format) {
   const url = '/api/accounting/export?' + qs({ from: $('#ac-from').value, to: $('#ac-to').value, format }), res = await fetch(url, { cache: 'no-store' });
