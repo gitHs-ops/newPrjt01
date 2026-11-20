@@ -5,6 +5,15 @@ import { mustDecode, taxOf, CATALOG, decode } from './taxcode.mjs';
 import { companyPeriod } from './period.mjs';
 
 const monthWhere = (col, q, w, args) => { if (q.month) { isoMonth(q.month); w.push(`to_char(${col},'YYYY-MM')=?`); args.push(q.month); } };
+// 締日の期間（定時請求一覧、2026-11-20）：前月の締日の翌日〜当月の締日。締日 31（月末）は暦月。その月に無い日（例 2月30日）は月末にそろえる
+const ymd = (y, m, d) => new Date(Date.UTC(y, m - 1, d)).toISOString().slice(0, 10);
+export function closingPeriod(month, closing) {
+  const y = +month.slice(0, 4), m = +month.slice(5, 7), d = Number(closing), last = (yy, mm) => new Date(Date.UTC(yy, mm, 0)).getUTCDate();
+  check(Number.isInteger(d) && d >= 1 && d <= 31, '締日が不正です');
+  const to = ymd(y, m, Math.min(d, last(y, m))), prevClose = ymd(y, m - 1, Math.min(d, last(y, m - 1)));
+  const from = new Date(Date.parse(prevClose) + 864e5).toISOString().slice(0, 10);
+  return { from, to };
+}
 async function vendorOf(c, code) { const v = await one(c, 'SELECT * FROM vendor WHERE vendor_code=?', [String(code || '')]); check(v && v.active, '有効な業者を選択してください'); return v; }
 
 // ---------- 商品仕入 (purchase) ----------
@@ -235,7 +244,8 @@ const PAID = "COALESCE((SELECT SUM(a.amount) FROM payment_allocation a JOIN paym
 export async function listExpenses(c, q = {}) {
   const w = [], args = [];
   if (q.kind) { check(['PAYABLE', 'PETTY_CASH'].includes(q.kind), '区分が不正です'); w.push('d.expense_kind=?'); args.push(q.kind); }
-  monthWhere('d.booked_on', q, w, args);
+  if (q.month && q.closing) { isoMonth(q.month); const p = closingPeriod(q.month, q.closing); w.push('d.booked_on BETWEEN ? AND ?'); args.push(p.from, p.to); }   // 締日の期間（定時請求一覧）
+  else monthWhere('d.booked_on', q, w, args);
   if (q.vendor) { w.push('v.vendor_code=?'); args.push(q.vendor); }
   // payment＝修正する支払（2026-11-08）：その支払を取り消した後の未払残高で返す
   const paid = q.payment ? PAID.replace("p.status='POSTED'", `p.status='POSTED' AND p.payment_id<>${Number(q.payment) || 0}`) : PAID;
