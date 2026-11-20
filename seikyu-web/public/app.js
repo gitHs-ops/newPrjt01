@@ -2375,7 +2375,8 @@ VIEWS.journals = async q => {
     body = table([{ label: '科目', value: r => r.account }, { label: '科目名', value: r => r.name }, { label: '借方', num: 1, value: r => yen(r.debit) }, { label: '貸方', num: 1, value: r => yen(r.credit) }, { label: '差額(借-貸)', num: 1, value: r => yen(r.debit - r.credit) }], tb,
       { foot: ['合計', '', yen(tb.reduce((n, r) => n + r.debit, 0)), yen(tb.reduce((n, r) => n + r.credit, 0)), ''] });
   } else {
-    const list = await api('/api/journals?' + qs({ month, pattern: q.pattern }));
+    // user01 は逆計上ができないため、取消された仕訳と逆仕訳は出さない（有効な仕訳だけ。2026-11-21 ユーザー指示）
+    const list = (await api('/api/journals?' + qs({ month, pattern: q.pattern }))).filter(j => !isUser01() || (j.status !== 'REVERSED' && !j.reversalOf));
     body = list.length ? list.map(j => `<div style="margin-bottom:12px" class="${j.status === 'REVERSED' || j.reversalOf ? 'muted' : ''}"><div class="filters small"><b>#${j.id}</b><span>${esc(j.date)}</span>${badge(j.pattern + ' ' + j.patternName)}${isUser01() ? '' /* user01 は「元伝票 billing_head:… 版…」を出さない（2026-11-21 ユーザー指示） */ : `<span class="muted">元伝票 ${esc(j.source)}:${esc(j.sourceId)} 版${j.revision}</span>`}${j.reversalOf ? badge('逆仕訳 ← #' + j.reversalOf, 'amber') : ''}${j.status === 'REVERSED' ? badge('取消済', 'gray') : ''}</div>
       ${table([{ label: '貸借', value: l => l.side === 'D' ? '借方' : '貸方' }, { label: '科目', value: l => `${l.account} ${l.accountName || ''}` }, { label: '内訳', value: l => l.sub ? `${l.sub} ${l.subName}` : '' }, { label: '部門', value: l => l.dept }, { label: '税区分', value: l => l.tax },
         { label: '取引先', value: l => l.partner }, { label: '借方金額', num: 1, value: l => l.side === 'D' ? yen(l.amount) : '' }, { label: '貸方金額', num: 1, value: l => l.side === 'C' ? yen(l.amount) : '' }], j.lines)}</div>`).join('') : '<div class="empty">仕訳がありません</div>';
