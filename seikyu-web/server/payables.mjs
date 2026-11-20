@@ -1,19 +1,10 @@
 import { randomUUID } from 'crypto';
-import { check, Conflict, yen, qty, lineAmount, isoDate, isoMonth, text, dueDate, nextBusinessDay, addMonths, isHoliday } from './domain.mjs';
+import { check, Conflict, yen, qty, lineAmount, isoDate, isoMonth, text, dueDate, nextBusinessDay, addMonths, isHoliday, closingPeriodOfDate } from './domain.mjs';
 import { rows, one, nextSlipNoFy, docNo, DOC_SERIES, assertOpen, audit, postJournal, reverseJournal, line } from './db.mjs';
 import { mustDecode, taxOf, CATALOG, decode } from './taxcode.mjs';
 import { companyPeriod } from './period.mjs';
 
 const monthWhere = (col, q, w, args) => { if (q.month) { isoMonth(q.month); w.push(`to_char(${col},'YYYY-MM')=?`); args.push(q.month); } };
-// 締日の期間（定時請求一覧、2026-11-20）：前月の締日の翌日〜当月の締日。締日 31（月末）は暦月。その月に無い日（例 2月30日）は月末にそろえる
-const ymd = (y, m, d) => new Date(Date.UTC(y, m - 1, d)).toISOString().slice(0, 10);
-export function closingPeriod(month, closing) {
-  const y = +month.slice(0, 4), m = +month.slice(5, 7), d = Number(closing), last = (yy, mm) => new Date(Date.UTC(yy, mm, 0)).getUTCDate();
-  check(Number.isInteger(d) && d >= 1 && d <= 31, '締日が不正です');
-  const to = ymd(y, m, Math.min(d, last(y, m))), prevClose = ymd(y, m - 1, Math.min(d, last(y, m - 1)));
-  const from = new Date(Date.parse(prevClose) + 864e5).toISOString().slice(0, 10);
-  return { from, to };
-}
 async function vendorOf(c, code) { const v = await one(c, 'SELECT * FROM vendor WHERE vendor_code=?', [String(code || '')]); check(v && v.active, '有効な業者を選択してください'); return v; }
 
 // ---------- 商品仕入 (purchase) ----------
@@ -244,19 +235,20 @@ const PAID = "COALESCE((SELECT SUM(a.amount) FROM payment_allocation a JOIN paym
 export async function listExpenses(c, q = {}) {
   const w = [], args = [];
   if (q.kind) { check(['PAYABLE', 'PETTY_CASH'].includes(q.kind), '区分が不正です'); w.push('d.expense_kind=?'); args.push(q.kind); }
-  if (q.month && q.closing) { isoMonth(q.month); const p = closingPeriod(q.month, q.closing); w.push('d.booked_on BETWEEN ? AND ?'); args.push(p.from, p.to); }   // 締日の期間（定時請求一覧）
+  if (q.date) { const p = closingPeriodOfDate(q.date); w.push('d.booked_on BETWEEN ? AND ?'); args.push(p.from, p.to); }   // 締切日の期間（定時請求一覧：前月の同じ締日の翌日〜締切日。2026-11-20）
   else monthWhere('d.booked_on', q, w, args);
   if (q.vendor) { w.push('v.vendor_code=?'); args.push(q.vendor); }
   // payment＝修正する支払（2026-11-08）：その支払を取り消した後の未払残高で返す
   const paid = q.payment ? PAID.replace("p.status='POSTED'", `p.status='POSTED' AND p.payment_id<>${Number(q.payment) || 0}`) : PAID;
   if (q.open) w.push(`d.status='POSTED' AND d.gross_amount<>${paid}`);   // 価格調整（マイナスの請求）の未充当も出す（D-041）
-  const rs = await rows(c, `SELECT d.*, v.vendor_code, v.vendor_name, l.account_code, l.sub_code, l.department_code, l.source_tax_code, l.memo line_memo, a.account_name, ${paid} paid
+  const rs = await rows(c, `SELECT d.*, v.vendor_code, v.vendor_name, l.account_code, l.sub_code, l.department_code, l.source_tax_code, l.memo line_memo, a.account_name, ${paid} paid,
+      EXISTS (SELECT 1 FROM app_acct_link k WHERE d.booked_on BETWEEN CAST(split_part(k.period,'..',1) AS date) AND CAST(split_part(k.period,'..',2) AS date)) linked
     FROM expense_document d LEFT JOIN vendor v ON v.vendor_id=d.vendor_id LEFT JOIN expense_line l ON l.expense_id=d.expense_id AND l.line_no=1 LEFT JOIN account_subject a ON a.account_code=l.account_code
     ${w.length ? 'WHERE ' + w.join(' AND ') : ''} ORDER BY d.booked_on DESC, d.expense_id DESC LIMIT 1000`, args);
   const ls = rs.length ? await rows(c, `SELECT l.*, a.account_name, s.sub_name, lv.vendor_code line_vendor_code, lv.vendor_name line_vendor_name FROM expense_line l LEFT JOIN vendor lv ON lv.vendor_id=l.vendor_id LEFT JOIN account_subject a ON a.account_code=l.account_code LEFT JOIN account_subsubject s ON s.account_code=l.account_code AND s.sub_code=l.sub_code
     WHERE l.expense_id IN (${rs.map(() => '?').join(',')}) ORDER BY l.expense_id, l.line_no`, rs.map(r => r.expense_id)) : [];
   return rs.map(r => ({ id: r.expense_id, no: r.document_no, billNo: r.bill_no || '', kind: r.expense_kind, date: r.booked_on, due: r.due_on || '', vendor: r.vendor_code || '', vendorName: r.vendor_name || '', payee: r.vendor_name || (r.payee ?? (r.line_memo && r.line_memo !== r.memo ? r.line_memo : '')), account: r.account_code, accountName: r.account_name, sub: r.sub_code || '',
-    dept: r.department_code, taxCode: r.source_tax_code, taxRate: decode(r.source_tax_code)?.rate ?? null, amount: Number(r.gross_amount), paid: Number(r.paid), balance: r.status === 'POSTED' ? Number(r.gross_amount) - Number(r.paid) : 0, memo: r.memo, status: r.status,
+    dept: r.department_code, taxCode: r.source_tax_code, taxRate: decode(r.source_tax_code)?.rate ?? null, amount: Number(r.gross_amount), paid: Number(r.paid), balance: r.status === 'POSTED' ? Number(r.gross_amount) - Number(r.paid) : 0, memo: r.memo, status: r.status, linked: !!r.linked /* 会計連携済み（計上済の表示。2026-11-20） */,
     lines: ls.filter(l => l.expense_id === r.expense_id).map(l => ({ no: Number(l.line_no), account: l.account_code, accountName: l.account_name || '', sub: l.sub_code || '', subName: l.sub_name || '', dept: l.department_code, taxCode: l.source_tax_code,
       amount: Number(l.gross_amount), net: Number(l.net_amount), tax: Number(l.tax_amount || 0), memoCode: l.memo_code || '', memo: l.memo || '', payee: l.line_vendor_name || l.payee || '', vendor: l.line_vendor_code || '' })) }));
 }

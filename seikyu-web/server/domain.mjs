@@ -94,3 +94,18 @@ export function parseCsv(input) {
   row.push(cell); if (row.some(x => x !== '')) out.push(row);
   return out.map(r => r.map(x => x.replace(/^'(?=[=+@\-])/, '')));
 }
+
+// 締日の期間（定時請求一覧、2026-11-20）：前月の締日の翌日〜当月の締日。締日 31（月末）は暦月。その月に無い日（例 2月30日）は月末にそろえる
+const ymdUtc = (y, m, d) => new Date(Date.UTC(y, m - 1, d)).toISOString().slice(0, 10);
+export function closingPeriod(month, closing) {
+  const y = +month.slice(0, 4), m = +month.slice(5, 7), d = Number(closing), last = (yy, mm) => new Date(Date.UTC(yy, mm, 0)).getUTCDate();
+  check(Number.isInteger(d) && d >= 1 && d <= 31, '締日が不正です');
+  const to = ymdUtc(y, m, Math.min(d, last(y, m))), prevClose = ymdUtc(y, m - 1, Math.min(d, last(y, m - 1)));
+  const from = new Date(Date.parse(prevClose) + 864e5).toISOString().slice(0, 10);
+  return { from, to };
+}
+// 締切日（日付）から期間：その日の日を締日とする。月末の日は締日 31（暦月）。定時請求一覧・定時請求入力明細表（2026-11-20）
+export function closingPeriodOfDate(date) {
+  const dt = isoDate(date, '締切日'), y = +dt.slice(0, 4), m = +dt.slice(5, 7), day = +dt.slice(8, 10), last = new Date(Date.UTC(y, m, 0)).getUTCDate();
+  return closingPeriod(dt.slice(0, 7), day === last ? 31 : day);
+}

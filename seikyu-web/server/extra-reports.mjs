@@ -1,5 +1,5 @@
 // 残りの帳票（資料未着のため推定仕様）: NO30 定時請求入力明細表（組織別）, NO33 小口現金出納簿, NO40 商品売上登録リスト, NO44 入金予定チェックリスト
-import { check, isoDate, isoMonth, toNum, fromNum, today, METHODS } from './domain.mjs';
+import { check, isoDate, isoMonth, toNum, fromNum, today, METHODS, closingPeriodOfDate } from './domain.mjs';
 import { rows, one } from './db.mjs';
 import { xlsx, band } from './xlsx.mjs';
 import { decode as taxDecode, digitOfRate } from './taxcode.mjs';
@@ -14,8 +14,10 @@ const monthEnd = m => new Date(Date.UTC(+m.slice(0, 4), +m.slice(5, 7), 0)).toIS
 
 // ---------- NO30 定時請求入力明細表（組織別）：現行 HAR136 の並び（部門→業者→請求明細） ----------
 export async function payableInputList(c, q) {
-  const month = isoMonth(q.month, '月度'), d = Number(q.closing || 20), prev = new Date(Date.UTC(+month.slice(0, 4), +month.slice(5, 7) - 2, 1)).toISOString().slice(0, 7);
-  const from = d >= 31 ? month + '-01' : `${prev}-${String(d + 1).padStart(2, '0')}`, to = d >= 31 ? monthEnd(month) : `${month}-${String(d).padStart(2, '0')}`;
+  // 検索条件は締切日（定時請求データ入力の入力項目と同じ。2026-11-20 ユーザー指示）：前月の同じ締日の翌日〜締切日。month＋closing（旧）も受ける
+  const cdate = q.date ? isoDate(q.date, '締切日') : null;
+  const month = cdate ? cdate.slice(0, 7) : isoMonth(q.month, '月度'), d = Number(q.closing || 20), prev = new Date(Date.UTC(+month.slice(0, 4), +month.slice(5, 7) - 2, 1)).toISOString().slice(0, 7);
+  const { from, to } = cdate ? closingPeriodOfDate(cdate) : { from: d >= 31 ? month + '-01' : `${prev}-${String(d + 1).padStart(2, '0')}`, to: d >= 31 ? monthEnd(month) : `${month}-${String(d).padStart(2, '0')}` };
   const deptNames = Object.fromEntries((await rows(c, "SELECT code_dtl, code_dtl_nam FROM code_m WHERE code_key='DEPT'")).map(r => [r.code_dtl, r.code_dtl_nam]));
   // 10/19 打合せ：出力指示は 締切日・部門コード・区分（ブランク＝工事、1＝組織）・業者コード
   // 10/21 打合せ：業者コードはブランクなら出力しない。From〜To で範囲指定、下段（To）に 9999999 で全業者（From 未入力なら先頭から）
@@ -55,7 +57,7 @@ export async function payableInputList(c, q) {
   // 支払条件は定時請求 1 件（伝票）の合計で判定（繰延最低限度額は 1 件の合計）。当月／累計の支払額・出来高・支払率は出さない（2026-11-20 ユーザー指示）
   for (const dp of depts) for (const v of dp.vendors) for (const x of v.docs) x.term = termOf(v.vendor, x.total);
   const vendorLabel = none ? '未入力（出力しない）' : all ? '全業者（9999999）' : vFrom === vTo ? vFrom : `${vFrom || '（最初）'} 〜 ${vTo}`;
-  return { title: '定時請求データ入力明細表' /* 現行の帳票名どおり（組織別／工事別）は付けない。部門は表題の下に（2026-11-20 ユーザー指示） */, ref: 'NO30 / 添付帳票⑩（HAR136）', month, from, to, depts, total: depts.reduce((n, x) => n + x.total, 0), tax: depts.reduce((n, x) => n + (x.tax || 0), 0),
+  return { title: '定時請求データ入力明細表' /* 現行の帳票名どおり（組織別／工事別）は付けない。部門は表題の下に（2026-11-20 ユーザー指示） */, ref: 'NO30 / 添付帳票⑩（HAR136）', month, date: cdate, from, to, depts, total: depts.reduce((n, x) => n + x.total, 0), tax: depts.reduce((n, x) => n + (x.tax || 0), 0),
     kb, allVendors: !!all, groupLabel: kb ? '部門' : '工事', dept: dept ? `${dept} ${deptNames[dept] || ''}`.trim() : '全部門', vendor: vendorLabel,
     note: '月度は20日締め（現行と同じ）。区分 1＝組織（部門別）、ブランク＝工事（摘要コード＝工事コード別）。業者コードはブランクなら出力しない・From〜To で範囲・To に 9999999 で全業者（10/21）。請求No は業者ごとの4桁連番。発注残金額は発注管理が対象外のため0、相殺金額は定時請求時点では0（支払時に相殺）。現比は振込のみのため削除（10/19）。' };
 }
@@ -164,36 +166,36 @@ export async function receiptSchedule(c, q) {
 // ---------- Excel ----------
 const head = (d, sub) => [[T(d.title)], [`${sub}　出力日 ${today()}`], []];
 // 相殺（支払）業者の列は出さない（2026-11-20 ユーザー指示）
-const PAYIN_W = [9, 30, 7, 6, 18, 16, 11, 13, 30, 9], SALES_REG_W = [11, 6, 13, 7, 22, 9, 4, 10, 12, 7, 9, 7, 30, 24, 11];
+const PAYIN_W = [9, 30, 7, 6, 18, 16, 13, 30, 9], SALES_REG_W = [11, 6, 13, 7, 22, 9, 4, 10, 12, 7, 9, 7, 30, 24, 11];
 export async function extraBook(c, kind, q) {
   if (kind === 'payable-input') {
     // 現行 HAR136 の並び（2026-11-20 ユーザー指示）：業者の行（業者・業者名・住所）→ 伝票ごとに 明細・請求金額の計・支払条件 → 業者計・（内消費税） → 部門計（工事計）→ 最後に 総　合　計
     // 相殺の 2 列・当月／累計の支払額・出来高・支払率は出さない（帳票イメージ 11/08 変更点 No.19）
-    const d = await payableInputList(c, q), out = head(d, `${d.dept === '全部門' ? '' : '部門 ' + d.dept + '　'}${d.month} 月度　区分 ${d.kb ? '組織' : '工事'}${d.allVendors ? '' : '　業者 ' + d.vendor}`);   // 全業者（9999999）・全部門は表示しない、区分は 組織／工事 だけ（2026-11-20 ユーザー指示）
+    const d = await payableInputList(c, q), out = head(d, `${d.dept === '全部門' ? '' : '部門 ' + d.dept + '　'}${d.date ? `締切日 ${d.date}` : `${d.month} 月度`}　区分 ${d.kb ? '組織' : '工事'}${d.allVendors ? '' : '　業者 ' + d.vendor}`);   // 全業者（9999999）・全部門は表示しない、区分は 組織／工事 だけ（2026-11-20 ユーザー指示）
     // （内消費税）の行の下は実線（業者・部門の区切り。2026-11-17 ユーザー指示）
-    const taxEnd = t => ['', '', '', '', '', '（内消費税', '', t, `${t.toLocaleString('ja-JP')} ）`, ''].map(v => ({ v, s: 'jEnd' }));
-    const sumRow = (label, n) => ['', '', '', '', '', S(label), '', S(n)];
+    const taxEnd = t => ['', '', '', '', '', '（内消費税', t, `${t.toLocaleString('ja-JP')} ）`, ''].map(v => ({ v, s: 'jEnd' }));
+    const sumRow = (label, n) => ['', '', '', '', '', S(label), S(n)];
     // 見出し 2 段（2026-11-18）：2 段に分かれるのは 業者名／伝票No だけ。ほかの列は上下の 2 行を結合
     const merges = [];
     for (const dp of d.depts) {
       // 部門の行は表の幅いっぱいに結合する（2026-11-19 ユーザー指示）
       out.push(Object.assign(band(PAYIN_W, [`${d.groupLabel} : ${dp.dept} ${dp.name}`]), { span: PAYIN_W.length, start: 0, max: PAYIN_W.length }));
       const r1 = out.length + 1;
-      out.push(['業者', '業者名', '科目', '内訳', '科目名', '内訳名', '発注残金額', '請求金額', '摘要', '処税率'].map(H), ['', '伝票No', '', '', '', '', '', '', '', ''].map(H));
-      for (const c of ['A', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J']) merges.push(`${c}${r1}:${c}${r1 + 1}`);
+      out.push(['業者', '業者名', '科目', '内訳', '科目名', '内訳名', '請求金額', '摘要', '処税率'].map(H), ['', '伝票No', '', '', '', '', '', '', ''].map(H));   // 発注残金額は現行に無いため削除（2026-11-20 ユーザー指示）
+      for (const c of ['A', 'C', 'D', 'E', 'F', 'G', 'H', 'I']) merges.push(`${c}${r1}:${c}${r1 + 1}`);
       for (const v of dp.vendors) {
         // 現行と同じく業者の行に住所（都道府県＋市区町村は科目名の列、番地は請求金額の列）
-        out.push([v.vendor, v.name, '', '', v.address, '', '', v.address2]);
+        out.push([v.vendor, v.name, '', '', v.address, '', v.address2]);
         for (const x of v.docs) {
-          for (const r of x.rows) out.push(['', r.docNo, r.account, r.sub, r.accountName, r.subName, r.orderRemain, r.amount, r.memo, r.tax]);
-          out.push(['', '', '', '', '', '', '', x.total, `（ ${x.term} ）`]);
+          for (const r of x.rows) out.push(['', r.docNo, r.account, r.sub, r.accountName, r.subName, r.amount, r.memo, r.tax]);
+          out.push(['', '', '', '', '', '', x.total, `（ ${x.term} ）`]);
         }
         out.push(sumRow('業者計', v.total), taxEnd(v.tax), []);
       }
       out.push(sumRow(`${d.groupLabel}計`, dp.total), taxEnd(dp.tax), []);
     }
     if (d.depts.length) out.push(sumRow('総　合　計', d.total), taxEnd(d.tax));
-    return { name: `定時請求入力明細表_${d.month}.xlsx`, body: xlsx([{ name: '定時請求入力明細表', rows: out, widths: PAYIN_W, merges }]) };
+    return { name: `定時請求入力明細表_${d.date || d.month}.xlsx`, body: xlsx([{ name: '定時請求入力明細表', rows: out, widths: PAYIN_W, merges }]) };
   }
   if (kind === 'petty-book') {
     // 構成員の列は現行 HJR051 と同じく名称だけ。列幅は名称が切れないよう全角2・半角1で計算（2026-10-29）
