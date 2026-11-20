@@ -165,15 +165,17 @@ export const MASTERS = {
       // 2026-11-01 決定：繰延最低限度額。定時請求 1 件の合計がこの額以上なら翌々月末払い、未満・空欄は支払繰延区分（code_m VPAY の code_dtl_nam）
       F('deferMin', '繰延最低限度額', { list: false, type: 'int', optional: true, hint: '定時請求1件の合計がこの額以上なら翌々月末払い。空欄は支払繰延区分のみ' }),
       F('payCycle', '振込サイクル', { list: false, type: 'select', optional: true, options: [['', '（未設定）'], ['15', '15日'], ['31', '月末']] }), F('payBank', '振込元口座', { list: false, type: 'ref', ref: 'banks', optional: true }),
+      F('pref', '都道府県', { list: false, max: 8, optional: true }), F('addr1', '住所1（市区町村）', { list: false, max: 42, optional: true }), F('addr2', '住所2（番地）', { list: false, max: 42, optional: true }),
       F('active', '有効', { type: 'bool' })],
     select: "SELECT v.*, b.bank_code, b.branch_code, b.account_number, b.holder_name, b.account_type_code, ob.amount advance, vp.category1 pay_m, vp.category2 pay_d, vp.category3 pay_cycle, vp.code_dtl_abr pay_bank, vp.code_dtl_nam defer_min FROM vendor v LEFT JOIN bank_account b ON b.bank_account_id=v.bank_account_id LEFT JOIN opening_balance ob ON ob.source_reference=CONCAT('OPEN-VADV-',v.vendor_code) LEFT JOIN code_m vp ON vp.code_key='VPAY' AND vp.code_dtl=v.vendor_code",
     where: 'v.vendor_code=?', keyOf: r => [r.code],
     decode: r => ({ id: r.vendor_id, code: r.vendor_code, name: r.vendor_name, bank: r.bank_code || '', branch: r.branch_code || '', accountType: r.account_type_code || '1', account: r.account_number || '', holder: r.holder_name || '', advance: Number(r.advance || 0),
-      payMonths: r.pay_m ?? '', payDay: r.pay_d ?? '', payCycle: r.pay_cycle || '', payBank: r.pay_bank || '', deferMin: r.defer_min ?? '', active: !!r.active }),
+      payMonths: r.pay_m ?? '', payDay: r.pay_d ?? '', payCycle: r.pay_cycle || '', payBank: r.pay_bank || '', deferMin: r.defer_min ?? '', pref: r.pref || '', addr1: r.addr1 || '', addr2: r.addr2 || '', active: !!r.active }),
     validate: r => {
       const v = { code: text(r.code, '業者コード', 20, { pattern: CODE }), name: text(r.name, '業者名', 200), bank: String(r.bank || '').trim(), branch: String(r.branch || '').trim(),
         accountType: String(r.accountType || '1'), account: String(r.account || '').trim(), holder: toZenginKana(String(r.holder || '').trim()), advance: yen(r.advance || 0, '業者立替金残高'), active: bool(r.active ?? true),
-        payMonths: String(r.payMonths ?? '').trim(), payDay: String(r.payDay ?? '').trim(), payCycle: String(r.payCycle || ''), payBank: String(r.payBank || '').trim(), deferMin: String(r.deferMin ?? '').trim().replace(/,/g, '') };
+        payMonths: String(r.payMonths ?? '').trim(), payDay: String(r.payDay ?? '').trim(), payCycle: String(r.payCycle || ''), payBank: String(r.payBank || '').trim(), deferMin: String(r.deferMin ?? '').trim().replace(/,/g, ''),
+        pref: text(r.pref, '都道府県', 8, { required: false }), addr1: text(r.addr1, '住所1', 42, { required: false }), addr2: text(r.addr2, '住所2', 42, { required: false }) };
       if (v.payMonths !== '') check(/^\d{1,2}$/.test(v.payMonths) && Number(v.payMonths) <= 12, '支払繰延は0〜12か月です');
       if (v.payDay !== '') check(/^\d{1,2}$/.test(v.payDay) && Number(v.payDay) >= 1 && Number(v.payDay) <= 31, '支払日は1〜31です');
       check(['', '15', '31'].includes(v.payCycle), '振込サイクルが不正です');
@@ -188,8 +190,8 @@ export const MASTERS = {
         if (found) { check(found.holder_name === r.holder, '同じ口座の受取人名が一致しません'); accountId = found.bank_account_id; }
         else accountId = (await c.query('INSERT INTO bank_account (bank_code,branch_code,account_type_code,account_number,holder_name) VALUES (?,?,?,?,?)', [r.bank, r.branch, r.accountType, r.account, r.holder]))[0].insertId;
       }
-      if (!old) await c.query('INSERT INTO vendor (vendor_code,vendor_name,bank_account_id,active) VALUES (?,?,?,?)', [r.code, r.name, accountId, r.active]);
-      else await c.query('UPDATE vendor SET vendor_name=?,bank_account_id=?,active=? WHERE vendor_code=?', [r.name, accountId, r.active, r.code]);
+      if (!old) await c.query('INSERT INTO vendor (vendor_code,vendor_name,bank_account_id,active,pref,addr1,addr2) VALUES (?,?,?,?,?,?,?)', [r.code, r.name, accountId, r.active, r.pref || null, r.addr1 || null, r.addr2 || null]);
+      else await c.query('UPDATE vendor SET vendor_name=?,bank_account_id=?,active=?,pref=?,addr1=?,addr2=? WHERE vendor_code=?', [r.name, accountId, r.active, r.pref || null, r.addr1 || null, r.addr2 || null, r.code]);
       await c.query("DELETE FROM code_m WHERE code_key='VPAY' AND code_dtl=?", [r.code]);
       if (r.payMonths !== '' || r.payDay !== '' || r.payCycle || r.payBank || r.deferMin) await c.query("INSERT INTO code_m (code_key,code_key_nam,code_dtl,code_dtl_nam,code_dtl_abr,category1,category2,category3) VALUES ('VPAY','支払条件',?,?,?,?,?,?)",
         [r.code, r.deferMin, r.payBank, r.payMonths, r.payDay, r.payCycle]);

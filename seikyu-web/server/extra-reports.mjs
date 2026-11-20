@@ -28,7 +28,7 @@ export async function payableInputList(c, q) {
   check(!vFrom || toAll || cmp(vFrom, vTo) <= 0, `業者コードの範囲が不正です（From ${vFrom} ＞ To ${vTo}）`);
   const inRange = code => !none && (!vFrom || cmp(up(code), vFrom) >= 0) && (toAll || cmp(up(code), vTo) <= 0);
   const all = !vFrom && toAll;
-  const fetch = async (from, to) => (await rows(c, `SELECT d.document_no, d.bill_no, d.booked_on, d.due_on, d.memo, l.gross_amount, l.tax_amount, l.memo line_memo, l.memo_code, l.department_code, l.account_code, l.sub_code, l.source_tax_code, a.account_name, s.sub_name, v.vendor_code, v.vendor_name,
+  const fetch = async (from, to) => (await rows(c, `SELECT d.document_no, d.bill_no, d.booked_on, d.due_on, d.memo, l.gross_amount, l.tax_amount, l.memo line_memo, l.memo_code, l.department_code, l.account_code, l.sub_code, l.source_tax_code, a.account_name, s.sub_name, v.vendor_code, v.vendor_name, v.pref, v.addr1, v.addr2,
       (SELECT COALESCE(SUM(pa.amount),0) FROM payment_allocation pa JOIN payment p ON p.payment_id=pa.payment_id AND p.status='POSTED' WHERE pa.expense_id=d.expense_id) paid
     FROM expense_document d JOIN expense_line l ON l.expense_id=d.expense_id LEFT JOIN account_subject a ON a.account_code=l.account_code LEFT JOIN account_subsubject s ON s.account_code=l.account_code AND s.sub_code=l.sub_code
     LEFT JOIN vendor v ON v.vendor_id=d.vendor_id WHERE d.expense_kind='PAYABLE' AND d.status='POSTED' AND d.booked_on BETWEEN ? AND ?${dept ? ' AND l.department_code=?' : ''} ORDER BY ${kb ? 'l.department_code' : 'l.memo_code'}, v.vendor_code, d.bill_no, d.document_no, l.line_no`, dept ? [from, to, dept] : [from, to]))
@@ -44,21 +44,18 @@ export async function payableInputList(c, q) {
     // 区分 1＝組織：部門ごと／ブランク＝工事：摘要コード（工事コード7桁）ごと
     const key = kb ? r.department_code : r.memo_code || '', label = kb ? deptNames[r.department_code] || '' : key ? '' : '工事コードなし';
     let dp = depts.find(x => x.dept === key); if (!dp) depts.push(dp = { dept: key, name: label, vendors: [], total: 0 });
-    let v = dp.vendors.find(x => x.vendor === r.vendor_code); if (!v) dp.vendors.push(v = { vendor: r.vendor_code, name: r.vendor_name, rows: [], total: 0, tax: 0, offset: 0 });
+    let v = dp.vendors.find(x => x.vendor === r.vendor_code); if (!v) dp.vendors.push(v = { vendor: r.vendor_code, name: r.vendor_name, address: `${r.pref || ''}${r.addr1 || ''}`, address2: r.addr2 || '', docs: [], rows: [], total: 0, tax: 0 });
     const amount = num(r.gross_amount), tax = num(r.tax_amount);
     v.rows.push({ no: r.bill_no || '', docNo: r.document_no, date: r.booked_on, due: r.due_on || '', account: r.account_code, sub: r.sub_code || '', accountName: r.account_name, subName: r.sub_name || '', orderRemain: 0, amount, offset: 0, memoCode: r.memo_code || '', memo: r.line_memo || r.memo, tax: r.source_tax_code, paid: num(r.paid) });
+    // 現行 HAR136：伝票（定時請求 1 件）ごとに 請求金額の計と支払条件の行（2026-11-20 ユーザー指示）
+    let doc = v.docs.find(x => x.docNo === r.document_no); if (!doc) v.docs.push(doc = { docNo: r.document_no, rows: [], total: 0, tax: 0 });
+    doc.rows.push(v.rows[v.rows.length - 1]); doc.total += amount; doc.tax += tax;
     v.total += amount; v.tax += tax; dp.total += amount; dp.tax = (dp.tax || 0) + tax;
   }
-  // 現行 HAR136 の部門（工事）の末尾：工事合計（内消費税）、当月支払額（税抜）・当月出来高・支払率、累計支払額（期首〜締切日の税抜）・累計出来高・支払率。出来高のデータはないため 0
-  const P = await companyPeriod(c), cum = await fetch(P.fyRange(P.fyOf(to)).from, to);
-  for (const dp of depts) {
-    dp.offset = 0;
-    for (const v of dp.vendors) v.term = termOf(v.vendor, v.total);
-    const mine = cum.filter(r => (kb ? r.department_code : r.memo_code || '') === dp.dept);
-    dp.paid = dp.total - dp.tax; dp.cumPaid = mine.reduce((n, r) => n + num(r.gross_amount) - num(r.tax_amount), 0); dp.done = 0; dp.cumDone = 0;
-  }
+  // 支払条件は定時請求 1 件（伝票）の合計で判定（繰延最低限度額は 1 件の合計）。当月／累計の支払額・出来高・支払率は出さない（2026-11-20 ユーザー指示）
+  for (const dp of depts) for (const v of dp.vendors) for (const x of v.docs) x.term = termOf(v.vendor, x.total);
   const vendorLabel = none ? '未入力（出力しない）' : all ? '全業者（9999999）' : vFrom === vTo ? vFrom : `${vFrom || '（最初）'} 〜 ${vTo}`;
-  return { title: '定時請求データ入力明細表' /* 現行の帳票名どおり（組織別／工事別）は付けない。部門は表題の下に（2026-11-20 ユーザー指示） */, ref: 'NO30 / 添付帳票⑩（HAR136）', month, from, to, depts, total: depts.reduce((n, x) => n + x.total, 0),
+  return { title: '定時請求データ入力明細表' /* 現行の帳票名どおり（組織別／工事別）は付けない。部門は表題の下に（2026-11-20 ユーザー指示） */, ref: 'NO30 / 添付帳票⑩（HAR136）', month, from, to, depts, total: depts.reduce((n, x) => n + x.total, 0), tax: depts.reduce((n, x) => n + (x.tax || 0), 0),
     kb, allVendors: !!all, groupLabel: kb ? '部門' : '工事', dept: dept ? `${dept} ${deptNames[dept] || ''}`.trim() : '全部門', vendor: vendorLabel,
     note: '月度は20日締め（現行と同じ）。区分 1＝組織（部門別）、ブランク＝工事（摘要コード＝工事コード別）。業者コードはブランクなら出力しない・From〜To で範囲・To に 9999999 で全業者（10/21）。請求No は業者ごとの4桁連番。発注残金額は発注管理が対象外のため0、相殺金額は定時請求時点では0（支払時に相殺）。現比は振込のみのため削除（10/19）。' };
 }
@@ -167,31 +164,35 @@ export async function receiptSchedule(c, q) {
 // ---------- Excel ----------
 const head = (d, sub) => [[T(d.title)], [`${sub}　出力日 ${today()}`], []];
 // 相殺（支払）業者の列は出さない（2026-11-20 ユーザー指示）
-const PAYIN_W = [9, 30, 7, 6, 16, 16, 11, 13, 11, 26, 9], SALES_REG_W = [11, 6, 13, 7, 22, 9, 4, 10, 12, 7, 9, 7, 30, 24, 11];
+const PAYIN_W = [9, 30, 7, 6, 18, 16, 11, 13, 30, 9], SALES_REG_W = [11, 6, 13, 7, 22, 9, 4, 10, 12, 7, 9, 7, 30, 24, 11];
 export async function extraBook(c, kind, q) {
   if (kind === 'payable-input') {
-    // 現行 HAR136 の並び（2026-11-04）：見出し 2 段（業者CD 業者名／請求No 科目 内訳 科目名 内訳名 発注残金額 請求金額 相殺金額 摘要 処税率 相殺（支払）業者）
-    // 業者の行 → 明細 → 請求金額の計と支払条件 → 業者合計・（内消費税）。部門（工事）の末尾に 工事合計・（内消費税）と 当月／累計の支払額・出来高・支払率
+    // 現行 HAR136 の並び（2026-11-20 ユーザー指示）：業者の行（業者・業者名・住所）→ 伝票ごとに 明細・請求金額の計・支払条件 → 業者計・（内消費税） → 部門計（工事計）→ 最後に 総　合　計
+    // 相殺の 2 列・当月／累計の支払額・出来高・支払率は出さない（帳票イメージ 11/08 変更点 No.19）
     const d = await payableInputList(c, q), out = head(d, `部門 ${d.dept}　${d.month} 月度　区分 ${d.kb ? '1 組織' : 'ブランク 工事'}${d.allVendors ? '' : '　業者 ' + d.vendor}`);   // 全業者（9999999）は表示しない（2026-11-20 ユーザー指示）
-    // （内消費税）の行の下は実線（業者・工事の区切り。2026-11-17 ユーザー指示）：12 列すべて jEnd
-    const taxEnd = t => ['', '', '', '', '', '（内消費税', '', t, 0, `${t.toLocaleString('ja-JP')} ）`, ''].map(v => ({ v, s: 'jEnd' }));
-    // 見出し 2 段（2026-11-18 ユーザー指示「헤더 디자인 개선」）：2 段に分かれるのは 業者名／伝票No だけ。ほかの列は上下の 2 行を結合して 1 つの見出しにする
+    // （内消費税）の行の下は実線（業者・部門の区切り。2026-11-17 ユーザー指示）
+    const taxEnd = t => ['', '', '', '', '', '（内消費税', '', t, `${t.toLocaleString('ja-JP')} ）`, ''].map(v => ({ v, s: 'jEnd' }));
+    const sumRow = (label, n) => ['', '', '', '', '', S(label), '', S(n)];
+    // 見出し 2 段（2026-11-18）：2 段に分かれるのは 業者名／伝票No だけ。ほかの列は上下の 2 行を結合
     const merges = [];
     for (const dp of d.depts) {
-      // 部門の行は表の幅いっぱいに結合する（右の空きセルを残さない。2026-11-19 ユーザー指示）
+      // 部門の行は表の幅いっぱいに結合する（2026-11-19 ユーザー指示）
       out.push(Object.assign(band(PAYIN_W, [`${d.groupLabel} : ${dp.dept} ${dp.name}`]), { span: PAYIN_W.length, start: 0, max: PAYIN_W.length }));
       const r1 = out.length + 1;
-      out.push(['業者', '業者名', /* 業者CD → 業者（2026-11-19 ユーザー指示） */ '科目', '内訳', '科目名', '内訳名', '発注残金額', '請求金額', '相殺金額', '摘要', '処税率'].map(H), ['', '伝票No', '', '', '', '', '', '', '', '', ''].map(H) /* 請求No.（業者ごと4桁）→ 伝票No（T…）（2026-11-20 ユーザー指示） */);
-      for (const c of ['A', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K']) merges.push(`${c}${r1}:${c}${r1 + 1}`);
+      out.push(['業者', '業者名', '科目', '内訳', '科目名', '内訳名', '発注残金額', '請求金額', '摘要', '処税率'].map(H), ['', '伝票No', '', '', '', '', '', '', '', ''].map(H));
+      for (const c of ['A', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J']) merges.push(`${c}${r1}:${c}${r1 + 1}`);
       for (const v of dp.vendors) {
-        out.push([v.vendor, v.name]);
-        for (const r of v.rows) out.push(['', r.docNo, r.account, r.sub, r.accountName, r.subName, r.orderRemain, r.amount, r.offset, r.memo, r.tax]);
-        out.push(['', '', '', '', '', '', '', v.total, '', `（ ${v.term} ）`], ['', '', '', '', '', S('業者合計'), '', S(v.total), S(v.offset), S(v.total - v.offset)], taxEnd(v.tax), []);
+        // 現行と同じく業者の行に住所（都道府県＋市区町村は科目名の列、番地は請求金額の列）
+        out.push([v.vendor, v.name, '', '', v.address, '', '', v.address2]);
+        for (const x of v.docs) {
+          for (const r of x.rows) out.push(['', r.docNo, r.account, r.sub, r.accountName, r.subName, r.orderRemain, r.amount, r.memo, r.tax]);
+          out.push(['', '', '', '', '', '', '', x.total, `（ ${x.term} ）`]);
+        }
+        out.push(sumRow('業者計', v.total), taxEnd(v.tax), []);
       }
-      out.push(['', '', '', '', '', S(d.kb ? '組織合計' : '工事合計') /* 区分 1＝組織合計、ブランク＝工事合計（2026-11-20 ユーザー指示） */, '', S(dp.total), S(dp.offset), S(dp.total - dp.offset)], taxEnd(dp.tax), []);
-      out.push(['', '', '', '', '', '', '', '', '', H('当月支払額'), H('当月出来高')], ['', '', '', '', '', '', '', '', '', dp.paid, dp.done]   /* 支払率は出さない（2026-11-20 ユーザー指示） */);
-      out.push(['', '', '', '', '', '', '', '', '', H('累計支払額'), H('累計出来高')], ['', '', '', '', '', '', '', '', '', dp.cumPaid, dp.cumDone], []);
+      out.push(sumRow(`${d.groupLabel}計`, dp.total), taxEnd(dp.tax), []);
     }
+    if (d.depts.length) out.push(sumRow('総　合　計', d.total), taxEnd(d.tax));
     return { name: `定時請求入力明細表_${d.month}.xlsx`, body: xlsx([{ name: '定時請求入力明細表', rows: out, widths: PAYIN_W, merges }]) };
   }
   if (kind === 'petty-book') {

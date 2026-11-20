@@ -191,6 +191,8 @@ export async function prepare(pool, env = process.env) {
   // 小口現金：明細の行ごとの支払先（2026-10-29 画面レビュー）。業者マスタの業者は vendor_id、それ以外は payee（自由入力）
   await pool.query(`ALTER TABLE expense_line ADD COLUMN IF NOT EXISTS payee varchar(100) COLLATE "C"`);
   await pool.query(`ALTER TABLE expense_line ADD COLUMN IF NOT EXISTS vendor_id integer`);
+  // 業者の住所（現行 HAR136 定時請求データ入力明細表の業者の行に出す。2026-11-20 ユーザー指示）
+  for (const [col, n] of [['pref', 8], ['addr1', 42], ['addr2', 42]]) await pool.query(`ALTER TABLE vendor ADD COLUMN IF NOT EXISTS ${col} varchar(${n})`);
   // 現行入金処理（HAW110）の借方の内訳2・工種・消費税額（2026-10-31 ユーザー指示：現行画面と同じく入力項目にする）
   await pool.query(`ALTER TABLE receipt_component ADD COLUMN IF NOT EXISTS sub2 varchar(20) COLLATE "C"`);
   await pool.query(`ALTER TABLE receipt_component ADD COLUMN IF NOT EXISTS work_type varchar(20) COLLATE "C"`);
