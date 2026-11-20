@@ -194,6 +194,7 @@ function listify(sh) {
       if (GT.has(i)) return { v, s: num ? (QTY_S.has(s) ? 'tGrandBQ' : s === 'qty3' ? 'tGrandBQ3' : 'tGrandBN') : 'tGrandBL' };
       if (k === 'box') return { v, s: num ? (s === 'qty3' ? 'tBoxQ3' : 'tBoxN') : 'tBoxL' };
       if (k === 'sum' || k === 'grand') { const g = (k === 'grand' ? 'tGrand' : 'tSum') + (i === lastSum ? 'B' : ''); return { v, s: num ? (QTY_S.has(s) ? g + 'Q' : g + 'N') : g + 'L' }; }
+      if (s === 'vendorRow') return { v, s: 'tVendor' };   // 色付きの行（業者の行）
       if (s === 'jEnd') return { v, s: num ? 'tNumB' : 'tTextB' };   // 自動仕訳リスト：科目（2 段）の下は実線
       if (s === 'jCol0') return { v, s: 'tTextV' };                  // 自動仕訳リスト：日付・伝票No の列は横の点線なし
       if (num) return { v, s: QTY_S.has(s) ? 'tQty' : s === 'qty3' ? 'tQty3' : s === 'price1' ? 'tPrice1' : 'tNum' };
@@ -262,6 +263,15 @@ function boxStyles(xml) {
   }
   return xml.replace(bM[0], `<borders count="${borders.length + add.length}">${borders.join('')}${add.join('')}</borders>`).replace(xM[0], `<cellXfs count="${xfs.length + xadd.length}">${xfs.join('')}${xadd.join('')}</cellXfs>`);
 }
+// 色付きの行（2026-11-20 ユーザー指示：定時請求データ入力明細表の業者の行）：tText の複製で塗りだけ変える。STYLE.tVendor（薄い黄）
+function fillTwins(xml) {
+  const fM = xml.match(/<fills count="(\d+)">([\s\S]*?)<\/fills>/), xM = xml.match(/<cellXfs count="(\d+)">([\s\S]*?)<\/cellXfs>/);
+  const fills = fM[2].match(/<fill>[\s\S]*?<\/fill>/g), xfs = xM[2].match(/<xf [^>]*?(?:\/>|>[\s\S]*?<\/xf>)/g);
+  const xf = xfs[STYLE.tText].replace(/fillId="\d+"/, `fillId="${fills.length}"`).replace(/applyFill="1"/, '').replace('<xf ', '<xf applyFill="1" ');
+  STYLE.tVendor = xfs.length;
+  return xml.replace(fM[0], `<fills count="${fills.length + 1}">${fills.join('')}<fill><patternFill patternType="solid"><fgColor rgb="FFFFF2CC"/></patternFill></fill></fills>`)
+    .replace(xM[0], `<cellXfs count="${xfs.length + 1}">${xfs.join('')}${xf}</cellXfs>`);
+}
 // 表の最後の行（2026-11-19 ユーザー指示「맨 마지막 행 밑줄 실선」）：t* の各スタイルの複製で下だけ実線（細線）。STYLE['名前_U']
 function underTwins(xml) {
   const bM = xml.match(/<borders count="(\d+)">([\s\S]*?)<\/borders>/), xM = xml.match(/<cellXfs count="(\d+)">([\s\S]*?)<\/cellXfs>/);
@@ -323,7 +333,7 @@ export function xlsx(sheets0) {
       [168, 15, 0, 0, 'left'],
     ].map(([n, f, fill, b, h]) => `<xf numFmtId="${n}" fontId="${f}" fillId="${fill}" borderId="${b}" xfId="0" applyNumberFormat="1" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="${h}" vertical="center"/></xf>`).join('')}</cellXfs><cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>`],
   ];
-  const st = files.find(f => f[0] === 'xl/styles.xml'); st[1] = underTwins(boxStyles(st[1])); const red = redTwins(st[1]); st[1] = red.xml;
+  const st = files.find(f => f[0] === 'xl/styles.xml'); st[1] = underTwins(fillTwins(boxStyles(st[1]))); const red = redTwins(st[1]); st[1] = red.xml;
   files.push(...sheets.map((s, i) => [`xl/worksheets/sheet${i + 1}.xml`, sheetXml({ ...s, redAt: red.redAt })]));
   return zip(files);
 }
