@@ -284,10 +284,11 @@ const HIDDEN_MENUS = new Set(['dashboard']);
 // サイドバー最下部に固定表示するメニュー（表示名）と、クリックで開閉するグループ（アイコン）
 const PINNED_MENUS = { migration: '前提・確認事項' };
 const FOLD_GROUPS = { '財務会計': '¥' };
+const USER01_HIDE = new Set(['audit', 'users']);   // user01 は財務会計・操作履歴・利用者管理のメニューを出さない（2026-11-20 ユーザー指示）
 const foldOpen = new Set((() => { try { return JSON.parse(localStorage.getItem('navFold') || '[]'); } catch { return []; } })());
 const home = () => Object.keys(TITLES).find(k => !PINNED_MENUS[k]) || 'shipments';
 function nav() {
-  const list = session.menus.filter(m => !HIDDEN_MENUS.has(m.url.slice(1))), groups = [];
+  const list = session.menus.filter(m => !HIDDEN_MENUS.has(m.url.slice(1)) && !(isUser01() && (m.grp === '財務会計' || USER01_HIDE.has(m.url.slice(1))))), groups = [];
   const link = m => `<a class="nav-link" href="${esc(m.url)}" data-nav="${esc(m.url.slice(1))}"><i>${esc(m.icon)}</i>${esc(m.title)}${subsOf(m.url.slice(1)) ? '<b class="nav-caret">▸</b>' : ''}</a>`;
   for (const m of list) {
     const k = m.url.slice(1); TITLES[k] = m.title; if (PINNED_MENUS[k]) continue;
@@ -2138,7 +2139,7 @@ const payableReportsCard = () => miscCard('定時請求入力明細表', '部門
   <div class="filters-break"></div><label class="field">業者コード（From）<input id="pi-vfrom" list="pi-vlist" maxlength="7" style="width:110px"></label><label class="field">業者コード（To）<input id="pi-vto" list="pi-vlist" maxlength="7" style="width:110px" value="9999999"></label><datalist id="pi-vlist">${(masters.vendors || []).map(v => `<option value="${esc(v.code)}">${esc(v.name)}</option>`).join('')}</datalist>`,
   '<button data-act="misc" data-kind="payable-input" data-src="pi" id="pi-btn">定時請求データ入力明細表</button>', '業者コード：ブランク＝出力しない／From〜To＝範囲の業者／To に 9999999＝全業者（10/21 打合せ）。発注残・相殺は未確定（Q03）のため0。削減案6では画面照会で代用可とされていますが、帳票としても出力できます。');
 const pettyReportsCard = () => miscCard('小口現金出納簿', '定額資金前渡制（推定）', rangeInputs('pc', '期間', ...closingRange()),
-  '<button data-act="misc" data-kind="petty-book" data-src="pc">小口現金出納簿</button>' + (canWrite() ? '<button data-act="fund">定額資金の設定</button><button data-act="refill">現金補充を登録</button>' : ''), '期首に定額資金を受入、支払ごとに残高を表示し、支払合計を次期補充額とします。JV構成員が登録済みなら出資比率で配分列を表示します。');
+  '<button data-act="misc" data-kind="petty-book" data-src="pc">小口現金出納簿</button>' + (canWrite() && !isUser01() /* user01 は出さない（2026-11-20） */ ? '<button data-act="fund">定額資金の設定</button><button data-act="refill">現金補充を登録</button>' : ''), '期首に定額資金を受入、支払ごとに残高を表示し、支払合計を次期補充額とします。JV構成員が登録済みなら出資比率で配分列を表示します。');
 const receiptScheduleCard = () => miscCard('入金予定チェックリスト', '得意先別・工事（現場）別', `<label class="field">入金予定日（から）<input type="date" id="rs-from" value="${addMonths(thisMonth(), -6)}-01"></label><label class="field">入金予定日（まで）<input type="date" id="rs-to" value="${today()}"></label><label class="field"><span>超過分のみ</span><span><input type="checkbox" id="rs-over"> 予定日を過ぎた未入金</span></label><button data-act="misc" data-kind="receipt-schedule" data-src="rs">入金予定チェックリスト</button>`,
   '', '残高のある請求が対象（未発行を含み、発行の有無を表示）。入金方法・入金先は過去の入金実績から推定します。'); // 条件とボタンを1行に（2026-10-27）
 const accountingCard = () => miscCard('会計連携データ', '会計システムは勘定奉行（奉行クラウド）。受入は CSV／Excel（QA回答 2026-10-08）', rangeInputs('ac', '仕訳日'),
