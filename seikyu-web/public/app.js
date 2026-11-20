@@ -2382,7 +2382,7 @@ VIEWS.journals = async q => {
         { label: '取引先', value: l => l.partner }, { label: '借方金額', num: 1, value: l => l.side === 'D' ? yen(l.amount) : '' }, { label: '貸方金額', num: 1, value: l => l.side === 'C' ? yen(l.amount) : '' }], j.lines)}</div>`).join('') : '<div class="empty">仕訳がありません</div>';
   }
   return page('仕訳・会計連携', '業務処理から自動作成された仕訳（journal_entry / journal_line）。取消は原仕訳を残し逆仕訳で記録します。会計システムの受入形式は確認待ちです（Q14/Q19）。',
-    `${monthInput('month', month)}${tab === 'tb' ? csvLink('trial-balance', { month }) : `<select name="pattern" data-filter>${options(Object.entries(meta.patterns).map(([code, name]) => ({ code, name })), q.pattern, { blank: 'すべてのパターン' })}</select>${csvLink('journals', { month, pattern: q.pattern })}`}`,
+    `${monthInput('month', month)}${tab === 'tb' ? csvLink('trial-balance', { month }) : `<select name="pattern" data-filter>${options(Object.entries(meta.patterns).map(([code, name]) => ({ code, name })), q.pattern, { blank: 'すべてのパターン' })}</select>${csvLink('journals', { month, pattern: q.pattern, ...(isUser01() ? { valid: 1 } : {}) })}`}`,
     `<section class="card glass" data-sub="list tb">${body}</section><div data-sub="export">${accountingCard()}</div>`);
 };
 // ② 自動仕訳リスト 7種（帳票形式：借方・貸方併記、伝票合計・日付合計）

@@ -168,7 +168,7 @@ export async function exportCsv(c, kind, q = {}) {
       ...l.map(r => [r.id, r.month, r.closing, r.due, r.customer, r.customerName, r.siteName, r.net, r.tax, r.total, r.paid, r.balance, r.issues, r.status])]; }
     case 'receipts': { const l = await listReceipts(c, { month }); return [['入金No', '入金日', '得意先CD', '得意先', '振込', '銀行内訳', '現金', '手形', '手数料', '協力会費等', '預り金充当', '値引', '受領額', '消込額', '状態', '消込請求ID'],
       ...l.map(r => [r.no, r.date, r.customer, r.customerName, r.bank, r.bankCode, r.cash, r.notes, r.fee, r.coop, r.deposit, r.discount, r.received, r.settlement, r.status, r.allocations.map(a => a.invoiceId).join(' ')])]; }
-    case 'journals': { const l = await listJournals(c, { month, pattern: q.pattern }); return [['仕訳ID', '仕訳日', 'パターン', '元伝票種別', '元伝票ID', '版', '取消元仕訳', '状態', '行', '貸借', '科目', '科目名', '内訳', '部門', '税区分', '金額', '取引先'],
+    case 'journals': { const l = (await listJournals(c, { month, pattern: q.pattern })).filter(j => !q.valid || (j.status !== 'REVERSED' && !j.reversalOf)); /* valid＝取消された仕訳と逆仕訳を除く（user01 の CSV。2026-11-21 ユーザー指示） */ return [['仕訳ID', '仕訳日', 'パターン', '元伝票種別', '元伝票ID', '版', '取消元仕訳', '状態', '行', '貸借', '科目', '科目名', '内訳', '部門', '税区分', '金額', '取引先'],
       ...l.flatMap(j => j.lines.map(x => [j.id, j.date, j.pattern, j.source, j.sourceId, j.revision, j.reversalOf || '', j.status, x.no, x.side === 'D' ? '借方' : '貸方', x.account, x.accountName, x.sub, x.dept, x.tax, x.amount, x.partner]))]; }
     case 'trial-balance': { const l = await trialBalance(c, month || today().slice(0, 7)); return [['科目', '科目名', '借方', '貸方', '差額(借-貸)'], ...l.map(r => [r.account, r.name, r.debit, r.credit, r.debit - r.credit]),
       ['合計', '', l.reduce((n, r) => n + r.debit, 0), l.reduce((n, r) => n + r.credit, 0), '']]; }
