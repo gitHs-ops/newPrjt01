@@ -1929,8 +1929,12 @@ function expenseView(kind) {
       { label: '', html: r => `<button class="mini" data-act="detail" data-id="${r.id}">詳細</button>` }];
     // 小口現金一覧（11/04 打合せ No.14）：入力した行ごとに 1 行で表示し、行ごとに［修正］［削除］（行どうしは独立。伝票No は 伝票No－行番号）
     const pettyRows = payable ? [] : list.filter(r => r.status !== 'REVERSED').flatMap(r => r.lines.map(L => ({ ...r, L })));
+    const pettyTo = r => (r.L.vendor ? `${r.L.vendor} ${r.L.payee}` : r.L.payee || r.payee || '');
+    // 小口現金の並べ替え（2026-11-20 ユーザー指示）：支払日・支払先（表示のとおりコード→名称）。同じなら伝票No－行番号
+    const pettyNo = r => `${r.no}-${String(r.L.no).padStart(2, '0')}`;
+    const PT_SORT_FNS = { date: (x, y) => jaCmp(x.date, y.date) || jaCmp(pettyTo(x), pettyTo(y)) || jaCmp(pettyNo(x), pettyNo(y)), to: (x, y) => jaCmp(pettyTo(x), pettyTo(y)) || jaCmp(x.date, y.date) || jaCmp(pettyNo(x), pettyNo(y)) };
     const colsP = [{ label: '伝票No', value: r => `${r.no}-${String(r.L.no).padStart(2, '0')}` }, { label: '支払日', value: r => r.date },
-      { label: '支払先', clipW: 9, value: r => (r.L.vendor ? `${r.L.vendor} ${r.L.payee}` : r.L.payee || r.payee || '') }, { label: '科目・内訳', clipW: 8, value: r => `${r.L.account} ${r.L.accountName}${r.L.sub ? `／${r.L.sub} ${r.L.subName}` : ''}` },
+      { label: '支払先', clipW: 9, value: pettyTo }, { label: '科目・内訳', clipW: 8, value: r => `${r.L.account} ${r.L.accountName}${r.L.sub ? `／${r.L.sub} ${r.L.subName}` : ''}` },
       { label: '処税率', clipW: 4, value: r => taxLabel(r.L.taxCode) }, { label: '支払額', num: 1, value: r => yen(r.L.amount) }, { label: '摘要コード', value: r => r.L.memoCode }, { label: '摘要', value: r => r.L.memo },
       { label: '状態', html: r => (r.status === 'POSTED' ? badge('支払済', 'green') : status(r.status)) },   // D-065：小口現金は登録＝支払済（取消済は一覧に出さない。2026-11-12 結合テスト IT-08）
       { label: '', html: r => canWrite() && r.status === 'POSTED' ? `<button class="mini" data-act="lineEdit" data-id="${r.id}" data-ln="${r.L.no}">詳細</button>` : '' }];
@@ -1945,7 +1949,7 @@ function expenseView(kind) {
     const PY_SORT_FNS = { vendor: (x, y) => jaCmp(x.vendor, y.vendor) || jaCmp(x.due, y.due) || jaCmp(x.no, y.no), due: (x, y) => jaCmp(x.due, y.due) || jaCmp(x.vendor, y.vendor) || jaCmp(x.no, y.no), pst: (x, y) => payState(x) - payState(y) || jaCmp(x.due, y.due) || jaCmp(x.no, y.no) };
     return page(payable ? '定時請求' : '小口現金出納登録', payable ? '業者からの請求（買掛金）を伝票＋明細で計上します（expense_document / expense_line、仕訳 D01）。' : '小口現金での経費支出を伝票＋明細で計上します（仕訳 E01）。',
       `${monthInput('month', month)}${payable ? filterSelect('vendor', masters.vendors, q.vendor, 'すべての業者') : ''}${csvLink('expenses', { month })}${canWrite() ? '<button class="primary" data-act="new">＋ 登録</button>' : ''}`,
-      `<section class="card glass" data-sub="list">${payable ? (list.length ? sortBarOf('payables', [['vendor', '業者'], ['due', '支払予定日'], ...(isReviewer() ? [['pst', '支払状態']] : [])]) : '') + table(cols2, sortedBy('payables', list, PY_SORT_FNS), { rowClass: r => r.status === 'REVERSED' ? 'reversed' : '' }) : table(colsP, pettyRows)}</section><div data-sub="${payable ? 'reports' : 'book'}">${payable ? payableReportsCard() : pettyReportsCard()}</div>`);
+      `<section class="card glass" data-sub="list">${payable ? (list.length ? sortBarOf('payables', [['vendor', '業者'], ['due', '支払予定日'], ...(isReviewer() ? [['pst', '支払状態']] : [])]) : '') + table(cols2, sortedBy('payables', list, PY_SORT_FNS), { rowClass: r => r.status === 'REVERSED' ? 'reversed' : '' }) : (pettyRows.length ? sortBarOf('petty', [['date', '支払日'], ['to', '支払先']]) : '') + table(colsP, sortedBy('petty', pettyRows, PT_SORT_FNS))}</section><div data-sub="${payable ? 'reports' : 'book'}">${payable ? payableReportsCard() : pettyReportsCard()}</div>`);
   };
 }
 VIEWS.payables = expenseView('PAYABLE');
