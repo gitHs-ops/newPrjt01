@@ -46,7 +46,7 @@ export async function payableInputList(c, q) {
     // 区分 1＝組織：部門ごと／ブランク＝工事：摘要コード（工事コード7桁）ごと
     const key = kb ? r.department_code : r.memo_code || '', label = kb ? deptNames[r.department_code] || '' : key ? '' : '工事コードなし';
     let dp = depts.find(x => x.dept === key); if (!dp) depts.push(dp = { dept: key, name: label, vendors: [], total: 0 });
-    let v = dp.vendors.find(x => x.vendor === r.vendor_code); if (!v) dp.vendors.push(v = { vendor: r.vendor_code, name: r.vendor_name, address: `${r.pref || ''}${r.addr1 || ''}`, address2: r.addr2 || '', docs: [], rows: [], total: 0, tax: 0 });
+    let v = dp.vendors.find(x => x.vendor === r.vendor_code); if (!v) dp.vendors.push(v = { vendor: r.vendor_code, name: r.vendor_name, address: `${r.pref || ''}${r.addr1 || ''}${r.addr2 || ''}` /* 住所1・住所2 を続けて 1 つに（2026-11-20 ユーザー指示） */, docs: [], rows: [], total: 0, tax: 0 });
     const amount = num(r.gross_amount), tax = num(r.tax_amount);
     v.rows.push({ no: r.bill_no || '', docNo: r.document_no, date: r.booked_on, due: r.due_on || '', account: r.account_code, sub: r.sub_code || '', accountName: r.account_name, subName: r.sub_name || '', orderRemain: 0, amount, offset: 0, memoCode: r.memo_code || '', memo: r.line_memo || r.memo, tax: r.source_tax_code, paid: num(r.paid) });
     // 現行 HAR136：伝票（定時請求 1 件）ごとに 請求金額の計と支払条件の行（2026-11-20 ユーザー指示）
@@ -184,8 +184,8 @@ export async function extraBook(c, kind, q) {
       out.push(['業者', '業者名', '科目', '内訳', '科目名', '内訳名', '請求金額', '摘要', '処税率'].map(H), ['', '伝票No', '', '', '', '', '', '', ''].map(H));   // 発注残金額は現行に無いため削除（2026-11-20 ユーザー指示）
       for (const c of ['A', 'C', 'D', 'E', 'F', 'G', 'H', 'I']) merges.push(`${c}${r1}:${c}${r1 + 1}`);
       for (const v of dp.vendors) {
-        // 現行と同じく業者の行に住所（都道府県＋市区町村は科目名の列、番地は請求金額の列）
-        out.push([v.vendor, v.name, '', '', v.address, '', v.address2]);
+        // 業者の行に住所（科目名の列から。住所1＋住所2 を続けて 1 セル）
+        out.push([v.vendor, v.name, '', '', v.address]);   // 住所は 住所1＋住所2 を続けて 1 セル（右の空きセルにはみ出して表示）
         for (const x of v.docs) {
           for (const r of x.rows) out.push(['', r.docNo, r.account, r.sub, r.accountName, r.subName, r.amount, r.memo, r.tax]);
           out.push(['', '', '', '', '', '', x.total, `（ ${x.term} ）`]);
