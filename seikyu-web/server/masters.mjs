@@ -256,7 +256,7 @@ export const MASTERS = {
   // 適用コード（摘要）マスタ（2026-11-04 打合せ No.7・11・13：コードを入れると摘要の名称が出る。入金の手数料 101・協力費など、定時請求の摘要コード、小口現金の摘要）
   // 区分は持たない（No.7「摘要の区分は不要」）。コードは半角数字 1〜7 桁（入金 101、工事 7 桁）。code_m 'TKYO'
   tekiyo: {
-    label: '適用コード（摘要）', table: 'code_m',
+    label: '摘要マスタ', table: 'code_m',   // メニュー名 適用コード（摘要）→ 摘要マスタ（2026-11-20 ユーザー指示）
     fields: [F('code', '適用コード', { max: 7, key: true, hint: '半角数字7桁以内' }), F('name', '摘要', { max: 40 }), F('active', '有効', { type: 'bool' })],
     select: "SELECT * FROM code_m WHERE code_key='TKYO'", where: 'code_dtl=?', keyOf: r => [r.code],
     decode: r => ({ code: r.code_dtl, name: r.code_dtl_nam, active: r.category1 !== '0' }),
