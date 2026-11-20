@@ -47,7 +47,12 @@ export async function journalList(c, q) {
       // 現行入金処理で入力した摘要2（借方の内訳ごと。2026-11-01）
       for (const k of await rows(c, `SELECT receipt_id, component_kind, memo2, memo1 FROM receipt_component WHERE (memo2 IS NOT NULL OR memo1 IS NOT NULL) AND receipt_id IN (${ph(srcIds)})`, srcIds)) if (src.get(k.receipt_id)) { const x = src.get(k.receipt_id); if (k.memo2 !== null) (x.memo2Of ||= {})[k.component_kind] = k.memo2; if (k.memo1) (x.memo1Of ||= {})[k.component_kind] = k.memo1; }   // 摘要1 は手入力したものだけ（2026-11-17）
     }
-    if (def.source === 'inventory_count') for (const r of await rows(c, `SELECT n.inventory_id id, n.item_cd, i.item_nam FROM inventory_count n LEFT JOIN item_m i ON i.item_cd=n.item_cd WHERE n.inventory_id IN (${ph(srcIds)})`, srcIds)) src.set(r.id, { no: 'V' + r.id, item: `${r.item_cd} ${r.item_nam || ''}` });
+    // 伝票No は実在庫登録・在庫登録リストと同じ月度の V 番号（V＋年度＋連番。app_doc_no）。番号が無い月度だけ従来の V＋ID（2026-11-21 ユーザー指示）
+    if (def.source === 'inventory_count') {
+      const ns = await rows(c, `SELECT n.inventory_id id, n.period_start, n.item_cd, i.item_nam FROM inventory_count n LEFT JOIN item_m i ON i.item_cd=n.item_cd WHERE n.inventory_id IN (${ph(srcIds)})`, srcIds), ms = [...new Set(ns.map(r => String(r.period_start).slice(0, 7)))];
+      const vno = new Map(ms.length ? (await rows(c, `SELECT ref, doc_no FROM app_doc_no WHERE kind='count' AND ref IN (${ph(ms)})`, ms)).map(r => [r.ref, r.doc_no]) : []);
+      for (const r of ns) src.set(r.id, { no: vno.get(String(r.period_start).slice(0, 7)) || 'V' + r.id, item: `${r.item_cd} ${r.item_nam || ''}` });
+    }
     if (def.source === 'expense_document') {
       for (const r of await rows(c, `SELECT d.expense_id id, d.document_no, d.memo FROM expense_document d WHERE d.expense_id IN (${ph(srcIds)})`, srcIds)) src.set(r.id, { no: r.document_no, memo2: r.memo, lines: [] });
       // 小口現金（E01）：借方の行ごとの 摘要1＝行の支払先、摘要2＝行の摘要（現行 HAR733。2026-10-29）
@@ -57,8 +62,11 @@ export async function journalList(c, q) {
   }
   // 8330-101 各種手数料 の摘要2「手数料」は 2026-11-17 ユーザー指示で外した（入力した摘要2 だけ出す）
   const DEDUCT = { '8330|107': '協力費', '8850|': '値引き', '4170|': '預り金充当' };
+  // 在庫計上（月度ごと）の伝票No は実在庫登録の V 番号（V＋年度＋連番。app_doc_no）。番号が無い月度は従来の「棚卸 yyyy-mm月度」（2026-11-21 ユーザー指示）
+  const cms = [...new Set(es.filter(e => e.source_type === 'inventory_month').map(e => `${e.source_id.slice(0, 4)}-${e.source_id.slice(4)}`))];
+  const countNo = new Map(cms.length ? (await rows(c, `SELECT ref, doc_no FROM app_doc_no WHERE kind='count' AND ref IN (${ph(cms)})`, cms)).map(r => [r.ref, r.doc_no]) : []);
   const slips = es.map(e => {
-    const s = e.source_type === 'inventory_month' ? { no: `棚卸 ${e.source_id.slice(0, 4)}-${e.source_id.slice(4)}月度` } : src.get(Number(e.source_id)) || { no: '' }, lines = ls.filter(l => l.journal_id === e.journal_id);
+    const s = e.source_type === 'inventory_month' ? { no: countNo.get(`${e.source_id.slice(0, 4)}-${e.source_id.slice(4)}`) || `棚卸 ${e.source_id.slice(0, 4)}-${e.source_id.slice(4)}月度` } : src.get(Number(e.source_id)) || { no: '' }, lines = ls.filter(l => l.journal_id === e.journal_id);
     const partnerLine = lines.find(l => l.customers_cd || l.vendor_id), partner = partnerLine ? { kind: partnerLine.customers_cd ? 'C' : 'V', code: partnerLine.customers_cd || partnerLine.vendor_code, name: partnerLine.customers_name || partnerLine.vendor_name } : null;
     let creditNo = 0, debitNo = 0, bk = null; const usedKind = new Set();
     // 入金（B01）の借方の行 → 入金の内訳（receipt_component）。8850 は値引き → 雑損失の順

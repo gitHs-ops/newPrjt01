@@ -46,11 +46,11 @@ export async function purchaseRegister(c, q) {
 export async function inventoryRegister(c, q) {
   const month = isoMonth(q.month, '対象月');
   const rs = await rows(c, `SELECT n.*, i.item_nam, unit_name(i.unit) unit, i.item_product_kb FROM inventory_count n LEFT JOIN item_m i ON i.item_cd=n.item_cd WHERE n.period_start=? AND n.status IN ('POSTED','DRAFT') ORDER BY i.item_product_kb, n.item_cd`, [month + '-01']);
-  const no = (await one(c, "SELECT doc_no FROM app_doc_no WHERE kind='count' AND ref=?", [month]))?.doc_no || ''; // 実在庫の伝票No（V＋年度＋連番。2026-11-03）
+  // 実在庫の伝票No（V 番号）は在庫登録リストに出さない（2026-11-21 ユーザー指示）
   // 製品・材料の区分見出し・小計・総合計は保留（2026-11-03 ユーザー指示の見本）。並びは製品 → 材料・商品のまま
   const list = [...rs.filter(r => r.item_product_kb === '2'), ...rs.filter(r => r.item_product_kb !== '2')];
   const groups = list.length ? [{ rows: list.map(r => ({ code: r.item_cd, name: r.item_nam || '', qty: num(r.quantity), unit: r.unit || '' })) }] : [];
-  return { title: '在庫登録リスト', ref: '帳票⑰（HAR061）', month, sub: `${month} 月度（${monthEnd(month)} 現在）${no ? '　伝票No ' + no : ''}`,
+  return { title: '在庫登録リスト', ref: '帳票⑰（HAR061）', month, sub: `${month} 月度（${monthEnd(month)} 現在）`,
     columns: [{ key: 'code', label: 'コード' }, { key: 'name', label: '商品・製品名' }, { key: 'qty', label: '在庫数量', num: 1, dec: 1 }, { key: 'unit', label: '単位' }],
     groups }; // 総合計も出さない（2026-11-03）
 }
