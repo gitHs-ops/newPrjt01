@@ -1818,7 +1818,7 @@ function expenseView(kind) {
     const month = q.month || thisMonth(), list = await api('/api/expenses?' + qs({ kind, vendor: q.vendor, ...(pdate ? { date: pdate } : { month }) })), payable = kind === 'PAYABLE';
     // 状態：計上済は会計連携の後（会計連携済みの期間の伝票）。それまでは未計上（2026-11-20 ユーザー指示。定時請求・小口現金）
     const acctState = r => (r.status !== 'POSTED' ? status(r.status) : r.linked ? badge('計上済', 'green') : badge('未計上', 'gray'));
-    const accs = active('accounts').filter(a => !['1111', '1112', '1120', '1131', '4121', '4415'].includes(a.code)), top = payable ? [] : PETTY_ACCOUNTS.map(c => accs.find(a => a.code === c)).filter(Boolean);
+    const accs = active('accounts').filter(a => !['1111', '1112', '1120', '1131', '1431', '4121', '4415'].includes(a.code)),   /* 1431 業者立替金は選べない（2026-11-21） */ top = payable ? [] : PETTY_ACCOUNTS.map(c => accs.find(a => a.code === c)).filter(Boolean);
     const accOpts = top.length ? `<option value="">（科目）</option><optgroup label="小口現金でよく使う科目">${options(top, '')}</optgroup><optgroup label="その他の科目">${options(accs.filter(a => !top.includes(a)), '')}</optgroup>` : options(accs, '', { blank: '（科目）' });
     const hwCols = [{ name: 'account', label: '科目', cell: () => `<select name="account">${accOpts}</select>` },
       { name: 'sub', label: '内訳／摘要コード', cell: () => '<div class="l2"><select name="sub"><option value="">（なし）</option></select><input name="memoCode" maxlength="7" list="dl-tekiyo" autocomplete="off" placeholder="摘要コード（適用・工事コード）" title="適用コードマスタの候補から選ぶか、工事コードなどを直接入力（摘要名は直接入れたものが優先）"></div>' },
@@ -1890,9 +1890,6 @@ function expenseView(kind) {
           const ext = f.querySelector('[name=extTax]'); ext.addEventListener('input', () => { ext.dataset.manual = ext.value.trim() === '' ? '' : '1'; recalc(); });
           f.querySelector('[name=total]').addEventListener('input', recalc);
         }
-        // 業者立替金 1431（10/28 回答②）：相殺の行。処税率は対象外に固定し、マイナスで入力する
-        g.addEventListener('change', e => { if (e.target.name !== 'account') return; const tr = e.target.closest('tr'), t = tr.querySelector('[name=taxCode]'), a = tr.querySelector('[name=amount]'), adv = e.target.value === '1431';
-          if (t) { if (adv && [...t.options].some(o => o.value === '090')) t.value = '090'; t.disabled = adv; } if (a) a.placeholder = adv ? '相殺額をマイナスで（例 -50000）' : ''; });
         g.addEventListener('change', e => { if (e.target.name === 'account') { const tr = e.target.closest('tr'), acc = masters.accounts.find(a => a.code === e.target.value); tr.querySelector('[name=sub]').innerHTML = '<option value="">（なし）</option>' + options(active('subaccounts').filter(s => s.account === e.target.value), ''); if (acc?.tax && tr.querySelector(`[name=taxCode] option[value="${acc.tax}"]`)) tr.querySelector('[name=taxCode]').value = acc.tax; }
           if (['account', 'sub'].includes(e.target.name)) names(e.target.closest('tr')); recalc(); });
         g.addEventListener('input', recalc); g.addEventListener('click', () => setTimeout(recalc)); recalc();

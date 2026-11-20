@@ -329,9 +329,8 @@ export async function createExpense(c, ctx, p, old = null) {
     const sub = String(l.sub || '') || null;
     if (sub) check(await one(c, 'SELECT 1 x FROM account_subsubject WHERE account_code=? AND sub_code=? AND active', [acc.account_code, sub]), `${label}: 内訳科目が上位科目に登録されていません`);
     const amount = yen(l.amount, `${label}の金額`, { negative: true }); check(amount !== 0, `${label}: 金額を入力してください`); // マイナス行（戻し・値引）は貸方に計上
-    // 業者立替金（10/28 回答：立替金は定時請求の画面で入力）：科目 1431 の行＝立替金との相殺。マイナスで入力、処税率は対象外に固定。小口現金では使わない
-    const isAdv = acc.account_code === ADVANCE_ACCOUNT;
-    if (isAdv) { check(kind === 'PAYABLE', `${label}: 業者立替金は定時請求で入力してください`); check(amount < 0, `${label}: 業者立替金（相殺）はマイナスで入力してください`); l = { ...l, taxCode: '090' }; }
+    // 業者立替金 1431 は定時請求・小口現金の明細では使わない（11/11 打合せ：価格調整は費用のマイナス、立替金は支払内訳入力の［立替金］で相殺。2026-11-21 ユーザー指示で入力を止める）
+    check(acc.account_code !== ADVANCE_ACCOUNT, `${label}: 業者立替金（1431）は入力できません。価格調整は費用科目のマイナス、立替金の相殺は 支払 → 支払一覧・支払内訳入力 の［立替金］で入力してください`);
     // 内税（1桁目 1）：金額は税込、消費税は内数。外税（1桁目 2・空白）：金額は税抜、消費税を上乗せ（現行 HAW050 の「外税消費税」）
     const d = mustDecode(l.taxCode || '141', `${label}の処税率`), tax = d.code, excl = !!d.excl;
     // 小口現金の支払額は常に税込（画面「支払額（税込）」。2026-11-04）：外税の処税率でも消費税は支払額から抜き出し、科目は税抜・仮払消費税 1465 に分ける（上乗せしない）
@@ -341,8 +340,6 @@ export async function createExpense(c, ctx, p, old = null) {
     ls.push({ account: acc.account_code, sub, tax, amount: pettyEx ? amount - taxAmt : amount, excl, split: excl || pettyEx, taxAmt, gross: pettyEx ? amount : excl ? amount + taxAmt : amount, memoCode: text(l.memoCode, `${label}の摘要コード`, 7, { required: false, pattern: /^\d{1,7}$/ }), memo: text(l.memo, `${label}の摘要名`, 500, { required: false }), lineVendor: lv, linePayee: lpayee });
   }
   check(ls.length, '明細を入力してください'); check(ls.length <= 99, '明細は99行以内です');
-  const advUse = -ls.filter(l => l.account === ADVANCE_ACCOUNT).reduce((n, l) => n + l.amount, 0);
-  if (advUse) { const bal = await advanceBalance(c, v.vendor_id); check(advUse <= bal, `業者立替金の相殺額（${advUse.toLocaleString('ja-JP')}円）が立替金の残高（${bal.toLocaleString('ja-JP')}円）を超えています`); }
   // 外税消費税は画面で調整できる（端数）。計算値との差は最後の外税明細の消費税で調整
   const exLines = ls.filter(l => l.excl), exCalc = exLines.reduce((n, l) => n + l.taxAmt, 0);
   if (p.extTax !== undefined && String(p.extTax).trim() !== '') {
