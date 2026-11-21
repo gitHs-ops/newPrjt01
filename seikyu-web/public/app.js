@@ -26,7 +26,7 @@ const footFirst = html => html && $('#modal-foot').insertAdjacentHTML('afterbegi
 //  fresh … DB から読み、結果を apiCache に入れる。登録・更新（GET 以外）の後はキャッシュを捨て、次の描画で読み直す
 // 利用者管理（/api/users）・操作履歴（/api/audit）はメニューで開いたときから一覧を表示する（2026-11-07 ユーザー指示）
 // 売掛金計上（/api/ar-post）は次の締日・実行済みの印を出すため、メニューで開いたときから読む（2026-11-17）
-const apiCache = new Map(), LAZY_FETCH = /^\/api\/(business-date|ar-post|petty\/settings|tax-settings|kb\/meta|kb\/bugyo|coverage|periods|users|audit)(\?|$)/;
+const apiCache = new Map(), LAZY_FETCH = /^\/api\/(business-date|ar-post|ap-post|petty\/settings|tax-settings|kb\/meta|kb\/bugyo|coverage|periods|users|audit)(\?|$)/;
 let apiMode = null, apiDirty = false, emptyShown = false;
 const fetchJson = async (url, opt) => {
   const res = await fetch(url, { cache: 'no-store', ...opt });
@@ -270,7 +270,7 @@ const SUBMENUS = {
   // 配合計算は自分の画面を出す（2026-11-04 ユーザー指示。以前は材料受払表の画面へ移っていた）。現行の配合計算処理は配合マスタ・配合単価と無関係で、結果が材料受払表（2026-11-02 ユーザー回答）
   inventory: [{ k: 'count', l: '実在庫登録', tools: false }, { k: 'register', l: '在庫登録リスト' }, { k: 'mix', l: '配合計算' }, { k: 'ledger', l: '材料受払表' }, { k: 'post', l: '在庫計上', tools: false }, { k: 'list', l: '在庫一覧', tools: true }],   // 在庫一覧は 2026-11-08 小メニュー非表示 → 2026-11-20 user01 だけ表示 → 同日ユーザー指示「user01 に出るメニューは全ログインに」で全ログインに表示
   purchases: [{ k: 'list', l: '商品仕入一覧・登録' }, { k: 'reports', l: '商品仕入登録リスト' }], // 2026-10-29 帳票を小メニューに分けた
-  payables: [{ k: 'list', l: '定時請求一覧・入力' }, { k: 'reports', l: '定時請求入力明細表' }],
+  payables: [{ k: 'list', l: '定時請求一覧・入力' }, { k: 'reports', l: '定時請求入力明細表' }, { k: 'post', l: '定時請求計上', tools: false }],   // 定時請求計上は 2026-11-21 ユーザー指示
   cash: [{ k: 'list', l: '小口現金出納登録' }, { k: 'book', l: '小口現金出納簿' }],   // 名称「出納簿・定額資金・現金補充」→「小口現金出納簿」（2026-11-20 ユーザー指示）
   // 要件定義の業務順（2026-11-19 ユーザー指示）：振込先一覧（支払予定・口座の確認）→ 支払データ作成（全銀：未払から自動作成 → 全銀、機能一覧 14-1）→ 支払一覧・支払内訳入力（修正、14-7）→ 支払帳票（14-2〜14-5）→ 銀行別随時支払一覧表（14-6）。
   // 一覧の絞り込み（月・状態・CSV）は支払内訳入力の小メニューに出す（tools）
@@ -1964,7 +1964,20 @@ function expenseView(kind) {
       `<section class="card glass" data-sub="list">${payable ? (list.length ? sortBarOf('payables', [['vendor', '業者'], ['due', '支払予定日'], ...(isReviewer() ? [['pst', '支払状態']] : [])]) : '') + table(cols2, sortedBy('payables', list, PY_SORT_FNS), { rowClass: r => r.status === 'REVERSED' ? 'reversed' : '' }) : (pettyRows.length ? sortBarOf('petty', [['date', '支払日'], ['to', '支払先']]) : '') + table(colsP, sortedBy('petty', pettyRows, PT_SORT_FNS))}</section><div data-sub="${payable ? 'reports' : 'book'}">${payable ? payableReportsCard() : pettyReportsCard()}</div>`);
   };
 }
-VIEWS.payables = expenseView('PAYABLE');
+// 定時請求計上（2026-11-21 ユーザー指示）：締切日を指定して［実行］。売掛金計上と同じ作り（仕訳 D01 は定時請求データ入力で起票済み。実行は何度でもでき、確認・完了のメッセージは出さない）。
+// 実行した締切日は定時請求自動仕訳リスト（Excel）を出せる。会計連携済みの期間の締切日は実行できない
+document.addEventListener('change', e => { if (e.target.id === 'ap-date' && /^\d{4}-\d{2}-\d{2}$/.test(e.target.value)) go('payables', { date: e.target.value }); });
+async function apPostView(q = {}) {
+  const A = actions, d = await api('/api/ap-post?' + qs({ date: q.date || '' })), s = d.sel, run = d.run;
+  A.apRun = async (_, btn) => { if (btn) btn.disabled = true; try { await post('/api/ap-post/run', { date: s.date }); render({ fresh: true }); } catch (e) { toast(e.message, true); if (btn) btn.disabled = false; } };
+  A.apXlsx = () => run && saveXlsx('/api/reports/journal-list?' + qs({ pattern: 'D01', from: s.from, to: s.to, format: 'xlsx' })).catch(e => toast(e.message, true));
+  return page('定時請求', '', '', `<section class="card glass" data-sub="post"><div class="card-head"><h2>定時請求計上</h2></div>
+    <div class="filters"><label class="field">締切日<input type="date" id="ap-date" value="${esc(s.date)}" style="width:160px"></label>
+      ${canWrite() ? `<button class="primary" data-act="apRun" ${s.linked ? 'disabled title="会計連携済みの締切日は実行できません"' : ''}>実行</button>` : ''}<button data-act="apXlsx" ${run ? '' : 'disabled title="実行すると出力できます"'}>⇩ 定時請求自動仕訳リスト（Excel）</button></div>
+    ${isUser01() ? '' : `<p class="small muted" style="margin-top:8px">対象は前月の同じ締日の翌日〜締切日（${esc(s.from)}〜${esc(s.to)}）です。［実行］は何度でもできます（漏れた伝票があれば押し直してください）。</p>`}
+    ${isUser01() ? '' : `<p class="small ${run ? '' : 'muted'}" id="ap-status">${run ? `実行：${esc(run.at)}（${esc(run.by)}）　${run.slips}伝票` : '未実行'}${s.linked ? '　／　会計連携済み' : ''}</p>`}</section>`);
+}
+VIEWS.payables = async q => (route.sub === 'post' ? apPostView(q) : expenseView('PAYABLE')(q));
 VIEWS.cash = expenseView('PETTY_CASH');
 
 // ----- 支払 -----

@@ -154,6 +154,8 @@ export async function prepare(pool, env = process.env) {
   await pool.query(`CREATE TABLE IF NOT EXISTS app_mix_result (month varchar(7) COLLATE "C" NOT NULL, closing varchar(2) COLLATE "C" NOT NULL, result text NOT NULL, run_by varchar(256) COLLATE "C" NOT NULL, run_at timestamp(6) NOT NULL, PRIMARY KEY (month, closing))`); // 現金売上のキーに現場名が入る（2026-11-04 N-39。40 では長い現場名で登録できない）
   // 売掛金計上の実行の記録（締日＝毎月20日の年月ごと。何度でも実行でき、最後の実行で上書き。2026-11-17）。実行した締日は売掛金計上自動仕訳リスト（Excel）を出せる
   await pool.query(`CREATE TABLE IF NOT EXISTS app_ar_post_run (month varchar(7) COLLATE "C" PRIMARY KEY, run_by varchar(256) COLLATE "C" NOT NULL, run_at varchar(16) COLLATE "C" NOT NULL, slips integer NOT NULL, total bigint NOT NULL)`);
+  // 定時請求計上の実行の記録（締切日ごと。何度でも実行でき、最後の実行で上書き。2026-11-21）
+  await pool.query(`CREATE TABLE IF NOT EXISTS app_ap_post_run (closing varchar(10) COLLATE "C" PRIMARY KEY, run_by varchar(256) COLLATE "C" NOT NULL, run_at varchar(16) COLLATE "C" NOT NULL, slips integer NOT NULL, total bigint NOT NULL)`);
   // 会計連携済みの印（締日＝毎月20日の年月ごと。会計連携データを作成したときに付け、元に戻さない。売掛金計上はこの次の締日を出す。2026-11-17）
   await pool.query(`CREATE TABLE IF NOT EXISTS app_acct_link (month varchar(7) COLLATE "C" PRIMARY KEY, linked_by varchar(256) COLLATE "C" NOT NULL, linked_at varchar(16) COLLATE "C" NOT NULL, period varchar(30) COLLATE "C" NOT NULL)`);
   // JV 構成員・出資比率の履歴（2026-11-02。11/01 決定：適用開始日を持たせ、帳票は月度時点の比率で配分）。start_month＝適用開始の月度 YYYY-MM（''＝最初から）、ratio＝出資比率×100

@@ -59,6 +59,7 @@ export async function createApp({ pool, publicDir, secureCookies = process.env.N
   route('GET', '/api/invoices/:id/document', 'read', x => db(c => S.issuedDocument(c, x.params.id, x.q.site || null)));
   route('GET', '/api/open-invoices', 'read', x => db(c => S.openInvoices(c, x.q.customer)));
   route('GET', '/api/ar-post', 'read', x => db(c => J.arPostStatus(c, x.q.month))); // 売掛金計上：実行済みの印（2026-11-17）
+  route('GET', '/api/ap-post', 'read', x => db(c => J.apPostStatus(c, x.q.date))); // 定時請求計上：実行済みの印（2026-11-21）
   route('GET', '/api/reports/journal-list', 'read', x => x.q.format === 'xlsx' ? db(c => J.journalListBook(c, x.q)).then(b => ({ file: b })) : db(c => J.journalList(c, x.q)));
   route('GET', '/api/reports/bank-payments', 'read', x => x.q.format === 'xlsx' ? db(c => J.bankPaymentBook(c, x.q)).then(b => ({ file: b })) : db(c => J.bankPaymentList(c, x.q)));
   route('GET', '/api/reports/zengin', 'read', x => { if (['file', 'csv'].includes(x.q.format) && !U.WRITE_ROLES.includes(x.user.role)) throw new Forbidden('参照者は支払データを作成できません'); return db(c => PR.zenginData(c, x.q, x)); });
@@ -116,6 +117,7 @@ export async function createApp({ pool, publicDir, secureCookies = process.env.N
   w('/api/petty/fund', (c, x, b) => P.savePettyFund(c, x, b));
   w('/api/petty/refill', (c, x, b) => P.pettyRefill(c, x, b));
   w('/api/ar-post/run', (c, x, b) => J.runArPost(c, x, b)); // 売掛金計上の実行（2026-11-17）
+  w('/api/ap-post/run', (c, x, b) => J.runApPost(c, x, b)); // 定時請求計上の実行（2026-11-21）
   w('/api/mix/save', (c, x, b) => MR.saveMix(c, x, b));
   w('/api/shipments/correct', (c, x, b) => S.correctShipment(c, x, b));
   w('/api/billing/run', (c, x, b) => S.runBilling(c, x, b));

@@ -1,6 +1,6 @@
 // ② 自動仕訳リスト（帳票一覧⑥⑦⑨・9/17資料ア〜エ）。現行 HAR363/HAR413/HAR152/HAR733/CS5785 と同じ「借方・貸方を1行に併記」形式。
 // 削減案5により全リストを同一フォーマットで出力する。エ（銀行別随時支払一覧表）のみ別形式。
-import { check, isoDate, fromNum, today, addMonths } from './domain.mjs';
+import { check, isoDate, fromNum, today, addMonths, closingPeriodOfDate } from './domain.mjs';
 import { businessDate } from './sales.mjs';
 import { rows, one, audit, invoiceNos } from './db.mjs';
 import { xlsx, band } from './xlsx.mjs';
@@ -166,6 +166,24 @@ export async function runArPost(c, ctx, b) {
   await c.query('INSERT INTO app_ar_post_run (month,run_by,run_at,slips,total) VALUES (?,?,?,?,?) ON DUPLICATE KEY UPDATE run_by=VALUES(run_by),run_at=VALUES(run_at),slips=VALUES(slips),total=VALUES(total)', [month, ctx.user.login_id, jstNow(), d.slips.length, d.total]);
   await audit(c, ctx, 'app_ar_post_run', month, 'arpost.run', { closing: to, slips: d.slips.length, total: d.total });
   return arPostStatus(c, month);
+}
+// 定時請求計上（2026-11-21 ユーザー指示）：締切日を指定して［実行］。売掛金計上と同じく仕訳（D01）は定時請求データ入力で起票済みで、実行では起票しない。
+// 対象は前月の同じ締日の翌日〜締切日（定時請求一覧と同じ）。何度でも実行でき、最後の実行で上書き。会計連携済みの期間の締切日は実行できない。
+// 実行した締切日は定時請求自動仕訳リスト（Excel）を出せる。締切日の初期値は売掛金計上と同じ「次に会計連携する締日」
+export async function apPostStatus(c, date) {
+  const dt = /^\d{4}-\d{2}-\d{2}$/.test(date || '') ? date : (await arPostStatus(c)).next.to, { from, to } = closingPeriodOfDate(dt);
+  const lk = await one(c, "SELECT period FROM app_acct_link WHERE CAST(? AS date) BETWEEN CAST(split_part(period,'..',1) AS date) AND CAST(split_part(period,'..',2) AS date) LIMIT 1", [to]);
+  const r = await one(c, 'SELECT run_by, run_at, slips, total FROM app_ap_post_run WHERE closing=?', [to]);
+  return { sel: { date: to, from, to, linked: !!lk }, run: r ? { by: r.run_by, at: r.run_at, slips: Number(r.slips), total: Number(r.total) } : null };
+}
+export async function runApPost(c, ctx, b) {
+  check(/^\d{4}-\d{2}-\d{2}$/.test(b?.date || ''), '締切日を指定してください');
+  const st = await apPostStatus(c, b.date), { from, to } = st.sel;
+  check(!st.sel.linked, `締切日 ${to} は会計連携済みのため実行できません`);
+  const d = await journalList(c, { pattern: 'D01', from, to });
+  await c.query('INSERT INTO app_ap_post_run (closing,run_by,run_at,slips,total) VALUES (?,?,?,?,?) ON DUPLICATE KEY UPDATE run_by=VALUES(run_by),run_at=VALUES(run_at),slips=VALUES(slips),total=VALUES(total)', [to, ctx.user.login_id, jstNow(), d.slips.length, d.total]);
+  await audit(c, ctx, 'app_ap_post_run', to, 'appost.run', { from, to, slips: d.slips.length, total: d.total });
+  return apPostStatus(c, to);
 }
 // 会計連携データを作成したとき：期間に入る締日（毎月20日）に会計連携済みの印を付ける（元に戻さない）
 export async function markAcctLinked(c, ctx, from, to) {
