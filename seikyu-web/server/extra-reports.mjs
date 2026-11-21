@@ -174,6 +174,9 @@ export async function extraBook(c, kind, q) {
     // 部門（工事）が 1 つだけなら、部門の行を出さず表の上（抽出条件の行）に「部門 : コード 名称」を出す（2026-11-21 ユーザー指示）
     const d = await payableInputList(c, q), one1 = d.depts.length === 1 ? d.depts[0] : null;
     const out = head(d, `${one1 ? `${d.groupLabel} : ${`${one1.dept} ${one1.name || ""}`.trim()}　` : d.dept === '全部門' ? '' : '部門 ' + d.dept + '　'}${d.date ? `締切日 ${d.date}` : `${d.month} 月度`}　区分 ${d.kb ? '組織' : '工事'}${d.allVendors ? '' : '　業者 ' + d.vendor}`);   // 出力日は右上（2026-11-21 ユーザー指示）。全業者（9999999）・全部門は表示しない、区分は 組織／工事 だけ（2026-11-20 ユーザー指示）
+    // 右上は現行 HAR136 どおり会社名（会社情報の会社名1）と頁（2026-11-21 ユーザー指示）。表題の行の表題以外は listify が右上に出す
+    const co = await one(c, 'SELECT company_name1 FROM company_info_m ORDER BY company_info_id LIMIT 1');
+    if (co?.company_name1) out[0].push(co.company_name1);
     const W = PAYIN_W.length, last = String.fromCharCode(64 + W);
     // （内消費税）は請求金額の列に 1 セルで（下は実線。業者・部門の区切り）
     const taxEnd = t => Array.from(PAYIN_W, (_, j) => ({ v: j === 5 ? `（内消費税 ${Number(t || 0).toLocaleString('ja-JP')}）` : '', s: 'jEnd' }));
@@ -189,12 +192,12 @@ export async function extraBook(c, kind, q) {
           for (const r of x.rows) out.push([{ v: r.docNo, s: 'center' }, r.account, r.sub, r.accountName, r.subName, r.amount, r.memo, { v: r.tax, s: 'center' }]);   // 伝票No・処税率は中央（様式どおり）
           out.push(['', '', '', '', '', x.total, `（ ${x.term} ）`, '']);
         }
-        out.push(sumRow('業者計', v.total), taxEnd(v.tax), []);
+        out.push(sumRow('業者合計', v.total), taxEnd(v.tax), []);   // 現行 HAR136 の文言（2026-11-21 ユーザー指示）
       }
       if (!one1) out.push(sumRow(`${d.groupLabel}計`, dp.total), taxEnd(dp.tax), []);   // 部門が 1 つなら部門計は総合計と同じため出さない（2026-11-21 ユーザー指示）
     }
     if (d.depts.length) out.push(sumRow('総　合　計', d.total), taxEnd(d.tax));
-    return { name: `定時請求入力明細表_${d.date || d.month}.xlsx`, body: xlsx([{ name: '定時請求入力明細表', rows: out, widths: PAYIN_W, merges }]) };
+    return { name: `定時請求入力明細表_${d.date || d.month}.xlsx`, body: xlsx([{ name: '定時請求入力明細表', rows: out, widths: PAYIN_W, merges, pageTop: true }]) };
   }
   if (kind === 'petty-book') {
     // 構成員の列は現行 HJR051 と同じく名称だけ。列幅は名称が切れないよう全角2・半角1で計算（2026-10-29）

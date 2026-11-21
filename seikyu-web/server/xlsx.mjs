@@ -228,7 +228,7 @@ function listify(sh) {
   // 元の結合（材料受払表の見出しなど）は新しい位置へ。表題の行の結合は表題の結合と重なるので外す
   const merges = merges0.filter(m => !(t >= 0 && m.match(/\d+/g).some(x => Number(x) === t + 1)))
     .map(m => m.replace(/([A-Z]+)(\d+)/g, (_, c, r) => col(colNo(c)) + (map[r - 1] + 1)));
-  return { ...sh, listed: true, rows: shifted, widths: [1.5, ...fw], heights, merges, gridlines: false, header: undefined, footer: '&C&P / &N 頁', margins: [0.4, 0.6],
+  return { ...sh, listed: true, rows: shifted, widths: [1.5, ...fw], heights, merges, gridlines: false, header: sh.pageTop ? '&R&P 頁' : undefined, footer: sh.pageTop ? undefined : '&C&P / &N 頁', margins: [0.4, 0.6],   // pageTop：頁を右上に（現行 HAR136。2026-11-21）
     printTitles: lastHead >= 0 ? `1:${lastHead + 1}` : undefined };
 }
 // 1 シートに複数の様式を縦に並べる（stack：listify 前のシート定義の配列）。表題は先頭の様式だけに出す（2 つ目以降は表題の行まで外す）
