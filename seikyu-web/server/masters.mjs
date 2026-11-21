@@ -259,10 +259,11 @@ export const MASTERS = {
   // 区分は持たない（No.7「摘要の区分は不要」）。コードは半角数字 1〜7 桁（入金 101、工事 7 桁）。code_m 'TKYO'
   tekiyo: {
     label: '摘要マスタ', table: 'code_m',   // メニュー名 適用コード（摘要）→ 摘要マスタ（2026-11-20 ユーザー指示）
-    fields: [F('code', '適用コード', { max: 7, key: true, hint: '半角数字7桁以内' }), F('name', '摘要', { max: 40 }), F('active', '有効', { type: 'bool' })],
+    // 項目名 適用コード → 摘要コード（2026-11-21 ユーザー指示）。旧見出し「適用コード」の CSV もそのまま取り込める（alias）
+    fields: [F('code', '摘要コード', { max: 7, key: true, hint: '半角数字7桁以内', alias: ['適用コード'] }), F('name', '摘要', { max: 40 }), F('active', '有効', { type: 'bool' })],
     select: "SELECT * FROM code_m WHERE code_key='TKYO'", where: 'code_dtl=?', keyOf: r => [r.code],
     decode: r => ({ code: r.code_dtl, name: r.code_dtl_nam, active: r.category1 !== '0' }),
-    validate: r => ({ code: text(r.code, '適用コード', 7, { pattern: /^\d{1,7}$/ }), name: text(r.name, '摘要', 40), active: bool(r.active ?? true) }),
+    validate: r => ({ code: text(r.code, '摘要コード', 7, { pattern: /^\d{1,7}$/ }), name: text(r.name, '摘要', 40), active: bool(r.active ?? true) }),
     async write(c, r, old) {
       if (!old) await c.query("INSERT INTO code_m (code_key,code_key_nam,code_dtl,code_dtl_nam,code_dtl_abr,category1,category2,category3) VALUES ('TKYO','適用コード',?,?,'',?,'','')", [r.code, r.name, r.active ? '1' : '0']);
       else await c.query("UPDATE code_m SET code_dtl_nam=?,category1=? WHERE code_key='TKYO' AND code_dtl=?", [r.name, r.active ? '1' : '0', r.code]);
@@ -613,7 +614,7 @@ export async function remove(c, ctx, kind, input) {
 export async function importCsv(c, ctx, kind, csvText) {
   const cfg = MASTERS[kind]; check(cfg, 'マスタ種別が不正です'); check(!cfg.readOnly, `${cfg.label}は取込できません`);
   const table = parseCsv(csvText); check(table.length >= 2 && table.length <= 2001, '取込はヘッダー行＋1〜2000行です');
-  const head = table[0].map(h => h.trim()), fields = head.map(h => cfg.fields.find(f => f.name === h || f.label === h)?.name);
+  const head = table[0].map(h => h.trim()), fields = head.map(h => cfg.fields.find(f => f.name === h || f.label === h || f.alias?.includes(h))?.name);
   check(cfg.fields.filter(f => !f.optional && f.type !== 'bool').every(f => fields.includes(f.name)), '必須列が不足しています: ' + cfg.fields.filter(f => !f.optional && f.type !== 'bool' && !fields.includes(f.name)).map(f => f.label).join('、'));
   let created = 0, updated = 0;
   for (let i = 1; i < table.length; i++) {
