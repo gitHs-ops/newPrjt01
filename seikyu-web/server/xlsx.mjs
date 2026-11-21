@@ -206,7 +206,8 @@ function listify(sh) {
       row = Array.from({ length: Math.max(W, r.length) }, (_, j) => sty(r[j], j));
       // 合計行は文言から金額の手前まで縦線を出さない（2026-11-21 ユーザー指示「縦線を消す」）：最初の数値セルより左のセルを縦線なしの複製に。表の左端は左の線を残す
       if (k === 'sum' || k === 'grand' || k === 'box' || GT.has(i)) {
-        const f = row.findIndex(c => typeof c?.v === 'number');
+        // 自動仕訳リストのように文言が借方・貸方の金額の間にある行もあるため、最後の金額の列より左の文言側のセルを対象にする（金額の列と右側は線を残す）
+        const f = row.findLastIndex(c => typeof c?.v === 'number');
         if (f > 0) row = row.map((c, j) => (j < f && c && NOV_BASE.includes(c.s) ? { ...c, s: c.s + (j ? '_nv' : '_nvR') } : c));
       }
       if (i === lastRow) row = row.map(c => (c && /^t[A-Z]/.test(c.s) ? { ...c, s: c.s + '_U' } : c));   // 表の最後の行は下を実線
