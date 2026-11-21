@@ -1912,9 +1912,10 @@ function expenseView(kind) {
     A.new = () => form();
     const revBtn = r => (r && canWrite() && r.status === 'POSTED' && !r.paid ? `<button type="button" class="danger" data-act="rev" data-id="${r.id}" data-no="${esc(r.no)}">取消</button>` : '');
     // 定時請求：一覧のボタンは［詳細］だけ。修正できる伝票（計上済・支払なし）は詳細の画面で入力でき［取消］［更新］を出す（2026-11-18 ユーザー指示）
-    A.detail = d => { const r = list.find(x => x.id === Number(d.id)), ok = payable && !!revBtn(r); form(r, ok); footFirst(revBtn(r));
+    // 2026-11-21 ユーザー指示：計上は「定時請求計上」で行うため、ここは照会・更新だけ（［取消］は出さない）
+    A.detail = d => { const r = list.find(x => x.id === Number(d.id)), ok = payable && !!revBtn(r); form(r, ok); if (!payable) footFirst(revBtn(r));
       if (payable && !ok) { const b = $('#modal-body'); b.querySelectorAll('input, select, textarea').forEach(e => { e.disabled = true; }); b.querySelectorAll('button').forEach(e => { e.style.display = 'none'; }); b.querySelectorAll('label.field > small').forEach(e => { e.hidden = true; }); } };   // 修正できない伝票（支払あり等）は照会だけ。入力の説明（「修正可」等）も出さない（2026-11-20）
-    A.edit = d => { const r = list.find(x => x.id === Number(d.id)); form(r, true); footFirst(revBtn(r)); };
+    A.edit = d => { const r = list.find(x => x.id === Number(d.id)); form(r, true); if (!payable) footFirst(revBtn(r)); };
     const showDoc = (R, f, edit) => {
       const set = (el, v, ev = 'change') => { if (!el) return; if (el._flatpickr) el._flatpickr.setDate(v || '', false); el.value = v ?? ''; el.dispatchEvent(new Event(ev, { bubbles: true })); };
       const q = n => f.querySelector(`[name=${n}]`);
