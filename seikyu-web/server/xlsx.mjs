@@ -195,7 +195,7 @@ function listify(sh) {
       if (GT.has(i)) return { v, s: num ? (QTY_S.has(s) ? 'tGrandBQ' : s === 'qty3' ? 'tGrandBQ3' : 'tGrandBN') : 'tGrandBL' };
       if (k === 'box') return { v, s: num ? (s === 'qty3' ? 'tBoxQ3' : 'tBoxN') : 'tBoxL' };
       if (k === 'sum' || k === 'grand') { const g = (k === 'grand' ? 'tGrand' : 'tSum') + (i === lastSum ? 'B' : ''); return { v, s: num ? (QTY_S.has(s) ? g + 'Q' : g + 'N') : g + 'L' }; }
-      if (s === 'vendorRow') return { v, s: 'tVendor' };   // 色付きの行（業者の行）
+      if (s === 'vendorRow') return { v, s: i === start ? 'tVendorT' : 'tVendor' };   // 色付きの行（業者の行）。表の先頭なら上を実線
       if (s === 'jEnd') return { v, s: num ? 'tNumB' : 'tTextB' };   // 自動仕訳リスト：科目（2 段）の下は実線
       if (s === 'jCol0') return { v, s: 'tTextV' };                  // 自動仕訳リスト：日付・伝票No の列は横の点線なし
       if (num) return { v, s: QTY_S.has(s) ? 'tQty' : s === 'qty3' ? 'tQty3' : s === 'price1' ? 'tPrice1' : 'tNum' };
@@ -269,9 +269,14 @@ function fillTwins(xml) {
   const fM = xml.match(/<fills count="(\d+)">([\s\S]*?)<\/fills>/), xM = xml.match(/<cellXfs count="(\d+)">([\s\S]*?)<\/cellXfs>/);
   const fills = fM[2].match(/<fill>[\s\S]*?<\/fill>/g), xfs = xM[2].match(/<xf [^>]*?(?:\/>|>[\s\S]*?<\/xf>)/g);
   const xf = xfs[STYLE.tText].replace(/fillId="\d+"/, `fillId="${fills.length}"`).replace(/applyFill="1"/, '').replace('<xf ', '<xf applyFill="1" ');
-  STYLE.tVendor = xfs.length;
-  return xml.replace(fM[0], `<fills count="${fills.length + 1}">${fills.join('')}<fill><patternFill patternType="solid"><fgColor rgb="FFFFF2CC"/></patternFill></fill></fills>`)
-    .replace(xM[0], `<cellXfs count="${xfs.length + 1}">${xfs.join('')}${xf}</cellXfs>`);
+  // 表の先頭の業者の行は上を実線（2026-11-21 ユーザー指示）：tVendor の複製で上だけ細線。STYLE.tVendorT
+  const bM = xml.match(/<borders count="(\d+)">([\s\S]*?)<\/borders>/), borders = bM[2].match(/<border\/>|<border>[\s\S]*?<\/border>/g), bid = Number((xf.match(/borderId="(\d+)"/) || [])[1] || 0);
+  const bT = (borders[bid] === '<border/>' ? '<border><left/><right/><top/><bottom/><diagonal/></border>' : borders[bid]).replace(/<top(?:\s[^>]*)?(?:\/>|>[\s\S]*?<\/top>)/, '<top style="thin"/>');
+  const xfT = xf.replace(/borderId="\d+"/, `borderId="${borders.length}"`).replace(/applyBorder="1"/, '').replace('<xf ', '<xf applyBorder="1" ');
+  STYLE.tVendor = xfs.length; STYLE.tVendorT = xfs.length + 1;
+  return xml.replace(bM[0], `<borders count="${borders.length + 1}">${borders.join('')}${bT}</borders>`)
+    .replace(fM[0], `<fills count="${fills.length + 1}">${fills.join('')}<fill><patternFill patternType="solid"><fgColor rgb="FFFFF2CC"/></patternFill></fill></fills>`)
+    .replace(xM[0], `<cellXfs count="${xfs.length + 2}">${xfs.join('')}${xf}${xfT}</cellXfs>`);
 }
 // 表の最後の行（2026-11-19 ユーザー指示「맨 마지막 행 밑줄 실선」）：t* の各スタイルの複製で下だけ実線（細線）。STYLE['名前_U']
 function underTwins(xml) {
