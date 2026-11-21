@@ -204,6 +204,11 @@ function listify(sh) {
     if (i === t) { row = [{ v: spaced(cellOf(r.find(c => TITLE_S.has(cellOf(c).s))).v), s: 'tTitle' }]; heights[n] = 26; }
     else if (start >= 0 && i >= start && k !== 'empty') {
       row = Array.from({ length: Math.max(W, r.length) }, (_, j) => sty(r[j], j));
+      // 合計行は文言から金額の手前まで縦線を出さない（2026-11-21 ユーザー指示「縦線を消す」）：最初の数値セルより左のセルを縦線なしの複製に。表の左端は左の線を残す
+      if (k === 'sum' || k === 'grand' || k === 'box' || GT.has(i)) {
+        const f = row.findIndex(c => typeof c?.v === 'number');
+        if (f > 0) row = row.map((c, j) => (j < f && c && NOV_BASE.includes(c.s) ? { ...c, s: c.s + (j ? '_nv' : '_nvR') } : c));
+      }
       if (i === lastRow) row = row.map(c => (c && /^t[A-Z]/.test(c.s) ? { ...c, s: c.s + '_U' } : c));   // 表の最後の行は下を実線
       if (r.span) Object.assign(row, { span: Math.max(r.span, Math.min(bandSpan[r.start] || 1, r.max || W - r.start)), start: r.start, max: r.max });
       heights[n] = k === 'head' ? 16 : 15;
@@ -278,6 +283,21 @@ function fillTwins(xml) {
     .replace(fM[0], `<fills count="${fills.length + 1}">${fills.join('')}<fill><patternFill patternType="solid"><fgColor rgb="FFFFF2CC"/></patternFill></fill></fills>`)
     .replace(xM[0], `<cellXfs count="${xfs.length + 2}">${xfs.join('')}${xf}${xfT}</cellXfs>`);
 }
+// 合計行の縦線なし（2026-11-21 ユーザー指示）：合計行の文言側スタイルの複製で左右の線を消す（_nv）／右だけ消す（_nvR：表の左端）
+const NOV_BASE = ['tSumL', 'tSumBL', 'tGrandL', 'tGrandBL', 'tBoxL'];
+function noVTwins(xml) {
+  const bM = xml.match(/<borders count="(\d+)">([\s\S]*?)<\/borders>/), xM = xml.match(/<cellXfs count="(\d+)">([\s\S]*?)<\/cellXfs>/);
+  const borders = bM[2].match(/<border\/>|<border>[\s\S]*?<\/border>/g), xfs = xM[2].match(/<xf [^>]*?(?:\/>|>[\s\S]*?<\/xf>)/g), add = [], xadd = [];
+  const full = b => (b === '<border/>' ? '<border><left/><right/><top/><bottom/><diagonal/></border>' : b), EDGE = { left: /<left(?:\s[^>]*)?(?:\/>|>[\s\S]*?<\/left>)/, right: /<right(?:\s[^>]*)?(?:\/>|>[\s\S]*?<\/right>)/ }, cut = (b, t) => b.replace(EDGE[t], `<${t}/>`);
+  let k = xfs.length;
+  for (const name of NOV_BASE) {
+    const xf = xfs[STYLE[name]], bid = Number((xf.match(/borderId="(\d+)"/) || [])[1] || 0);
+    for (const [suf, b] of [['_nv', cut(cut(full(borders[bid]), 'left'), 'right')], ['_nvR', cut(full(borders[bid]), 'right')]]) {
+      add.push(b); xadd.push(xf.replace(/borderId="\d+"/, `borderId="${borders.length + add.length - 1}"`).replace(/applyBorder="1"/, '').replace('<xf ', '<xf applyBorder="1" ')); STYLE[name + suf] = k++;
+    }
+  }
+  return xml.replace(bM[0], `<borders count="${borders.length + add.length}">${borders.join('')}${add.join('')}</borders>`).replace(xM[0], `<cellXfs count="${xfs.length + xadd.length}">${xfs.join('')}${xadd.join('')}</cellXfs>`);
+}
 // 表の最後の行（2026-11-19 ユーザー指示「맨 마지막 행 밑줄 실선」）：t* の各スタイルの複製で下だけ実線（細線）。STYLE['名前_U']
 function underTwins(xml) {
   const bM = xml.match(/<borders count="(\d+)">([\s\S]*?)<\/borders>/), xM = xml.match(/<cellXfs count="(\d+)">([\s\S]*?)<\/cellXfs>/);
@@ -339,7 +359,7 @@ export function xlsx(sheets0) {
       [168, 15, 0, 0, 'left'],
     ].map(([n, f, fill, b, h]) => `<xf numFmtId="${n}" fontId="${f}" fillId="${fill}" borderId="${b}" xfId="0" applyNumberFormat="1" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="${h}" vertical="center"/></xf>`).join('')}</cellXfs><cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>`],
   ];
-  const st = files.find(f => f[0] === 'xl/styles.xml'); st[1] = underTwins(fillTwins(boxStyles(st[1]))); const red = redTwins(st[1]); st[1] = red.xml;
+  const st = files.find(f => f[0] === 'xl/styles.xml'); st[1] = underTwins(noVTwins(fillTwins(boxStyles(st[1])))); const red = redTwins(st[1]); st[1] = red.xml;
   files.push(...sheets.map((s, i) => [`xl/worksheets/sheet${i + 1}.xml`, sheetXml({ ...s, redAt: red.redAt })]));
   return zip(files);
 }
