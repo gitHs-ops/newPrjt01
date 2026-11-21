@@ -166,30 +166,26 @@ export async function receiptSchedule(c, q) {
 // ---------- Excel ----------
 const head = (d, sub) => [[T(d.title)], [`${sub}　出力日 ${today()}`], []];
 // 相殺（支払）業者の列は出さない（2026-11-20 ユーザー指示）
-const PAYIN_W = [9, 30, 7, 6, 18, 16, 13, 30, 9], SALES_REG_W = [11, 6, 13, 7, 22, 9, 4, 10, 12, 7, 9, 7, 30, 24, 11];
+const PAYIN_W = [12, 11, 7, 24, 15.5, 16, 24, 12] /* 伝票No・科目・内訳・科目名・内訳名・請求金額・摘要・処税率（2026-11-21 様式） */, SALES_REG_W = [11, 6, 13, 7, 22, 9, 4, 10, 12, 7, 9, 7, 30, 24, 11];
 export async function extraBook(c, kind, q) {
   if (kind === 'payable-input') {
-    // 現行 HAR136 の並び（2026-11-20 ユーザー指示）：業者の行（業者・業者名・住所）→ 伝票ごとに 明細・請求金額の計・支払条件 → 業者計・（内消費税） → 部門計（工事計）→ 最後に 総　合　計
-    // 相殺の 2 列・当月／累計の支払額・出来高・支払率は出さない（帳票イメージ 11/08 変更点 No.19）
-    const d = await payableInputList(c, q), out = head(d, `${d.dept === '全部門' ? '' : '部門 ' + d.dept + '　'}${d.date ? `締切日 ${d.date}` : `${d.month} 月度`}　区分 ${d.kb ? '組織' : '工事'}${d.allVendors ? '' : '　業者 ' + d.vendor}`);   // 全業者（9999999）・全部門は表示しない、区分は 組織／工事 だけ（2026-11-20 ユーザー指示）
-    // （内消費税）の金額は請求金額の列に 1 回だけ（摘要の列には閉じ括弧だけ。相殺列を消したときの残りで 2 回出ていた。2026-11-21 ユーザー指示）
-    // （内消費税）の行の下は実線（業者・部門の区切り。2026-11-17 ユーザー指示）
-    const taxEnd = t => ['', '', '', '', '', '（内消費税', t, '）', ''].map(v => ({ v, s: 'jEnd' }));
-    const sumRow = (label, n) => ['', '', '', '', '', S(label), S(n)];
-    // 見出し 2 段（2026-11-18）：2 段に分かれるのは 業者名／伝票No だけ。ほかの列は上下の 2 行を結合
+    // 2026-11-21 ユーザー指示（定時請求入力明細表_2026-11-20 (4).xlsx の様式）：業者・業者名の列は出さず、伝票No を先頭の列に。
+    // 部門の行 → 業者ごとに「業者 : コード　名称　住所」の行（幅いっぱい）→ 見出し 1 段 → 伝票ごとに 明細・請求金額の計・支払条件 → 業者計・（内消費税）。出力日は出さない
+    const d = await payableInputList(c, q), out = [[T(d.title)], [`${d.dept === '全部門' ? '' : '部門 ' + d.dept + '　'}${d.date ? `締切日 ${d.date}` : `${d.month} 月度`}　区分 ${d.kb ? '組織' : '工事'}${d.allVendors ? '' : '　業者 ' + d.vendor}`], []];   // 全業者（9999999）・全部門は表示しない、区分は 組織／工事 だけ（2026-11-20 ユーザー指示）
+    const W = PAYIN_W.length, last = String.fromCharCode(64 + W);
+    // （内消費税）は請求金額の列に 1 セルで（下は実線。業者・部門の区切り）
+    const taxEnd = t => Array.from(PAYIN_W, (_, j) => ({ v: j === 5 ? `（内消費税 ${Number(t || 0).toLocaleString('ja-JP')}）` : '', s: 'jEnd' }));
+    const sumRow = (label, n) => ['', '', '', '', S(label), S(n)];
     const merges = [];
     for (const dp of d.depts) {
-      // 部門の行は表の幅いっぱいに結合する（2026-11-19 ユーザー指示）
-      out.push(Object.assign(band(PAYIN_W, [`${d.groupLabel} : ${dp.dept} ${dp.name}`]), { span: PAYIN_W.length, start: 0, max: PAYIN_W.length }));
-      const r1 = out.length + 1;
-      out.push(['業者', '業者名', '科目', '内訳', '科目名', '内訳名', '請求金額', '摘要', '処税率'].map(H), ['', '伝票No', '', '', '', '', '', '', ''].map(H));   // 発注残金額は現行に無いため削除（2026-11-20 ユーザー指示）
-      for (const c of ['A', 'C', 'D', 'E', 'F', 'G', 'H', 'I']) merges.push(`${c}${r1}:${c}${r1 + 1}`);
+      out.push(Object.assign(band(PAYIN_W, [` ${d.groupLabel} : ${dp.dept} ${dp.name}`]), { span: W, start: 0, max: W }));   // 部門の行は表の幅いっぱい（2026-11-19）
       for (const v of dp.vendors) {
-        // 業者の行（業者マスタの内容：業者・業者名・住所1＋住所2）は表の幅いっぱいを 1 セルに結合（縦の罫線なし。2026-11-20 ユーザー指示）
-        out.push(Array.from(PAYIN_W, (_, j) => ({ v: j ? '' : `${v.vendor}　${v.name}　${v.address}`.trim(), s: 'vendorRow' })));   // 業者の行は薄い黄で塗る（2026-11-20） merges.push(`A${out.length}:${String.fromCharCode(64 + PAYIN_W.length)}${out.length}`);
+        // 業者の行（業者マスタの内容：業者・業者名・住所1＋住所2）は表の幅いっぱいを 1 セルに結合（薄い黄）
+        out.push(Array.from(PAYIN_W, (_, j) => ({ v: j ? '' : ` 業者 : ${`${v.vendor}　${v.name}　${v.address}`.trim()}`, s: 'vendorRow' }))); merges.push(`A${out.length}:${last}${out.length}`);
+        out.push(['伝票No', '科目', '内訳', '科目名', '内訳名', '請求金額', '摘要', '処税率'].map(H));
         for (const x of v.docs) {
-          for (const r of x.rows) out.push(['', r.docNo, r.account, r.sub, r.accountName, r.subName, r.amount, r.memo, r.tax]);
-          out.push(['', '', '', '', '', '', x.total, `（ ${x.term} ）`]);
+          for (const r of x.rows) out.push([{ v: r.docNo, s: 'center' }, r.account, r.sub, r.accountName, r.subName, r.amount, r.memo, { v: r.tax, s: 'center' }]);   // 伝票No・処税率は中央（様式どおり）
+          out.push(['', '', '', '', '', x.total, `（ ${x.term} ）`, '']);
         }
         out.push(sumRow('業者計', v.total), taxEnd(v.tax), []);
       }
