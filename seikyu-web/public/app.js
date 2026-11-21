@@ -2301,9 +2301,9 @@ async function miscReport(kind, src, showIn) {
         + `</tbody><tfoot>${sumRow('＊合　計＊', d.totals)}${d.rates.map(g => `<tr><td colspan="4"></td><td class="right">${esc(g.rate)}</td>${money(g.gross)}${money(g.net)}${money(g.tax)}${g.parts.map(money).join('')}</tr>`).join('')}</tfoot></table></div>`
       // 合計表は現行 HJR011 の並び（2026-11-04）：1 つの表に 支払日・科目名。支払日計は出さず ＊合計＊ と税率別（10%・0%）。構成員は「** 構成員名 **」
       : `<div class="table-wrap"><table><thead><tr>`
-      + `<th rowspan="2">支払日</th><th rowspan="2">科目名</th><th class="num" rowspan="2">支払金額</th><th class="num" rowspan="2">支払本体</th><th class="num" rowspan="2">支払消費税</th>${d.members.map(m => `<th colspan="3" style="text-align:center">**　${esc(m.name)}　**</th>`).join('')}</tr><tr>${d.members.map(() => '<th class="num">出資金額</th><th class="num">出資本体</th><th class="num">出資消費税</th>').join('')}</tr></thead><tbody>`
-      + d.accounts.map(a => `<tr><td>${esc(a.due)}</td><td>${esc(a.name)}</td>${money(a.gross)}${money(a.net)}${money(a.tax)}${m3(a)}</tr>`).join('')
-      + `</tbody><tfoot><tr class="subtotal"><td></td><td>＊合計＊</td>${money(d.totals.gross)}${money(d.totals.net)}${money(d.totals.tax)}${m3(d.totals)}</tr>${d.rates.map(g => `<tr><td></td><td class="right">${esc(g.rate)}</td>${money(g.gross)}${money(g.net)}${money(g.tax)}${m3(g)}</tr>`).join('')}</tfoot></table></div>`);
+      + `<th rowspan="2">支払日</th><th rowspan="2">科目名</th><th class="num" rowspan="2">件数</th><th class="num" rowspan="2">支払金額</th><th class="num" rowspan="2">支払本体</th><th class="num" rowspan="2">支払消費税</th>${d.members.map(m => `<th colspan="3" style="text-align:center">**　${esc(m.name)}　**</th>`).join('')}</tr><tr>${d.members.map(() => '<th class="num">出資金額</th><th class="num">出資本体</th><th class="num">出資消費税</th>').join('')}</tr></thead><tbody>`
+      + d.accounts.map(a => `<tr><td>${esc(a.due)}</td><td>${esc(a.name)}</td><td class="num">${a.count}</td>${money(a.gross)}${money(a.net)}${money(a.tax)}${m3(a)}</tr>`).join('')
+      + `</tbody><tfoot><tr class="subtotal"><td></td><td>＊合計＊</td><td></td>${money(d.totals.gross)}${money(d.totals.net)}${money(d.totals.tax)}${m3(d.totals)}</tr>${d.rates.map(g => `<tr><td></td><td class="right">${esc(g.rate)}</td><td></td>${money(g.gross)}${money(g.net)}${money(g.tax)}${m3(g)}</tr>`).join('')}</tfoot></table></div>`);
   }
   // 入金明細及び配分表：現行 HJR031 の見出し（入金日・入金科目・入金先・入金額・構成員名／配分額。入金科目は科目＋摘要。2026-11-02）
   // 現行 HJR031：構成員の欄は 5 つ固定、末尾は 配分する／配分しない／合計（2026-11-04）

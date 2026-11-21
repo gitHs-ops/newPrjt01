@@ -374,19 +374,19 @@ export async function miscBook(c, kind, q) {
       band(MIX_W, ['材料使用量の比較']), ['材料', '材料名', '理論使用量', '実使用量', '差異'].map(H), ...d.usage.map(u => [u.material, u.name, u.theoretical, u.actual ?? '', u.diff ?? '']), []);
     return { name: `配合計算_${d.month}.xlsx`, body: xlsx([{ name: '配合計算', rows: out, widths: MIX_W }]) };
   }
-  // 合計表：現行 HJR011 の見出し（支払日・科目名・支払金額・支払本体・支払消費税、構成員ごとに「** 構成員名 **」の下に出資金額・出資本体・出資消費税。2026-11-02）
+  // 合計表：現行 HJR011 の見出し（支払日・科目名・件数（帳票イメージ案。2026-11-21 ユーザー指示）・支払金額・支払本体・支払消費税、構成員ごとに「** 構成員名 **」の下に出資金額・出資本体・出資消費税。2026-11-02）
   const summarySheet = (d, out) => {
     const m3 = (p, n, t) => p.flatMap((v, k) => [v, n[k], t[k]]), r0 = out.length;
     // 上段が空の見出し（支払日〜支払消費税）は 2 段を縦に結合（2026-11-21 ユーザー指示）
-    out.push(['支払日', '科目名', '支払金額', '支払本体', '支払消費税', ...d.members.flatMap(m => [`**　${m.name}　**`, '', ''])].map(H));
-    out.push(['', '', '', '', '', ...d.members.flatMap(() => ['出資金額', '出資本体', '出資消費税'])].map(H));
+    out.push(['支払日', '科目名', '件数', '支払金額', '支払本体', '支払消費税', ...d.members.flatMap(m => [`**　${m.name}　**`, '', ''])].map(H));
+    out.push(['', '', '', '', '', '', ...d.members.flatMap(() => ['出資金額', '出資本体', '出資消費税'])].map(H));
     // 現行どおり支払日計は出さず、＊合計＊の下に税率別の行（2026-11-04）
-    for (const a of d.accounts) out.push([a.due, a.name, a.gross, a.net, a.tax, ...m3(a.parts, a.netParts, a.taxParts)]);
-    out.push(['', S('＊合計＊'), S(d.totals.gross), S(d.totals.net), S(d.totals.tax), ...m3(d.totals.parts, d.totals.netParts, d.totals.taxParts).map(S)], []);
-    for (const g of d.rates) out.push(['', { v: g.rate, s: 'right' }, g.gross, g.net, g.tax, ...m3(g.parts, g.netParts, g.taxParts)]);
+    for (const a of d.accounts) out.push([a.due, a.name, a.count, a.gross, a.net, a.tax, ...m3(a.parts, a.netParts, a.taxParts)]);
+    out.push(['', S('＊合計＊'), '', S(d.totals.gross), S(d.totals.net), S(d.totals.tax), ...m3(d.totals.parts, d.totals.netParts, d.totals.taxParts).map(S)], []);
+    for (const g of d.rates) out.push(['', { v: g.rate, s: 'right' }, '', g.gross, g.net, g.tax, ...m3(g.parts, g.netParts, g.taxParts)]);
     const col = i => { let n = i + 1, t = ''; while (n) { t = String.fromCharCode(65 + (n - 1) % 26) + t; n = Math.floor((n - 1) / 26); } return t; };
-    const merges = [...['A', 'B', 'C', 'D', 'E'].map(c => `${c}${r0 + 1}:${c}${r0 + 2}`), ...d.members.map((_, k) => `${col(5 + k * 3)}${r0 + 1}:${col(7 + k * 3)}${r0 + 1}`)];
-    return { name: d.title.slice(0, 28), rows: out, merges, widths: [11, 18, 13, 13, 12, ...d.members.flatMap(() => [13, 13, 12])] };
+    const merges = [...['A', 'B', 'C', 'D', 'E', 'F'].map(c => `${c}${r0 + 1}:${c}${r0 + 2}`), ...d.members.map((_, k) => `${col(6 + k * 3)}${r0 + 1}:${col(8 + k * 3)}${r0 + 1}`)];
+    return { name: d.title.slice(0, 28), rows: out, merges, widths: [11, 18, 7, 13, 13, 12, ...d.members.flatMap(() => [13, 13, 12])] };
   };
   if (kind === 'jv-expenses' || kind === 'jv-receipts') {
     const d = kind === 'jv-expenses' ? await jvExpenses(c, q) : await jvReceipts(c, q), out = head(d, `期間 ${d.from} 〜 ${d.to}`);
