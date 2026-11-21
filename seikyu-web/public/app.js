@@ -2150,7 +2150,7 @@ async function zenginDialog(date = $('#zg-date').value, bank = $('#pr-bank').val
     ${d.errors.length ? `<div class="note warn" style="margin:10px 0"><b>作成できません</b><ul class="list">${d.errors.map(e => `<li>${esc(e)}</li>`).join('')}</ul></div>` : ''}
     ${table([{ label: '業者', value: r => r.label }, { label: '振込先', value: r => `${r.bank || '-'}-${r.branch || '-'} ${r.typeName} ${r.account || ''}` }, { label: '受取人名', value: r => r.holder }, { label: '金額', num: 1, value: r => yen(r.amount) }, { label: '支払No', value: r => r.nos.join(' ') }], d.transfers, { empty: '対象の支払がありません' })}
     <h3 style="margin-top:12px">レコードプレビュー</h3><pre class="zengin-pre">${d.records.map(r => esc(r)).join('\n')}</pre>
-    <div class="filters" style="margin-top:10px">${!d.errors.length && canWrite() ? `<a class="button primary" href="${url}&format=csv" download>⇩ 全銀データ（CSV）をダウンロード</a><a class="button" href="${url}&format=file" download title="全銀協規定形式（120 バイト固定長・改行なし）。銀行が固定長しか受け付けないとき">⇩ 固定長</a>` : ''}</div>` });
+    <div class="filters" style="margin-top:10px">${!d.errors.length && canWrite() ? `<a class="button primary" href="${url}&format=file" download title="全銀協規定形式（120 バイト固定長・改行なし）。名古屋銀行は固定長でやり取り（2026-11-21 ユーザー指示：固定長を主に）">⇩ 全銀データ（固定長）をダウンロード</a><a class="button" href="${url}&format=csv" download>⇩ CSV</a>` : ''}</div>` });
 }
 
 // ④ 出荷集計（NO41〜43）・材料受払表（NO26）・配合計算（NO25）・出資金（NO35・36）

@@ -209,7 +209,7 @@ export async function extraBook(c, kind, q) {
     out.push(['支払日', '支払先', '摘要', '科目', '内訳', '科目名', '税率', '支払額', ...mh].map(H));
     out.push(['', '', '', '', '', '', '', '', ...(d.members || []).map(m => pct(m.ratio))].map(H));
     const pay = d.rows.filter(r => r.amount), sumParts = rs => mh.map((_, k) => rs.reduce((n, r) => n + (r.parts?.[k] || 0), 0));
-    for (const r of pay) out.push([r.date, r.payee, r.memo, r.account, r.sub, r.accountName, r.rate, r.amount, ...(r.parts || [])]);
+    for (const r of pay) out.push([String(r.date).slice(2, 10).replace(/-/g, '/'), r.payee,   /* 支払日は現行どおり yy/mm/dd（2026-11-21 ユーザー指示） */ r.memo, r.account, r.sub, r.accountName, r.rate, r.amount, ...(r.parts || [])]);
     // 現行 HJR051 の末尾：＊計＊（支払額・構成員別の合計）→ 税率別の小計（税率の高い順。構成員別は各行の配分の合計）
     out.push(['', '', S('＊ 計 ＊'), '', '', '', '', S(d.spent), ...sumParts(pay).map(S)]);
     for (const rate of [...new Set(pay.map(r => r.rate))].sort((x, y) => parseFloat(y) - parseFloat(x))) {
