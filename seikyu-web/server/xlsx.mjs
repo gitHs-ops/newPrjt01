@@ -142,7 +142,8 @@ function listify(sh) {
   // 現行の様式で見出しに書式の無い帳票（自動仕訳リスト）は printTitles の行を見出しにする
   const pt = sh.printTitles ? sh.printTitles.split(':').map(Number) : null;
   if (pt) for (let i = pt[0] - 1; i < pt[1]; i++) if (i > t + 1 && K[i] !== 'empty' && K[i] !== 'title') K[i] = 'head';
-  const start = K.findIndex((k, i) => i > t + (t >= 0 ? 1 : -1) && (k === 'head' || k === 'band'));
+  // 表の始まり：見出し・グループ名の行、または色付きの業者の行（定時請求入力明細表で部門の行を出さないとき先頭が業者の行。2026-11-21）
+  const start = K.findIndex((k, i) => i > t + (t >= 0 ? 1 : -1) && (k === 'head' || k === 'band' || (rows0[i] || []).some(c => cellOf(c).s === 'vendorRow')));
   const W = Math.max(sh.widths?.length || 0, ...rows0.slice(Math.max(start, 0)).map(r => (r || []).length), 1);
   // 右上に出すもの：抽出条件の行の「出力日…／作成日…」と、表題の行の表題以外（会社名・日付）
   const info = [], condAt = t >= 0 && t + 1 < rows0.length && (start < 0 || t + 1 < start) ? t + 1 : -1;
