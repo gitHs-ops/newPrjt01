@@ -245,7 +245,7 @@ const pairRows = (p, first, s, end = true) => {
   // 2026-11-17 ユーザー指示：日付・伝票No の列は横の点線なし（xlsx の jCol0）。2026-11-18 ユーザー指示：実線は科目ごとではなく借方・貸方の 1 組（貸借が一致したところ）の下だけ（jEnd）
   const r1 = jrow({ 0: first ? yymmdd(s.date) : '', 1: dr.dept, 2: dr.account, 3: dr.sub, 4: dr.sub2, 5: dr.tax, 6: amt(dr), 8: dr.memo1Code, 9: dr.memo1, 10: dr.memo2, 11: cr.dept, 12: cr.account, 13: cr.sub, 14: cr.sub2, 15: cr.tax, 17: first ? s.sourceNo : '' }),
     r2 = jrow({ 0: first ? s.slipNo : '', 1: dr.accountName, 3: dr.subName, 8: cr.memo1Code, 9: cr.memo1, 10: cr.memo2, 11: cr.accountName, 13: cr.subName, 16: amt(cr), 17: first ? s.status : '' });
-  r1[0] = { v: r1[0], s: 'jCol0' }; r2[0] = { v: r2[0], s: 'jCol0' };
+  r1[0] = { v: r1[0], s: first ? 'jCol0D' : 'jCol0' }; r2[0] = { v: r2[0], s: 'jCol0' };   // 日付と伝票No の間は点線（2026-11-21 ユーザー指示）
   if (end) for (let i = 1; i < r2.length; i++) r2[i] = { v: r2[i], s: 'jEnd' };
   return [r1, r2];
 };

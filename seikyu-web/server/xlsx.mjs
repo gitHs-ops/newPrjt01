@@ -197,6 +197,7 @@ function listify(sh) {
       if (k === 'sum' || k === 'grand') { const g = (k === 'grand' ? 'tGrand' : 'tSum') + (i === lastSum ? 'B' : ''); return { v, s: num ? (QTY_S.has(s) ? g + 'Q' : g + 'N') : g + 'L' }; }
       if (s === 'vendorRow') return { v, s: i === start ? 'tVendorT' : 'tVendor' };   // 色付きの行（業者の行）。表の先頭なら上を実線
       if (s === 'jEnd') return { v, s: num ? 'tNumB' : 'tTextB' };   // 自動仕訳リスト：科目（2 段）の下は実線
+      if (s === 'jCol0D') return { v, s: 'tTextVD' };                // 自動仕訳リスト：日付の欄は伝票No との間に点線（2026-11-21）
       if (s === 'jCol0') return { v, s: 'tTextV' };                  // 自動仕訳リスト：日付・伝票No の列は横の点線なし
       if (num) return { v, s: QTY_S.has(s) ? 'tQty' : s === 'qty3' ? 'tQty3' : s === 'price1' ? 'tPrice1' : 'tNum' };
       return { v, s: CENTER_S.has(s) ? 'tCenter' : RIGHT_S.has(s) ? 'tRight' : 'tText' };
@@ -279,10 +280,15 @@ function fillTwins(xml) {
   const bM = xml.match(/<borders count="(\d+)">([\s\S]*?)<\/borders>/), borders = bM[2].match(/<border\/>|<border>[\s\S]*?<\/border>/g), bid = Number((xf.match(/borderId="(\d+)"/) || [])[1] || 0);
   const bT = (borders[bid] === '<border/>' ? '<border><left/><right/><top/><bottom/><diagonal/></border>' : borders[bid]).replace(/<top(?:\s[^>]*)?(?:\/>|>[\s\S]*?<\/top>)/, '<top style="thin"/>');
   const xfT = xf.replace(/borderId="\d+"/, `borderId="${borders.length}"`).replace(/applyBorder="1"/, '').replace('<xf ', '<xf applyBorder="1" ');
-  STYLE.tVendor = xfs.length; STYLE.tVendorT = xfs.length + 1;
-  return xml.replace(bM[0], `<borders count="${borders.length + 1}">${borders.join('')}${bT}</borders>`)
+  // 自動仕訳リストの日付の欄は下（伝票No との間）に点線（2026-11-21 ユーザー指示）：tTextV の複製で下だけ tText と同じ点線。STYLE.tTextVD
+  const bOf = n => { const id = Number((xfs[STYLE[n]].match(/borderId="(\d+)"/) || [])[1] || 0); return borders[id] === '<border/>' ? '<border><left/><right/><top/><bottom/><diagonal/></border>' : borders[id]; };
+  const dash = (bOf('tText').match(/<bottom(?:\s[^>]*)?(?:\/>|>[\s\S]*?<\/bottom>)/) || ['<bottom style="hair"/>'])[0];
+  const bD = bOf('tTextV').replace(/<bottom(?:\s[^>]*)?(?:\/>|>[\s\S]*?<\/bottom>)/, dash);
+  const xfD = xfs[STYLE.tTextV].replace(/borderId="\d+"/, `borderId="${borders.length + 1}"`).replace(/applyBorder="1"/, '').replace('<xf ', '<xf applyBorder="1" ');
+  STYLE.tVendor = xfs.length; STYLE.tVendorT = xfs.length + 1; STYLE.tTextVD = xfs.length + 2;
+  return xml.replace(bM[0], `<borders count="${borders.length + 2}">${borders.join('')}${bT}${bD}</borders>`)
     .replace(fM[0], `<fills count="${fills.length + 1}">${fills.join('')}<fill><patternFill patternType="solid"><fgColor rgb="FFFFF2CC"/></patternFill></fill></fills>`)
-    .replace(xM[0], `<cellXfs count="${xfs.length + 2}">${xfs.join('')}${xf}${xfT}</cellXfs>`);
+    .replace(xM[0], `<cellXfs count="${xfs.length + 3}">${xfs.join('')}${xf}${xfT}${xfD}</cellXfs>`);
 }
 // 合計行の縦線なし（2026-11-21 ユーザー指示）：合計行の文言側スタイルの複製で左右の線を消す（_nv）／右だけ消す（_nvR：表の左端）
 const NOV_BASE = ['tSumL', 'tSumBL', 'tGrandL', 'tGrandBL', 'tBoxL'];
