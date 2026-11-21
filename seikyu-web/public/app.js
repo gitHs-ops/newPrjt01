@@ -2154,7 +2154,8 @@ const shipmentReportsCard = () => miscCard('出荷・売上帳票', 'Excel で�
   '<button data-act="misc" data-kind="shipment-summary" data-src="ms">商品・製品別出荷集計表</button><button data-act="misc" data-kind="customer-items" data-src="ms">得意先別商品別出荷累計表</button><button data-act="misc" data-kind="cash-sales" data-src="ms">現金売上明細表</button><button data-act="misc" data-kind="sales-register" data-src="ms">商品売上登録リスト</button>',
   '期間は締日単位（例: 前月21日〜当月20日）で指定できます。<span id="ms-range"></span>');
 // ㉖㉗㉘ 日報（現行 MEN120 日次業務 16・17・18。2026-11-08 追加）：指定日の 前日累計・当日・累計（月度は前月21日〜）
-const dailyCard = (title, id, buttons) => miscCard(title, '指定日の前日累計・当日・累計', `<label class="field">日付<input type="date" id="${id}-date" value="${today()}"></label>`, buttons);
+// 日報のカードは上のカードと間を空ける（daily-card。2026-11-21 ユーザー指示）
+const dailyCard = (title, id, buttons) => miscCard(title, '指定日の前日累計・当日・累計', `<label class="field">日付<input type="date" id="${id}-date" value="${today()}"></label>`, buttons).replace('class="card glass"', 'class="card glass daily-card"');
 // 日報出力（2026-11-20 ユーザー指示）：帳票・データ出力 → 日報出力 に日報をまとめる（出荷・売上帳票、商品仕入登録リストの日報カードはそのまま）
 const dailyReportsCard = () => dailyCard('日報出力', 'dr', '<button data-act="misc" data-kind="item-ship-daily" data-src="dr">商品別出荷日報</button><button data-act="misc" data-kind="customer-ship-daily" data-src="dr">得意先別出荷日報</button><button data-act="misc" data-kind="item-purchase-daily" data-src="dr">商品別仕入日報</button>');
 const shipDailyCard = () => dailyCard('出荷日報', 'sd', '<button data-act="misc" data-kind="item-ship-daily" data-src="sd">商品別出荷日報</button><button data-act="misc" data-kind="customer-ship-daily" data-src="sd">得意先別出荷日報</button>');
