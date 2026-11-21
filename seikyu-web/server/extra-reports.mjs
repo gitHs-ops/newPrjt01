@@ -170,8 +170,8 @@ const PAYIN_W = [12, 11, 7, 24, 15.5, 16, 24, 12] /* 伝票No・科目・内訳�
 export async function extraBook(c, kind, q) {
   if (kind === 'payable-input') {
     // 2026-11-21 ユーザー指示（定時請求入力明細表_2026-11-20 (4).xlsx の様式）：業者・業者名の列は出さず、伝票No を先頭の列に。
-    // 部門の行 → 業者ごとに「業者 : コード　名称　住所」の行（幅いっぱい）→ 見出し 1 段 → 伝票ごとに 明細・請求金額の計・支払条件 → 業者計・（内消費税）。出力日は出さない
-    const d = await payableInputList(c, q), out = [[T(d.title)], [`${d.dept === '全部門' ? '' : '部門 ' + d.dept + '　'}${d.date ? `締切日 ${d.date}` : `${d.month} 月度`}　区分 ${d.kb ? '組織' : '工事'}${d.allVendors ? '' : '　業者 ' + d.vendor}`], []];   // 全業者（9999999）・全部門は表示しない、区分は 組織／工事 だけ（2026-11-20 ユーザー指示）
+    // 部門の行 → 業者ごとに「業者 : コード　名称　住所」の行（幅いっぱい）→ 見出し 1 段 → 伝票ごとに 明細・請求金額の計・支払条件 → 業者計・（内消費税）
+    const d = await payableInputList(c, q), out = head(d, `${d.dept === '全部門' ? '' : '部門 ' + d.dept + '　'}${d.date ? `締切日 ${d.date}` : `${d.month} 月度`}　区分 ${d.kb ? '組織' : '工事'}${d.allVendors ? '' : '　業者 ' + d.vendor}`);   // 出力日は右上（2026-11-21 ユーザー指示）。全業者（9999999）・全部門は表示しない、区分は 組織／工事 だけ（2026-11-20 ユーザー指示）
     const W = PAYIN_W.length, last = String.fromCharCode(64 + W);
     // （内消費税）は請求金額の列に 1 セルで（下は実線。業者・部門の区切り）
     const taxEnd = t => Array.from(PAYIN_W, (_, j) => ({ v: j === 5 ? `（内消費税 ${Number(t || 0).toLocaleString('ja-JP')}）` : '', s: 'jEnd' }));
