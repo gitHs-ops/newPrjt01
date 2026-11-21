@@ -191,7 +191,7 @@ export async function extraBook(c, kind, q) {
         }
         out.push(sumRow('業者計', v.total), taxEnd(v.tax), []);
       }
-      out.push(sumRow(`${d.groupLabel}計`, dp.total), taxEnd(dp.tax), []);
+      if (!one1) out.push(sumRow(`${d.groupLabel}計`, dp.total), taxEnd(dp.tax), []);   // 部門が 1 つなら部門計は総合計と同じため出さない（2026-11-21 ユーザー指示）
     }
     if (d.depts.length) out.push(sumRow('総　合　計', d.total), taxEnd(d.tax));
     return { name: `定時請求入力明細表_${d.date || d.month}.xlsx`, body: xlsx([{ name: '定時請求入力明細表', rows: out, widths: PAYIN_W, merges }]) };
