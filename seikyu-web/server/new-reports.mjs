@@ -25,13 +25,13 @@ export async function purchaseRegister(c, q) {
   for (const r of rs) {
     let g = groups.find(x => x.code === r.vendor_code);   // 仕入先別（11/04 No.19）。仕入日・区分は仕入日が変わった行だけ
     // 仕入先の見出しは現行 HAR011 どおり「コード　仕入先名」（2026-11-04）
-    if (!g) groups.push(g = { code: r.vendor_code, title: `${r.vendor_code}　${r.vendor_name}`, rows: [] });
+    if (!g) groups.push(g = { code: r.vendor_code, title: `仕入先 ${r.vendor_code}　${r.vendor_name}`, rows: [] });   // 「仕入先」を付ける（帳票イメージ（案）。2026-11-21 ユーザー指示）
     // 運賃の行は現行どおり数量・単価 0.00 で、処税率の右に「運賃」。処税率はコードの右に名称（画面の選択リストと同じ。2026-11-01）
     const fr = r.line_kind === '2';
     // 現行 HAR011：仕入日・区分は仕入先の 1 行目だけ、伝票No. は伝票の 1 行目だけ（2 行目からは枝番だけ）。slip＝伝票No.＋枝番（2026-11-04）
-    const first = g.last !== r.purchase_date; g.last = r.purchase_date; const slip = purchaseNo(r.source_document_no, r.line_no), sameSlip = g.rows.at(-1)?.doc === r.source_document_no;
-    g.rows.push({ date: first ? `${r.purchase_date.slice(2, 4)}/${r.purchase_date.slice(5, 7)}/${r.purchase_date.slice(8, 10)}` : '', kind: first ? PURCHASE_KINDS[r.purchase_kb || '1'] : '', no: sameSlip ? slip.slice(-2) : slip, slip, doc: r.source_document_no, item: r.item_cd ? `${r.item_cd} ${r.item_nam || ''}` : '運賃',
-      qty: fr ? 0 : num(r.quantity), unit: r.unit ? PURCHASE_UNITS[r.unit] ?? '' : r.item_unit || '', price: fr ? 0 : num(r.unit_price), net: num(r.net_amount), account: '', subName: '', tax: `${r.source_tax_code || ''}${fr ? ' 運賃' : ''}` });   // 処税率はコードだけ（現行 HAR011。2026-11-04）
+    const first = g.last !== r.purchase_date; g.last = r.purchase_date; const slip = purchaseNo(r.source_document_no, r.line_no);
+    g.rows.push({ date: first ? `${r.purchase_date.slice(2, 4)}/${r.purchase_date.slice(5, 7)}/${r.purchase_date.slice(8, 10)}` : '', kind: first ? PURCHASE_KINDS[r.purchase_kb || '1'] : '', no: slip,   /* 2 行目からも完全な伝票No（帳票イメージ（案）。2026-11-21 ユーザー指示） */ slip, doc: r.source_document_no, item: r.item_cd ? `${r.item_cd} ${r.item_nam || ''}` : '運賃',
+      qty: fr ? 0 : num(r.quantity), unit: r.unit ? PURCHASE_UNITS[r.unit] ?? '' : r.item_unit || '', price: fr ? 0 : num(r.unit_price), net: num(r.net_amount), account: '', subName: '', tax: r.source_tax_code || '', memo: fr ? '運賃' : '' });   // 運賃は摘要の列に（帳票イメージ（案）。2026-11-21 ユーザー指示）   // 処税率はコードだけ（現行 HAR011。2026-11-04）
   }
   // 仕入先計・総合計（仕入金額）を出す（2026-11-19 ユーザー指示：プロトタイプ検証結果 帳票-⑭、帳票規約 8）。数量は単位（t・袋）が混じるため合計しない
   for (const g of groups) { delete g.last; g.label = '仕入先計'; g.totals = { net: g.rows.reduce((n, r) => n + r.net, 0) }; }
@@ -39,7 +39,7 @@ export async function purchaseRegister(c, q) {
   return { title: '商品仕入登録リスト', ref: '帳票⑭（HAR011）', from, to, sub: `仕入日 ${from} 〜 ${to}`, totals,
     // 項目名は現行の見本（HAR011・添付帳票⑭ p.1-2）どおり（2026-10-29）。単位は仕入数量の右で見出しなし。科目ｺｰﾄﾞ・内訳名は見本でも空欄。摘要は見本にないので出さない
     columns: [{ key: 'date', label: '仕入日', w: 11 }, { key: 'kind', label: '区分', w: 8 }, { key: 'no', label: '伝票No.', w: 15 }, { key: 'item', label: '商品名', w: 30 }, { key: 'qty', label: '仕入数量', num: 1, dec: 1, w: 11 }, { key: 'unit', label: '', w: 4 },
-      { key: 'price', label: '仕入単価', num: 1, dec: 1, w: 11 }, { key: 'net', label: '仕入金額', num: 1, w: 13 }, { key: 'account', label: '科目ｺｰﾄﾞ', w: 9 }, { key: 'subName', label: '内訳名', w: 14 }, { key: 'tax', label: '処税率', w: 30 }],
+      { key: 'price', label: '仕入単価', num: 1, dec: 1, w: 11 }, { key: 'net', label: '仕入金額', num: 1, w: 13 }, { key: 'account', label: '科目ｺｰﾄﾞ', w: 9 }, { key: 'subName', label: '内訳名', w: 14 }, { key: 'tax', label: '処税率', w: 9 }, { key: 'memo', label: '摘要', w: 20 }],
     groups };
 }
 // ⑰ 在庫登録リスト（現行 HAR061）：月度の在庫数量。項目はコード・商品・製品名・在庫数量・単位だけ（評価単価・評価額は出さない。2026-11-03 ユーザー指示の見本）
