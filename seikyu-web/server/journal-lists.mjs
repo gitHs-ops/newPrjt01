@@ -249,7 +249,8 @@ const pairRows = (p, first, s, end = true) => {
   if (end) for (let i = 1; i < r2.length; i++) r2[i] = { v: r2[i], s: 'jEnd' };
   return [r1, r2];
 };
-const totalRow = (label, amount) => jrow({ 9: label, 6: amount, 16: amount }, 'dashTop');
+// 伝票合計・日付合計の行は上下とも実線（2026-11-21 ユーザー指示「합계 행 위의 선은 실선」。xlsx の sumBox）
+const totalRow = (label, amount) => jrow({ 9: label, 6: amount, 16: amount }, 'sumBox');
 export async function journalListBook(c, q) {
   const d = await journalList(c, q), now = new Date(Date.now() + 9 * 36e5).toISOString();
   const out = [jrow({ 0: `出力 ${yymmdd(now.slice(0, 10))} ${now.slice(11, 19)}`, 7: T(d.title) }), [d.pattern === 'A01' && d.to.endsWith('-20') && d.from === arRange(d.to.slice(0, 7)).from ? `締日 ${d.to}` : d.pattern === 'B01' ? '' : `期間 ${d.from} 〜 ${d.to}`], [], ...JOURNAL_HEAD];   // 売掛金計上は締日のみ・入金は期間を出さない（対象期間の表示は 2026-11-18 ユーザー指示で削除）
