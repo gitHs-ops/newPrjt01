@@ -190,6 +190,7 @@ function listify(sh) {
     const n = out.length; map[i] = n; let row;
     const sty = (c, j) => {
       const o = cellOf(c), v = o.v ?? '', num = typeof v === 'number', s = o.s;
+      if (typeof s === 'string' && s.startsWith('jEdge')) return { v, s: `tJ${s.slice(5)}${num ? 'N' : 'L'}` };   // 自動仕訳リストの合計行（四辺を指定）
       if (k === 'head') return headCell(v, i, j);
       if (k === 'band') return { v, s: 'tBand' };
       if (GT.has(i)) return { v, s: num ? (QTY_S.has(s) ? 'tGrandBQ' : s === 'qty3' ? 'tGrandBQ3' : 'tGrandBN') : 'tGrandBL' };
@@ -305,6 +306,20 @@ function noVTwins(xml) {
   }
   return xml.replace(bM[0], `<borders count="${borders.length + add.length}">${borders.join('')}${add.join('')}</borders>`).replace(xM[0], `<cellXfs count="${xfs.length + xadd.length}">${xfs.join('')}${xadd.join('')}</cellXfs>`);
 }
+// 自動仕訳リストの伝票合計・日付合計の行（2026-11-21 ユーザー様式「定時請求自動仕訳リスト_2026-10-21_2026-11-20 (3).xlsx」）：
+// tSumL／tSumN の複製で、四辺（左 8・右 4・上 2・下 1 の和＝mask）を実線にするかどうかの 16 通り。STYLE['tJ' + mask + 'L'|'N']。表の側は { s: 'jEdge' + mask }
+function sumEdgeTwins(xml) {
+  const bM = xml.match(/<borders count="(\d+)">([\s\S]*?)<\/borders>/), xM = xml.match(/<cellXfs count="(\d+)">([\s\S]*?)<\/cellXfs>/);
+  const borders = bM[2].match(/<border\/>|<border>[\s\S]*?<\/border>/g), xfs = xM[2].match(/<xf [^>]*?(?:\/>|>[\s\S]*?<\/xf>)/g), add = [], xadd = [];
+  const e = (tag, on) => (on ? `<${tag} style="thin"><color rgb="FF000000"/></${tag}>` : `<${tag}/>`);
+  for (let m = 0; m < 16; m++) add.push(`<border>${e('left', m & 8)}${e('right', m & 4)}${e('top', m & 2)}${e('bottom', m & 1)}<diagonal/></border>`);
+  let k = xfs.length;
+  for (const [base, t] of [['tSumL', 'L'], ['tSumN', 'N']]) for (let m = 0; m < 16; m++) {
+    xadd.push(xfs[STYLE[base]].replace(/borderId="\d+"/, `borderId="${borders.length + m}"`).replace(/applyBorder="1"/, '').replace('<xf ', '<xf applyBorder="1" '));
+    STYLE[`tJ${m}${t}`] = k++;
+  }
+  return xml.replace(bM[0], `<borders count="${borders.length + add.length}">${borders.join('')}${add.join('')}</borders>`).replace(xM[0], `<cellXfs count="${xfs.length + xadd.length}">${xfs.join('')}${xadd.join('')}</cellXfs>`);
+}
 // 表の最後の行（2026-11-19 ユーザー指示「맨 마지막 행 밑줄 실선」）：t* の各スタイルの複製で下だけ実線（細線）。STYLE['名前_U']
 function underTwins(xml) {
   const bM = xml.match(/<borders count="(\d+)">([\s\S]*?)<\/borders>/), xM = xml.match(/<cellXfs count="(\d+)">([\s\S]*?)<\/cellXfs>/);
@@ -366,7 +381,7 @@ export function xlsx(sheets0) {
       [168, 15, 0, 0, 'left'],
     ].map(([n, f, fill, b, h]) => `<xf numFmtId="${n}" fontId="${f}" fillId="${fill}" borderId="${b}" xfId="0" applyNumberFormat="1" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="${h}" vertical="center"/></xf>`).join('')}</cellXfs><cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>`],
   ];
-  const st = files.find(f => f[0] === 'xl/styles.xml'); st[1] = underTwins(noVTwins(fillTwins(boxStyles(st[1])))); const red = redTwins(st[1]); st[1] = red.xml;
+  const st = files.find(f => f[0] === 'xl/styles.xml'); st[1] = underTwins(sumEdgeTwins(noVTwins(fillTwins(boxStyles(st[1]))))); const red = redTwins(st[1]); st[1] = red.xml;
   files.push(...sheets.map((s, i) => [`xl/worksheets/sheet${i + 1}.xml`, sheetXml({ ...s, redAt: red.redAt })]));
   return zip(files);
 }

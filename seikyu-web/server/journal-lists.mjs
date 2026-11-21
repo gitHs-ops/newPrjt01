@@ -249,8 +249,13 @@ const pairRows = (p, first, s, end = true) => {
   if (end) for (let i = 1; i < r2.length; i++) r2[i] = { v: r2[i], s: 'jEnd' };
   return [r1, r2];
 };
-// 伝票合計・日付合計の行は上下とも実線（2026-11-21 ユーザー指示「합계 행 위의 선은 실선」。xlsx の sumBox）
-const totalRow = (label, amount) => jrow({ 9: label, 6: amount, 16: amount }, 'sumBox');
+// 伝票合計・日付合計の行（2026-11-21 ユーザー様式「定時請求自動仕訳リスト_2026-10-21_2026-11-20 (3).xlsx」）：上下は実線、縦線は 借方金額・摘要1（借方）の右・貸方金額・元伝票の区切りだけ。
+// 伝票合計は日付・伝票No の列を伝票の明細から続けて（上の線なし）、その右に縦線。日付合計は日付の列から続けて 1 つの枠
+const TOTAL_V = [5, 6, 9, 15, 16, 17];
+const totalRow = (label, amount, slip = false) => jrow({ 9: label, 6: amount, 16: amount }).map((v, j) => {
+  const V = new Set(slip ? [0, ...TOTAL_V] : TOTAL_V), mask = (j === 0 || V.has(j - 1) ? 8 : 0) + (V.has(j) ? 4 : 0) + (slip && j === 0 ? 0 : 2) + 1;
+  return { v, s: `jEdge${mask}` };
+});
 export async function journalListBook(c, q) {
   const d = await journalList(c, q), now = new Date(Date.now() + 9 * 36e5).toISOString();
   const out = [jrow({ 0: `出力 ${yymmdd(now.slice(0, 10))} ${now.slice(11, 19)}`, 7: T(d.title) }), [d.pattern === 'A01' && d.to.endsWith('-20') && d.from === arRange(d.to.slice(0, 7)).from ? `締日 ${d.to}` : d.pattern === 'B01' ? '' : `期間 ${d.from} 〜 ${d.to}`], [], ...JOURNAL_HEAD];   // 売掛金計上は締日のみ・入金は期間を出さない（対象期間の表示は 2026-11-18 ユーザー指示で削除）
@@ -263,7 +268,7 @@ export async function journalListBook(c, q) {
     let dr = 0, cr = 0;
     s.pairs.forEach((p, i) => { dr += p.dr?.account ? Number(p.dr.amount) || 0 : 0; cr += p.cr?.account ? Number(p.cr.amount) || 0 : 0;
       out.push(...pairRows(p, !i, d.pattern === 'A01' ? { ...s, sourceNo: '' } : s, i === s.pairs.length - 1 || (dr === cr && dr !== 0))); });
-    out.push(totalRow('伝　票　合　計', s.total));
+    out.push(totalRow('伝　票　合　計', s.total, true));
   }
   if (lastDate) out.push(totalRow('日　付　合　計', d.dates.find(x => x.date === lastDate).total));
   // 現行の自動仕訳リスト（HAR363・HAR413・HAR152・HAR733・CS5785）には総合計の行が無い（2026-11-04）
