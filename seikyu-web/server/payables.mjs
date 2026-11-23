@@ -322,6 +322,9 @@ export async function updatePettyLine(c, ctx, p) {
 export async function createExpense(c, ctx, p, old = null) {
   const kind = String(p.kind); check(['PAYABLE', 'PETTY_CASH'].includes(kind), '区分が不正です');
   const date = isoDate(p.date, kind === 'PAYABLE' ? '締切日' : '支払日'); await assertOpen(c, date);
+  // E-1（2026-11-23 ユーザー指示 A＋C）：会計連携済みの期間の定時請求は登録・修正できない（定時請求計上の［実行］ができず、未計上のまま支払えなくなるため）
+  if (kind === 'PAYABLE') for (const [dt, label] of [[date, '締切日'], ...(old ? [[String(old.booked_on instanceof Date ? old.booked_on.toISOString() : old.booked_on).slice(0, 10), '元の締切日']] : [])])
+    check(!(await one(c, "SELECT 1 x FROM app_acct_link k WHERE CAST(? AS date) BETWEEN CAST(split_part(k.period,'..',1) AS date) AND CAST(split_part(k.period,'..',2) AS date) LIMIT 1", [dt])), `${label} ${dt} は会計連携済みの期間のため、定時請求を登録・修正できません`);
   const hadJournal = old ? await dropExpenseRows(c, old.expense_id) : 0;   // 立替金の残高チェックの前に旧の仕訳を外す
   // 小口現金：1支払日＝1伝票、明細の行ごとに支払先（業者コード または 自由入力）と科目（2026-10-29 画面レビュー No.9：「支払日を上に入れ、どこに払ったか・どの科目かを打ち込む。日付ごとにある」。支払先ごとに伝票を分けない。現行 HAR733 K02080 と同じ）
   const v = kind === 'PAYABLE' || p.vendor ? await vendorOf(c, p.vendor) : null;
@@ -392,7 +395,9 @@ export async function createExpense(c, ctx, p, old = null) {
 }
 // 削除：逆仕訳を作らず、伝票と自動仕訳を削除する（小口現金 E01 は 2026-11-03 ユーザー指示「単純削除」、定時請求 D01 は 11/04 打合せ No.11「行を選んで修正・削除」）
 export async function reverseExpense(c, ctx, { id }) {
-  const d = await editableExpense(c, id), journals = await dropExpenseRows(c, d.expense_id);
+  const d = await editableExpense(c, id);
+  if (d.expense_kind === 'PAYABLE') check(!(await one(c, "SELECT 1 x FROM app_acct_link k WHERE CAST(? AS date) BETWEEN CAST(split_part(k.period,'..',1) AS date) AND CAST(split_part(k.period,'..',2) AS date) LIMIT 1", [d.booked_on])), '会計連携済みの期間の定時請求は削除できません');   // E-1（2026-11-23）
+  const journals = await dropExpenseRows(c, d.expense_id);
   await c.query('DELETE FROM expense_document WHERE expense_id=?', [d.expense_id]);
   await audit(c, ctx, 'expense_document', d.expense_id, d.expense_kind === 'PETTY_CASH' ? 'pettycash.delete' : 'payable.delete', { no: d.document_no, amount: Number(d.gross_amount), journals });
   return { id: d.expense_id, deleted: true };

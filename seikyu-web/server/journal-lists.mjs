@@ -184,7 +184,8 @@ export async function runApPost(c, ctx, b) {
   check(!st.sel.linked, `締切日 ${to} は会計連携済みのため実行できません`);
   // 2026-11-21 ユーザー指示（C-2 案 B）：期間の未計上の定時請求に仕訳 D01 を作る（登録では作らない）。計上済みの伝票はそのまま
   const todo = await rows(c, `SELECT d.* FROM expense_document d WHERE d.expense_kind='PAYABLE' AND d.status='POSTED' AND d.booked_on BETWEEN ? AND ? AND NOT ${BOOKED} ORDER BY d.booked_on, d.document_no FOR UPDATE`, [from, to]);
-  for (const x of todo) { await assertOpen(c, x.booked_on); await postPayableJournal(c, x); }
+  // E-1（2026-11-23 ユーザー指示 A＋C）：1 伝票でも計上できなければ全体を取り消す（全部か無し）。どの伝票で止まったかをメッセージに出す
+  for (const x of todo) { try { await assertOpen(c, x.booked_on); await postPayableJournal(c, x); } catch (e) { check(false, `伝票 ${x.document_no} を計上できないため、定時請求計上を中止しました（1 件も計上していません）：${e.message}`); } }
   const d = await journalList(c, { pattern: 'D01', from, to });
   await c.query('INSERT INTO app_ap_post_run (closing,run_by,run_at,slips,total) VALUES (?,?,?,?,?) ON DUPLICATE KEY UPDATE run_by=VALUES(run_by),run_at=VALUES(run_at),slips=VALUES(slips),total=VALUES(total)', [to, ctx.user.login_id, jstNow(), d.slips.length, d.total]);
   await audit(c, ctx, 'app_ap_post_run', to, 'appost.run', { from, to, posted: todo.map(x => x.document_no), slips: d.slips.length, total: d.total });
