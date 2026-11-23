@@ -1766,7 +1766,7 @@ VIEWS.purchases = async q => {
   const cols = [{ name: 'item', label: '商品コード', cell: () => '<input name="item" list="dl-pu-items" maxlength="12" style="width:90px" autocomplete="off">' }, { name: 'iname', label: '商品名', cell: () => '<span data-iname class="muted small">商品コードを入力</span>' },
     { name: 'quantity', label: '数量', cell: () => '<input name="quantity" class="num" style="width:90px">' }, { name: 'unit', label: '単位', cell: () => '<input name="unit" maxlength="1" inputmode="numeric" style="width:36px" title="1: t　2: 袋　3:"> <span data-unit class="muted small"></span>', foot: unitGuide },
     { name: 'price', label: '単価', cell: () => '<input name="price" class="num" style="width:100px" inputmode="decimal" placeholder="マスタ単価" title="小数2桁まで（例 2267.40）">' }, { name: 'amount', label: '金額', sum: 1, cell: () => '<input name="amount" class="num" style="width:120px" placeholder="自動">' },
-    { name: 'taxCode', label: '処税率', cell: () => taxSelect('taxCode', '241') }];
+    { name: 'taxCode', label: '処税率', cell: () => tax3('') /* 定時請求・小口現金と同じ 1 桁ずつの入力欄 3 つ（2026-11-23 ユーザー指示。全部空白はサーバの既定 241） */ }];
   // 単位は現行画面（HAW010）の下のガイダンスどおり 1〜3 で入力し、右に単位名（単位マスタからの取得は保留。2026-11-03）
   const calc = tr => { const f = n => tr.querySelector(`[name=${n}]`), code = f('item').value.trim(), hit = masters.items.find(i => i.code === code && !noPurchase(i)), fr = false, nm = tr.querySelector('[data-iname]'), un = tr.querySelector('[data-unit]');
     nm.innerHTML = code && !hit ? `<span class="check-ng">${masters.items.some(i => i.code === code) ? '仕入では使えない商品' : '該当なし'}</span>` : hit ? esc(hit.name) : '商品コードを入力'; nm.classList.toggle('muted', !hit);
@@ -1797,7 +1797,7 @@ VIEWS.purchases = async q => {
     onOpen: f => { const g = $('#pu-lines'); f.querySelector('[name=freight]').addEventListener('change', () => lineTotal('pu-lines', 'amount', calc)); g.addEventListener('input', e => { if (e.target.name === 'unit') e.target.value = e.target.value.replace(/[^123]/g, '').slice(0, 1); }, true); g.addEventListener('input', () => lineTotal('pu-lines', 'amount', calc)); g.addEventListener('change', () => lineTotal('pu-lines', 'amount', calc));
       if (!old) return;
       const trs = $$('#pu-lines tbody tr'), put = (tr, n, v) => { const el = tr.querySelector(`[name=${n}]`); if (el) el.value = v; };
-      old.lines.forEach((l, i) => { const tr = trs[i], amt = l.lineKind === '2'; put(tr, 'item', l.item); put(tr, 'quantity', amt ? (l.item ? '' : '0') : String(l.quantity)); put(tr, 'unit', amt ? '' : l.unitCode); put(tr, 'price', amt ? '' : Number(l.price).toFixed(2)); put(tr, 'taxCode', l.taxCode); });
+      old.lines.forEach((l, i) => { const tr = trs[i], amt = l.lineKind === '2'; put(tr, 'item', l.item); put(tr, 'quantity', amt ? (l.item ? '' : '0') : String(l.quantity)); put(tr, 'unit', amt ? '' : l.unitCode); put(tr, 'price', amt ? '' : Number(l.price).toFixed(2)); put(tr, 'taxCode', l.taxCode); tax3Sync(tr); });
       lineTotal('pu-lines', 'amount', calc);
       old.lines.forEach((l, i) => { if (l.lineKind === '2') put(trs[i], 'amount', String(l.net)); });
       if (frOld(old)) old.lines.forEach((l, i) => put(trs[i], 'quantity', ''));
