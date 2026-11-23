@@ -512,7 +512,8 @@ input.file-native { position: absolute; width: 1px; height: 1px; opacity: 0; poi
 .hw-head .span2 { grid-column: span 2; }
 .line-grid .l2 { display: flex; flex-direction: column; gap: 6px; }
 /* 処税率：1 桁ずつの入力欄 3 つ（2026-11-23） */
-.tx3 { display: flex; gap: 4px; }
+.tx3 { display: flex; gap: 4px; align-items: center; }
+.tx3 .tx3-note { display: flex; flex-direction: column; margin-left: 6px; font-size: 11.5px; line-height: 1.35; color: var(--text-secondary); white-space: nowrap; }
 .tx3 input[data-tx] { width: 2.6em; min-width: 0; padding-left: 0; padding-right: 0; text-align: center; }
 /* ヘッダー項目（伝票摘要など）と明細の表の間をあける（2026-10-29） */
 .table-wrap:has(> table.line-grid) { margin-top: 18px; }

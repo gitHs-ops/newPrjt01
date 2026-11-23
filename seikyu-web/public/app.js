@@ -1735,11 +1735,18 @@ const taxLabel = c => { const t = meta.taxCodes.find(x => x.code === String(c ??
 const taxSelect = (name, value) => `<select name="${name}" style="width:130px">${meta.taxCodes.map(t => `<option value="${t.code}" title="${esc(t.name)}" ${t.code === value ? 'selected' : ''}>${esc(t.code)}</option>`).join('')}</select>`;
 // 処税率を 1 桁ずつ入れる入力欄 3 つ（定時請求データ入力。2026-11-23 ユーザー指示）。保存形の 0（1・3 桁目）は空白で表示。入力すると次の欄へ進む
 const tax3Show = c => { const s = String(c ?? ''); return s.length === 3 ? [s[0] === '0' ? '' : s[0], s[1].trim(), s[2] === '0' ? '' : s[2].trim()] : ['', '', '']; };
-const tax3 = value => `<div class="tx3" title="処税率（1桁目 税込区分・2桁目 税区分・3桁目 税率区分。空白可）"><input type="hidden" name="taxCode" value="${esc(value)}">${tax3Show(value).map((d, k) => `<input class="num" data-tx="${k}" value="${d}" inputmode="numeric" autocomplete="off" aria-label="処税率 ${k + 1}桁目">`).join('')}</div>`;
-const tax3Sync = tr => { const w = tr?.querySelector('.tx3'); if (!w) return; const v = tax3Show(w.querySelector('[name=taxCode]').value); w.querySelectorAll('[data-tx]').forEach((el, k) => { el.value = v[k]; }); };
+// 3 つの入力欄の右に各桁の意味（server/taxcode.mjs と同じ。2026-11-23 ユーザー指示）。1桁目 1=内税・2/空白=外税、2桁目 税区分、3桁目 税率区分（空白=0%）
+const TX3_KIND = { 1: '課税売上', 2: '非課税売上', 3: '輸出売上', 4: '課税売上対応仕入', 5: '非課税売上対応仕入', 6: '共通対応仕入', 7: '非課税仕入', 9: '対象外' }, TX3_RATE = { 0: 0, 1: 10, 2: 3, 3: 6, 4: 2.8, 5: 5, 8: 8 };
+const tax3Note = c => { const s = String(c ?? '').padEnd(3, ' ').replace(/0/g, ' '), [a, b, r] = s, ng = '<span class="check-ng">不正</span>';
+  const one = a === '1' ? '1 税込（内税）' : a === '2' ? '2 外税' : a === ' ' ? '空白 外税' : `${esc(a)} ${ng}`;
+  const two = b === ' ' ? '空白 <span class="check-ng">要入力</span>' : TX3_KIND[b] ? `${b} ${TX3_KIND[b]}` : `${esc(b)} ${ng}`;
+  const three = r === ' ' ? '空白 0%' : r in TX3_RATE ? `${r} ${TX3_RATE[r]}%` : `${esc(r)} ${ng}`;
+  return String(c ?? '').trim() ? `<span>1桁 ${one}</span><span>2桁 ${two}</span><span>3桁 ${three}</span>` : '<span>1桁 税込区分 1=内税・2/空白=外税</span><span>2桁 税区分（4=課税仕入・9=対象外 など）</span><span>3桁 税率 1=10%・8=8%・空白=0%</span>'; };
+const tax3 = value => `<div class="tx3" title="処税率（1桁目 税込区分・2桁目 税区分・3桁目 税率区分。空白可）"><input type="hidden" name="taxCode" value="${esc(value)}">${tax3Show(value).map((d, k) => `<input class="num" data-tx="${k}" value="${d}" inputmode="numeric" autocomplete="off" aria-label="処税率 ${k + 1}桁目">`).join('')}<span class="tx3-note">${tax3Note(value)}</span></div>`;
+const tax3Sync = tr => { const w = tr?.querySelector('.tx3'); if (!w) return; const v = tax3Show(w.querySelector('[name=taxCode]').value); w.querySelectorAll('[data-tx]').forEach((el, k) => { el.value = v[k]; }); w.querySelector('.tx3-note').innerHTML = tax3Note(w.querySelector('[name=taxCode]').value); };
 // 入っている桁に打っても、打った数字に置き換える
 document.addEventListener('input', e => { const el = e.target; if (!el.matches?.('.tx3 [data-tx]')) return; el.value = (/^\d$/.test(e.data ?? '') ? e.data : el.value.replace(/[^\d]/g, '')).slice(-1); const w = el.closest('.tx3'), ds = [...w.querySelectorAll('[data-tx]')].map(x => x.value || ' ').join('');
-  w.querySelector('[name=taxCode]').value = ds.trim() ? ds : ''; if (el.value) el.nextElementSibling?.focus(); }, true);
+  w.querySelector('[name=taxCode]').value = ds.trim() ? ds : ''; w.querySelector('.tx3-note').innerHTML = tax3Note(ds); if (el.value) el.nextElementSibling?.focus(); }, true);
 document.addEventListener('focusin', e => { if (e.target.matches?.('.tx3 [data-tx]')) e.target.select(); });   // 入っている桁は上書きで入れ直せる
 document.addEventListener('keydown', e => { const el = e.target; if (e.key === 'Backspace' && !el.value && el.matches?.('.tx3 [data-tx]') && el.previousElementSibling?.matches('[data-tx]')) el.previousElementSibling.focus(); });
 
@@ -1918,7 +1925,7 @@ function expenseView(kind) {
       { name: 'sub', label: '内訳／摘要コード', cell: () => '<div class="l2"><select name="sub"><option value="">（なし）</option></select><input name="memoCode" maxlength="7" list="dl-tekiyo" autocomplete="off" placeholder="摘要コード（摘要・工事コード）" title="摘要マスタの候補から選ぶと摘要名に名称が入ります（そのあと摘要名を直接書き換えられます）。工事コードなどは直接入力"></div>' },
       { label: '科目名・内訳名／摘要', cell: () => '<div class="l2"><span class="hw-names muted small">科目を選択</span><input name="lmemo" maxlength="500" placeholder="摘要（自由入力）"></div>' },
       // 処税率は 1 桁ずつの数字の入力欄 3 つ（税込区分・税区分・税率区分。どの桁も空白可。2026-11-23 ユーザー指示）。送る値は hidden の taxCode（例 141・「 41」）
-      { name: 'amount', label: '支払金額／処税率', sum: 1, cell: () => `<div class="l2"><input name="amount" class="num" inputmode="numeric">${tax3('141')}</div>` }];
+      { name: 'amount', label: '支払金額／処税率', sum: 1, cell: () => `<div class="l2"><input name="amount" class="num" inputmode="numeric">${tax3('')}</div>` }];
     // 小口現金：支払先は明細の行ごと。1支払日＝1伝票（画面レビュー No.9）
     // 2026-10-29 画面・帳票処理イメージ一覧 v4 の指摘：支払先は自由入力ではない（業者マスタのコード）・支払先名を表示・「金額」でなく「支払額」・右は科目名・内訳名と摘要名（内訳は科目の補助で摘要コード（工事）とは別。摘要名は手入力。2026-10-29 列名を「内訳」に訂正）
     const vendorName = code => active('vendors').find(x => x.code === String(code || '').trim())?.name;
