@@ -2703,7 +2703,10 @@ async function oneToManyView(q) {
     const list = term ? parents.filter(c => `${c.code} ${c.name}`.toLowerCase().includes(term)) : parents, { shown, html } = pageNav(list, q.page);
     A.search = () => go('masters', { kind, search: $('#s2-search').value.trim() });
     A.pick = x => go('masters', { kind, parent: x.code, back: q.search || '' });
-    return page('マスタ管理', desc, `<input id="s2-search" placeholder="${d.pLabel}コード・名称で検索" value="${esc(q.search || '')}" style="width:220px"><button class="primary" data-act="search">検索</button>`,
+    // 親（得意先・勘定科目・商品・銀行）の新規登録（2026-11-24 ユーザー指示）。金融機関2 は支店番号を空欄にすると銀行として登録
+    const pKind = d.split ? d.child : d.parent, canNewP = canWrite() && !meta.masters[pKind]?.readOnly && !noEditU01(pKind);
+    A.newParent = () => masterForm(pKind);
+    return page('マスタ管理', desc, `<input id="s2-search" placeholder="${d.pLabel}コード・名称で検索" value="${esc(q.search || '')}" style="width:220px"><button class="primary" data-act="search">検索</button>${canNewP ? `<button class="primary" data-act="newParent">＋ ${d.pLabel}の新規登録</button>` : ''}`,
       `<section class="card glass master-list">${term ? `<p class="muted small">「${esc(q.search)}」の検索結果 ${list.length} / ${parents.length} 件</p>` : ''}${html}${table([{ label: '', html: r => `<button class="mini" data-act="pick" data-code="${esc(r.code)}">選択</button>` },
         { label: d.pLabel + 'コード', value: r => r.code }, { label: d.pLabel + '名', value: r => r.name }, { label: d.cLabel + '数', num: 1, value: r => (count[r.code] || 0).toLocaleString('ja-JP') }, { label: '状態', html: state }],
         shown, { rowClass: r => r.active ? '' : 'muted' })}</section>`);
