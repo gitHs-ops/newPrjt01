@@ -1932,7 +1932,7 @@ function expenseView(kind) {
     const cols = [{ name: 'lvendor', label: '支払先コード', cell: () => '<input name="lvendor" list="dl-ex-payees" maxlength="12" placeholder="コード" style="width:120px" autocomplete="off">' }, { label: '支払先名', cell: () => '<span data-vname></span><input name="lpayee" maxlength="100" placeholder="支払先名（手入力）" style="width:150px">' }, // コードが無い支払先は名称を手入力（2026-11-03）
       // 2026-11-03 ユーザー指示：科目・内訳コードの横に名称、摘要名は科目・内訳の下、支払額・処税率は右側
       { name: 'account', label: '科目・内訳／摘要名', cell: () => `<div class="l2"><div style="display:flex;gap:6px;align-items:center"><select name="account" style="width:170px;flex:none">${accOpts}</select><span data-accname class="muted small" style="width:8em;flex:none"></span><select name="sub" style="width:150px;flex:none"><option value="">（なし）</option></select><span data-subname class="muted small" style="width:8em;flex:none"></span></div><div style="display:flex;gap:6px"><input name="memoCode" maxlength="7" list="dl-tekiyo" inputmode="numeric" autocomplete="off" placeholder="摘要コード" style="width:100px;flex:none"><input name="lmemo" maxlength="500" placeholder="摘要名（コードが無ければ手入力）"></div></div>` },
-      { name: 'amount', label: '支払額（税込）', sum: 1, cell: () => '<input name="amount" class="num" style="width:120px">' }, { name: 'taxCode', label: '処税率', cell: () => `<div class="l2">${taxSelect('taxCode', '141')}<span data-taxname class="muted small"></span></div>` }];
+      { name: 'amount', label: '支払額（税込）', sum: 1, cell: () => '<input name="amount" class="num" style="width:120px">' }, { name: 'taxCode', label: '処税率', cell: () => tax3('') /* 定時請求と同じ 1 桁ずつの入力欄 3 つ（2026-11-23 ユーザー指示） */ }];
     // 定時請求データ入力は現行 HAW050（10/21 打合せ資料 スライド5）の並び：組織・締切日／請求No／業者／支払繰延区分・合計金額 → 明細（2段）→ 対象外・内税・外税・外税消費税・合計
     const deptSel = `<select name="dept">${options(active('depts').length ? active('depts') : [{ code: '063', name: '部門063' }], '063')}</select>`;
     // 小口現金の組織（部門）は表示のみ。現行 HAW150 に入力欄がなく、HAR733 の部は 063（登録時はサーバーの既定値 063）
@@ -1957,8 +1957,6 @@ function expenseView(kind) {
       `,
       onOpen: () => { const g = $('#ex-lines'), f = $('#modal-body');
         const recalc = () => {
-          // 小口現金：選んだ処税率の内容を同じ行に表示（2026-10-31）
-          $$('#ex-lines tbody [data-taxname]').forEach(sp => { const c = sp.closest('tr').querySelector('[name=taxCode]')?.value; sp.textContent = meta.taxCodes.find(x => x.code === c)?.name || ''; });
           lineTotal('ex-lines'); if (!payable) return;
           const t = { out: 0, in: 0, ex: 0 }; let calc = 0;
           $$('#ex-lines tbody tr').forEach(tr => { const a = num(tr.querySelector('[name=amount]')?.value), c = taxClass(tr.querySelector('[name=taxCode]')?.value); t[c.kind] += a; if (c.kind === 'ex') calc += Math.sign(a) * Math.floor(Math.abs(a) * c.rate / 100); });

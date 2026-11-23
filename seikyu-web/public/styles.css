@@ -397,7 +397,7 @@ details summary { cursor: pointer; font-size: 12.5px; color: var(--accent-second
 dialog.modal.wide:has(.slip-sheet) { width: min(1320px, calc(100vw - 24px)); } /* 出荷伝票は提案書の横長レイアウト */
 dialog.modal.wide:has(#pu-lines) { width: min(1320px, calc(100vw - 24px)); } /* 商品仕入：種別・処税率が欠けないよう広げる */
 dialog.modal.wide:has(#ex-lines .tx3) { width: min(1240px, calc(100vw - 24px)); } #ex-lines tr:has(.tx3) [name=lmemo] { min-width: 320px; } /* 定時請求：摘要の入力欄を広く（2026-11-23 ユーザー指示） */
-dialog.modal.wide:has(#ex-lines [name=lvendor]) { width: min(1240px, calc(100vw - 24px)); } /* 小口現金：支払先コード・支払先名・科目名／摘要名が欠けないよう広げる（2026-10-29） */
+dialog.modal.wide:has(#ex-lines [name=lvendor]) { width: min(1400px, calc(100vw - 24px)); } /* 2026-11-23 処税率を入力欄 3 つ＋説明にしたので 1240→1400px */ /* 小口現金：支払先コード・支払先名・科目名／摘要名が欠けないよう広げる（2026-10-29） */
 #ex-lines tr:has([name=lvendor]) [name=lmemo] { min-width: 200px; } #ex-lines tr:has([name=lvendor]) .combo-input[data-for=account] { width: 165px !important; } #ex-lines tr:has([name=lvendor]) .combo-input[data-for=taxCode] { width: 150px !important; }
 #pu-lines select[name=lineKind] { min-width: 92px; }
 #pu-lines thead th { text-align: center; } /* 商品仕入：明細の見出しは列の中央（2026-10-29） */
