@@ -210,7 +210,10 @@ export async function bankPaymentList(c, q) {
   for (const p of ps) {
     let d = days.find(x => x.date === p.paid_on); if (!d) days.push(d = { date: p.paid_on, rows: [], total: 0 });
     const bank = Number(p.bank_amount), fee = Number(p.fee_amount), offset = Number(p.offset_amount), safety = Number(p.safety);
-    d.rows.push({ vendor: p.vendor_code, vendorName: p.vendor_name, no: p.payment_no, date: p.paid_on, billed: bank + fee + offset + safety, offset, safety, fee, vendorTotal: bank,
+    // 同じ業者・同じ支払日・同じ支払元口座の支払は 1 行にまとめる。伝票No. は「最初の支払No 他n」（2026-11-23 内部会議 No.21、ユーザー指示）。全銀も業者ごとに 1 件
+    const same = d.rows.find(r => r.vendor === p.vendor_code && r.fromBankCode === (p.from_bank || ''));
+    if (same) { same.count++; same.no = `${same.firstNo} 他${same.count - 1}`; same.billed += bank + fee + offset + safety; same.offset += offset; same.safety += safety; same.fee += fee; same.vendorTotal += bank; d.total += bank; continue; }
+    d.rows.push({ firstNo: p.payment_no, count: 1, vendor: p.vendor_code, vendorName: p.vendor_name, no: p.payment_no, date: p.paid_on, billed: bank + fee + offset + safety, offset, safety, fee, vendorTotal: bank,
       method: '銀行振込', fromBankCode: p.from_bank || '', fromBank: p.from_bank ? `${p.from_bank} ${banks[p.from_bank] || ''}` : '', payeeBank: p.bank_code ? `${p.bank_code} ${dir[p.bank_code] || ''}`.trim() : '未登録', payeeBranch: p.branch_code ? `${p.branch_code} ${dir[p.bank_code + '-' + p.branch_code] || ''}`.trim() : '' });
     d.total += bank;
   }
