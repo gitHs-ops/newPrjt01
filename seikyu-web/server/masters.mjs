@@ -22,7 +22,7 @@ const CLOSINGS = [5, 10, 15, 20, 25, 31],   // 25日は 2026-11-18 追加。ほ�
   CLOSING_OPTIONS = CLOSINGS.map(d => [String(d), d === 31 ? '末日' : `${d}日`]);
 export const MASTERS = {
   customers: {
-    label: '得意先', table: 'client_m',
+    label: '得意先マスタ', table: 'client_m',
     fields: [F('code', '得意先コード', { max: 5, key: true }), F('name', '得意先名', { max: 42 }), F('kana', 'カナ', { max: 25, optional: true }), F('abbr', '略称', { list: false, max: 26, optional: true }),
       F('section', '部署', { list: false, max: 26, optional: true }), F('closing', '締日', { type: 'select', options: CLOSING_OPTIONS, hint: '5日・10日・15日・20日・25日・末日。ほかの日は数字で入力（例 27）' }), F('postcode', '郵便番号', { list: false, max: 7, optional: true, hint: '数字7桁' }), F('pref', '都道府県', { list: false, max: 8, optional: true }),
       F('address', '住所1', { max: 42, optional: true }), F('address2', '住所2', { list: false, max: 42, optional: true }), F('tel', '電話番号', { max: 14, optional: true }), F('fax', 'FAX番号', { list: false, max: 14, optional: true }),
@@ -70,7 +70,7 @@ export const MASTERS = {
     },
   },
   sites: {
-    label: '現場', table: 'field_name_m',
+    label: '現場マスタ', table: 'field_name_m',
     fields: [F('customer', '得意先', { type: 'ref', ref: 'customers', key: true }), F('code', '現場コード', { max: 7, key: true }), F('suffix', '枝番', { max: 3, key: true, hint: '例: 000' }),
       F('name', '現場名1', { max: 40 }), F('name2', '現場名2', { max: 20, optional: true }), F('active', '有効', { type: 'bool' })],
     select: 'SELECT * FROM field_name_m', where: 'customers_cd=? AND field_cd=? AND field_suffix=?', keyOf: r => [r.customer, r.code, r.suffix],
@@ -86,7 +86,7 @@ export const MASTERS = {
     },
   },
   items: {
-    label: '商品', table: 'item_m',
+    label: '商品マスタ', table: 'item_m',
     fields: [F('code', '商品コード', { max: 5, key: true }), F('name', '商品名', { max: 22 }), F('unit', '単位', { type: 'ref', ref: 'units' }), F('price', '標準単価', { type: 'int' }), F('kind', '製品・材料区分', { type: 'select', options: [['', '共通'], ['2', '製品（自社製品）'], ['1', '材料・仕入品']], optional: true, hint: '2=製品・1=材料' }), F('countFlag', '実在庫登録に表示', { type: 'bool', check: '表示する', def: false, hint: '実在庫登録の画面に出す商品（11/04 打合せ No.20）' }),
       // 機能一覧 No.11・D-052：商品仕入登録で使う商品の使用／未使用の区分。使用の商品だけ商品仕入登録の候補に出す（2026-11-20 ユーザー指示）
       F('purchaseFlag', '商品仕入に使用', { type: 'bool', check: '使用する', def: true, hint: '未使用にすると商品仕入登録の候補に出さない（機能一覧 No.11）' }), F('active', '有効', { type: 'bool' })],
@@ -158,7 +158,7 @@ export const MASTERS = {
     },
   },
   vendors: {
-    label: '業者', table: 'vendor',
+    label: '業者マスタ', table: 'vendor',
     fields: [F('code', '業者コード', { max: 20, key: true }), F('name', '業者名', { max: 200 }), F('bank', '振込先銀行(4桁)', { max: 4, optional: true }), F('branch', '支店(3桁)', { max: 3, optional: true }),
       F('accountType', '預金種別', { type: 'select', options: [['1', '普通'], ['2', '当座'], ['4', '貯蓄']], optional: true }), F('account', '口座番号', { max: 16, optional: true }),
       F('advance', '業者立替金残高（開始）', { list: false, type: 'int', optional: true, hint: '支払時に相殺できる額' }), F('holder', '受取人名(カナ)', { list: false, max: 200, optional: true }),
@@ -245,7 +245,7 @@ export const MASTERS = {
     },
   },
   depts: {
-    label: '部門', table: 'code_m',
+    label: '部門マスタ', table: 'code_m',
     fields: [F('code', '部門コード', { max: 12, key: true }), F('name', '部門名', { max: 40 }), F('active', '有効', { type: 'bool' })],
     select: "SELECT * FROM code_m WHERE code_key='DEPT'", where: 'code_dtl=?', keyOf: r => [r.code],
     decode: r => ({ code: r.code_dtl, name: r.code_dtl_nam, active: r.category1 !== '0' }),
@@ -343,7 +343,7 @@ export const MASTERS = {
   },
   // 現行 Java のコードマスタ（code_m）：A0000 納入区分（category1 '2'＝引取＝運賃なし）、A0003 単位、A0007 消費税率（code_dtl＝適用開始日 YYYYMMDD）
   deliveryKinds: {
-    label: '納入区分', table: 'code_m',
+    label: '納入区分マスタ', table: 'code_m',
     fields: [F('code', '納入区分コード', { max: 2, key: true, hint: '数字2桁以内' }), F('name', '名称', { max: 40 }),
       F('abbr', '略称（帳票）', { max: 10, optional: true, hint: '請求書発行確認表の運送に「コード 略称」で出す（例 1 大現）。空欄は名称', wide: true }),
       F('pickup', '引取（運賃なし）', { type: 'bool', hint: '運賃は0のみ' }), F('active', '有効', { type: 'bool' })],
@@ -356,7 +356,7 @@ export const MASTERS = {
     },
   },
   weathers: {
-    label: '天候', table: 'code_m',
+    label: '天候マスタ', table: 'code_m',
     // 現行 code_m A0010（出荷伝票の天候・納品書に印字）。初期値は推定
     fields: [F('code', '天候コード', { max: 2, key: true, hint: '数字2桁以内' }), F('name', '名称', { max: 20 }), F('active', '有効', { type: 'bool' })],
     select: "SELECT * FROM code_m WHERE code_key='A0010'", where: 'code_dtl=?', keyOf: r => [r.code],
@@ -368,7 +368,7 @@ export const MASTERS = {
     },
   },
   units: {
-    label: '単位', table: 'code_m',
+    label: '単位マスタ', table: 'code_m',
     fields: [F('code', '単位コード', { max: 2, key: true, hint: '数字2桁' }), F('name', '単位名', { max: 40 }), F('active', '有効', { type: 'bool' })],
     select: "SELECT * FROM code_m WHERE code_key='A0003'", where: 'code_dtl=?', keyOf: r => [r.code],
     decode: r => ({ code: r.code_dtl, name: r.code_dtl_nam, active: r.category3 !== '0' }),
@@ -379,7 +379,7 @@ export const MASTERS = {
     },
   },
   taxRates: {
-    label: '消費税率', table: 'code_m',
+    label: '消費税率マスタ', table: 'code_m',
     fields: [F('code', '適用開始日', { type: 'date', key: true, hint: 'この日以降の出荷に適用' }), F('rate', '税率(%)', { type: 'int' }), F('active', '有効', { type: 'bool' })],
     select: "SELECT * FROM code_m WHERE code_key='A0007'", where: 'code_dtl=?', keyOf: r => [String(r.code || '').replaceAll('-', '')],
     decode: r => ({ code: fromNum(r.code_dtl), rate: Number(r.category1), active: r.category3 !== '0' }),
@@ -424,7 +424,7 @@ export const MASTERS = {
   },
   // 担当者（現行 Java operator_m・MA003〜008）：出荷の担当者（必須）。利用者IDを紐付けるとその利用者の出荷登録の初期値になる
   operators: {
-    label: '担当者', table: 'operator_m',
+    label: '担当者マスタ', table: 'operator_m',
     fields: [F('code', '担当者コード', { max: 6, key: true, hint: '数字6桁以内' }), F('name', '担当者名', { max: 20 }), F('userId', '利用者ID（ログインと紐付け）', { type: 'int', optional: true, list: false, hint: '利用者管理のID' }),
       F('mail', 'メール', { max: 100, optional: true, list: false }), F('active', '有効', { type: 'bool' })],
     select: 'SELECT * FROM operator_m', where: 'tanto_cd=?', keyOf: r => [Number(r.code)],
@@ -436,7 +436,7 @@ export const MASTERS = {
     },
   },
   accounts: {
-    label: '勘定科目', table: 'account_subject',
+    label: '勘定科目マスタ', table: 'account_subject',
     fields: [F('code', '科目コード', { max: 20, key: true }), F('name', '科目名', { max: 100 }), F('active', '有効', { type: 'bool' })],
     select: 'SELECT a.*, (SELECT k.tax_code FROM kb_account k WHERE k.account_code=a.account_code) kb_tax FROM account_subject a', where: 'a.account_code=?', keyOf: r => [r.code],
     decode: r => ({ code: r.account_code, name: r.account_name, active: !!r.active, system: SYSTEM_ACCOUNTS.some(a => a[0] === r.account_code), tax: r.kb_tax || '' }),
@@ -448,7 +448,7 @@ export const MASTERS = {
     },
   },
   subaccounts: {
-    label: '内訳科目', table: 'account_subsubject',
+    label: '内訳科目マスタ', table: 'account_subsubject',
     fields: [F('account', '上位勘定科目', { type: 'ref', ref: 'accounts', key: true }), F('code', '内訳コード', { max: 20, key: true }), F('name', '内訳名', { max: 100 }), F('active', '有効', { type: 'bool' })],
     select: 'SELECT * FROM account_subsubject', where: 'account_code=? AND sub_code=?', keyOf: r => [r.account, r.code],
     decode: r => ({ account: r.account_code, code: r.sub_code, name: r.sub_name, active: !!r.active }),
@@ -481,6 +481,7 @@ export const MASTERS = {
 // 月度 month 時点の JV 構成員：構成員ごとに開始月度が month 以前で最も新しい行（''＝最初から）
 export const jvAsOf = (all, month) => Object.values(all.filter(x => x.start_month <= month).reduce((o, x) => ((!o[x.code] || o[x.code].start_month < x.start_month) && (o[x.code] = x), o), {}));
 const withVersion = (cfg, row) => { const r = cfg.decode(row); return { ...r, key: cfg.keyOf(r).join('|'), version: hash(r) }; };
+// 短いマスタ名（4 文字以内）は「〇〇マスタ」（摘要マスタと同じ。2026-11-23 ユーザー指示）
 export const meta = () => Object.fromEntries(Object.entries(MASTERS).map(([k, m]) => [k, { label: m.label, readOnly: !!m.readOnly, fields: m.fields.map(f => ({ ...f, pattern: undefined })) }]));
 export async function list(c, kind) {
   const cfg = MASTERS[kind]; check(cfg, 'マスタ種別が不正です');

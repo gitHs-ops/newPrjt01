@@ -2615,9 +2615,9 @@ function pageNav(list, page, per = 15) {
 // 現場2 = 得意先 → 現場、内訳科目2 = 勘定科目 → 内訳科目、得意先別単価2 = 商品 → 得意先別単価（商品ごとの得意先の単価、2026-11-07 ユーザー指示）。データは元のマスタと同じ
 const priceSite = r => { if (!r.site) return '（得意先共通）'; const s = (masters.sites || []).find(x => x.customer === r.customer && `${x.code}|${x.suffix}` === r.site); return `${r.site.replace('|', '-')} ${s?.name || ''}`; };
 const ONE_TO_MANY = {
-  sites2: { label: '現場2', after: 'sites', parent: 'customers', child: 'sites', ref: 'customer', pLabel: '得意先', cLabel: '現場',
+  sites2: { label: '現場マスタ2', after: 'sites', parent: 'customers', child: 'sites', ref: 'customer', pLabel: '得意先', cLabel: '現場',
     cols: [['現場コード', r => r.code], ['枝番', r => r.suffix], ['現場名1', r => r.name], ['現場名2', r => r.name2 || '']] },
-  subaccounts2: { label: '内訳科目2', after: 'subaccounts', parent: 'accounts', child: 'subaccounts', ref: 'account', pLabel: '勘定科目', cLabel: '内訳科目',
+  subaccounts2: { label: '内訳科目マスタ2', after: 'subaccounts', parent: 'accounts', child: 'subaccounts', ref: 'account', pLabel: '勘定科目', cLabel: '内訳科目',
     cols: [['内訳コード', r => r.code], ['内訳名', r => r.name]] },
   prices2: { label: '得意先別単価2', after: 'prices', parent: 'items', child: 'prices', ref: 'item', pLabel: '商品', cLabel: '得意先別単価',
     cols: [['得意先', r => `${r.customer} ${nameOf('customers', r.customer)}`], ['現場', priceSite], ['単価', r => yen(r.price), 1], ['運賃', r => yen(r.freight), 1],
