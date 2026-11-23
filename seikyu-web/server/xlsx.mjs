@@ -189,7 +189,8 @@ function listify(sh) {
     if (k === 'empty' && start >= 0 && i > start && K.slice(i + 1).some(x => x !== 'empty')) { map[i] = out.length; return; }   // 明細の間の空行は詰める
     const n = out.length; map[i] = n; let row;
     const sty = (c, j) => {
-      const o = cellOf(c), v = o.v ?? '', num = typeof v === 'number', s = o.s;
+      // 明細の日付は現行どおり yy/mm/dd（2026-11-23 ユーザー指示：全帳票で統一）。セルが日付だけ（2026-12-15）のときに変える
+      const o = cellOf(c), v0 = o.v ?? '', v = typeof v0 === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v0) ? `${v0.slice(2, 4)}/${v0.slice(5, 7)}/${v0.slice(8, 10)}` : v0, num = typeof v === 'number', s = o.s;
       if (typeof s === 'string' && s.startsWith('jEdge')) return { v, s: `tJ${s.slice(5)}${num ? 'N' : 'L'}` };   // 自動仕訳リストの合計行（四辺を指定）
       if (k === 'head') return headCell(v, i, j);
       if (k === 'band') return { v, s: 'tBand' };
