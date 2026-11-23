@@ -164,8 +164,8 @@ export const MASTERS = {
       F('advance', '業者立替金残高（開始）', { list: false, type: 'int', optional: true, hint: '支払時に相殺できる額' }), F('holder', '受取人名(カナ)', { list: false, max: 200, optional: true }),
       // 10/19 打合せ：支払繰延区分（「1 15」＝翌月15日、「3 31」＝3か月後の月末）・振込日・振込元銀行は業者マスタに持つ（code_m VPAY）
       F('payMonths', '支払繰延（○か月後）', { list: false, type: 'int', optional: true, hint: '0〜12。未設定は翌月末払い' }), F('payDay', '支払日', { list: false, type: 'int', optional: true, hint: '1〜31（31=月末）' }),
-      // 2026-11-01 決定：繰延最低限度額。定時請求 1 件の合計がこの額以上なら翌々月末払い、未満・空欄は支払繰延区分（code_m VPAY の code_dtl_nam）
-      F('deferMin', '繰延最低限度額', { list: false, type: 'int', optional: true, hint: '定時請求1件の合計がこの額以上なら翌々月末払い。空欄は支払繰延区分のみ' }),
+      // 2026-11-01 決定：繰延最低限度額。定時請求 1 件の合計がこの額以上なら支払繰延区分の 1 か月後（2026-11-23 変更）、未満・空欄は支払繰延区分（code_m VPAY の code_dtl_nam）
+      F('deferMin', '繰延最低限度額', { list: false, type: 'int', optional: true, hint: '定時請求1件の合計がこの額以上なら支払繰延区分の1か月後に支払（例 1 15 → 翌々月15日）。空欄は支払繰延区分のみ' }),
       F('payCycle', '振込サイクル', { list: false, type: 'select', optional: true, options: [['', '（未設定）'], ['15', '15日'], ['31', '月末']] }), F('payBank', '振込元口座', { list: false, type: 'ref', ref: 'banks', optional: true }),
       F('pref', '都道府県', { list: false, max: 8, optional: true }), F('addr1', '住所1（市区町村）', { list: false, max: 42, optional: true }), F('addr2', '住所2（番地）', { list: false, max: 42, optional: true }),
       F('active', '有効', { type: 'bool' })],

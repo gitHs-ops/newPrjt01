@@ -269,14 +269,14 @@ export async function listExpenses(c, q = {}) {
 // 休日（カレンダーマスタ code_m HOL の有効な日付。土日は isHoliday が判定）
 export const holidaySet = async c => new Set((await rows(c, "SELECT code_dtl FROM code_m WHERE code_key='HOL' AND category3<>'0'")).map(r => `${r.code_dtl.slice(0, 4)}-${r.code_dtl.slice(4, 6)}-${r.code_dtl.slice(6, 8)}`));
 // 支払予定日：業者マスタの支払繰延区分（code_m VPAY：○か月後・日、31=月末）。未設定は締切日の翌月末。休日なら翌営業日（2026-10-31）
-// 繰延最低限度額（2026-11-01 決定）：定時請求 1 件の合計 amount が限度額以上なら締切日の翌々月末。未満・限度額なしは支払繰延区分
+// 繰延最低限度額：定時請求 1 件の合計 amount が限度額以上なら支払繰延区分の支払日を 1 か月後ろへ（未設定は翌月末 → 翌々月末）。未満・限度額なしは支払繰延区分（2026-11-23 ユーザー指示で「一律 翌々月末」から変更）
 export async function vendorDue(c, vendorCode, date, amount) {
   const t = await one(c, "SELECT category1 m, category2 d, code_dtl_nam min FROM code_m WHERE code_key='VPAY' AND code_dtl=?", [vendorCode]);
   let due;
-  if (t?.min && amount >= Number(t.min)) { const [y, mo] = date.split('-').map(Number); due = new Date(Date.UTC(y, mo + 2, 0)).toISOString().slice(0, 10); }
-  else if (!t || (t.m === '' && t.d === '')) due = dueDate(date);
+  const defer = !!t?.min && amount >= Number(t.min);
+  if (!defer && (!t || (t.m === '' && t.d === ''))) due = dueDate(date);
   else {
-    const [y, mo] = date.split('-').map(Number), months = t.m === '' ? 1 : Number(t.m), day = t.d === '' ? 31 : Number(t.d);
+    const [y, mo] = date.split('-').map(Number), months = (!t || t.m === '' || t.m == null ? 1 : Number(t.m)) + (defer ? 1 : 0), day = !t || t.d === '' || t.d == null ? 31 : Number(t.d);
     const last = new Date(Date.UTC(y, mo - 1 + months + 1, 0)).getUTCDate();
     due = new Date(Date.UTC(y, mo - 1 + months, Math.min(day, last))).toISOString().slice(0, 10);
   }

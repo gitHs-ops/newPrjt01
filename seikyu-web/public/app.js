@@ -1896,16 +1896,15 @@ function icFilter() { const t = ($('#ic-search')?.value || '').trim().toLowerCas
 // 営業日（サーバ domain.mjs と同じ）：土日とカレンダーマスタ（休日）の有効な日付は休日。休日なら翌営業日（2026-10-31）
 const isHoliday = iso => { const w = new Date(iso + 'T00:00:00Z').getUTCDay(); return w === 0 || w === 6 || active('holidays').some(h => h.code === iso); };
 const nextBusinessDay = iso => { const d = new Date(iso + 'T00:00:00Z'); for (let i = 0; i < 60 && isHoliday(d.toISOString().slice(0, 10)); i++) d.setUTCDate(d.getUTCDate() + 1); return d.toISOString().slice(0, 10); };
-// 繰延最低限度額（2026-11-01 決定）：定時請求 1 件の合計 amount が限度額以上なら締切日の翌々月末
+// 繰延最低限度額：定時請求 1 件の合計 amount が限度額以上なら支払繰延区分の支払日を 1 か月後ろへ（例「1 15」→ 翌々月15日。未設定は翌月末 → 翌々月末）
+// 2026-11-23 ユーザー指示で「一律 翌々月末」から変更
 function vendorTerms(v, date, amount) {
   if (!v || !/^\d{4}-\d{2}-\d{2}$/.test(date || '')) return { label: '', due: '' };
-  if (v.deferMin !== '' && v.deferMin !== undefined && amount >= Number(v.deferMin)) {
-    const [y, mo] = date.split('-').map(Number), raw = new Date(Date.UTC(y, mo + 2, 0)).toISOString().slice(0, 10), due = nextBusinessDay(raw);
-    return { due, label: `2　31　日（繰延：合計 ${amount.toLocaleString('ja-JP')}円 ≥ 繰延最低限度額 ${Number(v.deferMin).toLocaleString('ja-JP')}円）${due !== raw ? `（${raw} は休日のため翌営業日）` : ''}` };
-  }
-  const set = v.payMonths !== '' || v.payDay !== '', months = v.payMonths === '' ? 1 : Number(v.payMonths), day = v.payDay === '' ? 31 : Number(v.payDay), [y, mo] = date.split('-').map(Number);
+  const defer = v.deferMin !== '' && v.deferMin !== undefined && amount >= Number(v.deferMin);
+  const set = v.payMonths !== '' || v.payDay !== '', months = (v.payMonths === '' ? 1 : Number(v.payMonths)) + (defer ? 1 : 0), day = v.payDay === '' ? 31 : Number(v.payDay), [y, mo] = date.split('-').map(Number);
   const last = new Date(Date.UTC(y, mo - 1 + months + 1, 0)).getUTCDate(), raw = new Date(Date.UTC(y, mo - 1 + months, Math.min(day, last))).toISOString().slice(0, 10), due = nextBusinessDay(raw);
-  const when = `${months === 0 ? '当月' : months === 1 ? '翌月' : months + 'か月後の'}${day >= 31 ? '月末' : day + '日'}`, moved = due !== raw ? `（${raw} は休日のため翌営業日）` : '';
+  const when = `${months === 0 ? '当月' : months === 1 ? '翌月' : months === 2 ? '翌々月' : months + 'か月後の'}${day >= 31 ? '月末' : day + '日'}`, moved = due !== raw ? `（${raw} は休日のため翌営業日）` : '';
+  if (defer) return { due, label: `${months}　${day}　日（${when}支払。繰延：合計 ${amount.toLocaleString('ja-JP')}円 ≥ 繰延最低限度額 ${Number(v.deferMin).toLocaleString('ja-JP')}円のため支払繰延区分の 1 か月後）${moved}` };
   const min = v.deferMin !== '' && v.deferMin !== undefined ? `（繰延最低限度額 ${Number(v.deferMin).toLocaleString('ja-JP')}円未満）` : '';
   // 表示は現行 HAW050 の「3 31 日」の形（2026-11-04）。支払予定日は隣の欄
   return { due, label: (set ? `${months}　${day}　日（${when}支払）` : '未設定（翌月末支払）') + `${min}${moved}` };
