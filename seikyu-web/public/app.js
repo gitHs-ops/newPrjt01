@@ -246,6 +246,13 @@ let negQueued = false;
 const markNegAll = () => { negQueued = false; document.querySelectorAll(NEG_SEL).forEach(markNeg); };
 new MutationObserver(() => { if (!negQueued) { negQueued = true; requestAnimationFrame(markNegAll); } }).observe(document.documentElement, { childList: true, subtree: true, characterData: true });
 ['input', 'change'].forEach(t => document.addEventListener(t, e => { if (e.target.matches?.(NEG_SEL)) markNeg(e.target); }));
+// 表の日付は帳票と同じ yy/mm/dd（2026-11-23 ユーザー指示：現行どおり。画面も統一）。表のセル（td）の中で文字が日付だけ（2026-12-15、時刻つきも）のものを書き換える。
+// 入力欄・検索条件・説明文の日付はそのまま。データ（API の値）は変えない
+const YMD_RE = /^(\d{4})-(\d{2})-(\d{2})((?:[ T]\d{2}:\d{2}(?::\d{2})?))?$/;
+const yyDate = el => { const n = el.firstChild; if (!n || n !== el.lastChild || n.nodeType !== 3) return; const t = n.nodeValue.trim(), m = t.match(YMD_RE); if (m) n.nodeValue = `${m[1].slice(2)}/${m[2]}/${m[3]}${m[4] ? ' ' + m[4].trim().replace('T', '') : ''}`; };
+let ymdQueued = false;
+const yyDateAll = () => { ymdQueued = false; document.querySelectorAll('td, td *').forEach(yyDate); };
+new MutationObserver(() => { if (!ymdQueued) { ymdQueued = true; requestAnimationFrame(yyDateAll); } }).observe(document.documentElement, { childList: true, subtree: true, characterData: true });
 
 // ---------- navigation ----------
 // 小メニュー（サイドバー）：#画面/小メニュー で直接開ける。q＝従来のタブ等の条件、tools＝上部の検索・登録ボタンを出すか（既定は先頭と q 付きのみ）
