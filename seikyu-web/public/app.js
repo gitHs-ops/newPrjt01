@@ -118,17 +118,21 @@ const tekiyoFill = (codeEl, memoEl) => {
 // 似た摘要＝空白・全角半角・大文字小文字を除いて同じ、または一方が他方を含む（2 文字以上。複数あれば文字数の差が最も小さいもの）。
 // 摘要コード欄にマスタにないコード（工事コードなど）が入っているときは何もしない。登録するコードはマスタの 6 桁以内のコードの最大＋1（あとで摘要マスタで変えられる）
 const tkNorm = s => String(s || '').normalize('NFKC').replace(/\s+/g, '').toLowerCase();
-const tekiyoMatch = memo => {
-  const m = tkNorm(memo), list = active('tekiyo'); if (!m) return null;
+// 名称が似たマスタの行（摘要マスタ・業者マスタ共通）
+const nameMatch = (list, text) => {
+  const m = tkNorm(text); if (!m) return null;
   const eq = list.find(x => tkNorm(x.name) === m); if (eq || m.length < 2) return eq || null;
   const near = list.filter(x => { const n = tkNorm(x.name); return n.length >= 2 && (n.includes(m) || m.includes(n)); });
   return near.sort((a, b) => Math.abs(tkNorm(a.name).length - m.length) - Math.abs(tkNorm(b.name).length - m.length))[0] || null;
 };
-const tekiyoNextCode = () => {
-  const cs = (masters.tekiyo || []).map(x => x.code).filter(c => /^\d{1,6}$/.test(c)); if (!cs.length) return '1';
+const tekiyoMatch = memo => nameMatch(active('tekiyo'), memo);
+// 新しく登録するコード：マスタの数字のコード（re に合うもの）の最大＋1（桁数は最大のコードにそろえる）
+const nextCode = (list, re) => {
+  const cs = (list || []).map(x => x.code).filter(c => re.test(c)); if (!cs.length) return '1';
   const top = cs.reduce((a, b) => (Number(b) > Number(a) ? b : a)), n = String(Number(top) + 1);
   return n.length < top.length ? n.padStart(top.length, '0') : n;
 };
+const tekiyoNextCode = () => nextCode(masters.tekiyo, /^\d{1,6}$/);
 // 確認のトースト（ボタン付き）：ダイアログの中から出すときはダイアログの中に置き（ダイアログの外は押せないため）、popover で最上位に出す（ダイアログに切られないよう）。15 秒で消える
 function toastAsk(host, msg, okLabel, onOk) {
   host.querySelector(':scope > .toast-ask')?.remove();
@@ -156,6 +160,24 @@ const tekiyoGuess = (memoEl, codeEl) => {
     document.querySelectorAll('#dl-tekiyo').forEach(d => { d.outerHTML = tekiyoList(); });
     if (memoEl.isConnected && (!codeEl.value.trim() || tekiyoName(codeEl.value) !== undefined)) codeEl.value = code;
     toast(`摘要マスタに登録しました（摘要コード ${code}）`);
+  });
+};
+// 小口現金の支払先名を手入力したとき（2026-11-23 ユーザー指示：摘要と同じ）：業者マスタに似た業者があれば支払先コードを自動で入れる（名称は業者マスタの業者名になる）。
+// 無ければ業者マスタに登録するかトーストで尋ねる。登録は業者コード（マスタの数字のコードの最大＋1）と業者名だけ（振込先などはあとで業者マスタで入れる）
+const vendorGuess = (nameEl, codeEl) => {
+  if (!nameEl || !codeEl) return;
+  const name = nameEl.value.trim(); if (!name || codeEl.value.trim()) return;
+  const setCode = code => { codeEl.value = code; codeEl.dispatchEvent(new Event('input', { bubbles: true })); };
+  const hit = nameMatch(active('vendors'), name);
+  if (hit) return setCode(hit.code);
+  if (!canWrite() || name.length > 200) return;   // 業者名は 200 文字まで
+  toastAsk(nameEl.closest('dialog') || document.body, `「${name}」は業者マスタにありません。業者マスタに登録しますか？`, '登録する', async () => {
+    const code = nextCode(masters.vendors, /^\d{1,12}$/);
+    await post('/api/masters/vendors', { mode: 'create', record: { code, name, active: true } });
+    await loadMasters();
+    document.querySelectorAll('#dl-ex-payees').forEach(d => { d.innerHTML = active('vendors').map(x => `<option value="${esc(x.code)}">${esc(x.name)}</option>`).join(''); });
+    if (nameEl.isConnected && !codeEl.value.trim()) setCode(code);
+    toast(`業者マスタに登録しました（業者コード ${code}）`);
   });
 };
 const options = (list, value, { blank, label = r => `${r.code} ${r.name}`, val = r => r.code } = {}) =>
@@ -1938,7 +1960,7 @@ function expenseView(kind) {
         // 支払先コードを入れたら業者名を表示、空欄なら支払先名の手入力欄を出す（2026-11-03）
         const vname = tr => { const el = tr.querySelector('[name=lvendor]'), s = tr.querySelector('[data-vname]'), inp = tr.querySelector('[name=lpayee]'); if (!el || !s) return; const t = el.value.trim(), nm = vendorName(t); s.innerHTML = !t ? '' : nm ? esc(nm) : '<span class="check-ng">該当なし</span>'; if (inp) inp.hidden = !!t; };
         g.addEventListener('input', e => { if (e.target.name === 'lvendor') vname(e.target.closest('tr')); if (e.target.name === 'memoCode') { const tr = e.target.closest('tr'); tekiyoFill(e.target, tr.querySelector('[name=lmemo]')); } });
-        g.addEventListener('change', e => { if (e.target.name === 'lmemo') tekiyoGuess(e.target, e.target.closest('tr').querySelector('[name=memoCode]')); });   // 摘要名の手入力 → 摘要コード（2026-11-23）
+        g.addEventListener('change', e => { if (e.target.name === 'lmemo') tekiyoGuess(e.target, e.target.closest('tr').querySelector('[name=memoCode]')); if (e.target.name === 'lpayee') vendorGuess(e.target, e.target.closest('tr').querySelector('[name=lvendor]')); });   // 摘要名・支払先名の手入力 → コード（2026-11-23）
         if (payable) {
           $('#ex-lines-total')?.parentElement && ($('#ex-lines-total').parentElement.hidden = true);
           // 支払予定日は業者マスタの支払繰延区分から計算し、手入力で修正できる（D-044。2026-11-12 結合テスト IT-12）。
@@ -1999,7 +2021,7 @@ function expenseView(kind) {
     // 小口現金は逆仕訳を作らず伝票と仕訳を削除（2026-11-03）。定時請求は従来どおり逆仕訳
     A.rev = d => confirmBox('伝票の取消', `${d.no} を取消します（伝票を削除）。自動仕訳（${payable ? 'D01' : 'E01'}）も削除し、逆仕訳は計上しません。`, () => post('/api/expenses/reverse', { id: Number(d.id) }).then(() => { toast('取消しました'); render(); }), '取消する');
     A.lines = d => { const r = list.find(x => x.id === Number(d.id)); modal({ title: `${r.no} の明細`, wide: true, body: table([{ label: '行', value: l => l.no }, { label: '科目', value: l => `${l.account} ${l.accountName}` }, { label: '内訳', value: l => (l.sub ? `${l.sub} ${l.subName}` : '') },
-      ...(payable ? [] : [{ label: '支払先', value: l => l.payee }]), { label: '処税率', value: l => taxLabel(l.taxCode) }, { label: payable ? '金額' : '支払額', num: 1, value: l => yen(l.amount) }, { label: 'うち消費税', num: 1, value: l => yen(l.tax) }, { label: '摘要コード', value: l => l.memoCode }, { label: '摘要名', value: l => l.memo }], r.lines) }); };
+      ...(payable ? [] : [{ label: '支払先', value: l => l.payee }]), { label: '処税率', value: l => taxLabel(l.taxCode) }, { label: payable ? '金額' : '支払額', num: 1, value: l => yen(l.amount) }, { label: 'うち消費税', num: 1, value: l => yen(l.tax) }, { label: '摘要', value: l => [l.memoCode, l.memo].filter(Boolean).join(' ') /* 摘要コード＋摘要名を 1 列に（2026-11-23 ユーザー指示） */ }], r.lines) }); };
     const cols2 = [{ label: '伝票No', value: r => r.no }, { label: payable ? '締切日' : '支払日', value: r => r.date }, ...(payable ? [{ label: '業者', clipW: 11, tip: 1, value: r => (r.vendor ? `${r.vendor} ${r.vendorName}` : r.vendorName) /* コード＋業者名（2026-11-20 ユーザー指示） */ }, { label: '支払予定日', value: r => r.due }] : [{ label: '支払先', value: r => r.payee }]),
       { label: '科目', html: r => `${esc(r.account)} ${esc(r.accountName || '')}${r.lines.length > 1 ? ` <button class="mini quiet" data-act="lines" data-id="${r.id}">他${r.lines.length - 1}行</button>` : ''}` }, payable ? { label: '処税率', narrow: 1, html: r => `<span title="${esc(taxLabel(r.taxCode))}">${esc(r.taxCode ?? '')}</span>` } /* 定時請求はコードだけ（名称はマウスを乗せると表示。横スクロールを出さない。2026-11-18 ユーザー指示） */ : { label: '処税率', clipW: 8, value: r => r.taxRate == null ? r.taxCode : `${r.taxRate}%` }, { label: payable ? '金額' : '支払額', num: 1, value: r => yen(r.amount) }, // 小口現金は「支払額」（2026-11-03）
       /* 支払済・未払残高は入力時点では不要のため出さない（2026-11-20 ユーザー指示） */ { label: '摘要', clipW: payable ? 4 : undefined, narrow: payable, tip: payable, value: r => r.memo } /* 定時請求は 4 文字分で切り左右の余白も詰める（全文はマウスを乗せると表示。横スクロールを出さない。2026-11-18 ユーザー指示） */, { label: '状態', narrow: payable && isReviewer(), html: acctState }, ...(payable && isReviewer() ? [{ label: '支払状態', narrow: 1, html: r => (r.status !== 'POSTED' ? '' : r.balance === 0 ? badge('支払済', 'green') : r.paid === 0 ? badge('未払', 'gray') : badge('一部支払', 'amber')) }] : []), // 小口現金は登録＝現金で支払済み（2026-11-03 計上済→支払済）
@@ -2012,7 +2034,7 @@ function expenseView(kind) {
     const PT_SORT_FNS = { date: (x, y) => jaCmp(x.date, y.date) || jaCmp(pettyTo(x), pettyTo(y)) || jaCmp(pettyNo(x), pettyNo(y)), to: (x, y) => jaCmp(pettyTo(x), pettyTo(y)) || jaCmp(x.date, y.date) || jaCmp(pettyNo(x), pettyNo(y)) };
     const colsP = [{ label: '伝票No', value: r => `${r.no}-${String(r.L.no).padStart(2, '0')}` }, { label: '支払日', value: r => r.date },
       { label: '支払先', clipW: 9, value: pettyTo }, { label: '科目・内訳', clipW: 8, value: r => `${r.L.account} ${r.L.accountName}${r.L.sub ? `／${r.L.sub} ${r.L.subName}` : ''}` },
-      { label: '処税率', clipW: 4, value: r => taxLabel(r.L.taxCode) }, { label: '支払額', num: 1, value: r => yen(r.L.amount) }, { label: '摘要コード', value: r => r.L.memoCode }, { label: '摘要', value: r => r.L.memo },
+      { label: '処税率', clipW: 4, value: r => taxLabel(r.L.taxCode) }, { label: '支払額', num: 1, value: r => yen(r.L.amount) }, { label: '摘要', value: r => [r.L.memoCode, r.L.memo].filter(Boolean).join(' ') /* 摘要コード＋摘要名を 1 列に（2026-11-23 ユーザー指示） */ },
       { label: '状態', html: acctState },   // 「支払済」→ 定時請求と同じく 計上済（会計連携の後）／未計上（2026-11-20 ユーザー指示）   // D-065：小口現金は登録＝支払済（取消済は一覧に出さない。2026-11-12 結合テスト IT-08）
       { label: '', html: r => canWrite() && r.status === 'POSTED' ? `<button class="mini" data-act="lineEdit" data-id="${r.id}" data-ln="${r.L.no}">詳細</button>` : '' }];
     const lineOf = d => { const R = list.find(x => x.id === Number(d.id)); return [R, R?.lines.find(l => l.no === Number(d.ln))]; };

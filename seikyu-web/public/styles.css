@@ -525,6 +525,7 @@ input.file-native { position: absolute; width: 1px; height: 1px; opacity: 0; poi
 #ex-lines tbody tr td:first-child { position: relative; padding-left: 2em; }
 #ex-lines tbody tr td:first-child::before { content: counter(hwrow); position: absolute; left: .5em; top: 25px; transform: translateY(-50%); color: var(--text-muted, #64748b); font-size: 12px; }
 #ex-lines [data-vname] { display: inline-block; min-width: 110px; padding-top: 10px; white-space: nowrap; } /* 小口現金の支払先名（2026-10-29） */
+#ex-lines [data-vname]:empty { display: none; } /* 支払先コードが空のときは支払先名の手入力欄を支払先コードと同じ高さに（2026-11-23） */
 .hw-sum { display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 10px 22px; margin-top: 10px; padding: 10px 14px; border-radius: 12px; background: rgba(99,102,241,.06); font-size: 14px; }
 .hw-sum b { font-variant-numeric: tabular-nums; }
 @media (max-width: 760px) { .hw-head { grid-template-columns: 1fr; } .hw-head .span2 { grid-column: auto; } }
