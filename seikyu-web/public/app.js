@@ -114,6 +114,50 @@ const tekiyoFill = (codeEl, memoEl) => {
   if (nm !== undefined) memoEl.dataset.auto = nm; else if (isAuto && memoEl.dataset.prev !== undefined) delete memoEl.dataset.auto;
   if (v !== memoEl.value) { memoEl.value = v; memoEl.dispatchEvent(new Event('input', { bubbles: true })); }
 };
+// 摘要名を手入力したとき（2026-11-23 ユーザー指示）：摘要マスタに似た摘要があれば摘要コードを自動で入れる。無ければ摘要マスタに登録するかトーストで尋ねる。
+// 似た摘要＝空白・全角半角・大文字小文字を除いて同じ、または一方が他方を含む（2 文字以上。複数あれば文字数の差が最も小さいもの）。
+// 摘要コード欄にマスタにないコード（工事コードなど）が入っているときは何もしない。登録するコードはマスタの 6 桁以内のコードの最大＋1（あとで摘要マスタで変えられる）
+const tkNorm = s => String(s || '').normalize('NFKC').replace(/\s+/g, '').toLowerCase();
+const tekiyoMatch = memo => {
+  const m = tkNorm(memo), list = active('tekiyo'); if (!m) return null;
+  const eq = list.find(x => tkNorm(x.name) === m); if (eq || m.length < 2) return eq || null;
+  const near = list.filter(x => { const n = tkNorm(x.name); return n.length >= 2 && (n.includes(m) || m.includes(n)); });
+  return near.sort((a, b) => Math.abs(tkNorm(a.name).length - m.length) - Math.abs(tkNorm(b.name).length - m.length))[0] || null;
+};
+const tekiyoNextCode = () => {
+  const cs = (masters.tekiyo || []).map(x => x.code).filter(c => /^\d{1,6}$/.test(c)); if (!cs.length) return '1';
+  const top = cs.reduce((a, b) => (Number(b) > Number(a) ? b : a)), n = String(Number(top) + 1);
+  return n.length < top.length ? n.padStart(top.length, '0') : n;
+};
+// 確認のトースト（ボタン付き）：ダイアログの中から出すときはダイアログの中に置き（ダイアログの外は押せないため）、popover で最上位に出す（ダイアログに切られないよう）。15 秒で消える
+function toastAsk(host, msg, okLabel, onOk) {
+  host.querySelector(':scope > .toast-ask')?.remove();
+  const t = document.createElement('div'); t.className = 'toast-ask'; t.setAttribute('role', 'alertdialog'); t.setAttribute('popover', 'manual');
+  t.innerHTML = `<span>${esc(msg)}</span><span class="toast-ask-btns"><button type="button" class="primary mini" data-k="ok">${esc(okLabel)}</button><button type="button" class="mini" data-k="no">しない</button></span>`;
+  const close = () => { clearTimeout(tm); t.remove(); }, tm = setTimeout(close, 15000);
+  t.addEventListener('click', async e => {
+    const b = e.target.closest('button'); if (!b) return; e.preventDefault(); e.stopPropagation();
+    if (b.dataset.k === 'ok') { b.disabled = true; try { await onOk(); } catch (er) { toast(er.message, true); } }
+    close();
+  });
+  host.append(t); try { t.showPopover(); } catch {}
+}
+const tekiyoGuess = (memoEl, codeEl) => {
+  if (!memoEl || !codeEl) return;
+  const memo = memoEl.value.trim(), cur = codeEl.value.trim(), curName = tekiyoName(cur);
+  if (!memo || (cur && curName === undefined) || (curName !== undefined && tkNorm(curName) === tkNorm(memo))) return;
+  const hit = tekiyoMatch(memo);
+  if (hit) { codeEl.value = hit.code; return; }
+  if (!canWrite() || memo.length > 40) return;   // 摘要マスタの摘要は 40 文字まで
+  toastAsk(memoEl.closest('dialog') || document.body, `「${memo}」は摘要マスタにありません。摘要マスタに登録しますか？`, '登録する', async () => {
+    const code = tekiyoNextCode();
+    await post('/api/masters/tekiyo', { mode: 'create', record: { code, name: memo, active: true } });
+    await loadMasters();
+    document.querySelectorAll('#dl-tekiyo').forEach(d => { d.outerHTML = tekiyoList(); });
+    if (memoEl.isConnected && (!codeEl.value.trim() || tekiyoName(codeEl.value) !== undefined)) codeEl.value = code;
+    toast(`摘要マスタに登録しました（摘要コード ${code}）`);
+  });
+};
 const options = (list, value, { blank, label = r => `${r.code} ${r.name}`, val = r => r.code } = {}) =>
   (blank !== undefined ? `<option value="">${esc(blank)}</option>` : '') + list.map(r => `<option value="${esc(val(r))}" ${String(val(r)) === String(value ?? '') ? 'selected' : ''}>${esc(label(r))}</option>`).join('');
 const siteOptions = (customer, value, blank) => options((masters.sites || []).filter(s => s.customer === customer && (s.active || `${s.code}|${s.suffix}` === value)), value, { blank, val: s => `${s.code}|${s.suffix}`, label: s => `${s.code}-${s.suffix} ${s.name}` });
@@ -1894,6 +1938,7 @@ function expenseView(kind) {
         // 支払先コードを入れたら業者名を表示、空欄なら支払先名の手入力欄を出す（2026-11-03）
         const vname = tr => { const el = tr.querySelector('[name=lvendor]'), s = tr.querySelector('[data-vname]'), inp = tr.querySelector('[name=lpayee]'); if (!el || !s) return; const t = el.value.trim(), nm = vendorName(t); s.innerHTML = !t ? '' : nm ? esc(nm) : '<span class="check-ng">該当なし</span>'; if (inp) inp.hidden = !!t; };
         g.addEventListener('input', e => { if (e.target.name === 'lvendor') vname(e.target.closest('tr')); if (e.target.name === 'memoCode') { const tr = e.target.closest('tr'); tekiyoFill(e.target, tr.querySelector('[name=lmemo]')); } });
+        g.addEventListener('change', e => { if (e.target.name === 'lmemo') tekiyoGuess(e.target, e.target.closest('tr').querySelector('[name=memoCode]')); });   // 摘要名の手入力 → 摘要コード（2026-11-23）
         if (payable) {
           $('#ex-lines-total')?.parentElement && ($('#ex-lines-total').parentElement.hidden = true);
           // 支払予定日は業者マスタの支払繰延区分から計算し、手入力で修正できる（D-044。2026-11-12 結合テスト IT-12）。
