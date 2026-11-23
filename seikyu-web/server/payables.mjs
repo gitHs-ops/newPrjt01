@@ -21,7 +21,10 @@ export async function listPurchases(c, q = {}) {
   if (q.to) { w.push('p.purchase_date<=?'); args.push(isoDate(q.to, '終了日')); }
   if (q.vendor) { w.push('v.vendor_code=?'); args.push(q.vendor); }
   const rs = await rows(c, `SELECT p.*, v.vendor_code, v.vendor_name, p.unit unit_cd, i.item_nam, ${PU_UNIT} unit FROM purchase p JOIN vendor v ON v.vendor_id=p.vendor_id LEFT JOIN item_m i ON i.item_cd=p.item_cd ${w.length ? 'WHERE ' + w.join(' AND ') : ''} ORDER BY p.purchase_date DESC, p.source_document_no DESC, p.line_no LIMIT 3000`, args);
-  return rs.map(r => ({ id: r.purchase_id, no: r.source_document_no, line: Number(r.line_no), date: r.purchase_date, vendor: r.vendor_code, vendorName: r.vendor_name, kind: r.purchase_kb || '1', kindName: PURCHASE_KINDS[r.purchase_kb || '1'],
+  // 取消できない伝票（月次確定済み・在庫計上済みの月度）は理由を返す。画面は詳細の［取消］を出さない（2026-11-23 ユーザー指示）
+  const lockOf = new Map();
+  for (const d of new Set(rs.map(r => String(r.purchase_date).slice(0, 10)))) { try { await assertOpen(c, d); await assertNotInventoried(c, d); lockOf.set(d, ''); } catch (e) { lockOf.set(d, e.message || '取消できません'); } }
+  return rs.map(r => ({ id: r.purchase_id, no: r.source_document_no, line: Number(r.line_no), date: r.purchase_date, locked: lockOf.get(String(r.purchase_date).slice(0, 10)) || '', vendor: r.vendor_code, vendorName: r.vendor_name, kind: r.purchase_kb || '1', kindName: PURCHASE_KINDS[r.purchase_kb || '1'],
     lineKind: r.line_kind || '1', item: r.item_cd || '', itemName: r.item_cd ? r.item_nam : '運賃', unitCode: r.unit_cd || '', unit: r.unit, quantity: Number(r.quantity), price: Number(r.unit_price), net: Number(r.net_amount), taxCode: r.source_tax_code, memo: r.memo }));
 }
 // 在庫計上済みの月度（またはそれより後の月度が計上済み）の仕入は登録・取消できない（材料受払表の当月仕入高と計上済みの在庫金額がずれるため。2026-10-28）

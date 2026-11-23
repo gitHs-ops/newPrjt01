@@ -1791,7 +1791,7 @@ VIEWS.purchases = async q => {
       const body = { date: v.date, vendor: v.vendor, kind: v.kind, memo: v.memo, lines }, r = await post(old ? '/api/purchases/update' : '/api/purchases', old ? { ...body, id: old.id } : body);
       toast(`仕入 ${pNo(r.no)}（${r.lines}行・${yen(r.net)}円）を${old ? '修正' : '登録'}しました`); render(); } });
   A.new = () => puForm(null);
-  A.edit = d => { const ls = list.filter(r => r.no === d.no).sort((a, b) => a.line - b.line); if (ls.length) { puForm({ id: ls[0].id, no: ls[0].no, date: ls[0].date, vendor: ls[0].vendor, kind: ls[0].kind, lines: ls }); footFirst(`<button type="button" class="danger" data-act="del" data-id="${ls[0].id}" data-no="${esc(ls[0].no)}">取消</button>`); } };
+  A.edit = d => { const ls = list.filter(r => r.no === d.no).sort((a, b) => a.line - b.line); if (ls.length) { puForm({ id: ls[0].id, no: ls[0].no, date: ls[0].date, vendor: ls[0].vendor, kind: ls[0].kind, lines: ls }); if (!ls[0].locked) footFirst(`<button type="button" class="danger" data-act="del" data-id="${ls[0].id}" data-no="${esc(ls[0].no)}">取消</button>`); } };   // 取消できない伝票（月次確定済み・在庫計上済み）は［取消］を出さない（2026-11-23）
   A.del = d => confirmBox('仕入の取消', `仕入伝票 ${pNo(d.no)} の全明細を削除します。`, () => post('/api/purchases/delete', { id: Number(d.id) }).then(() => { toast('取消しました'); render(); }), '取消する');
   // 並べ替え（2026-11-20 ユーザー指示）：仕入日・区分・業者（コード順）。同じなら伝票No.・行番号
   A.listSort = listSortAct;
