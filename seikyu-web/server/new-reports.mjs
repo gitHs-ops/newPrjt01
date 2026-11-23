@@ -37,8 +37,8 @@ export async function purchaseRegister(c, q) {
   for (const g of groups) delete g.last;
   return { title: '商品仕入登録リスト', ref: '帳票⑭（HAR011）', from, to, sub: `仕入日 ${from} 〜 ${to}`,
     // 項目名は現行の見本（HAR011・添付帳票⑭ p.1-2）どおり（2026-10-29）。単位は仕入数量の右で見出しなし。科目ｺｰﾄﾞ・内訳名は見本でも空欄。摘要は見本にないので出さない
-    columns: [{ key: 'date', label: '仕入日', w: 11 }, { key: 'kind', label: '区分', w: 8 }, { key: 'no', label: '伝票No.', w: 15 }, { key: 'item', label: '商品名', w: 30 }, { key: 'qty', label: '仕入数量', num: 1, dec: 1, w: 11 }, { key: 'unit', label: '', w: 4 },
-      { key: 'price', label: '仕入単価', num: 1, dec: 1, w: 11 }, { key: 'net', label: '仕入金額', num: 1, w: 13 }, { key: 'account', label: '科目ｺｰﾄﾞ', w: 9 }, { key: 'subName', label: '内訳名', w: 14 }, { key: 'tax', label: '処税率', w: 9 }, { key: 'memo', label: '摘要', w: 20 }],
+    columns: [{ key: 'date', label: '仕入日', w: 11 }, { key: 'kind', label: '区分', w: 8, center: 1 }, { key: 'no', label: '伝票No.', w: 15 }, { key: 'item', label: '商品名', w: 30 }, { key: 'qty', label: '仕入数量', num: 1, dec: 1, w: 11 }, { key: 'unit', label: '', w: 4 },
+      { key: 'price', label: '仕入単価', num: 1, dec: 1, w: 11 }, { key: 'net', label: '仕入金額', num: 1, w: 13 }, { key: 'account', label: '科目ｺｰﾄﾞ', w: 9 }, { key: 'subName', label: '内訳名', w: 14 }, { key: 'tax', label: '処税率', w: 9, center: 1 }, { key: 'memo', label: '摘要', w: 20, center: 1 }],   // 区分・処税率・摘要は中央（2026-11-23 ユーザー指示）
     groups };
 }
 // ⑰ 在庫登録リスト（現行 HAR061）：月度の在庫数量。項目はコード・商品・製品名・在庫数量・単位だけ（評価単価・評価額は出さない。2026-11-03 ユーザー指示の見本）
@@ -156,7 +156,7 @@ export async function genericBook(c, kind, q) {
   const out = [[{ v: d.title, s: 'title' }], [`${d.sub}　出力日 ${today()}`], [], d.columns.map(col => H(col.label))];
   const merges = [], W = d.columns.map(col => col.w ?? (col.num ? 13 : 18));   // g.title（仕入先など）は名前が入る分の列だけ結合して色付け（band）
   // 小数のある列（dec）は小数 2 桁の書式（画面と同じ。整数の書式だと 12.5 が 13 と表示される。2026-11-16）
-  const dec = (col, v) => (col.dec && typeof v === 'number' ? { v, s: 'qty' } : v);
+  const dec = (col, v) => (col.dec && typeof v === 'number' ? { v, s: 'qty' } : col.center && v !== '' ? { v, s: 'center' } : v);   // center：中央そろえの列（2026-11-23）
   const totalRow = (label, t) => d.columns.map((col, i) => (i === 0 ? S(label) : t[col.key] !== undefined ? (col.dec && typeof t[col.key] === 'number' ? { v: t[col.key], s: 'qty' } : S(t[col.key])) : ''));
   // g.title の行は表の全列を結合して見出しの色を付ける（1セルだけだと不自然。2026-11-06 ユーザー指摘）
   // g.head：上位ブレイクの見出し、g.label：グループ計の名称、g.foot：上位ブレイクの計（任意）。g.title・g.totals が無いグループは見出し・計の行を出さない
