@@ -25,7 +25,7 @@ export async function purchaseRegister(c, q) {
   for (const r of rs) {
     let g = groups.find(x => x.code === r.vendor_code);   // 仕入先別（11/04 No.19）。仕入日・区分は仕入日が変わった行だけ
     // 仕入先の見出しは現行 HAR011 どおり「コード　仕入先名」（2026-11-04）
-    if (!g) groups.push(g = { code: r.vendor_code, title: `仕入先 ${r.vendor_code}　${r.vendor_name}`, rows: [] });   // 「仕入先」を付ける（帳票イメージ（案）。2026-11-21 ユーザー指示）
+    if (!g) groups.push(g = { code: r.vendor_code, title: `仕入先 : ${r.vendor_code}　${r.vendor_name}`, rows: [] });   // 「仕入先 : 」を付ける（帳票イメージ（案）。2026-11-21 ユーザー指示、「 : 」は 2026-11-23）
     // 運賃の行は現行どおり数量・単価 0.00 で、処税率の右に「運賃」。処税率はコードの右に名称（画面の選択リストと同じ。2026-11-01）
     const fr = r.line_kind === '2';
     // 現行 HAR011：仕入日・区分は仕入先の 1 行目だけ、伝票No. は伝票の 1 行目だけ（2 行目からは枝番だけ）。slip＝伝票No.＋枝番（2026-11-04）
