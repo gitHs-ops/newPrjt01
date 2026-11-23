@@ -1451,7 +1451,10 @@ const lrTaxEff = l => l.tax || lrTaxDef(l);
 const lrTaxAuto = l => { const s = String(lrTaxEff(l)).padStart(3, ' ').replace(/ /g, '0'), rate = { 1: 10, 2: 3, 3: 6, 4: 2.8, 5: 5, 8: 8 }[s[2]] || 0, r = Math.round(rate * 10), a = lrNum(l.amount) || 0;
   return s.length === 3 && r && [1, 4, 5, 6].includes(Number(s[1])) && s !== '041' /* 空白は 0、041 は非課税（server/taxcode.mjs と同じ） */ ? Math.floor(a * r / (1000 + r)) : 0; };
 // 消費税額：入力があればその額、なければ自動計算（課税の処税率のときだけ）。入金額は税込なので外税でも 入金額×税率/(1+税率)（2026-11-01 決定）
-const lrTaxable = l => lrTaxAuto({ ...l, amount: 1000 }) > 0;
+// 資金の科目（当座預金・現金・受取手形・預り金）は課税の処税率を使えない（2026-11-23 ユーザー指示。サーバも同じ）
+const LR_FUND = new Set(['bank', 'cash', 'notes', 'deposit']), lrCodeTaxable = l => lrTaxAuto({ ...l, amount: 1000 }) > 0, lrFundNg = l => LR_FUND.has(lrKind(l)) && lrCodeTaxable(l);
+const LR_FUND_MSG = l => `${l.acc} ${LR_ACC[l.acc]?.name || ''} は資金の科目のため、課税の処税率（${l.tax}）は使えません。空欄（対象外）か 090 などにしてください`;
+const lrTaxable = l => !LR_FUND.has(lrKind(l)) && lrCodeTaxable(l);
 const lrTax = l => (!lrTaxable(l) ? 0 : l.taxAmt !== '' ? lrNum(l.taxAmt) || 0 : lrTaxAuto(l));
 const lrUsed = () => lr.lines.filter(l => l.acc);
 const lrSum = () => lrUsed().reduce((n, l) => n + (lrNum(l.amount) || 0), 0);
@@ -1574,6 +1577,7 @@ async function lrRegister() {
     throw Error(hidden ? `入金額（${yen(sum)}円）が入金予定額の合計（${yen(total)}円）を超えています。請求日の範囲外に残高のある請求があるため、過入金として受け入れできません（請求日の範囲を広げてください）`
       : lr.pays ? `今回入金額の合計（${yen(total - dep)}円）が入金額（${yen(sum)}円）と一致しません${sum > total ? '（過入金を預り金で受け入れるのは、すべての請求を入金予定額どおり入金したときです）' : ''}` : `入金額（${yen(sum)}円）と入金予定額の合計（${yen(total)}円）が一致しません`);
   }
+  const ng = lrUsed().find(lrFundNg); if (ng) throw Error(LR_FUND_MSG(ng));
   const body = { idempotencyKey: lr.key, date: lr.date, customer: lr.billTo, allocations: pays.map(x => ({ invoiceId: x.r.id, amount: x.n })), ...(dep ? { deposit: dep } : {}), ...(over ? { overpayToDeposit: true } : {}) };
   const PART = { bank: 'BANK', cash: 'CASH', notes: 'NOTE', fee: 'FEE', coop: 'COOP', deposit: 'DEPOSIT', discount: 'DISCOUNT', loss: 'LOSS' };
   for (const l of lrUsed()) { const k = lrKind(l); body[k] = lrNum(l.amount); if (k === 'bank') body.bankCode = l.sub; if (k === 'notes') body.noteDue = l.due; if (l.tax && l.tax !== lrTaxDef(l)) (body.tax ||= {})[PART[k]] = l.tax;
@@ -1687,7 +1691,7 @@ document.addEventListener('input', e => {
   else if (t.dataset.lp === 'auto') { lrManual(); let p = lr.pays.find(x => x.id === t.dataset.id); if (!p) lr.pays.push(p = { id: t.dataset.id, amount: '' }); p.amount = t.value; lrFootPaint(); }
   else if (t.dataset.lr === 'taxamt') { lr.lines[t.dataset.i].taxAmt = t.value.trim(); $('#lr-totals').innerHTML = lrTotals(); }
   else if (t.matches('.tx3 [data-tx]')) { const h = t.closest('.tx3').querySelector('[data-lrtax]'); if (h) { const i = h.dataset.lrtax, l = lr.lines[i], c = $(`[data-lr="taxamt"][data-i="${i}"]`); l.tax = h.value; l.taxAmt = '';
-    if (c) { c.disabled = !lrTaxable(l); c.value = lrTaxable(l) ? String(lrTax(l)) : ''; } $('#lr-totals').innerHTML = lrTotals(); } }
+    if (c) { c.disabled = !lrTaxable(l); c.value = lrTaxable(l) ? String(lrTax(l)) : ''; } $('#lr-totals').innerHTML = lrTotals(); if (lrFundNg(l)) toast(LR_FUND_MSG(l), true); } }
   else if (['due', 'sub2', 'work', 'memo1', 'memo2'].includes(t.dataset.lr)) lr.lines[t.dataset.i][t.dataset.lr] = t.value;
   // 適用コード → 摘要2 に名称（11/04 打合せ No.7）。コードは保存しない（摘要2 の文字だけ）。2026-11-05 ユーザー指示で入力欄をマスタから選ぶ select に変更
   else if (t.dataset.lr === 'tcode') { const l = lr.lines[t.dataset.i], m = $(`[data-lr="memo2"][data-i="${t.dataset.i}"]`); l.tcode = t.value; tekiyoFill(t, m); if (m?.dataset.auto) l.memo2Auto = m.dataset.auto; }

@@ -847,7 +847,8 @@ export async function createReceipt(c, ctx, p) {
   // 外税の処税率を選んだときは、入金額（税込）を科目の税抜金額と仮払消費税 1465 に分ける。
   // 入金額は受け取った（差し引かれた）金額なので、外税でも税額は入金額から抜き出す（×税率/(1+税率)。現行 HAW110 の見本と同じ。
   // 2026-11-01 決定：外税でも上乗せ（×税率）にしない。定時請求・小口現金の外税は金額が税抜で上乗せするので計算が違う）
-  const tx = (k, d) => (p.tax?.[k] ? mustDecode(p.tax[k], `${RECEIPT_PARTS[k]}の処税率`).code : d);
+  // 資金の科目（振込＝当座預金・現金・手形・預り金充当）は課税の処税率を使えない（2026-11-23 ユーザー指示）
+  const tx = (k, d) => { if (!p.tax?.[k]) return d; const x = mustDecode(p.tax[k], `${RECEIPT_PARTS[k]}の処税率`); check(!(['BANK', 'CASH', 'NOTE', 'DEPOSIT'].includes(k) && x.taxable), `${RECEIPT_PARTS[k]}は資金の科目のため、課税の処税率（${p.tax[k]}）は使えません（対象外 090 などにしてください）`); return x.code; };
   const dr = (acc, k, def, opt = {}) => { const amt = parts[k], code = tx(k, def), d = decode(code), r = d?.excl ? Math.round(d.rate * 10) : 0, given = amt ? det(k).taxAmt : null, t = !r ? 0 : given ?? (amt ? Math.floor(amt * r / (1000 + r)) : 0);
     return [line('D', acc, amt - t, { ...opt, tax: code }), line('D', '1465', t, { tax: '9' })]; };
   await postJournal(c, { date, pattern: 'B01', sourceType: 'receipt', sourceId: r.insertId, lines: [
