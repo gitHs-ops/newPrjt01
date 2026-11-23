@@ -73,6 +73,30 @@ const qs = o => new URLSearchParams(Object.entries(o).filter(([, v]) => v !== un
 // 全画面共通のポップアップ通知。popover（最前面レイヤー）で出すので、開いているダイアログの上にも表示される。エラーは画面上部中央・赤・長めに表示、クリックで閉じる
 // エラーは小さな確認ポップアップ（「確認」で閉じる。右上の×・Esc でも閉じる）。開いている入力ダイアログの上に重ねて表示し、入力内容は残す
 document.addEventListener('click', e => { if (e.target.closest('#alert-ok, #alert-x')) $('#alert-dialog').close(); });
+// プルダウンでもコードを続けて手入力できる（AS400 の画面に慣れているため。2026-11-23 内部会議 No.6「他の画面も同じ」）：
+// 選択欄にフォーカスがあるときに打った文字をコードとしてため、値（コード）が一致する選択肢、無ければ表示がそのコードで始まる選択肢を選ぶ。
+// ためた文字は欄の下に小さく出す。フォーカスが移る・Esc でクリア。BackSpace で 1 文字戻す。Tab・Enter はそのまま（次の欄へ）
+const selCode = { el: null, buf: '', tip: null };
+const selTip = (el, text, ng) => {
+  if (!selCode.tip) { selCode.tip = document.createElement('div'); selCode.tip.className = 'sel-code-tip'; }
+  const t = selCode.tip, host = el.closest?.('dialog[open]') || document.body; t.hidden = !text; if (!text) return;
+  if (t.parentNode !== host) host.appendChild(t);   // ポップアップ（dialog）は最前面の層のため、その中に置く
+  const r = el.getBoundingClientRect(); t.textContent = text; t.classList.toggle('ng', !!ng); t.style.background = ng ? '#dc2626' : ''; t.style.left = `${r.left}px`; t.style.top = `${r.bottom + 2}px`;
+};
+document.addEventListener('focusin', e => { if (selCode.el !== e.target) { selCode.el = e.target instanceof HTMLSelectElement ? e.target : null; selCode.buf = ''; selTip(document.body, ''); } });
+document.addEventListener('keydown', e => {
+  const el = e.target; if (!(el instanceof HTMLSelectElement) || el.disabled || el.multiple || e.ctrlKey || e.altKey || e.metaKey || e.isComposing) return;
+  if (e.key === 'Escape' && selCode.buf) { selCode.buf = ''; selTip(el, ''); e.preventDefault(); return; }
+  if (e.key === 'Backspace') { if (!selCode.buf) return; selCode.buf = selCode.buf.slice(0, -1); e.preventDefault(); }
+  else if (e.key.length === 1 && e.key !== ' ') { selCode.el = el; selCode.buf += e.key; e.preventDefault(); }
+  else return;
+  const b = selCode.buf, opts = [...el.options].filter(o => !o.disabled && o.value !== '');
+  if (!b) { selTip(el, ''); return; }
+  const o = opts.find(x => x.value === b) || opts.find(x => x.text.trim().startsWith(b));
+  if (o && el.value !== o.value) { el.value = o.value; el.dispatchEvent(new Event('input', { bubbles: true })); el.dispatchEvent(new Event('change', { bubbles: true })); }
+  selTip(el, o ? `コード ${b}` : `コード ${b}：該当なし`, !o);
+}, true);
+
 // 一覧ヘッダの「すべて選択」（data-pick-all＝行のチェックボックスのクラス）。行を個別に切り替えたらヘッダも合わせる
 document.addEventListener('change', e => {
   const all = e.target.dataset?.pickAll; if (all) return $$('.' + all).forEach(x => { x.checked = e.target.checked; });
