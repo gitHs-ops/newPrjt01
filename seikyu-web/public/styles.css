@@ -605,6 +605,9 @@ dialog .table-wrap:has(> table.one-line) { max-height: none; overflow-y: visible
 /* 定時請求データ入力：ラベルの右に入力欄（1 行。2026-11-17 ユーザー指示）。補足（small）は入力欄の下 */
 .hw-head label.field { grid-template-columns: 7.5em minmax(0, 1fr); align-items: center; gap: 4px 8px; }
 .hw-head label.field > small { grid-column: 2; }
+.hw-head #hw-check { grid-column: 2; font-weight: 400; } /* 合計金額の一致チェックは欄のすぐ下（2026-11-23 内部会議 No.7） */
+.hw-head #hw-check:empty { display: none; }
+label.field.req > #hw-check::after { content: none; }
 
 /* 一覧の列の余白を詰める（table の narrow。2026-11-17 出荷伝票一覧の運賃） */
 .one-line th.narrow, .one-line td.narrow { padding-left: 2px; padding-right: 2px; }

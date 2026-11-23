@@ -1942,13 +1942,13 @@ function expenseView(kind) {
         ${field('伝票No', '<input name="docNo" value="（登録時に自動採番）" disabled>')}<div class="span2"></div>
         <div class="span2">${field('業者', '<div style="display:flex;gap:12px;align-items:center"><input name="vendor" list="dl-hw-vendors" maxlength="7" autocomplete="off" placeholder="業者コード" style="width:140px;min-width:0"><output id="hw-vname"></output></div>', { req: 1 })}</div><div></div>
         ${tekiyoList()}<datalist id="dl-hw-vendors">${active('vendors').map(x => `<option value="${esc(x.code)}">${esc(x.name)}</option>`).join('')}</datalist>
-        ${field('支払繰延区分', '<output id="ex-defer" class="muted">業者コードを入力すると業者マスタから表示</output>')}${field('支払予定日', '<input type="date" name="due" title="業者マスタの支払繰延区分から自動計算（休日は翌営業日）。手入力で修正できます">', { hint: '業者マスタから自動・修正可' })}${field('合計金額', '<input name="total" class="num" inputmode="numeric">', { req: 1, hint: '明細の合計と一致させる' })}
+        ${field('支払繰延区分', '<output id="ex-defer" class="muted">業者コードを入力すると業者マスタから表示</output>')}${field('支払予定日', '<input type="date" name="due" title="業者マスタの支払繰延区分から自動計算（休日は翌営業日）。手入力で修正できます">', { hint: '業者マスタから自動・修正可' })}${field('合計金額', '<input name="total" class="num" inputmode="numeric"><span id="hw-check" class="small"></span>' /* 一致チェックは合計金額の欄のすぐ下（2026-11-23 内部会議 No.7） */, { req: 1, hint: '明細の合計と一致させる' })}
       </div>` : `<div class="inline-fields">
       ${field('支払日（領収書の日付）', `<input type="date" name="date" value="${today()}">`, { req: 1 })}${isUser01() ? '' /* user01 は組織を出さない（2026-11-20 ユーザー指示） */ : field('組織（部門）', `<output id="ex-dept">${esc(deptLabel())}</output>`)}
 </div>
       ${tekiyoList()}<datalist id="dl-ex-payees">${active('vendors').map(x => `<option value="${esc(x.code)}">${esc(x.name)}</option>`).join('')}</datalist>`;
     const sumBar = payable ? `<div class="hw-sum"><span>対象外 <b id="hw-out">0</b></span><span>内税 <b id="hw-in">0</b></span><span>外税 <b id="hw-ex">0</b></span>
-      <label>外税消費税 <input name="extTax" class="num" value="0" inputmode="numeric" style="width:110px"></label><span>合計 <b id="hw-total">0</b> 円</span><span id="hw-check" class="small"></span></div>` : '';
+      <label>外税消費税 <input name="extTax" class="num" value="0" inputmode="numeric" style="width:110px"></label><span>合計 <b id="hw-total">0</b> 円</span></div>` : '';
     // 処税率の区分（1桁目 1＝内税、2・空白＝外税、税率0や対象外は対象外）
     const RATE = { 0: 0, 1: 10, 2: 3, 3: 6, 4: 2.8, 5: 5, 8: 8 }, taxClass = code => { const s3 = (String(code ?? '').trim() ? String(code) : '141').padStart(3, ' ').replace(/ /g, '0'), rate = RATE[s3[2]] || 0, taxable = rate > 0 && [1, 4, 5, 6].includes(Number(s3[1])) && s3 !== '041'; return { kind: !taxable ? 'out' : s3[0] === '1' ? 'in' : 'ex', rate }; };
     const num = v => Number(String(v || '').replace(/[,，\s]/g, '')) || 0;
