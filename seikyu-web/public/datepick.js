@@ -10,12 +10,12 @@
     const pad = n => String(n).padStart(2, '0');
     // 手入力：2026-10-22 / 2026/10/22 / 20261022 / 2026年10月22日、2026-10 / 2026年10月、15:30 / 1530
     const parsers = {
-      date: s => { const m = String(s).trim().match(/^(\d{4})[-/.年]?(\d{1,2})[-/.月]?(\d{1,2})日?$/); return m ? new Date(+m[1], +m[2] - 1, +m[3]) : undefined; },
+      date: s => { const t = String(s).trim(), m = t.match(/^(\d{2})[-/.]?(\d{1,2})[-/.]?(\d{1,2})$/) || t.match(/^(\d{4})[-/.年]?(\d{1,2})[-/.月]?(\d{1,2})日?$/); return m ? new Date(m[1].length === 2 ? 2000 + +m[1] : +m[1], +m[2] - 1, +m[3]) : undefined; },   // 26/10/22・261022 も
       month: s => { const m = String(s).trim().match(/^(\d{4})[-/.年]?(\d{1,2})月?$/); return m ? new Date(+m[1], +m[2] - 1, 1) : undefined; },
       time: s => { const m = String(s).trim().match(/^(\d{1,2}):?(\d{2})$/); if (!m) return undefined; const d = new Date(); d.setHours(+m[1], +m[2], 0, 0); return d; },
     };
     const KINDS = {
-      date: { dateFormat: 'Y-m-d', placeholder: '年-月-日' },
+      date: { dateFormat: 'Y-m-d', placeholder: '年/月/日' },
       month: { dateFormat: 'Y-m', placeholder: '年-月', plugins: () => (window.monthSelectPlugin ? [new window.monthSelectPlugin({ shorthand: false, dateFormat: 'Y-m' })] : []) },
       time: { dateFormat: 'H:i', placeholder: '時:分', enableTime: true, noCalendar: true, time_24hr: true },
     };
@@ -26,6 +26,16 @@
       cal.style.top = `${below < h + 8 && r.top > h + 8 ? r.top - h - 4 : r.bottom + 4}px`;
       cal.style.left = `${Math.max(8, Math.min(r.left, window.innerWidth - w - 8))}px`;
     };
+    // 日付の入力欄は画面・帳票と同じ yy/mm/dd で表示する（2026-11-23 ユーザー指示）。value は今までどおり YYYY-MM-DD で読み書きでき（画面のコードとサーバは変えない）、
+    // 欄に見える文字だけ 26/11/20 にする。フォームの送信（FormData）も YYYY-MM-DD に戻す
+    const VAL = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value');
+    const toShow = v => { const m = String(v ?? '').trim().match(/^\d{2}(\d{2})-(\d{2})-(\d{2})$/); return m ? `${m[1]}/${m[2]}/${m[3]}` : v ?? ''; };
+    const toIso = v => { const m = String(v).trim().match(/^(\d{2})\/(\d{1,2})\/(\d{1,2})$/); return m ? `20${m[1]}-${pad(m[2])}-${pad(m[3])}` : v; };
+    const yyInput = el => { const v = el.value; Object.defineProperty(el, 'value', { configurable: true, get() { return toIso(VAL.get.call(this)); }, set(x) { VAL.set.call(this, toShow(x)); } }); el.value = v; };
+    document.addEventListener('formdata', e => {
+      const names = new Set([...e.target.querySelectorAll('input.fp-date[name]')].map(el => el.name));
+      names.forEach(n => { const vs = e.formData.getAll(n); e.formData.delete(n); vs.forEach(v => e.formData.append(n, typeof v === 'string' ? toIso(v) : v)); });
+    }, true);
     const enhance = el => {
       const kind = el.type, k = KINDS[kind];
       if (!k || el.dataset.fp) return;
@@ -33,6 +43,7 @@
       const min = el.min, max = el.max;
       el.type = 'text'; el.autocomplete = 'off'; el.classList.add('fp-input', `fp-${kind}`);
       if (!el.placeholder) el.placeholder = k.placeholder;
+      if (kind === 'date') yyInput(el);
       fp(el, {
         dateFormat: k.dateFormat, enableTime: !!k.enableTime, noCalendar: !!k.noCalendar, time_24hr: !!k.time_24hr, plugins: k.plugins ? k.plugins() : [],
         allowInput: true, disableMobile: true, minDate: min || undefined, maxDate: max || undefined,
