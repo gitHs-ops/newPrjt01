@@ -1741,7 +1741,7 @@ const tax3Note = c => { const s = String(c ?? '').padEnd(3, ' ').replace(/0/g, '
   const one = a === '1' ? '1 税込（内税）' : a === '2' ? '2 外税' : a === ' ' ? '空白 外税' : `${esc(a)} ${ng}`;
   const two = b === ' ' ? '空白 <span class="check-ng">要入力</span>' : TX3_KIND[b] ? `${b} ${TX3_KIND[b]}` : `${esc(b)} ${ng}`;
   const three = r === ' ' ? '空白 0%' : r in TX3_RATE ? `${r} ${TX3_RATE[r]}%` : `${esc(r)} ${ng}`;
-  return String(c ?? '').trim() ? `<span>1桁 ${one}</span><span>2桁 ${two}</span><span>3桁 ${three}</span>` : '<span>1桁 税込区分 1=内税・2/空白=外税</span><span>2桁 税区分（4=課税仕入・9=対象外 など）</span><span>3桁 税率 1=10%・8=8%・空白=0%</span>'; };
+  return String(c ?? '').trim() ? `<span>1桁 ${one}</span><span>2桁 ${two}</span><span>3桁 ${three}</span>` : '<span>1桁 1=内税・2/空白=外税</span><span>2桁 4=課税仕入・9=対象外</span><span>3桁 1=10%・8=8%・空白=0%</span>'; };
 const tax3 = value => `<div class="tx3" title="処税率（1桁目 税込区分・2桁目 税区分・3桁目 税率区分。空白可）"><input type="hidden" name="taxCode" value="${esc(value)}">${tax3Show(value).map((d, k) => `<input class="num" data-tx="${k}" value="${d}" inputmode="numeric" autocomplete="off" aria-label="処税率 ${k + 1}桁目">`).join('')}<span class="tx3-note">${tax3Note(value)}</span></div>`;
 const tax3Sync = tr => { const w = tr?.querySelector('.tx3'); if (!w) return; const v = tax3Show(w.querySelector('[name=taxCode]').value); w.querySelectorAll('[data-tx]').forEach((el, k) => { el.value = v[k]; }); w.querySelector('.tx3-note').innerHTML = tax3Note(w.querySelector('[name=taxCode]').value); };
 // 入っている桁に打っても、打った数字に置き換える
