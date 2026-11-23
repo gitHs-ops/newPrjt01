@@ -299,6 +299,8 @@ const CLOSING_FREE = 'select[name="closing"], select[name="pclosing"], select[na
 const parseClosing = t => { t = String(t ?? '').trim(); if (/末/.test(t)) return 31; const m = t.match(/^(\d{1,2})\s*日?(締)?$/), d = m ? Number(m[1]) : 0; return d >= 1 && d <= 31 ? d : 0; };
 const SELECT_VALUE = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value'), SELECT_INDEX = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'selectedIndex');
 let comboSeq = 0;
+// 入力したときだけ候補を出す欄（フォーカスしただけでは一覧を出さない。2026-11-23 ユーザー指示：定時請求・小口現金の科目）
+const COMBO_TYPE_ONLY = '#ex-lines select[name="account"]';
 function comboize(sel) {
   if (sel._combo || sel.multiple) return;
   const id = `cmb-${++comboSeq}`, inp = document.createElement('input'), dl = document.createElement('datalist');
@@ -311,7 +313,9 @@ function comboize(sel) {
   const opts = () => [...sel.options], text = o => o.textContent.trim(), cur = () => sel.options[SELECT_INDEX.get.call(sel)];
   const sync = () => { const o = cur(); inp.value = o && o.value !== '' ? text(o) : ''; inp.placeholder = o && o.value === '' ? text(o) : ''; inp.disabled = sel.disabled; inp.classList.remove('combo-ng'); };
   // option の title（処税率の内容など）は候補一覧に label として並べて表示する（2026-10-31）
-  const build = () => { dl.innerHTML = opts().map(o => `<option value="${esc(text(o))}"${o.title ? ` label="${esc(o.title)}"` : ''}></option>`).join(''); sync(); };
+  const typeOnly = sel.matches(COMBO_TYPE_ONLY); let all = '';
+  const list = () => { dl.innerHTML = !typeOnly || inp.value.trim() ? all : ''; };
+  const build = () => { all = opts().map(o => `<option value="${esc(text(o))}"${o.title ? ` label="${esc(o.title)}"` : ''}></option>`).join(''); sync(); list(); };
   const find = t => { t = t.trim(); const os = opts(), lt = t.toLowerCase(); if (!t) return os.find(o => o.value === '') || null;
     const hit = os.find(o => text(o) === t) || os.find(o => o.value === t) || os.find(o => o.value !== '' && text(o).startsWith(t + ' ')); if (hit) return hit;
     if (sel.matches(CLOSING_FREE)) { const d = parseClosing(t); if (d) { let o = os.find(x => x.value === String(d)); if (!o) { o = new Option(d === 31 ? (os.some(x => text(x) === '末日') ? '末日' : '月末') : `${d}日`, String(d)); sel.add(o); } return o; } }
@@ -328,8 +332,8 @@ function comboize(sel) {
   sel.addEventListener('change', () => { if (document.activeElement !== inp) sync(); });
   new MutationObserver(build).observe(sel, { childList: true, subtree: true, attributes: true, attributeFilter: ['disabled', 'selected'] });
   // 候補を選んだ（全文一致）ときはすぐ反映。入力途中はフォーカスを外したとき（Tab・Enter で次の項目へ）に確定
-  inp.addEventListener('input', () => { inp.classList.remove('combo-ng'); const t = inp.value.trim(), o = opts().find(x => text(x) === t); if (o) pick(o, false); });
-  inp.addEventListener('focus', () => { if (inp.value) { inp.placeholder = inp.value; inp.value = ''; } });
+  inp.addEventListener('input', () => { if (typeOnly) list(); inp.classList.remove('combo-ng'); const t = inp.value.trim(), o = opts().find(x => text(x) === t); if (o) pick(o, false); });
+  inp.addEventListener('focus', () => { if (inp.value) { inp.placeholder = inp.value; inp.value = ''; } if (typeOnly) list(); });
   inp.addEventListener('blur', () => { if (!inp.value && inp.placeholder && cur()?.value !== '') return sync(); pick(find(inp.value), true); });
   // Enter でも確定して表示を直す（「27」→「27日」。次の項目が無くフォーカスが残る場合も。2026-11-20 ユーザー指示）
   inp.addEventListener('keydown', e => { if (e.key !== 'Enter' || e.isComposing || e.keyCode === 229) return; if (!inp.value && inp.placeholder && cur()?.value !== '') return sync(); pick(find(inp.value), true); });
