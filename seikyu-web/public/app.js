@@ -1712,6 +1712,12 @@ document.addEventListener('keydown', e => {
 // ----- 明細行の入力表（仕入・定時請求・小口現金で共用） -----
 // cols: [{ name, label, cell: row => input html, sum?: true }]。行の値は readLines で読む（ヘッダー項目と name が重ならないこと）。
 // lineNo：先頭に行番号（01, 02 …）の列を付け、行追加・削除のたびに連番を振り直す（2026-10-29 商品仕入）
+// 登録前に予定の伝票No を出す（採番はしない。日付の年度で変わるので日付の変更でも取り直す。2026-11-23 ユーザー指示）
+const previewDocNo = (el, kind, dateEl) => {
+  if (!el) return;
+  const upd = async () => { try { const r = await api('/api/next-doc-no?' + qs({ kind, date: dateEl?.value })); if (el.isConnected) { el.value = `${r.no}（予定）`; el.title = '登録時に確定します（同時に他の登録があると番号が変わります）'; } } catch { /* 表示だけなので失敗しても登録はできる */ } };
+  dateEl?.addEventListener('change', upd); upd();
+};
 const lineGrid = (id, cols, rowsIn = [{}, {}, {}], { lineNo = false } = {}) => {
   const tr = (r, i = 0) => `<tr>${lineNo ? `<td class="line-no">${String(i + 1).padStart(2, '0')}</td>` : ''}${cols.map(c => `<td>${c.cell(r)}</td>`).join('')}<td><button type="button" class="mini quiet" data-line="del" aria-label="行を削除">×</button></td></tr>`;
   lineGrid.row[id] = () => tr({});
@@ -1790,11 +1796,11 @@ VIEWS.purchases = async q => {
   // 修正：全明細が金額だけ・摘要「運賃」の伝票は「1: 運賃の登録」で開く
   const frOld = old => !!old && old.lines.length > 0 && old.lines.every(l => l.lineKind === '2' && l.memo === '運賃');
   // 登録と修正は同じ画面（2026-11-08 ユーザー指示「一覧で、あれば修正、なければ新規」）。修正は伝票No そのままで明細をすべて入れ替える
-  const puForm = old => modal({ title: old ? '商品仕入詳細' : '商品仕入登録' /* 題名は「の」なし・項目名は現行どおり 仕入数量・仕入単価・仕入金額（2026-11-23 内部会議 No.15） */, submit: old ? '更新する' : '登録する', wide: true, sample: old ? undefined : pickItem, body: `<div class="form-grid pu-head">${field('伝票No', `<input value="${old ? esc(old.no) : '（登録時に自動採番）'}" disabled>`)}${field('仕入日（納入日）', `<input type="date" name="date" value="${esc(old ? String(old.date).slice(0, 10) : today())}">`, { req: 1 })}${field('仕入先（業者）', `<select name="vendor">${options(old ? masters.vendors.filter(x => x.active || x.code === old.vendor) : active('vendors'), old?.vendor || '', { blank: '選択してください' })}</select>`, { req: 1 })}
+  const puForm = old => modal({ title: old ? '商品仕入詳細' : '商品仕入登録' /* 題名は「の」なし・項目名は現行どおり 仕入数量・仕入単価・仕入金額（2026-11-23 内部会議 No.15） */, submit: old ? '更新する' : '登録する', wide: true, sample: old ? undefined : pickItem, body: `<div class="form-grid pu-head">${field('伝票No', `<input id="pu-docno" value="${old ? esc(old.no) : '（登録時に自動採番）'}" disabled>`)}${field('仕入日（納入日）', `<input type="date" name="date" value="${esc(old ? String(old.date).slice(0, 10) : today())}">`, { req: 1 })}${field('仕入先（業者）', `<select name="vendor">${options(old ? masters.vendors.filter(x => x.active || x.code === old.vendor) : active('vendors'), old?.vendor || '', { blank: '選択してください' })}</select>`, { req: 1 })}
       ${field('区分', `<select name="kind">${Object.entries(meta.purchaseKinds).map(([k, v]) => `<option value="${k}" ${old && old.kind === k ? 'selected' : ''}>${k} ${esc(v)}</option>`).join('')}</select>`)}${field('運賃', `<select name="freight"><option value="">（なし）</option><option value="1" ${frOld(old) ? 'selected' : ''}>1 運賃の登録</option></select>`)}</div>
       <datalist id="dl-pu-items">${puItems().map(i => `<option value="${esc(i.code)}">${esc(i.name)}</option>`).join('')}</datalist>
       ${lineGrid('pu-lines', cols, Array.from({ length: Math.max(8, old ? old.lines.length : 0) }, () => ({})) /* 現行どおり 8 行（［＋ 行追加］で増やせる。2026-11-20 ユーザー指示） */, { lineNo: true })}`,
-    onOpen: f => { const g = $('#pu-lines'); f.querySelector('[name=freight]').addEventListener('change', () => lineTotal('pu-lines', 'amount', calc)); g.addEventListener('input', e => { if (e.target.name === 'unit') e.target.value = e.target.value.replace(/[^123]/g, '').slice(0, 1); }, true); g.addEventListener('input', () => lineTotal('pu-lines', 'amount', calc)); g.addEventListener('change', () => lineTotal('pu-lines', 'amount', calc));
+    onOpen: f => { if (!old) previewDocNo($('#pu-docno'), 'purchase', f.querySelector('[name=date]')); const g = $('#pu-lines'); f.querySelector('[name=freight]').addEventListener('change', () => lineTotal('pu-lines', 'amount', calc)); g.addEventListener('input', e => { if (e.target.name === 'unit') e.target.value = e.target.value.replace(/[^123]/g, '').slice(0, 1); }, true); g.addEventListener('input', () => lineTotal('pu-lines', 'amount', calc)); g.addEventListener('change', () => lineTotal('pu-lines', 'amount', calc));
       if (!old) return;
       const trs = $$('#pu-lines tbody tr'), put = (tr, n, v) => { const el = tr.querySelector(`[name=${n}]`); if (el) el.value = v; };
       old.lines.forEach((l, i) => { const tr = trs[i], amt = l.lineKind === '2'; put(tr, 'item', l.item); put(tr, 'quantity', amt ? (l.item ? '' : '0') : String(l.quantity)); put(tr, 'unit', amt ? '' : l.unitCode); put(tr, 'price', amt ? '' : Number(l.price).toFixed(2)); put(tr, 'taxCode', l.taxCode); tax3Sync(tr); });
@@ -1955,7 +1961,7 @@ function expenseView(kind) {
     // 登録画面と詳細（R：登録済みの伝票）は同じ様式。詳細は値を入れて全項目を入力不可にする（2026-10-29）
     const form = (R, edit = false) => modal({ title: R ? `${R.no} の詳細` : payable ? '定時請求データ入力' : '小口現金出納登録', submit: R && !edit ? '' : edit ? '更新' : payable ? '登録' : '登録する', wide: true, sample: R ? false : payable ? f => { const vs = active('vendors'); if (vs.length && !vendorName(f.vendor.value)) { f.vendor.value = vs[Math.floor(Math.random() * vs.length)].code; f.vendor.dispatchEvent(new Event('input', { bubbles: true })); } f.total.value = $('#hw-total').textContent.replace(/[^\d-]/g, ''); f.total.dispatchEvent(new Event('input', { bubbles: true })); } : f => { const el = f.querySelector('#ex-lines tbody tr [name=lvendor]'), vs = active('vendors'); if (el && vs.length && !vendorName(el.value)) { el.value = vs[Math.floor(Math.random() * vs.length)].code; el.dispatchEvent(new Event('input', { bubbles: true })); } }, body: `${head}${lineGrid('ex-lines', payable ? hwCols : cols, R ? R.lines.map(() => ({})) : payable ? [{}, {}, {}, {}] /* 定時請求は現行どおり 4 行（［＋ 行追加］で増やせる。2026-11-20） */ : Array.from({ length: 8 }, () => ({})) /* 小口現金出納登録は 8 行（2026-11-23 内部会議 No.12、ユーザー指示） */)}${sumBar}
       `,
-      onOpen: () => { const g = $('#ex-lines'), f = $('#modal-body');
+      onOpen: () => { const g = $('#ex-lines'), f = $('#modal-body'); if (payable && !R) previewDocNo(f.querySelector('[name=docNo]'), 'payable', f.querySelector('[name=date]'));
         const recalc = () => {
           lineTotal('ex-lines'); if (!payable) return;
           const t = { out: 0, in: 0, ex: 0 }; let calc = 0;

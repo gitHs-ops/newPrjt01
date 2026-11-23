@@ -3,7 +3,7 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 import { readFile, readdir } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import { DomainError, Conflict, Forbidden, RATES, METHODS, csv, today } from './domain.mjs';
-import { tx, mapSqlError, audit } from './db.mjs';
+import { tx, mapSqlError, audit, peekSlipNoFy, DOC_SERIES } from './db.mjs';
 import * as M from './masters.mjs';
 import * as S from './sales.mjs';
 import * as PL from './plans.mjs';
@@ -80,6 +80,7 @@ export async function createApp({ pool, publicDir, secureCookies = process.env.N
   route('GET', '/api/reports/billing-confirm', 'read', x => x.q.format === 'xlsx' ? db(c => X.billingConfirmBook(c, x.q)).then(b => ({ file: b })) : db(c => S.billingConfirm(c, x.q)));
   route('GET', '/api/receipts', 'read', x => db(c => S.listReceipts(c, x.q)));
   route('GET', '/api/receipt-detail', 'read', x => db(c => S.receiptDetail(c, x.q.id)));
+  route('GET', '/api/next-doc-no', 'read', x => db(async c => { const k = { purchase: 'purchase', payable: 'payable' }[x.q.kind]; if (!k) throw new DomainError('種類が不正です'); return { no: await peekSlipNoFy(c, DOC_SERIES[k], /^\d{4}-\d{2}-\d{2}$/.test(x.q.date || '') ? x.q.date : undefined) }; }));   // 登録前に予定の伝票No（2026-11-23）
   route('GET', '/api/purchases', 'read', x => db(c => P.listPurchases(c, x.q)));
   route('GET', '/api/inventory', 'read', x => db(c => P.listInventory(c, x.q)));
   route('GET', '/api/inventory/counts', 'read', x => db(c => P.listCounts(c, x.q)));

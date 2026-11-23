@@ -51,6 +51,11 @@ export async function nextSlipNoFy(c, series, date) {
   await c.query('UPDATE app_slip_series SET last_no=? WHERE series=?', [n, key]);
   return formatSlipNoFy(series, fy, n);
 }
+// 次に振る番号の見込み（採番しない。登録画面に予定の伝票No を出す。2026-11-23 ユーザー指示）。同時に別の登録があれば実際の番号は変わる
+export async function peekSlipNoFy(c, series, date) {
+  const fy = (await companyPeriod(c)).fyOf(String(date || today()).slice(0, 10)), r = await one(c, 'SELECT last_no FROM app_slip_series WHERE series=?', [`${series}${fy}`]);
+  return formatSlipNoFy(series, fy, Number(r?.last_no ?? 0) + 1);
+}
 // 伝票の番号（2026-11-03 ユーザー指示）：英字＋処理年度4桁＋5桁連番（例 N202600001）。仕訳の伝票番号（SLIP_SERIES）とは別の系列。
 //  請求書 C・入金 N・定時請求 T・小口現金 G・支払（銀行別随時支払）Z・実在庫 V・商品仕入 P。請求書の K（年月＋請求ID）は小口現金の自動仕訳 K と重なるためやめる。
 //  登録済みの伝票の番号は変えない（発行済みの請求書は控えの番号のまま）
