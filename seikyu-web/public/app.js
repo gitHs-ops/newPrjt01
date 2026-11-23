@@ -103,8 +103,17 @@ const active = kind => (masters[kind] || []).filter(r => r.active);
 // 適用コード（摘要）マスタ（2026-11-04 打合せ No.7・11・13）：コードを入れると摘要の名称を出す。候補は datalist dl-tekiyo
 const tekiyoName = code => { const c = String(code || '').trim(); return c ? active('tekiyo').find(x => x.code === c)?.name : undefined; };
 const tekiyoList = () => `<datalist id="dl-tekiyo">${active('tekiyo').map(x => `<option value="${esc(x.code)}">${esc(x.name)}</option>`).join('')}</datalist>`;
-// 摘要名の欄（直接入れたものが優先：手で書き換えた欄は上書きしない。前回コードから入れた名称のままなら入れ替える）
-const tekiyoFill = (codeEl, memoEl) => { if (!codeEl || !memoEl) return; const nm = tekiyoName(codeEl.value); if (nm === undefined) return; if (!memoEl.value.trim() || memoEl.value === memoEl.dataset.auto) { memoEl.value = nm; memoEl.dataset.auto = nm; memoEl.dispatchEvent(new Event('input', { bubbles: true })); } };
+// 摘要名の欄：摘要コードを選ぶ（マスタにあるコードになる）と、摘要名をそのコードの名称に入れ替える（2026-11-23 ユーザー指示：更新の画面で摘要コードを選んでも摘要が変わらない。
+// 以前は手で書いた摘要を上書きしなかった）。あとから摘要名を直接書き換えるのは自由。打ちかけのコードが途中でマスタのコードに当たって入れ替えたときは、
+// マスタにないコード（工事コードなど）になったら元の摘要名に戻す
+const tekiyoFill = (codeEl, memoEl) => {
+  if (!codeEl || !memoEl) return;
+  const nm = tekiyoName(codeEl.value), auto = memoEl.dataset.auto, isAuto = auto !== undefined && memoEl.value === auto;
+  if (!isAuto) memoEl.dataset.prev = memoEl.value;   // コードの名称で入れ替える前の摘要名
+  const v = nm ?? (isAuto && memoEl.dataset.prev !== undefined ? memoEl.dataset.prev : memoEl.value);
+  if (nm !== undefined) memoEl.dataset.auto = nm; else if (isAuto && memoEl.dataset.prev !== undefined) delete memoEl.dataset.auto;
+  if (v !== memoEl.value) { memoEl.value = v; memoEl.dispatchEvent(new Event('input', { bubbles: true })); }
+};
 const options = (list, value, { blank, label = r => `${r.code} ${r.name}`, val = r => r.code } = {}) =>
   (blank !== undefined ? `<option value="">${esc(blank)}</option>` : '') + list.map(r => `<option value="${esc(val(r))}" ${String(val(r)) === String(value ?? '') ? 'selected' : ''}>${esc(label(r))}</option>`).join('');
 const siteOptions = (customer, value, blank) => options((masters.sites || []).filter(s => s.customer === customer && (s.active || `${s.code}|${s.suffix}` === value)), value, { blank, val: s => `${s.code}|${s.suffix}`, label: s => `${s.code}-${s.suffix} ${s.name}` });
@@ -1831,7 +1840,7 @@ function expenseView(kind) {
     const accs = active('accounts').filter(a => !['1111', '1112', '1120', '1131', '1431', '4121', '4415'].includes(a.code)),   /* 1431 業者立替金は選べない（2026-11-21） */ top = payable ? [] : PETTY_ACCOUNTS.map(c => accs.find(a => a.code === c)).filter(Boolean);
     const accOpts = top.length ? `<option value="">（科目）</option><optgroup label="小口現金でよく使う科目">${options(top, '')}</optgroup><optgroup label="その他の科目">${options(accs.filter(a => !top.includes(a)), '')}</optgroup>` : options(accs, '', { blank: '（科目）' });
     const hwCols = [{ name: 'account', label: '科目', cell: () => `<select name="account">${accOpts}</select>` },
-      { name: 'sub', label: '内訳／摘要コード', cell: () => '<div class="l2"><select name="sub"><option value="">（なし）</option></select><input name="memoCode" maxlength="7" list="dl-tekiyo" autocomplete="off" placeholder="摘要コード（適用・工事コード）" title="適用コードマスタの候補から選ぶか、工事コードなどを直接入力（摘要名は直接入れたものが優先）"></div>' },
+      { name: 'sub', label: '内訳／摘要コード', cell: () => '<div class="l2"><select name="sub"><option value="">（なし）</option></select><input name="memoCode" maxlength="7" list="dl-tekiyo" autocomplete="off" placeholder="摘要コード（適用・工事コード）" title="適用コードマスタの候補から選ぶと摘要名に名称が入ります（そのあと摘要名を直接書き換えられます）。工事コードなどは直接入力"></div>' },
       { label: '科目名・内訳名／摘要', cell: () => '<div class="l2"><span class="hw-names muted small">科目を選択</span><input name="lmemo" maxlength="500" placeholder="摘要（自由入力）"></div>' },
       { name: 'amount', label: '支払金額／処税率', sum: 1, cell: () => `<div class="l2"><input name="amount" class="num" inputmode="numeric">${taxSelect('taxCode', '141')}</div>` }];
     // 小口現金：支払先は明細の行ごと。1支払日＝1伝票（画面レビュー No.9）
