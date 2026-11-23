@@ -16,7 +16,7 @@
     };
     const KINDS = {
       date: { dateFormat: 'Y-m-d', placeholder: '年/月/日' },
-      month: { dateFormat: 'Y-m', placeholder: '年-月', plugins: () => (window.monthSelectPlugin ? [new window.monthSelectPlugin({ shorthand: false, dateFormat: 'Y-m' })] : []) },
+      month: { dateFormat: 'Y-m', placeholder: '年/月', plugins: () => (window.monthSelectPlugin ? [new window.monthSelectPlugin({ shorthand: false, dateFormat: 'Y-m' })] : []) },
       time: { dateFormat: 'H:i', placeholder: '時:分', enableTime: true, noCalendar: true, time_24hr: true },
     };
     // カレンダーは popover（最上位レイヤー）で表示し、ダイアログの中でも隠れないよう入力の直下（入りきらなければ上）に置く
@@ -32,9 +32,14 @@
     const toShow = v => { const m = String(v ?? '').trim().match(/^\d{2}(\d{2})-(\d{2})-(\d{2})$/); return m ? `${m[1]}/${m[2]}/${m[3]}` : v ?? ''; };
     const toIso = v => { const m = String(v).trim().match(/^(\d{2})\/(\d{1,2})\/(\d{1,2})$/); return m ? `20${m[1]}-${pad(m[2])}-${pad(m[3])}` : v; };
     const yyInput = el => { const v = el.value; Object.defineProperty(el, 'value', { configurable: true, get() { return toIso(VAL.get.call(this)); }, set(x) { VAL.set.call(this, toShow(x)); } }); el.value = v; };
+    // 年月の入力欄は 2026/11 で表示（2026-11-24 ユーザー指示）。value・送信は今までどおり YYYY-MM
+    const ymShow = v => { const m = String(v ?? '').trim().match(/^(\d{4})-(\d{2})$/); return m ? `${m[1]}/${m[2]}` : v ?? ''; };
+    const ymIso = v => { const m = String(v).trim().match(/^(\d{4})\/(\d{1,2})$/); return m ? `${m[1]}-${pad(m[2])}` : v; };
+    const ymInput = el => { const v = el.value; Object.defineProperty(el, 'value', { configurable: true, get() { return ymIso(VAL.get.call(this)); }, set(x) { VAL.set.call(this, ymShow(x)); } }); el.value = v; };
     document.addEventListener('formdata', e => {
-      const names = new Set([...e.target.querySelectorAll('input.fp-date[name]')].map(el => el.name));
+      const names = new Set([...e.target.querySelectorAll('input.fp-date[name]')].map(el => el.name)), months = new Set([...e.target.querySelectorAll('input.fp-month[name]')].map(el => el.name));
       names.forEach(n => { const vs = e.formData.getAll(n); e.formData.delete(n); vs.forEach(v => e.formData.append(n, typeof v === 'string' ? toIso(v) : v)); });
+      months.forEach(n => { const vs = e.formData.getAll(n); e.formData.delete(n); vs.forEach(v => e.formData.append(n, typeof v === 'string' ? ymIso(v) : v)); });
     }, true);
     const enhance = el => {
       const kind = el.type, k = KINDS[kind];
@@ -43,7 +48,7 @@
       const min = el.min, max = el.max;
       el.type = 'text'; el.autocomplete = 'off'; el.classList.add('fp-input', `fp-${kind}`);
       if (!el.placeholder) el.placeholder = k.placeholder;
-      if (kind === 'date') yyInput(el);
+      if (kind === 'date') yyInput(el); else if (kind === 'month') ymInput(el);
       fp(el, {
         dateFormat: k.dateFormat, enableTime: !!k.enableTime, noCalendar: !!k.noCalendar, time_24hr: !!k.time_24hr, plugins: k.plugins ? k.plugins() : [],
         allowInput: true, disableMobile: true, minDate: min || undefined, maxDate: max || undefined,

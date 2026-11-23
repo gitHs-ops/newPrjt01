@@ -42,7 +42,9 @@ const NEG_TEXT = /^[-−]\s*[\d.,]*\d/;
 const isNeg = v => (typeof v === 'number' ? Number.isFinite(v) && v < 0 : typeof v === 'string' && NEG_TEXT.test(v.trim()));
 // 帳票の日付は現行どおり yy/mm/dd（2026-11-23 ユーザー指示：明細に続き、表題・締切日・期間・出力日など文字の中の日付もすべて）
 const YMD_RE = /(?<![\d/-])\d{2}(\d{2})-(\d{2})-(\d{2})(?![\d-])/g;
-const yy = v => (typeof v === 'string' ? v.replace(YMD_RE, '$1/$2/$3') : v);
+// 年月（2026-11）は 2026/11（2026-11-24 ユーザー指示）
+const YM_RE = /(?<![\d/-])(20\d{2})-(0[1-9]|1[0-2])(?![\d-])/g;
+const yy = v => (typeof v === 'string' ? v.replace(YMD_RE, '$1/$2/$3').replace(YM_RE, '$1/$2') : v);
 function sheetXml({ rows: given0, widths = [], header, footer, heights = {}, merges: given = [], gridlines = true, portrait = false, margins = [0.5, 0.6], listed = false, redAt = 0 }) {
   const rows = listed ? given0 : evenBands(given0);   // listify 済みはグループ名の結合も決まっている
   const merges = [...given, ...rows.flatMap((r, ri) => (r?.span > 1 ? [`${col(r.start || 0)}${ri + 1}:${col((r.start || 0) + r.span - 1)}${ri + 1}`] : []))];

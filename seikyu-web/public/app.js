@@ -353,7 +353,9 @@ new MutationObserver(() => { if (!negQueued) { negQueued = true; requestAnimatio
 // 文字の中の 2026-12-15（時刻つきの 2026-12-15T10:00 も）を 26/12/15 に書き換える。入力欄（値）はそのまま。データ（API の値）は変えない
 const YMD_RE = /(?<![\d/-])\d{2}(\d{2})-(\d{2})-(\d{2})(?:T(?=\d{2}:\d{2})|(?![\d-]))/g;
 const YMD_SKIP = 'script, style, textarea, [contenteditable=""], [contenteditable="true"]';
-const yyText = n => { const t = n.nodeValue; if (t.length < 10 || !/\d{4}-\d{2}-\d{2}/.test(t) || n.parentElement?.closest(YMD_SKIP)) return; const u = t.replace(YMD_RE, (m, y, mo, d) => `${y}/${mo}/${d}${m.length > 10 ? ' ' : ''}`); if (u !== t) n.nodeValue = u; };
+// 年月（2026-11）も 2026/11（2026-11-24 ユーザー指示）
+const YM_RE = /(?<![\d/-])(20\d{2})-(0[1-9]|1[0-2])(?![\d-])/g;
+const yyText = n => { const t = n.nodeValue; if (t.length < 7 || !/\d{4}-\d{2}/.test(t) || n.parentElement?.closest(YMD_SKIP)) return; const u = t.replace(YMD_RE, (m, y, mo, d) => `${y}/${mo}/${d}${m.length > 10 ? ' ' : ''}`).replace(YM_RE, '$1/$2'); if (u !== t) n.nodeValue = u; };
 const yyTree = root => { if (root.nodeType === 3) return yyText(root); if (root.nodeType !== 1) return; const w = document.createTreeWalker(root, NodeFilter.SHOW_TEXT); for (let n = w.nextNode(); n; n = w.nextNode()) yyText(n); };
 let ymdQueue = new Set(), ymdQueued = false;
 const yyDateAll = () => { ymdQueued = false; const q = ymdQueue; ymdQueue = new Set(); q.forEach(n => n.isConnected && yyTree(n)); };
