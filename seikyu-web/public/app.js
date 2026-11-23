@@ -1448,8 +1448,8 @@ const lrTaxCode = l => (l.acc === '8850' ? (l.sub === 'D' ? '141' : l.sub === 'L
 // 処税率：入力が無ければ既定値（'9' は対象外 090）。入金額は税込なので、税額は内税・外税とも入金額から割り戻す（外税は登録時に仮払消費税 1465 へ分ける）
 const lrTaxDef = l => { const c = lrTaxCode(l); return c === '9' ? '090' : c; };
 const lrTaxEff = l => l.tax || lrTaxDef(l);
-const lrTaxAuto = l => { const s = lrTaxEff(l), rate = { 1: 10, 2: 3, 3: 6, 4: 2.8, 5: 5, 8: 8 }[s[2]] || 0, r = Math.round(rate * 10), a = lrNum(l.amount) || 0;
-  return s.length === 3 && r && [1, 4, 5, 6].includes(Number(s[1])) ? Math.floor(a * r / (1000 + r)) : 0; };
+const lrTaxAuto = l => { const s = String(lrTaxEff(l)).padStart(3, ' ').replace(/ /g, '0'), rate = { 1: 10, 2: 3, 3: 6, 4: 2.8, 5: 5, 8: 8 }[s[2]] || 0, r = Math.round(rate * 10), a = lrNum(l.amount) || 0;
+  return s.length === 3 && r && [1, 4, 5, 6].includes(Number(s[1])) && s !== '041' /* 空白は 0、041 は非課税（server/taxcode.mjs と同じ） */ ? Math.floor(a * r / (1000 + r)) : 0; };
 // 消費税額：入力があればその額、なければ自動計算（課税の処税率のときだけ）。入金額は税込なので外税でも 入金額×税率/(1+税率)（2026-11-01 決定）
 const lrTaxable = l => lrTaxAuto({ ...l, amount: 1000 }) > 0;
 const lrTax = l => (!lrTaxable(l) ? 0 : l.taxAmt !== '' ? lrNum(l.taxAmt) || 0 : lrTaxAuto(l));
@@ -1479,7 +1479,7 @@ function lrLine(l, i) {
   return `<tbody class="lr-line"><tr><td class="line-no" rowspan="3">${String(i + 1).padStart(3, '0')}</td><td class="lr-dept" title="部門は科目から自動で入ります（表示のみ）">${esc(a?.dept || '')}</td>
       <td><select data-lr="acc" data-i="${i}" aria-label="科目"><option value=""></option>${Object.entries(LR_ACC).map(([k, x]) => `<option value="${k}" ${k === l.acc ? 'selected' : ''}>${k} ${esc(x.name)}</option>`).join('')}</select></td>
       <td>${sub}</td><td>${kind === 'notes' ? `<input type="date" data-lr="due" data-i="${i}" value="${esc(l.due)}" title="手形期日" aria-label="手形期日">` : `<input data-lr="sub2" data-i="${i}" value="${esc(l.sub2)}" maxlength="20" aria-label="内訳2" ${l.acc ? '' : 'disabled'}>`}</td>
-      <td><input class="num" data-lr="amount" data-i="${i}" value="${esc(l.amount)}" inputmode="numeric" aria-label="入金額" ${l.acc ? '' : 'disabled'}></td><td>${l.acc ? `<select name="taxCode" data-lr="tax" data-i="${i}" aria-label="処税率" style="width:130px">${lrTaxDef(l) ? '' : '<option value="">選択</option>'}${meta.taxCodes.map(t => `<option value="${t.code}" title="${esc(t.name)}" ${t.code === lrTaxEff(l) ? 'selected' : ''}>${esc(t.code)}</option>`).join('')}</select><small class="muted lr-taxname" title="${esc(meta.taxCodes.find(t => t.code === lrTaxEff(l))?.name || '')}">${esc(meta.taxCodes.find(t => t.code === lrTaxEff(l))?.name || '')}</small>` : ''}</td><td><input class="num" data-lr="taxamt" data-i="${i}" value="${l.acc && lrTaxable(l) ? esc(l.taxAmt !== '' ? l.taxAmt : String(lrTax(l))) : ''}" inputmode="numeric" aria-label="消費税額" ${l.acc && lrTaxable(l) ? '' : 'disabled'}></td></tr>
+      <td><input class="num" data-lr="amount" data-i="${i}" value="${esc(l.amount)}" inputmode="numeric" aria-label="入金額" ${l.acc ? '' : 'disabled'}></td><td>${l.acc ? tax3(l.tax, `data-lrtax="${i}"`) /* 1 桁ずつの入力欄 3 つ（2026-11-23 ユーザー指示。初期値なし。空欄は科目の既定の処税率で計算・登録） */ : ''}</td><td><input class="num" data-lr="taxamt" data-i="${i}" value="${l.acc && lrTaxable(l) ? esc(l.taxAmt !== '' ? l.taxAmt : String(lrTax(l))) : ''}" inputmode="numeric" aria-label="消費税額" ${l.acc && lrTaxable(l) ? '' : 'disabled'}></td></tr>
     <tr><th>摘要1</th><td colspan="6">${l.acc ? `<input data-lr="memo1" data-i="${i}" value="${esc(l.memo1 || lrName())}" maxlength="100" aria-label="摘要1" style="width:100%">` : ''}</td></tr>
     <tr><th>摘要2</th><td colspan="6">${l.acc ? `<div style="display:flex;gap:6px"><select data-lr="tcode" data-i="${i}" aria-label="摘要コード" style="width:220px;flex:none" title="摘要マスタから選ぶと摘要2に名称が入ります"><option value="">${active('tekiyo').length ? '摘要コードを選択' : '摘要コード未登録（マスタ管理）'}</option>${active('tekiyo').map(x => `<option value="${esc(x.code)}" ${x.code === l.tcode ? 'selected' : ''}>${esc(x.code)} ${esc(x.name)}</option>`).join('')}</select><input data-lr="memo2" data-i="${i}" value="${esc(l.memo2 || lrSub(l)?.[3] || '')}" data-auto="${esc(l.memo2Auto ?? (l.memo2 ? '' : lrSub(l)?.[3] || ''))}" maxlength="100" placeholder="${kind === 'notes' ? '空欄なら「手形 期日…」' : ''}" aria-label="摘要2" style="width:100%"></div>` : ''}</td></tr></tbody>`;
 }
@@ -1633,7 +1633,7 @@ const LR_KIND_LINE = { BANK: ['bank', '1112'], CASH: ['cash', '1111'], NOTE: ['n
 function lrFromReceipt(r) {
   const lines = Object.entries(LR_KIND_LINE).filter(([, [k]]) => r[k] > 0).map(([K, [k, acc, sub]]) => {
     const d = r.detail?.[K] || {}, l = { ...lrBlank(), acc, sub: K === 'BANK' ? r.bankCode || '' : sub || '', amount: String(r[k]), due: K === 'NOTE' ? String(r.noteDue || '').slice(0, 10) : '', sub2: d.sub2 || '', memo1: d.memo1 || '', memo2: d.memo2 || '' };
-    if (d.tax && ![lrTaxCode(l), lrTaxDef(l)].includes(d.tax)) l.tax = d.tax;
+    if (d.tax) l.tax = d.tax === '9' ? '090' : d.tax;   // 登録済みの処税率は 3 つの入力欄に出す（2026-11-23）
     if (d.taxAmt !== null && d.taxAmt !== undefined && lrTaxable(l) && d.taxAmt !== lrTaxAuto(l)) l.taxAmt = String(d.taxAmt);
     return l; });
   while (lines.length < 3) lines.push(lrBlank());   // 修正も 3 行まで空行で埋める（2026-11-18）
@@ -1686,6 +1686,8 @@ document.addEventListener('input', e => {
   else if (t.dataset.lp === 'amount') { lrManual(); lr.pays[t.dataset.i].amount = t.value; lrFootPaint(); }
   else if (t.dataset.lp === 'auto') { lrManual(); let p = lr.pays.find(x => x.id === t.dataset.id); if (!p) lr.pays.push(p = { id: t.dataset.id, amount: '' }); p.amount = t.value; lrFootPaint(); }
   else if (t.dataset.lr === 'taxamt') { lr.lines[t.dataset.i].taxAmt = t.value.trim(); $('#lr-totals').innerHTML = lrTotals(); }
+  else if (t.matches('.tx3 [data-tx]')) { const h = t.closest('.tx3').querySelector('[data-lrtax]'); if (h) { const i = h.dataset.lrtax, l = lr.lines[i], c = $(`[data-lr="taxamt"][data-i="${i}"]`); l.tax = h.value; l.taxAmt = '';
+    if (c) { c.disabled = !lrTaxable(l); c.value = lrTaxable(l) ? String(lrTax(l)) : ''; } $('#lr-totals').innerHTML = lrTotals(); } }
   else if (['due', 'sub2', 'work', 'memo1', 'memo2'].includes(t.dataset.lr)) lr.lines[t.dataset.i][t.dataset.lr] = t.value;
   // 適用コード → 摘要2 に名称（11/04 打合せ No.7）。コードは保存しない（摘要2 の文字だけ）。2026-11-05 ユーザー指示で入力欄をマスタから選ぶ select に変更
   else if (t.dataset.lr === 'tcode') { const l = lr.lines[t.dataset.i], m = $(`[data-lr="memo2"][data-i="${t.dataset.i}"]`); l.tcode = t.value; tekiyoFill(t, m); if (m?.dataset.auto) l.memo2Auto = m.dataset.auto; }
@@ -1748,7 +1750,7 @@ const tax3Note = c => { const s = String(c ?? '').padEnd(3, ' ').replace(/0/g, '
   const two = b === ' ' ? '空白 <span class="check-ng">要入力</span>' : TX3_KIND[b] ? `${b} ${TX3_KIND[b]}` : `${esc(b)} ${ng}`;
   const three = r === ' ' ? '空白 0%' : r in TX3_RATE ? `${r} ${TX3_RATE[r]}%` : `${esc(r)} ${ng}`;
   return String(c ?? '').trim() ? `<span>1桁 ${one}</span><span>2桁 ${two}</span><span>3桁 ${three}</span>` : '<span>1桁 1=内税・2/空白=外税</span><span>2桁 4=課税仕入・9=対象外</span><span>3桁 1=10%・8=8%・空白=0%</span>'; };
-const tax3 = value => `<div class="tx3${String(value ?? '').trim() ? ' tx3-on' : ''}" title="処税率（1桁目 税込区分・2桁目 税区分・3桁目 税率区分。空白可）"><input type="hidden" name="taxCode" value="${esc(value)}">${tax3Show(value).map((d, k) => `<input class="num" data-tx="${k}" value="${d}" inputmode="numeric" autocomplete="off" aria-label="処税率 ${k + 1}桁目">`).join('')}<span class="tx3-note">${tax3Note(value)}</span></div>`;
+const tax3 = (value, attrs = '') => `<div class="tx3${String(value ?? '').trim() ? ' tx3-on' : ''}" title="処税率（1桁目 税込区分・2桁目 税区分・3桁目 税率区分。空白可）"><input type="hidden" name="taxCode" ${attrs} value="${esc(value)}">${tax3Show(value).map((d, k) => `<input class="num" data-tx="${k}" value="${d}" inputmode="numeric" autocomplete="off" aria-label="処税率 ${k + 1}桁目">`).join('')}<span class="tx3-note">${tax3Note(value)}</span></div>`;
 const tax3Sync = tr => { const w = tr?.querySelector('.tx3'); if (!w) return; const v = tax3Show(w.querySelector('[name=taxCode]').value); w.querySelectorAll('[data-tx]').forEach((el, k) => { el.value = v[k]; }); w.querySelector('.tx3-note').innerHTML = tax3Note(w.querySelector('[name=taxCode]').value); if (w.querySelector('[name=taxCode]').value.trim()) w.classList.add('tx3-on'); };
 // 入っている桁に打っても、打った数字に置き換える
 document.addEventListener('input', e => { const el = e.target; if (!el.matches?.('.tx3 [data-tx]')) return; el.value = (/^\d$/.test(e.data ?? '') ? e.data : el.value.replace(/[^\d]/g, '')).slice(-1); const w = el.closest('.tx3'), ds = [...w.querySelectorAll('[data-tx]')].map(x => x.value || ' ').join('');
