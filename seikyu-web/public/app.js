@@ -2678,15 +2678,15 @@ function pageNav(list, page, per = 15) {
 // 現場2 = 得意先 → 現場、内訳科目2 = 勘定科目 → 内訳科目、得意先別単価2 = 商品 → 得意先別単価（商品ごとの得意先の単価、2026-11-07 ユーザー指示）。データは元のマスタと同じ
 const priceSite = r => { if (!r.site) return '（得意先共通）'; const s = (masters.sites || []).find(x => x.customer === r.customer && `${x.code}|${x.suffix}` === r.site); return `${r.site.replace('|', '-')} ${s?.name || ''}`; };
 const ONE_TO_MANY = {
-  sites2: { label: '現場マスタ2', after: 'sites', parent: 'customers', child: 'sites', ref: 'customer', pLabel: '得意先', cLabel: '現場',
+  sites2: { label: '現場マスタ2', after: 'sites', parent: 'customers', child: 'sites', ref: 'customer', pLabel: '得意先', cLabel: '現場', cCode: '現場コード', cKey: r => [r.code, `${r.code}-${r.suffix}`, `${r.code}${r.suffix}`],
     cols: [['現場コード', r => r.code], ['枝番', r => r.suffix], ['現場名1', r => r.name], ['現場名2', r => r.name2 || '']] },
-  subaccounts2: { label: '内訳科目マスタ2', after: 'subaccounts', parent: 'accounts', child: 'subaccounts', ref: 'account', pLabel: '勘定科目', cLabel: '内訳科目',
+  subaccounts2: { label: '内訳科目マスタ2', after: 'subaccounts', parent: 'accounts', child: 'subaccounts', ref: 'account', pLabel: '勘定科目', cLabel: '内訳科目', cCode: '内訳コード', cKey: r => [r.code],
     cols: [['内訳コード', r => r.code], ['内訳名', r => r.name]] },
-  prices2: { label: '得意先別単価2', after: 'prices', parent: 'items', child: 'prices', ref: 'item', pLabel: '商品', cLabel: '得意先別単価',
+  prices2: { label: '得意先別単価2', after: 'prices', parent: 'items', child: 'prices', ref: 'item', pLabel: '商品', cLabel: '得意先別単価', cCode: '得意先コード', cKey: r => [r.customer],
     cols: [['得意先', r => `${r.customer} ${nameOf('customers', r.customer)}`], ['現場', priceSite], ['単価', r => yen(r.price), 1], ['運賃', r => yen(r.freight), 1],
       ['適用単価', r => r.applyPrice ? yen(r.applyPrice) : '', 1], ['適用運賃', r => r.applyFreight ? yen(r.applyFreight) : '', 1], ['適用期間', r => r.start ? `${r.start}〜${r.end}` : '']] },
   // 金融機関2 = 銀行 → 支店（2026-11-19 ユーザー指示）。金融機関マスタは銀行と支店が同じマスタ（支店番号が空欄＝銀行）なので split で親子に分ける
-  bankdir2: { label: '金融機関（銀行・支店）2', after: 'bankdir', parent: 'bankdir', child: 'bankdir', ref: 'bank', pLabel: '銀行', cLabel: '支店', split: true,
+  bankdir2: { label: '金融機関（銀行・支店）2', after: 'bankdir', parent: 'bankdir', child: 'bankdir', ref: 'bank', pLabel: '銀行', cLabel: '支店', split: true, cCode: '支店番号', cKey: r => [r.branch],
     cols: [['支店番号', r => r.branch], ['支店名', r => r.name], ['カナ（全銀用）', r => r.kana || '']] },
 };
 async function oneToManyView(q) {
@@ -2701,21 +2701,31 @@ async function oneToManyView(q) {
     const term = (q.search || '').trim().toLowerCase(), count = {};
     for (const x of children) count[x[d.ref]] = (count[x[d.ref]] || 0) + 1;
     const list = term ? parents.filter(c => `${c.code} ${c.name}`.toLowerCase().includes(term)) : parents, { shown, html } = pageNav(list, q.page);
-    A.search = () => go('masters', { kind, search: $('#s2-search').value.trim() });
+    // 親コード・子コードの入力欄（2026-11-24 ユーザー指示）：両方空欄＝親の一覧（従来どおり）、親コードだけ＝その親の子の一覧、親・子コード＝その子の編集画面。
+    // 親コードが一致しないときは従来どおりコード・名称の部分一致で親を絞り込む
+    A.search = () => { const p = $('#s2-search').value.trim(), c = $('#s2-child').value.trim(), hit = p && parents.find(x => x.code === p);
+      if (!p && c) return toast(`${d.pLabel}コードを入力してください`, true);
+      if (!hit) { if (c) return toast(`${d.pLabel}コード「${p}」はありません`, true); return go('masters', { kind, search: p }); }
+      go('masters', { kind, parent: p, ...(c ? { edit: c } : {}) }); };
     A.pick = x => go('masters', { kind, parent: x.code, back: q.search || '' });
     // 親（得意先・勘定科目・商品・銀行）の新規登録（2026-11-24 ユーザー指示）。金融機関2 は支店番号を空欄にすると銀行として登録
     const pKind = d.split ? d.child : d.parent, canNewP = canWrite() && !meta.masters[pKind]?.readOnly && !noEditU01(pKind);
     A.newParent = () => masterForm(pKind);
-    return page('マスタ管理', desc, `<input id="s2-search" placeholder="${d.pLabel}コード・名称で検索" value="${esc(q.search || '')}" style="width:220px"><button class="primary" data-act="search">検索</button>${canNewP ? `<button class="primary" data-act="newParent">＋ ${d.pLabel}の新規登録</button>` : ''}`,
+    return page('マスタ管理', desc, `<input id="s2-search" placeholder="${d.pLabel}コード（名称の一部でも可）" title="${d.pLabel}コード" value="${esc(q.search || '')}" style="width:200px"><input id="s2-child" placeholder="${d.cCode}" title="${d.cCode}（${d.pLabel}コードと両方入れると編集画面）" style="width:140px"><button class="primary" data-act="search">検索</button>${canNewP ? `<button class="primary" data-act="newParent">＋ ${d.pLabel}の新規登録</button>` : ''}`,
       `<section class="card glass master-list">${term ? `<p class="muted small">「${esc(q.search)}」の検索結果 ${list.length} / ${parents.length} 件</p>` : ''}${html}${table([{ label: '', html: r => `<button class="mini" data-act="pick" data-code="${esc(r.code)}">選択</button>` },
         { label: d.pLabel + 'コード', value: r => r.code }, { label: d.pLabel + '名', value: r => r.name }, { label: d.cLabel + '数', num: 1, value: r => (count[r.code] || 0).toLocaleString('ja-JP') }, { label: '状態', html: state }],
         shown, { rowClass: r => r.active ? '' : 'muted' })}</section>`);
   }
-  const code = q.parent, par = parents.find(c => c.code === code), list = children.filter(x => x[d.ref] === code), { shown, html } = pageNav(list, q.page);
+  const code = q.parent, par = parents.find(c => c.code === code), all = children.filter(x => x[d.ref] === code);
+  // 親・子コードで検索したとき（q.edit）：1 件ならその子の編集画面、複数（得意先別単価で現場・期間違い等）はその行だけ、無ければメッセージ。URL から edit は外す（登録後の再表示で開き直さない）
+  const want = q.edit ? all.filter(x => d.cKey(x).includes(q.edit)) : null, canEd = canWrite() && !noEditU01(d.child);
+  if (q.edit) { history.replaceState(null, '', location.hash.replace(/([?&])edit=[^&]*(&|$)/, (m, p1, p2) => (p2 ? p1 : '')));
+    if (!want.length) toast(`${d.cCode}「${q.edit}」はありません`, true); else if (want.length === 1 && canEd) setTimeout(() => masterForm(d.child, want[0]), 0); }
+  const list = want?.length > 1 || (want?.length === 1 && !canEd) ? want : all, { shown, html } = pageNav(list, q.page);
   A.back = () => go('masters', { kind, search: q.back || '' });
   A.new = () => masterForm(d.child, null, { [d.ref]: code }); A.edit = x => masterForm(d.child, list.find(r => r.key === x.key));
   return page('マスタ管理', desc, `<button data-act="back">← 戻る</button>${canWrite() && !noEditU01(d.child) ? '<button class="primary" data-act="new">＋ 新規登録</button>' : ''}`,
-    `<section class="card glass master-list"><p style="margin:0 0 10px">${d.pLabel} <b class="lr-cname" style="margin-left:6px">${esc(code)}　${esc(par?.name || '')}</b>　<span class="muted small">${d.cLabel} ${list.length} 件</span></p>${html}${table([...(canWrite() && !noEditU01(d.child) ? [{ label: '', html: r => `<button class="mini" data-act="edit" data-key="${esc(r.key)}">編集</button>` }] : []),
+    `<section class="card glass master-list"><p style="margin:0 0 10px">${d.pLabel} <b class="lr-cname" style="margin-left:6px">${esc(code)}　${esc(par?.name || '')}</b>　<span class="muted small">${d.cLabel} ${all.length} 件${list !== all ? `（${d.cCode}「${esc(q.edit)}」の ${list.length} 件を表示）` : ''}</span></p>${html}${table([...(canWrite() && !noEditU01(d.child) ? [{ label: '', html: r => `<button class="mini" data-act="edit" data-key="${esc(r.key)}">編集</button>` }] : []),
       ...d.cols.map(([label, value, num]) => ({ label, value, num })), { label: '状態', html: state }],
       shown, { empty: `この${d.pLabel}の${d.cLabel}はありません。［＋ 新規登録］で登録できます`, rowClass: r => r.active ? '' : 'muted' })}</section>`);
 }
