@@ -246,13 +246,16 @@ let negQueued = false;
 const markNegAll = () => { negQueued = false; document.querySelectorAll(NEG_SEL).forEach(markNeg); };
 new MutationObserver(() => { if (!negQueued) { negQueued = true; requestAnimationFrame(markNegAll); } }).observe(document.documentElement, { childList: true, subtree: true, characterData: true });
 ['input', 'change'].forEach(t => document.addEventListener(t, e => { if (e.target.matches?.(NEG_SEL)) markNeg(e.target); }));
-// 表の日付は帳票と同じ yy/mm/dd（2026-11-23 ユーザー指示：現行どおり。画面も統一）。表のセル（td）の中で文字が日付だけ（2026-12-15、時刻つきも）のものを書き換える。
-// 入力欄・検索条件・説明文の日付はそのまま。データ（API の値）は変えない
-const YMD_RE = /^(\d{4})-(\d{2})-(\d{2})((?:[ T]\d{2}:\d{2}(?::\d{2})?))?$/;
-const yyDate = el => { const n = el.firstChild; if (!n || n !== el.lastChild || n.nodeType !== 3) return; const t = n.nodeValue.trim(), m = t.match(YMD_RE); if (m) n.nodeValue = `${m[1].slice(2)}/${m[2]}/${m[3]}${m[4] ? ' ' + m[4].trim().replace('T', '') : ''}`; };
-let ymdQueued = false;
-const yyDateAll = () => { ymdQueued = false; document.querySelectorAll('td, td *').forEach(yyDate); };
-new MutationObserver(() => { if (!ymdQueued) { ymdQueued = true; requestAnimationFrame(yyDateAll); } }).observe(document.documentElement, { childList: true, subtree: true, characterData: true });
+// 画面の日付は帳票と同じ yy/mm/dd（2026-11-23 ユーザー指示：現行どおり。表のセルに続き、見出し・締切日・期間・説明文など画面の文字すべて）。
+// 文字の中の 2026-12-15（時刻つきの 2026-12-15T10:00 も）を 26/12/15 に書き換える。入力欄（値）はそのまま。データ（API の値）は変えない
+const YMD_RE = /(?<![\d/-])\d{2}(\d{2})-(\d{2})-(\d{2})(?:T(?=\d{2}:\d{2})|(?![\d-]))/g;
+const YMD_SKIP = 'script, style, textarea, [contenteditable=""], [contenteditable="true"]';
+const yyText = n => { const t = n.nodeValue; if (t.length < 10 || !/\d{4}-\d{2}-\d{2}/.test(t) || n.parentElement?.closest(YMD_SKIP)) return; const u = t.replace(YMD_RE, (m, y, mo, d) => `${y}/${mo}/${d}${m.length > 10 ? ' ' : ''}`); if (u !== t) n.nodeValue = u; };
+const yyTree = root => { if (root.nodeType === 3) return yyText(root); if (root.nodeType !== 1) return; const w = document.createTreeWalker(root, NodeFilter.SHOW_TEXT); for (let n = w.nextNode(); n; n = w.nextNode()) yyText(n); };
+let ymdQueue = new Set(), ymdQueued = false;
+const yyDateAll = () => { ymdQueued = false; const q = ymdQueue; ymdQueue = new Set(); q.forEach(n => n.isConnected && yyTree(n)); };
+new MutationObserver(rs => { rs.forEach(r => (r.type === 'characterData' ? ymdQueue.add(r.target) : r.addedNodes.forEach(n => ymdQueue.add(n)))); if (!ymdQueued && ymdQueue.size) { ymdQueued = true; requestAnimationFrame(yyDateAll); } }).observe(document.documentElement, { childList: true, subtree: true, characterData: true });
+if (document.body) yyTree(document.body); else document.addEventListener('DOMContentLoaded', () => yyTree(document.body));
 
 // ---------- navigation ----------
 // 小メニュー（サイドバー）：#画面/小メニュー で直接開ける。q＝従来のタブ等の条件、tools＝上部の検索・登録ボタンを出すか（既定は先頭と q 付きのみ）

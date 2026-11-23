@@ -40,6 +40,9 @@ Object.assign(STYLE, { iTitle: 44, iText: 45, iTextR: 46, iBold: 47, iCust: 48, 
 // 同じ書式で文字だけ赤のスタイル（styles の後半に複製：番号＋redAt）にする
 const NEG_TEXT = /^[-−]\s*[\d.,]*\d/;
 const isNeg = v => (typeof v === 'number' ? Number.isFinite(v) && v < 0 : typeof v === 'string' && NEG_TEXT.test(v.trim()));
+// 帳票の日付は現行どおり yy/mm/dd（2026-11-23 ユーザー指示：明細に続き、表題・締切日・期間・出力日など文字の中の日付もすべて）
+const YMD_RE = /(?<![\d/-])\d{2}(\d{2})-(\d{2})-(\d{2})(?![\d-])/g;
+const yy = v => (typeof v === 'string' ? v.replace(YMD_RE, '$1/$2/$3') : v);
 function sheetXml({ rows: given0, widths = [], header, footer, heights = {}, merges: given = [], gridlines = true, portrait = false, margins = [0.5, 0.6], listed = false, redAt = 0 }) {
   const rows = listed ? given0 : evenBands(given0);   // listify 済みはグループ名の結合も決まっている
   const merges = [...given, ...rows.flatMap((r, ri) => (r?.span > 1 ? [`${col(r.start || 0)}${ri + 1}:${col((r.start || 0) + r.span - 1)}${ri + 1}`] : []))];
@@ -49,9 +52,9 @@ function sheetXml({ rows: given0, widths = [], header, footer, heights = {}, mer
     const o = typeof cell === 'object' ? cell : { v: cell }, ref = col(ci) + (ri + 1);
     const s = (STYLE[o.s] ?? (typeof o.v === 'number' ? 2 : 0)) + (redAt && isNeg(o.v) ? redAt : 0);
     if (o.v === '' || o.v === null || o.v === undefined) return `<c r="${ref}" s="${s}"/>`;
-    return typeof o.v === 'number' && Number.isFinite(o.v) ? `<c r="${ref}" s="${s}"><v>${o.v}</v></c>` : `<c r="${ref}" s="${s}" t="inlineStr"><is><t xml:space="preserve">${x(o.v)}</t></is></c>`;
+    return typeof o.v === 'number' && Number.isFinite(o.v) ? `<c r="${ref}" s="${s}"><v>${o.v}</v></c>` : `<c r="${ref}" s="${s}" t="inlineStr"><is><t xml:space="preserve">${x(yy(o.v))}</t></is></c>`;
   }).join('')}</row>`).join('');
-  const hf = header || footer ? `<headerFooter>${header ? `<oddHeader>${x(header)}</oddHeader>` : ''}${footer ? `<oddFooter>${x(footer)}</oddFooter>` : ''}</headerFooter>` : '';
+  const hf = header || footer ? `<headerFooter>${header ? `<oddHeader>${x(yy(header))}</oddHeader>` : ''}${footer ? `<oddFooter>${x(yy(footer))}</oddFooter>` : ''}</headerFooter>` : '';
   const mc = merges.length ? `<mergeCells count="${merges.length}">${merges.map(m => `<mergeCell ref="${m}"/>`).join('')}</mergeCells>` : '';
   const sv = gridlines ? '' : '<sheetViews><sheetView workbookViewId="0" showGridLines="0"/></sheetViews>';
   return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetPr><pageSetUpPr fitToPage="1"/></sheetPr>${sv}${cols}<sheetData>${body}</sheetData>${mc}<pageMargins left="${margins[0]}" right="${margins[0]}" top="${margins[1]}" bottom="${margins[1]}" header="0.3" footer="0.3"/><pageSetup paperSize="9" orientation="${portrait ? 'portrait' : 'landscape'}" fitToWidth="1" fitToHeight="0"/>${hf}</worksheet>`;
