@@ -2278,7 +2278,7 @@ async function zenginDialog(date = $('#zg-date').value, bank = $('#pr-bank').val
     catch (e) { toast(e.message, true); if (btn) btn.disabled = false; } };
   const autoHtml = `<h3>① 支払の自動作成（未払 → 支払）</h3>${au.holiday ? `<p class="check-ng small">支払日 ${esc(date)} は休日です（翌営業日は ${esc(au.holiday)}）</p>` : ''}
     ${au.targets.length ? table([{ label: '業者', value: r => `${r.vendor} ${r.name}` }, { label: '対象伝票', value: r => r.docs.join(', ') }, { label: '今回支（未払残高）', num: 1, value: r => yen(r.total) }], au.targets, { foot: ['合計 ' + au.targets.length + '業者', '', yen(au.total)] })
-      + (canWrite() && !au.holiday ? '<div class="filters" style="margin-top:6px"><button class="primary" data-act="autoPay">支払を自動作成</button><span class="muted small">振込＝未払残高の全額で作成します。立替金・手数料・安全協力費は作成後に支払の［詳細］で修正</span></div>' : '')
+      + (canWrite() && !au.holiday ? '<div class="filters" style="margin-top:6px;justify-content:flex-end"><span class="muted small">振込＝未払残高の全額で作成します。立替金・手数料・安全協力費は作成後に支払の［詳細］で修正</span><button class="primary" data-act="autoPay">支払を自動作成</button></div>' /* ボタンは右寄せ（2026-11-23 ユーザー指示） */ : '')
       : '<p class="muted small">自動作成する未払はありません（支払予定日がこの支払日以前・振込元がこの口座の業者）</p>'}
     ${au.skipped.length ? `<p class="small" style="margin-top:6px">作成しない業者：${au.skipped.map(x => `${esc(x.vendor)} ${esc(x.name)}（${esc(x.reason)}）`).join('、')}</p>` : ''}
     <h3 style="margin-top:14px">② 全銀データ（作成済みの支払）</h3>`;
