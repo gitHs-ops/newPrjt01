@@ -69,7 +69,7 @@ export async function transferList(c, q) {
         from: v.from_bank || '（未設定）', payee: v.bank_code ? `${v.bank_code}-${v.branch_code} ${TYPE[v.account_type_code] || ''} ${v.account_number}` : '振込先未登録', holder: v.holder_name || '',
         due: mine.map(e => e.due).sort()[0] || '', docs: mine.length, balance: mine.reduce((n, e) => n + e.balance, 0) };
     }).filter(Boolean);
-    if (list.length) groups.push({ title: cycle === '15' ? '振込サイクル：15日' : cycle === '31' ? '振込サイクル：月末' : '振込サイクル：未設定', rows: list, totals: { balance: sum(list, 'balance') } });
+    if (list.length) groups.push({ title: cycle === '15' ? '振込サイクル：15日' : cycle === '31' ? '振込サイクル：月末' : '振込サイクル：未設定', rows: list, label: '合計' /* 振込サイクルごとの計は「合計」（2026-11-23 ユーザー指示。画面・帳票とも） */, totals: { balance: sum(list, 'balance') } });
   }
   // 業者コードの見出しは「業者」、列幅は狭く（2026-11-19 ユーザー指示）
   return { title: '振込先一覧', ref: '10/19 打合せ（支払処理）', to, sub: `支払予定日 ${to} まで`,
