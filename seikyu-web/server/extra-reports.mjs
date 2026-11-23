@@ -205,9 +205,9 @@ export async function extraBook(c, kind, q) {
     const mw = mh.map(n => Math.max(12, [...n].reduce((w, ch) => w + (ch.charCodeAt(0) > 0xff ? 2 : 1), 0) + 2));
     // 現行 HJR051 と同じ並び・表示（2026-10-29）：支払日・支払先・摘要・科目コード（科目 内訳）・科目名・税率（%）・支払額・構成員別。伝票No・受入・残高の列、前期繰越・現金補充の行は出さない
     // 帳票イメージ（案）_20261107 REP-CSH-0010（2026-11-21 ユーザー指示）：科目・内訳を別の列に、構成員名の下に出資比率の行。上段だけの見出しは 2 段を縦に結合
-    const h0 = out.length + 1, merges = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'].map(c => `${c}${h0}:${c}${h0 + 1}`), pct = r => `${Number.isInteger(r) ? r.toFixed(1) : r}%`;
+    // 出資比率の行は出さない（現行に無い。2026-11-23 内部会議 No.13）
+    const merges = [];
     out.push(['支払日', '支払先', '摘要', '科目', '内訳', '科目名', '税率', '支払額', ...mh].map(H));
-    out.push(['', '', '', '', '', '', '', '', ...(d.members || []).map(m => pct(m.ratio))].map(H));
     const pay = d.rows.filter(r => r.amount), sumParts = rs => mh.map((_, k) => rs.reduce((n, r) => n + (r.parts?.[k] || 0), 0));
     for (const r of pay) out.push([String(r.date).slice(2, 10).replace(/-/g, '/'), r.payee,   /* 支払日は現行どおり yy/mm/dd（2026-11-21 ユーザー指示） */ r.memo, r.account, r.sub, r.accountName, r.rate, r.amount, ...(r.parts || [])]);
     // 現行 HJR051 の末尾：＊計＊（支払額・構成員別の合計）→ 税率別の小計（税率の高い順。構成員別は各行の配分の合計）
