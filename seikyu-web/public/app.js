@@ -1742,12 +1742,12 @@ const tax3Note = c => { const s = String(c ?? '').padEnd(3, ' ').replace(/0/g, '
   const two = b === ' ' ? '空白 <span class="check-ng">要入力</span>' : TX3_KIND[b] ? `${b} ${TX3_KIND[b]}` : `${esc(b)} ${ng}`;
   const three = r === ' ' ? '空白 0%' : r in TX3_RATE ? `${r} ${TX3_RATE[r]}%` : `${esc(r)} ${ng}`;
   return String(c ?? '').trim() ? `<span>1桁 ${one}</span><span>2桁 ${two}</span><span>3桁 ${three}</span>` : '<span>1桁 1=内税・2/空白=外税</span><span>2桁 4=課税仕入・9=対象外</span><span>3桁 1=10%・8=8%・空白=0%</span>'; };
-const tax3 = value => `<div class="tx3" title="処税率（1桁目 税込区分・2桁目 税区分・3桁目 税率区分。空白可）"><input type="hidden" name="taxCode" value="${esc(value)}">${tax3Show(value).map((d, k) => `<input class="num" data-tx="${k}" value="${d}" inputmode="numeric" autocomplete="off" aria-label="処税率 ${k + 1}桁目">`).join('')}<span class="tx3-note">${tax3Note(value)}</span></div>`;
-const tax3Sync = tr => { const w = tr?.querySelector('.tx3'); if (!w) return; const v = tax3Show(w.querySelector('[name=taxCode]').value); w.querySelectorAll('[data-tx]').forEach((el, k) => { el.value = v[k]; }); w.querySelector('.tx3-note').innerHTML = tax3Note(w.querySelector('[name=taxCode]').value); };
+const tax3 = value => `<div class="tx3${String(value ?? '').trim() ? ' tx3-on' : ''}" title="処税率（1桁目 税込区分・2桁目 税区分・3桁目 税率区分。空白可）"><input type="hidden" name="taxCode" value="${esc(value)}">${tax3Show(value).map((d, k) => `<input class="num" data-tx="${k}" value="${d}" inputmode="numeric" autocomplete="off" aria-label="処税率 ${k + 1}桁目">`).join('')}<span class="tx3-note">${tax3Note(value)}</span></div>`;
+const tax3Sync = tr => { const w = tr?.querySelector('.tx3'); if (!w) return; const v = tax3Show(w.querySelector('[name=taxCode]').value); w.querySelectorAll('[data-tx]').forEach((el, k) => { el.value = v[k]; }); w.querySelector('.tx3-note').innerHTML = tax3Note(w.querySelector('[name=taxCode]').value); if (w.querySelector('[name=taxCode]').value.trim()) w.classList.add('tx3-on'); };
 // 入っている桁に打っても、打った数字に置き換える
 document.addEventListener('input', e => { const el = e.target; if (!el.matches?.('.tx3 [data-tx]')) return; el.value = (/^\d$/.test(e.data ?? '') ? e.data : el.value.replace(/[^\d]/g, '')).slice(-1); const w = el.closest('.tx3'), ds = [...w.querySelectorAll('[data-tx]')].map(x => x.value || ' ').join('');
-  w.querySelector('[name=taxCode]').value = ds.trim() ? ds : ''; w.querySelector('.tx3-note').innerHTML = tax3Note(ds); if (el.value) el.nextElementSibling?.focus(); }, true);
-document.addEventListener('focusin', e => { if (e.target.matches?.('.tx3 [data-tx]')) e.target.select(); });   // 入っている桁は上書きで入れ直せる
+  w.querySelector('[name=taxCode]').value = ds.trim() ? ds : ''; w.querySelector('.tx3-note').innerHTML = tax3Note(ds); w.classList.add('tx3-on'); if (el.value) el.nextElementSibling?.focus(); }, true);
+document.addEventListener('focusin', e => { if (!e.target.matches?.('.tx3 [data-tx]')) return; e.target.select(); if (e.target.dataset.tx === '0') e.target.closest('.tx3').classList.add('tx3-on'); });   // 各桁の説明は 1 桁目に入ったとき（または入力・値があるとき）に出す（2026-11-23 ユーザー指示）   // 入っている桁は上書きで入れ直せる
 document.addEventListener('keydown', e => { const el = e.target; if (e.key === 'Backspace' && !el.value && el.matches?.('.tx3 [data-tx]') && el.previousElementSibling?.matches('[data-tx]')) el.previousElementSibling.focus(); });
 
 // ----- 商品仕入（10/19 打合せ・帳票⑭）-----
