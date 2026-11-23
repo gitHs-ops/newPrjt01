@@ -30,13 +30,12 @@ export async function purchaseRegister(c, q) {
     const fr = r.line_kind === '2';
     // 現行 HAR011：仕入日・区分は仕入先の 1 行目だけ、伝票No. は伝票の 1 行目だけ（2 行目からは枝番だけ）。slip＝伝票No.＋枝番（2026-11-04）
     const first = g.last !== r.purchase_date; g.last = r.purchase_date; const slip = purchaseNo(r.source_document_no, r.line_no);
-    g.rows.push({ date: first ? `${r.purchase_date.slice(2, 4)}/${r.purchase_date.slice(5, 7)}/${r.purchase_date.slice(8, 10)}` : '', kind: first ? PURCHASE_KINDS[r.purchase_kb || '1'] : '', no: slip,   /* 2 行目からも完全な伝票No（帳票イメージ（案）。2026-11-21 ユーザー指示） */ slip, doc: r.source_document_no, item: r.item_cd ? `${r.item_cd} ${r.item_nam || ''}` : '運賃',
+    g.rows.push({ date: first ? `${r.purchase_date.slice(2, 4)}/${r.purchase_date.slice(5, 7)}/${r.purchase_date.slice(8, 10)}` : '', kind: first ? ({ 1: '仕入', 2: '納入' })[r.purchase_kb || '1'] : ''   /* 区分は現行 HAR011 どおり「納入」（2026-11-23 ユーザー指示） */, no: slip,   /* 2 行目からも完全な伝票No（帳票イメージ（案）。2026-11-21 ユーザー指示） */ slip, doc: r.source_document_no, item: r.item_cd ? `${r.item_cd} ${r.item_nam || ''}` : '運賃',
       qty: fr ? 0 : num(r.quantity), unit: r.unit ? PURCHASE_UNITS[r.unit] ?? '' : r.item_unit || '', price: fr ? 0 : num(r.unit_price), net: num(r.net_amount), account: '', subName: '', tax: r.source_tax_code || '', memo: fr ? '運賃' : '' });   // 運賃は摘要の列に（帳票イメージ（案）。2026-11-21 ユーザー指示）   // 処税率はコードだけ（現行 HAR011。2026-11-04）
   }
-  // 仕入先計・総合計（仕入金額）を出す（2026-11-19 ユーザー指示：プロトタイプ検証結果 帳票-⑭、帳票規約 8）。数量は単位（t・袋）が混じるため合計しない
-  for (const g of groups) { delete g.last; g.label = '仕入先計'; g.totals = { net: g.rows.reduce((n, r) => n + r.net, 0) }; }
-  const totals = groups.length ? { net: groups.reduce((n, g) => n + g.totals.net, 0) } : undefined;
-  return { title: '商品仕入登録リスト', ref: '帳票⑭（HAR011）', from, to, sub: `仕入日 ${from} 〜 ${to}`, totals,
+  // 仕入先計・総合計は出さない（現行 HAR011 に無い行。2026-11-23 ユーザー指示「現行どおり」）
+  for (const g of groups) delete g.last;
+  return { title: '商品仕入登録リスト', ref: '帳票⑭（HAR011）', from, to, sub: `仕入日 ${from} 〜 ${to}`,
     // 項目名は現行の見本（HAR011・添付帳票⑭ p.1-2）どおり（2026-10-29）。単位は仕入数量の右で見出しなし。科目ｺｰﾄﾞ・内訳名は見本でも空欄。摘要は見本にないので出さない
     columns: [{ key: 'date', label: '仕入日', w: 11 }, { key: 'kind', label: '区分', w: 8 }, { key: 'no', label: '伝票No.', w: 15 }, { key: 'item', label: '商品名', w: 30 }, { key: 'qty', label: '仕入数量', num: 1, dec: 1, w: 11 }, { key: 'unit', label: '', w: 4 },
       { key: 'price', label: '仕入単価', num: 1, dec: 1, w: 11 }, { key: 'net', label: '仕入金額', num: 1, w: 13 }, { key: 'account', label: '科目ｺｰﾄﾞ', w: 9 }, { key: 'subName', label: '内訳名', w: 14 }, { key: 'tax', label: '処税率', w: 9 }, { key: 'memo', label: '摘要', w: 20 }],
