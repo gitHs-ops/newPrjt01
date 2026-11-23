@@ -1733,6 +1733,15 @@ document.addEventListener('click', e => {
 const taxLabel = c => { const t = meta.taxCodes.find(x => x.code === String(c ?? '')); return t ? `${t.code} ${t.name}` : (c ?? ''); };
 // 幅は固定（コンボの入力欄は select の幅を写す。表の中で測ると前の行の幅が次の行に積み重なって行ごとに広がっていた。2026-11-01）
 const taxSelect = (name, value) => `<select name="${name}" style="width:130px">${meta.taxCodes.map(t => `<option value="${t.code}" title="${esc(t.name)}" ${t.code === value ? 'selected' : ''}>${esc(t.code)}</option>`).join('')}</select>`;
+// 処税率を 1 桁ずつ入れる入力欄 3 つ（定時請求データ入力。2026-11-23 ユーザー指示）。保存形の 0（1・3 桁目）は空白で表示。入力すると次の欄へ進む
+const tax3Show = c => { const s = String(c ?? ''); return s.length === 3 ? [s[0] === '0' ? '' : s[0], s[1].trim(), s[2] === '0' ? '' : s[2].trim()] : ['', '', '']; };
+const tax3 = value => `<div class="tx3" title="処税率（1桁目 税込区分・2桁目 税区分・3桁目 税率区分。空白可）"><input type="hidden" name="taxCode" value="${esc(value)}">${tax3Show(value).map((d, k) => `<input class="num" data-tx="${k}" value="${d}" inputmode="numeric" autocomplete="off" aria-label="処税率 ${k + 1}桁目">`).join('')}</div>`;
+const tax3Sync = tr => { const w = tr?.querySelector('.tx3'); if (!w) return; const v = tax3Show(w.querySelector('[name=taxCode]').value); w.querySelectorAll('[data-tx]').forEach((el, k) => { el.value = v[k]; }); };
+// 入っている桁に打っても、打った数字に置き換える
+document.addEventListener('input', e => { const el = e.target; if (!el.matches?.('.tx3 [data-tx]')) return; el.value = (/^\d$/.test(e.data ?? '') ? e.data : el.value.replace(/[^\d]/g, '')).slice(-1); const w = el.closest('.tx3'), ds = [...w.querySelectorAll('[data-tx]')].map(x => x.value || ' ').join('');
+  w.querySelector('[name=taxCode]').value = ds.trim() ? ds : ''; if (el.value) el.nextElementSibling?.focus(); }, true);
+document.addEventListener('focusin', e => { if (e.target.matches?.('.tx3 [data-tx]')) e.target.select(); });   // 入っている桁は上書きで入れ直せる
+document.addEventListener('keydown', e => { const el = e.target; if (e.key === 'Backspace' && !el.value && el.matches?.('.tx3 [data-tx]') && el.previousElementSibling?.matches('[data-tx]')) el.previousElementSibling.focus(); });
 
 // ----- 商品仕入（10/19 打合せ・帳票⑭）-----
 VIEWS.purchases = async q => {
@@ -1908,7 +1917,8 @@ function expenseView(kind) {
     const hwCols = [{ name: 'account', label: '科目', cell: () => `<select name="account">${accOpts}</select>` },
       { name: 'sub', label: '内訳／摘要コード', cell: () => '<div class="l2"><select name="sub"><option value="">（なし）</option></select><input name="memoCode" maxlength="7" list="dl-tekiyo" autocomplete="off" placeholder="摘要コード（摘要・工事コード）" title="摘要マスタの候補から選ぶと摘要名に名称が入ります（そのあと摘要名を直接書き換えられます）。工事コードなどは直接入力"></div>' },
       { label: '科目名・内訳名／摘要', cell: () => '<div class="l2"><span class="hw-names muted small">科目を選択</span><input name="lmemo" maxlength="500" placeholder="摘要（自由入力）"></div>' },
-      { name: 'amount', label: '支払金額／処税率', sum: 1, cell: () => `<div class="l2"><input name="amount" class="num" inputmode="numeric">${taxSelect('taxCode', '141')}</div>` }];
+      // 処税率は 1 桁ずつの数字の入力欄 3 つ（税込区分・税区分・税率区分。どの桁も空白可。2026-11-23 ユーザー指示）。送る値は hidden の taxCode（例 141・「 41」）
+      { name: 'amount', label: '支払金額／処税率', sum: 1, cell: () => `<div class="l2"><input name="amount" class="num" inputmode="numeric">${tax3('141')}</div>` }];
     // 小口現金：支払先は明細の行ごと。1支払日＝1伝票（画面レビュー No.9）
     // 2026-10-29 画面・帳票処理イメージ一覧 v4 の指摘：支払先は自由入力ではない（業者マスタのコード）・支払先名を表示・「金額」でなく「支払額」・右は科目名・内訳名と摘要名（内訳は科目の補助で摘要コード（工事）とは別。摘要名は手入力。2026-10-29 列名を「内訳」に訂正）
     const vendorName = code => active('vendors').find(x => x.code === String(code || '').trim())?.name;
@@ -1933,7 +1943,7 @@ function expenseView(kind) {
     const sumBar = payable ? `<div class="hw-sum"><span>対象外 <b id="hw-out">0</b></span><span>内税 <b id="hw-in">0</b></span><span>外税 <b id="hw-ex">0</b></span>
       <label>外税消費税 <input name="extTax" class="num" value="0" inputmode="numeric" style="width:110px"></label><span>合計 <b id="hw-total">0</b> 円</span><span id="hw-check" class="small"></span></div>` : '';
     // 処税率の区分（1桁目 1＝内税、2・空白＝外税、税率0や対象外は対象外）
-    const RATE = { 0: 0, 1: 10, 2: 3, 3: 6, 4: 2.8, 5: 5, 8: 8 }, taxClass = code => { const s3 = String(code || '').padStart(3, '0'), rate = RATE[s3[2]] || 0, taxable = rate > 0 && [1, 4, 5, 6].includes(Number(s3[1])); return { kind: !taxable ? 'out' : s3[0] === '1' ? 'in' : 'ex', rate }; };
+    const RATE = { 0: 0, 1: 10, 2: 3, 3: 6, 4: 2.8, 5: 5, 8: 8 }, taxClass = code => { const s3 = (String(code ?? '').trim() ? String(code) : '141').padStart(3, ' ').replace(/ /g, '0'), rate = RATE[s3[2]] || 0, taxable = rate > 0 && [1, 4, 5, 6].includes(Number(s3[1])) && s3 !== '041'; return { kind: !taxable ? 'out' : s3[0] === '1' ? 'in' : 'ex', rate }; };
     const num = v => Number(String(v || '').replace(/[,，\s]/g, '')) || 0;
     // 登録画面と詳細（R：登録済みの伝票）は同じ様式。詳細は値を入れて全項目を入力不可にする（2026-10-29）
     const form = (R, edit = false) => modal({ title: R ? `${R.no} の詳細` : payable ? '定時請求データ入力' : '小口現金出納登録', submit: R && !edit ? '' : edit ? '更新' : payable ? '登録' : '登録する', wide: true, sample: R ? false : payable ? f => { const vs = active('vendors'); if (vs.length && !vendorName(f.vendor.value)) { f.vendor.value = vs[Math.floor(Math.random() * vs.length)].code; f.vendor.dispatchEvent(new Event('input', { bubbles: true })); } f.total.value = $('#hw-total').textContent.replace(/[^\d-]/g, ''); f.total.dispatchEvent(new Event('input', { bubbles: true })); } : f => { const el = f.querySelector('#ex-lines tbody tr [name=lvendor]'), vs = active('vendors'); if (el && vs.length && !vendorName(el.value)) { el.value = vs[Math.floor(Math.random() * vs.length)].code; el.dispatchEvent(new Event('input', { bubbles: true })); } }, body: `${head}${lineGrid('ex-lines', payable ? hwCols : cols, R ? R.lines.map(() => ({})) : payable ? [{}, {}, {}, {}] /* 定時請求は現行どおり 4 行（［＋ 行追加］で増やせる。2026-11-20） */ : undefined)}${sumBar}
@@ -1976,7 +1986,8 @@ function expenseView(kind) {
           const ext = f.querySelector('[name=extTax]'); ext.addEventListener('input', () => { ext.dataset.manual = ext.value.trim() === '' ? '' : '1'; recalc(); });
           f.querySelector('[name=total]').addEventListener('input', recalc);
         }
-        g.addEventListener('change', e => { if (e.target.name === 'account') { const tr = e.target.closest('tr'), acc = masters.accounts.find(a => a.code === e.target.value); tr.querySelector('[name=sub]').innerHTML = '<option value="">（なし）</option>' + options(active('subaccounts').filter(s => s.account === e.target.value), ''); if (acc?.tax && tr.querySelector(`[name=taxCode] option[value="${acc.tax}"]`)) tr.querySelector('[name=taxCode]').value = acc.tax; }
+        g.addEventListener('change', e => { if (e.target.name === 'account') { const tr = e.target.closest('tr'), acc = masters.accounts.find(a => a.code === e.target.value); tr.querySelector('[name=sub]').innerHTML = '<option value="">（なし）</option>' + options(active('subaccounts').filter(s => s.account === e.target.value), ''); if (acc?.tax && meta.taxCodes.some(t => t.code === acc.tax)) { tr.querySelector('[name=taxCode]').value = acc.tax; tax3Sync(tr); } }
+          if (e.target.name === 'taxCode') tax3Sync(e.target.closest('tr'));
           if (['account', 'sub'].includes(e.target.name)) names(e.target.closest('tr')); recalc(); });
         g.addEventListener('input', recalc); g.addEventListener('click', () => setTimeout(recalc)); recalc();
         if (R) showDoc(R, f, edit); },

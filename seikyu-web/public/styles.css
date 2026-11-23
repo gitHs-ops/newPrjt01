@@ -511,6 +511,9 @@ input.file-native { position: absolute; width: 1px; height: 1px; opacity: 0; poi
 .hw-head { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px 16px; margin-bottom: 10px; }
 .hw-head .span2 { grid-column: span 2; }
 .line-grid .l2 { display: flex; flex-direction: column; gap: 6px; }
+/* 処税率：1 桁ずつの入力欄 3 つ（2026-11-23） */
+.tx3 { display: flex; gap: 4px; }
+.tx3 input[data-tx] { width: 2.6em; min-width: 0; padding-left: 0; padding-right: 0; text-align: center; }
 /* ヘッダー項目（伝票摘要など）と明細の表の間をあける（2026-10-29） */
 .table-wrap:has(> table.line-grid) { margin-top: 18px; }
 .line-grid .line-no { width: 36px; text-align: center; color: var(--text-secondary); font-variant-numeric: tabular-nums; }
