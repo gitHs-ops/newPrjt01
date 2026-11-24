@@ -395,11 +395,11 @@ const SUBMENUS = {
   reports: [{ k: 'csv', l: 'CSV出力', tools: true }, { k: 'ar', l: '売掛金残高一覧' }, { k: 'ap', l: '未払残高一覧' }, { k: 'jv', l: '出資金（JV）帳票' }, { k: 'jvalloc', l: '入金分配端数調整登録' }, { k: 'daily', l: '日報出力' }], // 入金分配端数調整登録は 2026-11-03 に小メニューへ。日報出力は 2026-11-20 ユーザー指示（日報をまとめて出す）
 };
 // 1:n 入力画面（現場2・内訳科目2、2026-11-06 ／得意先別単価2、2026-11-07 ユーザー指示）は元のマスタの次に置く（元のマスタの画面はそのまま）。定義は ONE_TO_MANY
-// マスタ2 のある元のマスタ（現場・内訳科目・得意先別単価・金融機関）は user01 には出さない。小メニューの名前は「…1」（例 現場マスタ1。2026-11-24 ユーザー指示）
+// マスタ2 のある元のマスタ（現場・内訳科目・得意先別単価・金融機関）は小メニューに出さない（2026-11-24 user01 → 同日 全ユーザー。user01 は URL でも開けない）。小メニューの名前は「…1」（例 現場マスタ1。2026-11-24 ユーザー指示）
 // マスタ名の（…）はメニューに出さず「〇〇マスタ」とし、一覧画面の見出しに（…）を付ける（例 メニュー 金融機関マスタ → 見出し 金融機関マスタ（銀行・支店）。user01 の照会のみも見出しだけ。2026-11-24 ユーザー指示）
 const masterName = (label, suffix = '', ro = false) => { const m = label.match(/^([^（]+)（(.+)）$/), base = m ? m[1].trim() : label, name = (m && !base.endsWith('マスタ') ? base + 'マスタ' : base) + suffix, note = [m?.[2], ro ? '照会のみ' : ''].filter(Boolean).join('・');
   return { l: name, title: note ? `${name}（${note}）` : name }; };
-const subsOf = name => (name === 'masters' && meta?.masters ? Object.entries(meta.masters).flatMap(([k, x], _, __, two = Object.values(ONE_TO_MANY).some(o => o.after === k)) => [{ k, ...masterName(x.label, two ? '1' : '', noEditU01(k)), q: { kind: k }, noUser01: two }, ...Object.entries(ONE_TO_MANY).filter(([, x]) => x.after === k).map(([k2, x]) => ({ k: k2, ...masterName(x.label, '', noEditU01(x.child)), q: { kind: k2 } }))]) : SUBMENUS[name] || null);
+const subsOf = name => (name === 'masters' && meta?.masters ? Object.entries(meta.masters).flatMap(([k, x], _, __, two = Object.values(ONE_TO_MANY).some(o => o.after === k)) => [{ k, ...masterName(x.label, two ? '1' : '', noEditU01(k)), q: { kind: k }, noUser01: two, hidden: two }, ...Object.entries(ONE_TO_MANY).filter(([, x]) => x.after === k).map(([k2, x]) => ({ k: k2, ...masterName(x.label, '', noEditU01(x.child)), q: { kind: k2 } }))]) : SUBMENUS[name] || null);
 const TITLES = {};
 // 非表示にするメニュー（2026-10-22 ダッシュボードは使わない）。初期画面は表示メニューの先頭
 const HIDDEN_MENUS = new Set(['dashboard']);
