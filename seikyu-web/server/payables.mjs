@@ -270,6 +270,8 @@ export async function listExpenses(c, q = {}) {
 export const holidaySet = async c => new Set((await rows(c, "SELECT code_dtl FROM code_m WHERE code_key='HOL' AND category3<>'0'")).map(r => `${r.code_dtl.slice(0, 4)}-${r.code_dtl.slice(4, 6)}-${r.code_dtl.slice(6, 8)}`));
 // 支払予定日：業者マスタの支払繰延区分（code_m VPAY：○か月後・日、31=月末）。未設定は締切日の翌月末。休日なら翌営業日（2026-10-31）
 // 繰延最低限度額：定時請求 1 件の合計 amount が限度額以上なら支払繰延区分の支払日を 1 か月後ろへ（未設定は翌月末 → 翌々月末）。未満・限度額なしは支払繰延区分（2026-11-23 ユーザー指示で「一律 翌々月末」から変更）
+// 定時請求の摘要コード欄：摘要コード 3 桁以内、工事コード 6 桁（桁数で見分ける。2026-11-24 打合せ No.15）
+const memoCodeOf = (v, label) => { const s = String(v ?? '').trim(); check(!s || /^(\d{1,3}|\d{6})$/.test(s), `${label}：摘要コードは 3 桁以内、工事コードは 6 桁の数字で入力してください（${s}）`); return s || null; };
 export async function vendorDue(c, vendorCode, date, amount) {
   const t = await one(c, "SELECT category1 m, category2 d, code_dtl_nam min FROM code_m WHERE code_key='VPAY' AND code_dtl=?", [vendorCode]);
   let due;
@@ -354,7 +356,7 @@ export async function createExpense(c, ctx, p, old = null) {
     // 小口現金は内税の処税率でも消費税を抜き出して仮払消費税 1465 に分ける（2026-11-07 ユーザー指示「NG 修正」：2次テスト 4.小口現金 STEP③ のサンプル＝事務用品費 3,000円・旅費交通費 455円・仮払消費税 345円）
     const pettyEx = kind === 'PETTY_CASH' && d.taxable, r10 = Math.round(d.rate * 10);
     const taxAmt = pettyEx ? Math.sign(amount) * Math.floor(Math.abs(amount) * r10 / (1000 + r10)) : Math.sign(amount) * taxOf(Math.abs(amount), tax);
-    ls.push({ account: acc.account_code, sub, tax, amount: pettyEx ? amount - taxAmt : amount, excl, split: excl || pettyEx, taxAmt, gross: pettyEx ? amount : excl ? amount + taxAmt : amount, memoCode: text(l.memoCode, `${label}の摘要コード`, 7, { required: false, pattern: /^\d{1,7}$/ }), memo: text(l.memo, `${label}の摘要名`, 500, { required: false }), lineVendor: lv, linePayee: lpayee });
+    ls.push({ account: acc.account_code, sub, tax, amount: pettyEx ? amount - taxAmt : amount, excl, split: excl || pettyEx, taxAmt, gross: pettyEx ? amount : excl ? amount + taxAmt : amount, memoCode: kind === 'PAYABLE' ? memoCodeOf(l.memoCode, label) : text(l.memoCode, `${label}の摘要コード`, 7, { required: false, pattern: /^\d{1,7}$/ }), memo: text(l.memo, `${label}の摘要名`, 500, { required: false }), lineVendor: lv, linePayee: lpayee });
   }
   check(ls.length, '明細を入力してください'); check(ls.length <= 99, '明細は99行以内です');
   // 外税消費税は画面で調整できる（端数）。計算値との差は最後の外税明細の消費税で調整
