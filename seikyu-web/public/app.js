@@ -2585,10 +2585,14 @@ async function journalListsView(q, bankOnly = false) {
   let body;
   if (kind === 'BANK') {
     // 現行 HAR321 の並び（2026-11-04）：銀行名・支店名は支払元。銀行計・日付計は金額 4 列と支払方法計
-    const tot = (x, label, g) => ['', '', '', '', yen(x.billed), yen(x.offset), yen(x.safety), yen(x.fee), '', yen(x.total), label, g ? g.bankName : '', g ? g.branchName : ''];
-    body = d.days.length ? d.days.map(day => { const [y, m, dd] = day.date.split('-'); return `<h3 style="margin:10px 0 6px">${y.slice(2)} 年 ${Number(m)} 月 ${Number(dd)} 日支払</h3>` + day.banks.map(g => table([{ label: 'ｺｰﾄﾞ', value: r => r.vendor }, { label: '業者名', value: r => r.vendorName }, { label: '伝票No.', value: r => r.no }, { label: '日付', value: r => r.date.slice(2).replaceAll('-', '/') },
-      { label: '請求金額', num: 1, value: r => yen(r.billed) }, { label: '相殺金額', num: 1, value: r => yen(r.offset) }, { label: '安全協力費', num: 1, value: r => yen(r.safety) }, { label: '手数料', num: 1, value: r => yen(r.fee) }, { label: '業者計', num: 1, value: r => yen(r.vendorTotal) },
-      { label: '支払方法計', num: 1, value: r => (r.methodTotal == null ? '' : yen(r.methodTotal)) }, { label: '支払方法', value: r => r.method }, { label: '銀行名', value: r => r.fromBankName }, { label: '支店名', value: r => r.fromBranchName }], g.rows, { foot: tot(g, '銀行計', g) })).join('') + `<p class="right small"><b>日付計</b>　請求金額 ${yen(day.sums.billed)}　相殺金額 ${yen(day.sums.offset)}　安全協力費 ${yen(day.sums.safety)}　手数料 ${yen(day.sums.fee)}　支払方法計 ${yen(day.sums.total)}</p>`; }).join('') : '<div class="empty">対象期間の支払はありません</div>';
+    // 画面も帳票（Excel）と同じく支払日ごとに 1 つの表：見出しは 1 回、銀行ごとの明細の後に「銀行計」、最後に「日付計」の行（2026-11-24 ユーザー指示）
+    const S = r => r._sum, amt = k => r => yen(r[k]);
+    const cols = [{ label: 'ｺｰﾄﾞ', value: r => (S(r) ? '' : r.vendor) }, { label: '業者名', value: r => (S(r) ? '' : r.vendorName) }, { label: '伝票No.', value: r => (S(r) ? '' : r.no) }, { label: '日付', value: r => (S(r) ? '' : r.date.slice(2).replaceAll('-', '/')) },
+      { label: '請求金額', num: 1, value: amt('billed') }, { label: '相殺金額', num: 1, value: amt('offset') }, { label: '安全協力費', num: 1, value: amt('safety') }, { label: '手数料', num: 1, value: amt('fee') }, { label: '業者計', num: 1, value: r => (S(r) ? '' : yen(r.vendorTotal)) },
+      { label: '支払方法計', num: 1, value: r => (S(r) ? yen(r.total) : r.methodTotal == null ? '' : yen(r.methodTotal)) }, { label: '支払方法', value: r => (S(r) ? r._sum : r.method) }, { label: '銀行名', value: r => (S(r) ? r.bankName || '' : r.fromBankName) }, { label: '支店名', value: r => (S(r) ? r.branchName || '' : r.fromBranchName) }];
+    body = d.days.length ? d.days.map(day => { const [y, m, dd] = day.date.split('-');
+      const rows = [...day.banks.flatMap(g => [...g.rows, { ...g, _sum: '銀行計' }]), { ...day.sums, _sum: '日付計' }];
+      return `<h3 style="margin:10px 0 6px">${y.slice(2)} 年 ${Number(m)} 月 ${Number(dd)} 日支払</h3>` + table(cols, rows, { rowClass: r => (S(r) ? 'subtotal' : '') }); }).join('') : '<div class="empty">対象期間の支払はありません</div>';
   } else {
     // 現行の自動仕訳リスト（HAR363・HAR413・HAR152・HAR733・CS5785）と同じ 2 段の並び（Excel の JOURNAL_HEAD と同じ 18 列。2026-11-04）。総合計の行は無い
     const yy = x => (x ? `${x.slice(2, 4)}/${x.slice(5, 7)}/${x.slice(8, 10)}` : ''), amt = x => (x?.account ? x.amount : '');
