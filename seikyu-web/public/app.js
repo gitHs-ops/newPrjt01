@@ -1991,7 +1991,7 @@ function expenseView(kind) {
         ${field('伝票No', '<input name="docNo" value="（登録時に自動採番）" disabled>')}<div class="span2"></div>
         <div class="span2">${field('業者', '<div style="display:flex;gap:12px;align-items:center"><input name="vendor" list="dl-hw-vendors" maxlength="7" autocomplete="off" placeholder="業者コード" style="width:140px;min-width:0"><output id="hw-vname"></output></div>', { req: 1 })}</div><div></div>
         ${tekiyoList()}<datalist id="dl-hw-vendors">${active('vendors').map(x => `<option value="${esc(x.code)}">${esc(x.name)}</option>`).join('')}</datalist>
-        ${field('支払繰延区分', '<output id="ex-defer" class="muted">業者コードを入力すると業者マスタから表示</output>')}${field('支払予定日', '<input type="date" name="due" title="業者マスタの支払繰延区分から自動計算（休日は翌営業日）。手入力で修正できます">', { hint: '業者マスタから自動・修正可' })}${field('合計金額', '<input name="total" class="num" inputmode="numeric"><span id="hw-check" class="small"></span>' /* 一致チェックは合計金額の欄のすぐ下（2026-11-23 内部会議 No.7） */, { req: 1, hint: '明細の合計と一致させる' })}
+        ${field('支払繰延区分', '<output id="ex-defer" class="muted">業者コードを入力すると業者マスタから表示</output>')}${field('支払予定日', '<input type="date" name="due" title="業者マスタの支払繰延区分から自動計算（休日は翌営業日）。手入力で修正できます">', { hint: '業者マスタから自動・修正可' })}${field('合計金額', '<input name="total" class="num" inputmode="numeric"><span id="hw-check" class="small"></span>' /* 一致チェックは合計金額の欄のすぐ上（2026-11-24 ユーザー指示。11/23 内部会議 No.7 は下。位置は styles.css） */, { req: 1, hint: '明細の合計と一致させる' })}
       </div>` : `<div class="inline-fields">
       ${field('支払日' /* 「（領収書の日付）」は削除（2026-11-23 内部会議 No.12） */, `<input type="date" name="date" value="${today()}">`, { req: 1 })}${isUser01() ? '' /* user01 は組織を出さない（2026-11-20 ユーザー指示） */ : field('組織（部門）', `<output id="ex-dept">${esc(deptLabel())}</output>`)}
 </div>

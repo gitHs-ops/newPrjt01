@@ -517,6 +517,10 @@ input.file-native { position: absolute; width: 1px; height: 1px; opacity: 0; poi
 .tx3:not(.tx3-on) .tx3-note { visibility: hidden; }
 .tx3 .tx3-note { display: flex; flex-direction: column; margin-left: 6px; font-size: 11.5px; line-height: 1.35; color: var(--text-secondary); white-space: nowrap; }
 .tx3 input[data-tx] { width: 2.6em; min-width: 0; padding-left: 0; padding-right: 0; text-align: center; }
+/* 小口現金出納登録：処税率の欄を狭く（2026-11-24 ユーザー指示：左右のスクロールバーを出さない）。各桁の意味は入力欄の右でなく下に折り返して出す（未入力のときは場所を取らない） */
+#ex-lines:has([name=lpayee]) .tx3 { display: grid; grid-template-columns: repeat(3, auto); justify-content: start; }
+#ex-lines:has([name=lpayee]) .tx3 .tx3-note { grid-column: 1 / -1; width: 0; min-width: 100%; margin-left: 0; white-space: normal; font-size: 10.5px; }
+#ex-lines:has([name=lpayee]) .tx3:not(.tx3-on) .tx3-note { display: none; }
 /* ヘッダー項目（伝票摘要など）と明細の表の間をあける（2026-10-29） */
 .table-wrap:has(> table.line-grid) { margin-top: 18px; }
 .line-grid .line-no { width: 36px; text-align: center; color: var(--text-secondary); font-variant-numeric: tabular-nums; }
@@ -604,8 +608,13 @@ dialog.modal.wide:has(#jva) { width: fit-content; min-width: min(760px, calc(100
 dialog .table-wrap:has(> table.one-line) { max-height: none; overflow-y: visible; } /* ポップアップでは表を別にスクロールさせない（スクロールバーが 2 本出るため。ポップアップの本文だけスクロール。2026-11-21 ユーザー指示） */
 /* 定時請求データ入力：ラベルの右に入力欄（1 行。2026-11-17 ユーザー指示）。補足（small）は入力欄の下 */
 .hw-head label.field { grid-template-columns: 7.5em minmax(0, 1fr); align-items: center; gap: 4px 8px; }
-.hw-head label.field > small { grid-column: 2; }
-.hw-head #hw-check { grid-column: 2; font-weight: 400; } /* 合計金額の一致チェックは欄のすぐ下（2026-11-23 内部会議 No.7） */
+/* 定時請求入力：案内（small）と合計金額の一致チェックは入力欄の上に（2026-11-24 ユーザー指示。11/23 は欄のすぐ下）。
+   order で 案内 → 一致チェック → 項目名・入力欄 の順に置き、項目の下端をそろえて入力欄の高さを横でそろえる */
+.hw-head > label.field { align-self: end; }
+.hw-head label.field > span:first-child { grid-column: 1; }
+.hw-head label.field > :not(span:first-child) { grid-column: 2; }
+.hw-head label.field > small { order: -2; margin: 0; }
+.hw-head #hw-check { order: -1; font-weight: 400; }
 .hw-head #hw-check:empty { display: none; }
 label.field.req > #hw-check::after { content: none; }
 
