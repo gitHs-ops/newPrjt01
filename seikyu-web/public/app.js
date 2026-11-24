@@ -2814,7 +2814,7 @@ function jvBatchForm() {
       const fill = () => { for (const cd of codes) { const x = asOf(cd, f.start.value || ''); f['r_' + cd].value = x ? x.ratio : ''; f['a_' + cd].checked = !!x?.active; } sum(); };
       // ［この月度の登録を削除］：選んだ適用開始月度に登録した行をまとめて削除（管理者だけ。1 行ずつは合計 100% にならず削除できないため）
       const del = () => { const st = f.start.value || '', b = $('#jvb-del'); if (b) b.hidden = !(st && all.some(x => (x.start || '') === st)); };
-      if (isAdmin()) { $('#modal-foot').insertAdjacentHTML('afterbegin', '<button type="button" class="danger" id="jvb-del" style="margin-right:auto">この月度の登録を削除</button>');
+      if (isAdmin() && !isUser01()) { $('#modal-foot').insertAdjacentHTML('afterbegin', '<button type="button" class="danger" id="jvb-del" style="margin-right:auto">この月度の登録を削除</button>');
         $('#jvb-del').onclick = () => { const st = f.start.value; confirmBox('出資比率の削除', `適用開始月度 ${st} に登録した構成員・出資比率（${all.filter(x => (x.start || '') === st).length}件）を削除します。元に戻せません。`, async () => { await post('/api/jv-members/delete-month', { start: st }); toast(`${st} の月度の出資比率を削除しました`); await loadMasters(); render(); }, '削除する'); }; }
       f.start.addEventListener('change', () => { fill(); del(); }); f.addEventListener('input', e => { if (e.target.classList.contains('jvb')) sum(); }); f.addEventListener('change', e => { if (e.target.classList.contains('jvb')) sum(); });
       f._jvSum = sum; fill(); del();
@@ -2835,7 +2835,8 @@ function masterForm(kind, r, init) {
       if (kind === 'jv') jvSumCheck(f, r);
       if (f.site && f.customer) f.customer.onchange = () => (f.site.innerHTML = siteOptions(f.customer.value, '', '（得意先共通）'));
       // 削除：使用中のコードはサーバーが拒否し、無効化を案内する。管理者だけに表示し、項目が多くても見えるよう下のボタン列の左端に置く（2026-11-06 ユーザー指示）
-      if (r && kind !== 'company' && !r.system && isAdmin()) { $('#modal-foot').insertAdjacentHTML('afterbegin', '<button type="button" class="danger" id="m-del" style="margin-right:auto" title="取引などで使われているコードは削除できません（「有効」を外して無効化）">削除</button>');
+      // user01 はマスタの［削除］を出さない（2026-11-24 ユーザー指示。無効化で対応）
+      if (r && kind !== 'company' && !r.system && isAdmin() && !isUser01()) { $('#modal-foot').insertAdjacentHTML('afterbegin', '<button type="button" class="danger" id="m-del" style="margin-right:auto" title="取引などで使われているコードは削除できません（「有効」を外して無効化）">削除</button>');
         $('#m-del').onclick = () => confirmBox(`${m.label}の削除`, `「${r.key.split('|').filter(Boolean).join('-')}」を削除します。元に戻せません。`, async () => { await post(`/api/masters/${kind}/delete`, { record: r }); toast('削除しました'); await loadMasters(); render(); }, '削除する'); }
     },
     onSubmit: async (v, f) => {
