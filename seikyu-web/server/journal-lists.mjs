@@ -3,7 +3,7 @@
 import { check, isoDate, fromNum, today, addMonths, closingPeriodOfDate } from './domain.mjs';
 import { businessDate } from './sales.mjs';
 import { rows, one, audit, invoiceNos, assertOpen } from './db.mjs';
-import { BOOKED, postPayableJournal } from './payables.mjs';
+import { BOOKED, postPayableJournal, PAY_BOOKED, postPaymentJournal } from './payables.mjs';
 import { xlsx, band } from './xlsx.mjs';
 import { normalize } from './taxcode.mjs';
 // 処税率は 3 桁で出す（自動仕訳の「9」は対象外 090。2026-11-12 結合テスト IT-05）
@@ -191,6 +191,27 @@ export async function runApPost(c, ctx, b) {
   await audit(c, ctx, 'app_ap_post_run', to, 'appost.run', { from, to, posted: todo.map(x => x.document_no), slips: d.slips.length, total: d.total });
   return apPostStatus(c, to);
 }
+// 支払計上（2026-11-24 ユーザー指示：定時請求計上と同じ形）：締切日を指定して［実行］。期間（前月の同じ締日の翌日〜締切日）の支払日の未計上の支払に仕訳 F01 を作る。
+// 支払の登録では仕訳を作らない。何度でも実行でき、最後の実行で上書き。会計連携済みの期間の締切日は実行できない。実行した締切日は支払内訳自動仕訳リスト（Excel）を出せる
+export async function payPostStatus(c, date) {
+  const dt = /^\d{4}-\d{2}-\d{2}$/.test(date || '') ? date : (await arPostStatus(c)).next.to, { from, to } = closingPeriodOfDate(dt);
+  const lk = await one(c, "SELECT period FROM app_acct_link WHERE CAST(? AS date) BETWEEN CAST(split_part(period,'..',1) AS date) AND CAST(split_part(period,'..',2) AS date) LIMIT 1", [to]);
+  const r = await one(c, 'SELECT run_by, run_at, slips, total FROM app_pay_post_run WHERE closing=?', [to]);
+  const pend = await one(c, `SELECT COUNT(*) n, COALESCE(SUM(p.bank_amount+p.fee_amount+p.offset_amount+COALESCE(p.safety_amount,0)),0) amt FROM payment p WHERE p.status='POSTED' AND p.paid_on BETWEEN ? AND ? AND NOT ${PAY_BOOKED}`, [from, to]);
+  return { sel: { date: to, from, to, linked: !!lk }, pending: { count: Number(pend.n), amount: Number(pend.amt) }, run: r ? { by: r.run_by, at: r.run_at, slips: Number(r.slips), total: Number(r.total) } : null };
+}
+export async function runPayPost(c, ctx, b) {
+  check(/^\d{4}-\d{2}-\d{2}$/.test(b?.date || ''), '締切日を指定してください');
+  const st = await payPostStatus(c, b.date), { from, to } = st.sel;
+  check(!st.sel.linked, `締切日 ${to} は会計連携済みのため実行できません`);
+  const todo = await rows(c, `SELECT p.* FROM payment p WHERE p.status='POSTED' AND p.paid_on BETWEEN ? AND ? AND NOT ${PAY_BOOKED} ORDER BY p.paid_on, p.payment_no FOR UPDATE`, [from, to]);
+  // 1 件でも計上できなければ全体を取り消す（定時請求計上と同じく全部か無し）
+  for (const x of todo) { try { check(x.from_bank, '支払元口座がありません'); await assertOpen(c, x.paid_on); await postPaymentJournal(c, x); } catch (e) { check(false, `支払 ${x.payment_no} を計上できないため、支払計上を中止しました（1 件も計上していません）：${e.message}`); } }
+  const d = await journalList(c, { pattern: 'F01', from, to });
+  await c.query('INSERT INTO app_pay_post_run (closing,run_by,run_at,slips,total) VALUES (?,?,?,?,?) ON DUPLICATE KEY UPDATE run_by=VALUES(run_by),run_at=VALUES(run_at),slips=VALUES(slips),total=VALUES(total)', [to, ctx.user.login_id, jstNow(), d.slips.length, d.total]);
+  await audit(c, ctx, 'app_pay_post_run', to, 'paypost.run', { from, to, posted: todo.map(x => x.payment_no), slips: d.slips.length, total: d.total });
+  return payPostStatus(c, to);
+}
 // 会計連携データを作成したとき：期間に入る締日（毎月20日）に会計連携済みの印を付ける（元に戻さない）
 export async function markAcctLinked(c, ctx, from, to) {
   const months = []; for (let m = from.slice(0, 7); `${m}-20` <= to; m = addMonths(m, 1)) if (`${m}-20` >= from) months.push(m);
@@ -200,8 +221,7 @@ export async function markAcctLinked(c, ctx, from, to) {
 
 export async function bankPaymentList(c, q) {
   const { from, to } = range(q);
-  const ps = await rows(c, `SELECT p.*, v.vendor_code, v.vendor_name, b.bank_code, b.branch_code, b.account_type_code, b.account_number, (SELECT COALESCE(SUM(jl.amount),0) FROM journal_entry je JOIN journal_line jl ON jl.journal_id=je.journal_id AND jl.account_code='4171' AND jl.side='C' WHERE je.source_type='payment' AND je.source_id=CAST(p.payment_id AS CHAR) AND je.reversal_of IS NULL) safety,
-      (SELECT jl.sub_code FROM journal_entry je JOIN journal_line jl ON jl.journal_id=je.journal_id WHERE je.source_type='payment' AND je.source_id=CAST(p.payment_id AS CHAR) AND je.reversal_of IS NULL AND jl.account_code='1112' LIMIT 1) from_bank
+  const ps = await rows(c, `SELECT p.*, v.vendor_code, v.vendor_name, b.bank_code, b.branch_code, b.account_type_code, b.account_number, COALESCE(p.safety_amount,0) safety, p.from_bank
     FROM payment p JOIN vendor v ON v.vendor_id=p.vendor_id LEFT JOIN bank_account b ON b.bank_account_id=COALESCE(p.bank_account_id, v.bank_account_id)
     WHERE p.status='POSTED' AND p.paid_on BETWEEN ? AND ? ORDER BY p.paid_on, from_bank, v.vendor_code, p.payment_id`, [from, to]);
   const banks = Object.fromEntries((await rows(c, "SELECT code_dtl, code_dtl_nam FROM code_m WHERE code_key='BANK'")).map(r => [r.code_dtl, r.code_dtl_nam]));

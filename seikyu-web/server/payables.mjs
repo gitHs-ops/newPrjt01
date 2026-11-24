@@ -407,8 +407,17 @@ export async function reverseExpense(c, ctx, { id }) {
 }
 
 // ---------- 支払 (payment + payment_allocation, journal F01) ----------
-const PAY_SAFETY = "(SELECT COALESCE(SUM(jl.amount),0) FROM journal_entry je JOIN journal_line jl ON jl.journal_id=je.journal_id WHERE je.source_type='payment' AND je.source_id=CAST(p.payment_id AS CHAR) AND je.reversal_of IS NULL AND jl.account_code='4171' AND jl.side='C')";
-const PAY_BANK = "(SELECT jl.sub_code FROM journal_entry je JOIN journal_line jl ON jl.journal_id=je.journal_id WHERE je.source_type='payment' AND je.source_id=CAST(p.payment_id AS CHAR) AND je.reversal_of IS NULL AND jl.account_code='1112' LIMIT 1)";
+// 支払元口座・安全協力費は支払に持つ（2026-11-24 支払計上：登録では仕訳を作らないため。それまでは仕訳 F01 から読んでいた）
+const PAY_SAFETY = 'COALESCE(p.safety_amount,0)';
+const PAY_BANK = 'p.from_bank';
+// 支払計上済み（仕訳 F01 あり）
+export const PAY_BOOKED = "EXISTS (SELECT 1 FROM journal_entry je WHERE je.source_type='payment' AND je.source_id=CAST(p.payment_id AS CHAR) AND je.status='POSTED' AND je.reversal_of IS NULL)";
+// 支払の仕訳 F01（支払計上の［実行］で作る）。手数料は現行 CS5785 どおり雑収入 8790-001（税抜）と仮受消費税 4415。内消費税＝floor(手数料×10/110)
+export async function postPaymentJournal(c, p) {
+  const bank = Number(p.bank_amount), fee = Number(p.fee_amount || 0), offset = Number(p.offset_amount || 0), safety = Number(p.safety_amount || 0), total = bank + fee + offset + safety, feeTax = Math.floor(fee * 10 / 110);
+  return postJournal(c, { date: String(p.paid_on instanceof Date ? p.paid_on.toISOString() : p.paid_on).slice(0, 10), pattern: 'F01', sourceType: 'payment', sourceId: p.payment_id, lines: [line('D', '4121', total, { vendor: p.vendor_id, tax: '9' }), line('C', '1112', bank, { sub: p.from_bank, tax: '9' }),
+    line('C', '8790', fee - feeTax, { sub: '001', tax: '9' }), line('C', '4415', feeTax, { tax: '9' }), line('C', '1431', offset, { vendor: p.vendor_id, tax: '9' }), line('C', '4171', safety, { vendor: p.vendor_id, tax: '9' })] });
+}
 // 全銀データ（振込ファイル）作成済みの支払No → 最終作成日時。取消時の警告に使う。
 const jst = t => { const d = new Date(String(t).replace(' ', 'T').slice(0, 23) + 'Z'); return isNaN(d) ? String(t) : new Date(d.getTime() + 9 * 3600e3).toISOString().slice(0, 16).replace('T', ' '); };
 async function zenginExported(c, nos) {
@@ -429,11 +438,13 @@ export async function listPayments(c, q = {}) {
     payee: r.bank_code ? { bank: r.bank_code, branch: r.branch_code, type: r.account_type_code, account: r.account_number, holder: r.holder_name } : null,
     allocations: al.filter(a => a.payment_id === r.payment_id).map(a => ({ expenseId: a.expense_id, no: a.document_no, amount: Number(a.amount) })) }));
 }
-export async function createPayment(c, ctx, p) {
+export async function createPayment(c, ctx, p, opt = {}) {
   const idem = text(p.idempotencyKey, '処理キー', 100);
   const dup = await one(c, 'SELECT payment_id, payment_no FROM payment WHERE idempotency_key=?', [idem]);
   if (dup) return { id: dup.payment_id, no: dup.payment_no, duplicate: true };
   const date = isoDate(p.date, '支払日'); await assertOpen(c, date);
+  // 会計連携済みの期間の支払日は登録できない（支払計上の［実行］ができず未計上のままになるため。定時請求の E-1 と同じ。2026-11-24）。計上済みの支払の修正（すぐ仕訳を作る）は除く
+  if (!opt.postNow) check(!(await one(c, "SELECT 1 x FROM app_acct_link k WHERE CAST(? AS date) BETWEEN CAST(split_part(k.period,'..',1) AS date) AND CAST(split_part(k.period,'..',2) AS date) LIMIT 1", [date])), `支払日 ${date} は会計連携済みの期間のため、支払を登録できません`);
   const v = await vendorOf(c, p.vendor);
   // 仕訳パターン分析 F-02（先方負担手数料差引：雑収入8790-001＋仮受消費税）・F-03（相殺：業者立替金1431）に準拠（推定、Q03）
   const fee = yen(p.fee || 0, '振込手数料（先方負担）'), offset = yen(p.offset || 0, '相殺額'), safety = yen(p.safety || 0, '安全協力費');
@@ -458,14 +469,11 @@ export async function createPayment(c, ctx, p) {
   }
   const total = allocs.reduce((n, a) => n + a.amount, 0), bank = total - fee - offset - safety;
   check(total > 0, '支払額の合計が0以下です（価格調整のマイナスは、同じ業者のプラスの請求と一緒に支払ってください）');
-  // 振込手数料は現行 CS5785 どおり雑収入 8790-001（税抜）と仮受消費税 4415 に分ける。内消費税＝floor(手数料×10/110)（支払案内書の内消費税と同じ。2026-11-04）
-  const feeTax = Math.floor(fee * 10 / 110);
   check(bank >= 0, '手数料・相殺額が支払額を超えています');
   const no = await nextSlipNoFy(c, DOC_SERIES.payment, date);
-  const [r] = await c.query("INSERT INTO payment (payment_no,vendor_id,paid_on,bank_account_id,bank_amount,fee_amount,offset_amount,status,idempotency_key,transfer_method,fee_kbn) VALUES (?,?,?,?,?,?,?,'POSTED',?,?,?)", [no, v.vendor_id, date, v.bank_account_id, bank, fee, offset, idem, transferMethod, feeKbn]);
+  const [r] = await c.query("INSERT INTO payment (payment_no,vendor_id,paid_on,bank_account_id,bank_amount,fee_amount,offset_amount,status,idempotency_key,transfer_method,fee_kbn,from_bank,safety_amount) VALUES (?,?,?,?,?,?,?,'POSTED',?,?,?,?,?)", [no, v.vendor_id, date, v.bank_account_id, bank, fee, offset, idem, transferMethod, feeKbn, bankCode, safety]);
   for (const a of allocs) await c.query('INSERT INTO payment_allocation (payment_id,expense_id,amount) VALUES (?,?,?)', [r.insertId, a.id, a.amount]);
-  await postJournal(c, { date, pattern: 'F01', sourceType: 'payment', sourceId: r.insertId, lines: [line('D', '4121', total, { vendor: v.vendor_id, tax: '9' }), line('C', '1112', bank, { sub: bankCode, tax: '9' }),
-    line('C', '8790', fee - feeTax, { sub: '001', tax: '9' }), line('C', '4415', feeTax, { tax: '9' }), line('C', '1431', offset, { vendor: v.vendor_id, tax: '9' }), line('C', '4171', safety, { vendor: v.vendor_id, tax: '9' })] });
+  // 仕訳 F01 は登録では作らず［支払計上］の［実行］で作る（2026-11-24 ユーザー指示。定時請求計上と同じ）
   await audit(c, ctx, 'payment', r.insertId, 'payment.create', { no, vendor: v.vendor_code, amount: total, bank, fee, offset, safety, documents: allocs.map(a => a.id) });
   return { id: r.insertId, no };
 }
@@ -503,8 +511,11 @@ export async function paymentSummary(c, q = {}) {
 export async function updatePayment(c, ctx, p) {
   const old = await one(c, 'SELECT v.vendor_code FROM payment p JOIN vendor v ON v.vendor_id=p.vendor_id WHERE p.payment_id=?', [Number(p.id)]); check(old, '支払が見つかりません');
   check(old.vendor_code === String(p.vendor || ''), '異なる業者の支払には修正できません（取消して登録し直してください）');
+  const hadJournal = !!(await one(c, `SELECT ${PAY_BOOKED} b FROM payment p WHERE p.payment_id=?`, [Number(p.id)]))?.b;
   await reversePayment(c, ctx, { id: p.id, force: p.force });
-  const res = await createPayment(c, ctx, p);
+  const res = await createPayment(c, ctx, p, { postNow: hadJournal });
+  // 支払計上済みの支払を直したときは、直した支払の仕訳もすぐ作る（定時請求の修正と同じ。未計上のままにしない）
+  if (hadJournal && !res.duplicate) await postPaymentJournal(c, await one(c, 'SELECT * FROM payment WHERE payment_id=?', [res.id]));
   return { ...res, replaced: Number(p.id) };
 }
 

@@ -9,10 +9,10 @@ import { companyProfile } from './sales.mjs';
 const TYPES = { 1: '普通', 2: '当座', 4: '貯蓄' };
 const H = v => ({ v, s: 'bold' }), S = v => ({ v, s: 'sum' }), T = v => ({ v, s: 'title' });
 const num = v => Number(v || 0);
-const FROM_BANK = "(SELECT jl.sub_code FROM journal_entry je JOIN journal_line jl ON jl.journal_id=je.journal_id WHERE je.source_type='payment' AND je.source_id=CAST(p.payment_id AS CHAR) AND je.reversal_of IS NULL AND jl.account_code='1112' LIMIT 1)";
+const FROM_BANK = 'p.from_bank';   // 支払元口座は支払に持つ（2026-11-24 支払計上：登録では仕訳を作らない）
 async function payments(c, where, args) {
   await loadDir(c);
-  const ps = await rows(c, `SELECT p.*, v.vendor_code, v.vendor_name, b.bank_code, b.branch_code, b.account_type_code, b.account_number, b.holder_name, ${FROM_BANK} from_bank, (SELECT COALESCE(SUM(jl.amount),0) FROM journal_entry je JOIN journal_line jl ON jl.journal_id=je.journal_id AND jl.account_code='4171' AND jl.side='C' WHERE je.source_type='payment' AND je.source_id=CAST(p.payment_id AS CHAR) AND je.reversal_of IS NULL) safety
+  const ps = await rows(c, `SELECT p.*, v.vendor_code, v.vendor_name, b.bank_code, b.branch_code, b.account_type_code, b.account_number, b.holder_name, ${FROM_BANK} from_bank, COALESCE(p.safety_amount,0) safety
     FROM payment p JOIN vendor v ON v.vendor_id=p.vendor_id LEFT JOIN bank_account b ON b.bank_account_id=COALESCE(p.bank_account_id, v.bank_account_id)
     WHERE p.status='POSTED' AND ${where} ORDER BY p.paid_on, v.vendor_code, p.payment_id`, args);
   const ids = ps.map(p => p.payment_id);

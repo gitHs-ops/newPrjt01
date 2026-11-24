@@ -131,6 +131,12 @@ export async function prepare(pool, env = process.env) {
   // 支払の振込方法（0 電信／1 文書）・手数料区分（0 とらない／1 とる）。現行 HJW200 支払内訳入力（2026-11-08）
   await pool.query(`ALTER TABLE payment ADD COLUMN IF NOT EXISTS transfer_method char(1) NOT NULL DEFAULT '0'`);
   await pool.query(`ALTER TABLE payment ADD COLUMN IF NOT EXISTS fee_kbn char(1) NOT NULL DEFAULT '0'`);
+  // 支払計上（2026-11-24 ユーザー指示：定時請求計上と同じく、支払の登録では仕訳 F01 を作らず［支払計上］の［実行］で作る）のため、
+  // 仕訳から読んでいた支払元口座（当座預金 1112 の内訳）・安全協力費（4171）を支払に持つ。既存の支払は仕訳から一度だけ写す
+  await pool.query(`ALTER TABLE payment ADD COLUMN IF NOT EXISTS from_bank varchar(10) COLLATE "C"`);
+  await pool.query(`ALTER TABLE payment ADD COLUMN IF NOT EXISTS safety_amount numeric(18,0)`);
+  await pool.query(`UPDATE payment p SET from_bank=(SELECT jl.sub_code FROM journal_entry je JOIN journal_line jl ON jl.journal_id=je.journal_id WHERE je.source_type='payment' AND je.source_id=CAST(p.payment_id AS varchar) AND je.reversal_of IS NULL AND jl.account_code='1112' ORDER BY je.journal_id LIMIT 1) WHERE p.from_bank IS NULL`);
+  await pool.query(`UPDATE payment p SET safety_amount=COALESCE((SELECT SUM(jl.amount) FROM journal_entry je JOIN journal_line jl ON jl.journal_id=je.journal_id AND jl.account_code='4171' AND jl.side='C' WHERE je.source_type='payment' AND je.source_id=CAST(p.payment_id AS varchar) AND je.reversal_of IS NULL AND je.journal_id=(SELECT MIN(x.journal_id) FROM journal_entry x WHERE x.source_type='payment' AND x.source_id=je.source_id AND x.reversal_of IS NULL)),0) WHERE p.safety_amount IS NULL`);
   // 伝票番号（現行の系列連番を引継ぎ）。既存仕訳には日付・ID順で一度だけ採番する。
   await pool.query(`CREATE TABLE IF NOT EXISTS app_slip_series (series varchar(4) COLLATE "C" PRIMARY KEY, last_no integer NOT NULL)`);
   await pool.query('ALTER TABLE app_slip_series ALTER COLUMN series TYPE varchar(10)'); // 伝票の種類＋年度（例 R2026）をキーにする（2026-10-28）
@@ -156,6 +162,8 @@ export async function prepare(pool, env = process.env) {
   await pool.query(`CREATE TABLE IF NOT EXISTS app_ar_post_run (month varchar(7) COLLATE "C" PRIMARY KEY, run_by varchar(256) COLLATE "C" NOT NULL, run_at varchar(16) COLLATE "C" NOT NULL, slips integer NOT NULL, total bigint NOT NULL)`);
   // 定時請求計上の実行の記録（締切日ごと。何度でも実行でき、最後の実行で上書き。2026-11-21）
   await pool.query(`CREATE TABLE IF NOT EXISTS app_ap_post_run (closing varchar(10) COLLATE "C" PRIMARY KEY, run_by varchar(256) COLLATE "C" NOT NULL, run_at varchar(16) COLLATE "C" NOT NULL, slips integer NOT NULL, total bigint NOT NULL)`);
+  // 支払計上の実行の記録（締切日ごと。定時請求計上と同じ。2026-11-24）
+  await pool.query(`CREATE TABLE IF NOT EXISTS app_pay_post_run (closing varchar(10) COLLATE "C" PRIMARY KEY, run_by varchar(256) COLLATE "C" NOT NULL, run_at varchar(16) COLLATE "C" NOT NULL, slips integer NOT NULL, total bigint NOT NULL)`);
   // 会計連携済みの印（締日＝毎月20日の年月ごと。会計連携データを作成したときに付け、元に戻さない。売掛金計上はこの次の締日を出す。2026-11-17）
   await pool.query(`CREATE TABLE IF NOT EXISTS app_acct_link (month varchar(7) COLLATE "C" PRIMARY KEY, linked_by varchar(256) COLLATE "C" NOT NULL, linked_at varchar(16) COLLATE "C" NOT NULL, period varchar(30) COLLATE "C" NOT NULL)`);
   // JV 構成員・出資比率の履歴（2026-11-02。11/01 決定：適用開始日を持たせ、帳票は月度時点の比率で配分）。start_month＝適用開始の月度 YYYY-MM（''＝最初から）、ratio＝出資比率×100

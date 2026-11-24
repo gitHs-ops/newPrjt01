@@ -389,7 +389,7 @@ const SUBMENUS = {
   cash: [{ k: 'list', l: '小口現金出納登録' }, { k: 'book', l: '小口現金出納簿' }],   // 名称「出納簿・定額資金・現金補充」→「小口現金出納簿」（2026-11-20 ユーザー指示）
   // 要件定義の業務順（2026-11-19 ユーザー指示）：振込先一覧（支払予定・口座の確認）→ 支払データ作成（全銀：未払から自動作成 → 全銀、機能一覧 14-1）→ 支払一覧・支払内訳入力（修正、14-7）→ 支払帳票（14-2〜14-5）→ 銀行別随時支払一覧表（14-6）。
   // 一覧の絞り込み（月・状態・CSV）は支払内訳入力の小メニューに出す（tools）
-  payments: [{ k: 'transfer', l: '振込先一覧', tools: false }, { k: 'zengin', l: '支払データ作成（全銀）' }, { k: 'list', l: '支払一覧・支払内訳入力', tools: true }, { k: 'reports', l: '支払帳票', noUser01: true /* user01 は出さない（2026-11-20 ユーザー指示） */ }, { k: 'bank', l: '銀行別随時支払一覧表', q: { list: 'BANK' } }],   // 銀行別随時支払一覧表は自動仕訳リスト（帳票）の画面を支払メニューのまま表示（2026-11-19 ユーザー指示：メニューは移らない）,
+  payments: [{ k: 'transfer', l: '振込先一覧', tools: false }, { k: 'zengin', l: '支払データ作成（全銀）' }, { k: 'list', l: '支払一覧・支払内訳入力', tools: true }, { k: 'reports', l: '支払帳票', noUser01: true /* user01 は出さない（2026-11-20 ユーザー指示） */ }, { k: 'post', l: '支払計上', tools: false /* 2026-11-24 ユーザー指示：定時請求計上と同じ形。銀行別随時支払一覧表の前 */ }, { k: 'bank', l: '銀行別随時支払一覧表', q: { list: 'BANK' } }],   // 銀行別随時支払一覧表は自動仕訳リスト（帳票）の画面を支払メニューのまま表示（2026-11-19 ユーザー指示：メニューは移らない）,
   journals: [{ k: 'list', l: '仕訳一覧' }, { k: 'tb', l: '月次残高試算', q: { tab: 'tb' } }, { k: 'lists', l: '自動仕訳リスト（帳票）', q: { tab: 'lists' } }, { k: 'export', l: '会計連携データ' }],
   external: [{ k: 'gslink', l: 'gsLink' }], // 2026-11-05 ユーザー指示
   reports: [{ k: 'csv', l: 'CSV出力', tools: true, hidden: true /* 機能一覧・決定事項台帳に根拠がないため非表示（削除はしない。2026-11-24 ユーザー指示） */ }, { k: 'ar', l: '売掛金残高一覧' }, { k: 'ap', l: '未払残高一覧' }, { k: 'jv', l: '出資金（JV）帳票' }, { k: 'jvalloc', l: '入金分配端数調整登録' }, { k: 'daily', l: '日報出力' }], // 入金分配端数調整登録は 2026-11-03 に小メニューへ。日報出力は 2026-11-20 ユーザー指示（日報をまとめて出す）
@@ -2126,11 +2126,25 @@ async function apPostView(q = {}) {
     ${isUser01() ? '' : `<p class="small ${run ? '' : 'muted'}" id="ap-status">${run ? `実行：${esc(run.at)}（${esc(run.by)}）　${run.slips}伝票` : '未実行'}${d.pending?.count ? `　／　<b>未計上 ${d.pending.count}伝票（${yen(d.pending.amount)} 円）</b>：［実行］で計上します。未計上の伝票は支払の対象になりません` : ''}${s.linked ? '　／　会計連携済み' : ''}</p>`}</section>`);
 }
 VIEWS.payables = async q => (route.sub === 'post' ? apPostView(q) : expenseView('PAYABLE')(q));
+// 支払計上（2026-11-24 ユーザー指示）：定時請求計上と同じ形。締切日を指定して［実行］で期間の未計上の支払に仕訳 F01 を作る（支払の登録では作らない）。
+// 実行した締切日は支払内訳自動仕訳リスト（Excel）を出せる。会計連携済みの期間の締切日は実行できない
+document.addEventListener('change', e => { if (e.target.id === 'pp-date' && /^\d{4}-\d{2}-\d{2}$/.test(e.target.value)) go('payments', { date: e.target.value }); });
+async function payPostView(q = {}) {
+  const A = actions, d = await api('/api/pay-post?' + qs({ date: q.date || '' })), s = d.sel, run = d.run;
+  A.ppRun = async (_, btn) => { if (btn) btn.disabled = true; try { await post('/api/pay-post/run', { date: s.date }); render({ fresh: true }); } catch (e) { toast(e.message, true); if (btn) btn.disabled = false; } };
+  A.ppXlsx = () => run && saveXlsx('/api/reports/journal-list?' + qs({ pattern: 'F01', from: s.from, to: s.to, format: 'xlsx' })).catch(e => toast(e.message, true));
+  return page('支払', '', '', `<section class="card glass" data-sub="post"><div class="card-head"><h2>支払計上</h2></div>
+    <div class="filters"><label class="field">締切日<input type="date" id="pp-date" value="${esc(s.date)}" style="width:160px"></label>
+      ${canWrite() ? `<button class="primary" data-act="ppRun" ${s.linked ? 'disabled title="会計連携済みの締切日は実行できません"' : ''}>実行</button>` : ''}<button data-act="ppXlsx" ${run ? '' : 'disabled title="実行すると出力できます"'}>⇩ 支払内訳自動仕訳リスト（Excel）</button></div>
+    ${isUser01() ? '' : `<p class="small muted" style="margin-top:8px">対象は支払日が前月の同じ締日の翌日〜締切日（${esc(s.from)}〜${esc(s.to)}）の支払です。［実行］は何度でもできます（漏れた支払があれば押し直してください）。</p>`}
+    ${isUser01() ? '' : `<p class="small ${run ? '' : 'muted'}" id="pp-status">${run ? `実行：${esc(run.at)}（${esc(run.by)}）　${run.slips}伝票` : '未実行'}${d.pending?.count ? `　／　<b>未計上 ${d.pending.count}件（${yen(d.pending.amount)} 円）</b>：［実行］で計上します` : ''}${s.linked ? '　／　会計連携済み' : ''}</p>`}</section>`);
+}
 VIEWS.cash = expenseView('PETTY_CASH');
 
 // ----- 支払 -----
 VIEWS.payments = async q => {
   const A = actions;
+  if (route.sub === 'post') return payPostView(q);   // 小メニュー「支払計上」（2026-11-24）
   if (q.list === 'BANK') return journalListsView(q, true);   // 小メニュー「銀行別随時支払一覧表」
   A.misc = d => miscReport(d.kind, d.src).catch(e => toast(e.message, true));
   const month = q.month || thisMonth(), [list, open] = await Promise.all([api('/api/payments?' + qs({ month })), api('/api/expenses?' + qs({ kind: 'PAYABLE', open: 1 }))]);
@@ -2199,8 +2213,8 @@ VIEWS.payments = async q => {
       }
       if (!allocations.length) throw Error('今回支を入力してください');
       if (allocations.reduce((n, a) => n + a.amount, 0) <= 0) throw Error('今回支の合計が0以下です（価格調整のマイナスは、同じ業者のプラスの請求と一緒に支払ってください）');
-      if (old) { const r = await post('/api/payments/update', { ...v, id: old.id, force: !!old.exported, allocations, idempotencyKey: key }); toast(`支払 ${old.no} を取り消し、${r.no} で登録し直しました（仕訳 F01）`); return render(); }
-      const r = await post('/api/payments', { ...v, allocations, idempotencyKey: key }); toast(`支払 ${r.no} を登録しました（仕訳 F01）`); render(); } }); };
+      if (old) { const r = await post('/api/payments/update', { ...v, id: old.id, force: !!old.exported, allocations, idempotencyKey: key }); toast(`支払 ${old.no} を取り消し、${r.no} で登録し直しました`); return render(); }
+      const r = await post('/api/payments', { ...v, allocations, idempotencyKey: key }); toast(`支払 ${r.no} を登録しました`); /* 仕訳は支払計上で作る（2026-11-24） */ render(); } }); };
   // 支払は［＋ 支払登録］で手入力せず、支払データ作成（全銀）のときに未払から自動作成する（2026-11-19 ユーザー指示：現行 HJW200 の流れ）。画面では［詳細］で修正だけ
   A.newFor = d => (isUser01() ? undefined : pyForm(null, d.vendor));   /* user01 は［支払］ボタンを出さない（2026-11-20） */   // 未払の行の［支払］・行クリック → その業者で新規の支払登録（2026-11-19 ユーザー指示「다시 붙여줘요」で復活）
   A.edit = d => { const p = list.find(r => String(r.id) === String(d.id)); if (p) { pyForm(p); footFirst(`<button type="button" class="danger" data-act="rev" data-id="${p.id}" data-no="${esc(p.no)}" data-exported="${esc(p.exported || '')}">取消</button>`); } };
