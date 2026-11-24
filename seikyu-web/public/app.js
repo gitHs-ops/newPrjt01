@@ -2053,9 +2053,9 @@ function expenseView(kind) {
         }
         const body = { kind, date: v.date, dept: v.dept, vendor: v.vendor, payee: v.payee, due: v.due, memo: v.memo, total, extTax, lines };
         if (edit && R.lineNo) { if (lines.filter(l => l.account || l.amount).length !== 1) throw Error('行ごとの修正では 1 行だけ入力してください'); await post('/api/expenses/line', { id: R.id, line: R.lineNo, data: lines.find(l => l.account || l.amount) }); toast(`${R.no} を更新しました（仕訳 E01 を作り直しました）`); render(); return; }
-        if (edit) { const r = await post('/api/expenses/update', { ...body, id: R.id }); toast(`${r.no} を更新しました${r.due ? '・支払予定日 ' + r.due : ''}（仕訳 D01 を作り直しました）`); render(); return; }
+        if (edit) { const r = await post('/api/expenses/update', { ...body, id: R.id }); toast(`${r.no} を更新しました${r.due ? '・支払予定日 ' + r.due : ''}`); render(); return; }   // 「（仕訳 D01 を作り直しました）」は出さない（2026-11-24 ユーザー指示。仕訳は定時請求計上で作る）
         const r = await post('/api/expenses', body);
-        toast(`${r.no}${r.docs > 1 ? `（支払先ごとに ${r.docs} 伝票）` : ''} を登録しました${r.due ? '・支払予定日 ' + r.due : ''}（仕訳 ${payable ? 'D01' : 'E01'}）`); render(); } });
+        toast(`${r.no}${r.docs > 1 ? `（支払先ごとに ${r.docs} 伝票）` : ''} を登録しました${r.due ? '・支払予定日 ' + r.due : ''}${payable ? '' /* 定時請求は「（仕訳 D01）」を出さない（2026-11-24 ユーザー指示） */ : '（仕訳 E01）'}`); render(); } });
     A.new = () => form();
     const revBtn = r => (r && canWrite() && r.status === 'POSTED' && !r.paid ? `<button type="button" class="danger" data-act="rev" data-id="${r.id}" data-no="${esc(r.no)}">取消</button>` : '');
     // 定時請求：一覧のボタンは［詳細］だけ。修正できる伝票（計上済・支払なし）は詳細の画面で入力でき［取消］［更新］を出す（2026-11-18 ユーザー指示）
