@@ -396,7 +396,7 @@ const SUBMENUS = {
 };
 // 1:n 入力画面（現場2・内訳科目2、2026-11-06 ／得意先別単価2、2026-11-07 ユーザー指示）は元のマスタの次に置く（元のマスタの画面はそのまま）。定義は ONE_TO_MANY
 // マスタ2 のある元のマスタ（現場・内訳科目・得意先別単価・金融機関）は user01 には出さない。小メニューの名前は「…1」（例 現場マスタ1。2026-11-24 ユーザー指示）
-const subsOf = name => (name === 'masters' && meta?.masters ? Object.entries(meta.masters).flatMap(([k, x], _, __, two = Object.values(ONE_TO_MANY).some(o => o.after === k)) => [{ k, l: two ? x.label + '1' : x.label, q: { kind: k }, noUser01: two }, ...Object.entries(ONE_TO_MANY).filter(([, x]) => x.after === k).map(([k2, x]) => ({ k: k2, l: x.label, q: { kind: k2 } }))]) : SUBMENUS[name] || null);
+const subsOf = name => (name === 'masters' && meta?.masters ? Object.entries(meta.masters).flatMap(([k, x], _, __, two = Object.values(ONE_TO_MANY).some(o => o.after === k)) => [{ k, l: (two ? x.label + '1' : x.label) + (noEditU01(k) ? '（照会のみ）' : ''), q: { kind: k }, noUser01: two }, ...Object.entries(ONE_TO_MANY).filter(([, x]) => x.after === k).map(([k2, x]) => ({ k: k2, l: x.label + (noEditU01(x.child) ? '（照会のみ）' : ''), q: { kind: k2 } }))]) : SUBMENUS[name] || null);
 const TITLES = {};
 // 非表示にするメニュー（2026-10-22 ダッシュボードは使わない）。初期画面は表示メニューの先頭
 const HIDDEN_MENUS = new Set(['dashboard']);
@@ -2678,7 +2678,7 @@ function pageNav(list, page, per = 15) {
 // 1:n 入力画面（2026-11-06 ユーザー指示）：①親マスタの一覧（子の件数）→ ②選んだ親の子一覧 → ［編集］で子マスタの編集、［＋ 新規登録］で空欄の登録画面（親だけ入れておく）
 // 現場2 = 得意先 → 現場、内訳科目2 = 勘定科目 → 内訳科目、得意先別単価2 = 商品 → 得意先別単価（商品ごとの得意先の単価、2026-11-07 ユーザー指示）。データは元のマスタと同じ
 const priceSite = r => { if (!r.site) return '（得意先共通）'; const s = (masters.sites || []).find(x => x.customer === r.customer && `${x.code}|${x.suffix}` === r.site); return `${r.site.replace('|', '-')} ${s?.name || ''}`; };
-// 小メニューの名前は元のマスタと同じ（「2」を付けない。元のマスタは「…1」。2026-11-24 ユーザー指示）
+// 小メニューの名前は元のマスタと同じ（「2」を付けない。元のマスタは「…1」。2026-11-24 ユーザー指示）。user01 で照会だけのマスタ（勘定科目・内訳科目）は名前に「（照会のみ）」
 const ONE_TO_MANY = {
   sites2: { label: '現場マスタ', after: 'sites', parent: 'customers', child: 'sites', ref: 'customer', pLabel: '得意先', cLabel: '現場', cCode: '現場コード', cKey: r => [r.code, `${r.code}-${r.suffix}`, `${r.code}${r.suffix}`],
     cols: [['現場コード', r => r.code], ['枝番', r => r.suffix], ['現場名1', r => r.name], ['現場名2', r => r.name2 || '']] },
