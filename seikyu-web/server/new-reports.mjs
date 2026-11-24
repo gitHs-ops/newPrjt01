@@ -33,13 +33,14 @@ export async function purchaseRegister(c, q) {
     g.rows.push({ date: first ? `${r.purchase_date.slice(2, 4)}/${r.purchase_date.slice(5, 7)}/${r.purchase_date.slice(8, 10)}` : '', kind: first ? ({ 1: '仕入', 2: '納入' })[r.purchase_kb || '1'] : ''   /* 区分は現行 HAR011 どおり「納入」（2026-11-23 ユーザー指示） */, no: slip,   /* 2 行目からも完全な伝票No（帳票イメージ（案）。2026-11-21 ユーザー指示） */ slip, doc: r.source_document_no, item: r.item_cd ? `${r.item_cd} ${r.item_nam || ''}` : '運賃',
       qty: fr ? 0 : num(r.quantity), unit: r.unit ? PURCHASE_UNITS[r.unit] ?? '' : r.item_unit || '', price: fr ? 0 : num(r.unit_price), net: num(r.net_amount), account: '', subName: '', tax: r.source_tax_code || '', memo: fr ? '運賃' : '' });   // 運賃は摘要の列に（帳票イメージ（案）。2026-11-21 ユーザー指示）   // 処税率はコードだけ（現行 HAR011。2026-11-04）
   }
-  // 仕入先計・総合計は出さない（現行 HAR011 に無い行。2026-11-23 ユーザー指示「現行どおり」）
+  // 仕入先計は出さない（現行 HAR011 に無い行。2026-11-23 ユーザー指示「現行どおり」）。最後の総合計（仕入金額）は出す（2026-11-24 ユーザー指示）
   for (const g of groups) delete g.last;
+  const totals = groups.length ? { net: groups.reduce((n, g) => n + g.rows.reduce((m, r) => m + r.net, 0), 0) } : undefined;
   return { title: '商品仕入登録リスト', ref: '帳票⑭（HAR011）', from, to, sub: `仕入日 ${from} 〜 ${to}`,
     // 項目名は現行の見本（HAR011・添付帳票⑭ p.1-2）どおり（2026-10-29）。単位は仕入数量の右で見出しなし。科目ｺｰﾄﾞ・内訳名は見本でも空欄。摘要は見本にないので出さない
     columns: [{ key: 'date', label: '仕入日', w: 11 }, { key: 'kind', label: '区分', w: 8, center: 1 }, { key: 'no', label: '伝票No.', w: 15 }, { key: 'item', label: '商品名', w: 30 }, { key: 'qty', label: '仕入数量', num: 1, dec: 1, w: 11 }, { key: 'unit', label: '', w: 4 },
       { key: 'price', label: '仕入単価', num: 1, dec: 1, w: 11 }, { key: 'net', label: '仕入金額', num: 1, w: 13 }, { key: 'account', label: '科目ｺｰﾄﾞ', w: 9 }, { key: 'subName', label: '内訳名', w: 14 }, { key: 'tax', label: '処税率', w: 9, center: 1 }, { key: 'memo', label: '摘要', w: 20, center: 1 }],   // 区分・処税率・摘要は中央（2026-11-23 ユーザー指示）
-    groups };
+    groups, ...(totals ? { totals } : {}) };
 }
 // ⑰ 在庫登録リスト（現行 HAR061）：月度の在庫数量。項目はコード・商品・製品名・在庫数量・単位だけ（評価単価・評価額は出さない。2026-11-03 ユーザー指示の見本）
 export async function inventoryRegister(c, q) {
@@ -150,7 +151,30 @@ export async function itemPurchaseDaily(c, q) {
   }
   return { title: '商品別仕入日報', ref: '帳票㉘（HAR521）', date: d, from, to: d, sub: `${d}（月度 ${from} 〜）`, columns: DAY_COLS(true), groups, ...(all.length ? { totals: daySum(all) } : {}) };
 }
-export const NEW_REPORTS = { 'purchase-register': purchaseRegister, 'inventory-register': inventoryRegister, 'transfer-list': transferList, 'item-ship-daily': itemShipDaily, 'customer-ship-daily': customerShipDaily, 'item-purchase-daily': itemPurchaseDaily };
+// 商品別仕入一覧（2026-11-24 ユーザー指示）：商品別仕入日報と同じ並び（区分 1 仕入／2 他社納入 → 仕入先 → 商品、区分ごとの合計・総合計）で、期間（From〜To）の数量・金額
+export async function itemPurchaseList(c, q) {
+  const from = isoDate(q.from, '開始日'), to = isoDate(q.to, '終了日'); check(from <= to, '期間が不正です');
+  const rs = await rows(c, `SELECT COALESCE(p.purchase_kb, '1') kb, v.vendor_code, MAX(v.vendor_name) vendor_name, p.item_cd, MAX(i.item_nam) item_name, MAX(unit_name(i.unit)) unit, SUM(p.quantity) q, SUM(p.net_amount) v
+    FROM purchase p JOIN vendor v ON v.vendor_id=p.vendor_id LEFT JOIN item_m i ON i.item_cd=p.item_cd
+    WHERE p.purchase_date BETWEEN ? AND ? GROUP BY 1, v.vendor_code, p.item_cd ORDER BY 1, v.vendor_code, p.item_cd`, [from, to]);
+  const sum = list => ({ q: r2d(list.reduce((n, x) => n + x.q, 0)), v: list.reduce((n, x) => n + x.v, 0) });
+  const groups = [], all = [];
+  for (const [kb, label] of [['1', '仕入'], ['2', '他社納入']]) {
+    const mine = rs.filter(r => String(r.kb || '1') === kb); if (!mine.length) continue;
+    const gs = [];
+    for (const r of mine) {
+      let g = gs.find(x => x.cd === r.vendor_code); if (!g) gs.push(g = { cd: r.vendor_code, title: `${r.vendor_code}　${r.vendor_name || ''}`, rows: [] });
+      g.rows.push({ code: r.item_cd || '', name: r.item_cd ? String(r.item_name || '').trim() : '運賃・金額のみ', unit: r.unit || '', q: r2d(num(r.q)), v: num(r.v) });
+    }
+    const sec = gs.flatMap(g => g.rows); all.push(...sec);
+    gs.forEach(g => delete g.cd); gs[0].head = `区分 ${kb}．${label}`; gs[gs.length - 1].foot = { label: `${label} 合計`, totals: sum(sec) };
+    groups.push(...gs);
+  }
+  return { title: '商品別仕入一覧', ref: '商品別仕入日報（帳票㉘ HAR521）の期間版', from, to, sub: `仕入日 ${from} 〜 ${to}`,
+    columns: [{ key: 'code', label: 'コード', w: 9 }, { key: 'name', label: '品名', w: 28 }, { key: 'unit', label: '単位', w: 5 }, { key: 'q', label: '数量', num: 1, dec: 1, w: 12 }, { key: 'v', label: '金額', num: 1, w: 14 }],
+    groups, ...(all.length ? { totals: sum(all) } : {}) };
+}
+export const NEW_REPORTS = { 'item-purchase-list': itemPurchaseList, 'purchase-register': purchaseRegister, 'inventory-register': inventoryRegister, 'transfer-list': transferList, 'item-ship-daily': itemShipDaily, 'customer-ship-daily': customerShipDaily, 'item-purchase-daily': itemPurchaseDaily };
 export async function genericBook(c, kind, q) {
   const d = await NEW_REPORTS[kind](c, q), H = v => ({ v, s: 'bold' }), S = v => ({ v, s: 'sum' });
   const out = [[{ v: d.title, s: 'title' }], [`${d.sub}　出力日 ${today()}`], [], d.columns.map(col => H(col.label))];

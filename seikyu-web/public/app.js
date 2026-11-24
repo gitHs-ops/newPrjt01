@@ -170,13 +170,14 @@ function toastAsk(host, msg, okLabel, onOk) {
   });
   host.append(t); try { t.showPopover(); } catch {}
 }
-const tekiyoGuess = (memoEl, codeEl) => {
+// ask：マスタに無いとき登録するか尋ねる（定時請求入力では尋ねない。2026-11-24 ユーザー指示。似た摘要のコードの自動入力はそのまま）
+const tekiyoGuess = (memoEl, codeEl, ask = true) => {
   if (!memoEl || !codeEl) return;
   const memo = memoEl.value.trim(), cur = codeEl.value.trim(), curName = tekiyoName(cur);
   if (!memo || (cur && curName === undefined) || (curName !== undefined && tkNorm(curName) === tkNorm(memo))) return;
   const hit = tekiyoMatch(memo);
   if (hit) { codeEl.value = hit.code; return; }
-  if (!canWrite() || memo.length > 40) return;   // 摘要マスタの摘要は 40 文字まで
+  if (!ask || !canWrite() || memo.length > 40) return;   // 摘要マスタの摘要は 40 文字まで
   toastAsk(memoEl.closest('dialog') || document.body, `「${memo}」は摘要マスタにありません。摘要マスタに登録しますか？`, '登録する', async () => {
     const code = tekiyoNextCode();
     await post('/api/masters/tekiyo', { mode: 'create', record: { code, name: memo, active: true } });
@@ -384,7 +385,7 @@ const SUBMENUS = {
   // 在庫登録リスト・配合計算・材料受払表は 2026-11-02 にそれぞれ小メニューに分けた（ユーザー指示）
   // 配合計算は自分の画面を出す（2026-11-04 ユーザー指示。以前は材料受払表の画面へ移っていた）。現行の配合計算処理は配合マスタ・配合単価と無関係で、結果が材料受払表（2026-11-02 ユーザー回答）
   inventory: [{ k: 'count', l: '実在庫登録', tools: false }, { k: 'register', l: '在庫登録リスト' }, { k: 'mix', l: '配合計算' }, { k: 'ledger', l: '材料受払表' }, { k: 'post', l: '在庫計上', tools: false }, { k: 'list', l: '在庫一覧', tools: true }],   // 在庫一覧は 2026-11-08 小メニュー非表示 → 2026-11-20 user01 だけ表示 → 同日ユーザー指示「user01 に出るメニューは全ログインに」で全ログインに表示
-  purchases: [{ k: 'list', l: '商品仕入一覧・登録' }, { k: 'reports', l: '商品仕入登録リスト' }], // 2026-10-29 帳票を小メニューに分けた
+  purchases: [{ k: 'list', l: '商品仕入一覧・登録' }, { k: 'reports', l: '商品仕入登録リスト' }, { k: 'itemlist', l: '商品別仕入一覧' } /* 2026-11-24 ユーザー指示：商品別仕入日報の期間版 */], // 2026-10-29 帳票を小メニューに分けた
   payables: [{ k: 'list', l: '定時請求一覧・入力' }, { k: 'reports', l: '定時請求入力明細表' }, { k: 'post', l: '定時請求計上', tools: false }],   // 定時請求計上は 2026-11-21 ユーザー指示
   cash: [{ k: 'list', l: '小口現金出納登録' }, { k: 'book', l: '小口現金出納簿' }],   // 名称「出納簿・定額資金・現金補充」→「小口現金出納簿」（2026-11-20 ユーザー指示）
   // 要件定義の業務順（2026-11-19 ユーザー指示）：振込先一覧（支払予定・口座の確認）→ 支払データ作成（全銀：未払から自動作成 → 全銀、機能一覧 14-1）→ 支払一覧・支払内訳入力（修正、14-7）→ 支払帳票（14-2〜14-5）→ 銀行別随時支払一覧表（14-6）。
@@ -1817,6 +1818,8 @@ VIEWS.purchases = async q => {
   const calc = tr => { const f = n => tr.querySelector(`[name=${n}]`), code = f('item').value.trim(), hit = masters.items.find(i => i.code === code && !noPurchase(i)), fr = false, nm = tr.querySelector('[data-iname]'), un = tr.querySelector('[data-unit]');
     nm.innerHTML = code && !hit ? `<span class="check-ng">${masters.items.some(i => i.code === code) ? '仕入では使えない商品' : '該当なし'}</span>` : hit ? esc(hit.name) : '商品コードを入力'; nm.classList.toggle('muted', !hit);
     // 運賃「1: 運賃の登録」（現行 HAW010。2026-11-20 ユーザー指示）：全行 金額だけ入力（数量・単位・単価は入力しない）。商品コードは任意（空欄は「運賃」）
+    // 運賃の登録では処税率を入力できない（2026-11-24 ユーザー指示）。値は変えない（新しい行は空欄＝サーバの既定 241、修正は登録済みの値のまま）
+    { const frH = tr.closest('form')?.querySelector('[name=freight]')?.value === '1'; tr.querySelectorAll('.tx3 [data-tx]').forEach(el => { el.disabled = frH; }); }
     if (tr.closest('form')?.querySelector('[name=freight]')?.value === '1') { for (const n of ['quantity', 'unit', 'price']) { f(n).value = ''; f(n).disabled = true; } un.textContent = ''; if (f('amount').readOnly) f('amount').value = ''; f('amount').readOnly = false; f('amount').placeholder = '運賃の金額'; f('amount').title = ''; if (!code) { nm.textContent = '運賃'; nm.classList.remove('muted'); } return Number(String(f('amount').value).replace(/,/g, '') || 0); }
     // 材料の運賃（現行⑭「10900 アスファルト 0.00 t 0.00 1,108,214- 運賃」）：数量を空欄（0）にすると金額を直接入力でき、その行は運賃（2026-11-01）
     const byAmt = !fr && hit && !Number(f('quantity').value || 0);
@@ -1864,7 +1867,8 @@ VIEWS.purchases = async q => {
       { label: '商品', value: r => `${r.itemName || r.item}${r.lineKind === '2' && !/運賃/.test(r.itemName || '') ? (r.memo === '運賃' ? '（運賃）' : '（金額のみ）') : ''}` }, { label: '仕入数量', num: 1, value: r => (r.lineKind === '2' ? '' : `${r.quantity} ${r.unit || ''}`) },
       { label: '仕入単価', num: 1, value: r => (r.lineKind === '2' ? '' : Number(r.price).toLocaleString('ja-JP', { minimumFractionDigits: 2, maximumFractionDigits: 2 })) }, { label: '仕入金額', num: 1, value: r => yen(r.net) }, { label: '処税率', value: r => r.taxCode },
       { label: '', html: r => canWrite() && r.line === 1 ? `<button class="mini" data-act="edit" data-no="${esc(r.no)}">詳細</button>` : '' }], puRows, { foot: ['合計', '', '', '', '', '', '', yen(list.reduce((n, r) => n + r.net, 0)), '', ''] })}</section>
-    <div data-sub="reports">${miscCard('商品仕入登録リスト', '仕入先別・仕入日ごと', `<label class="field">対象月（前月21日〜当月20日）<input type="month" id="pl-month" value="${thisMonth()}"></label>`, '<button data-act="misc" data-kind="purchase-register" data-src="pl">⇩ Excel</button>')}${isUser01() ? '' : dailyCard('商品別仕入日報', 'pd', '<button data-act="misc" data-kind="item-purchase-daily" data-src="pd">商品別仕入日報</button>')}</div>`);   // 2026-11-17 に user01 は非表示 → 2026-11-20 user01 にも表示（機能要件 帳6）→ 2026-11-23 ユーザー指示で再び user01 は非表示
+    <div data-sub="reports">${miscCard('商品仕入登録リスト', '仕入先別・仕入日ごと', `<label class="field">対象月（前月21日〜当月20日）<input type="month" id="pl-month" value="${thisMonth()}"></label>`, '<button data-act="misc" data-kind="purchase-register" data-src="pl">⇩ Excel</button>')}${isUser01() ? '' : dailyCard('商品別仕入日報', 'pd', '<button data-act="misc" data-kind="item-purchase-daily" data-src="pd">商品別仕入日報</button>')}</div>
+    <div data-sub="itemlist">${miscCard('商品別仕入一覧', '', rangeInputs('pu', '仕入日'), '<button data-act="misc" data-kind="item-purchase-list" data-src="pu">⇩ Excel</button>') /* 商品別仕入日報と同じ並びで、期間の数量・金額（2026-11-24 ユーザー指示） */}</div>`);   // 2026-11-17 に user01 は非表示 → 2026-11-20 user01 にも表示（機能要件 帳6）→ 2026-11-23 ユーザー指示で再び user01 は非表示
 };
 
 // ----- 在庫計上 -----
@@ -2020,7 +2024,7 @@ function expenseView(kind) {
         // 支払先コードを入れたら業者名を表示、空欄なら支払先名の手入力欄を出す（2026-11-03）
         const vname = tr => { const el = tr.querySelector('[name=lvendor]'), s = tr.querySelector('[data-vname]'), inp = tr.querySelector('[name=lpayee]'); if (!el || !s) return; const t = el.value.trim(), nm = vendorName(t); s.innerHTML = !t ? '' : nm ? esc(nm) : '<span class="check-ng">該当なし</span>'; if (inp) inp.hidden = !!t; };
         g.addEventListener('input', e => { if (e.target.name === 'lvendor') vname(e.target.closest('tr')); if (e.target.name === 'memoCode') { const tr = e.target.closest('tr'); tekiyoFill(e.target, tr.querySelector('[name=lmemo]')); } });
-        g.addEventListener('change', e => { if (e.target.name === 'lmemo') tekiyoGuess(e.target, e.target.closest('tr').querySelector('[name=memoCode]')); if (e.target.name === 'lpayee') vendorGuess(e.target, e.target.closest('tr').querySelector('[name=lvendor]')); });   // 摘要名・支払先名の手入力 → コード（2026-11-23）
+        g.addEventListener('change', e => { if (e.target.name === 'lmemo') tekiyoGuess(e.target, e.target.closest('tr').querySelector('[name=memoCode]'), !payable); if (e.target.name === 'lpayee') vendorGuess(e.target, e.target.closest('tr').querySelector('[name=lvendor]')); });   // 摘要名・支払先名の手入力 → コード（2026-11-23）
         if (payable) {
           $('#ex-lines-total')?.parentElement && ($('#ex-lines-total').parentElement.hidden = true);
           // 支払予定日は業者マスタの支払繰延区分から計算し、手入力で修正できる（D-044。2026-11-12 結合テスト IT-12）。
@@ -2346,8 +2350,8 @@ const mixCard = () => miscCard('配合計算', '月次（実在庫登録・商�
 const ledgerCard = () => miscCard('材料受払表', '配合計算で保存した結果を出力（先に 在庫 → 配合計算 を実行）', invPeriod('mi'), '<button data-act="misc" data-kind="material-ledger" data-src="mi">⇩ Excel</button>'); // 「現行の配合計算処理＋材料受払表印刷」の注記は削除（2026-11-03）
 // 10/19 打合せ：出力指示＝締切日・部門コード（組織マスタ）・区分（ブランク＝工事、1＝組織）・業者コード From〜To（ブランク〜9999999＝全業者）
 const payableReportsCard = () => miscCard('定時請求入力明細表', '部門（工事）→業者→請求明細', `<label class="field">締切日<input type="date" id="pi-date" value="${lastClosing()}"></label>${/* 締日→締切日（定時請求データ入力の入力項目と同じ。2026-11-20 ユーザー指示） */ ''}
-  <label class="field">部門コード<select id="pi-dept">${options(masters.depts || [], '', { blank: '全部門' })}</select></label><label class="field">区分<select id="pi-kb"><option value="1" selected>組織</option><option value="">工事</option></select></label>
-  <div class="filters-break"></div><label class="field">業者コード（From）<input id="pi-vfrom" list="pi-vlist" maxlength="7" style="width:110px"></label><label class="field">業者コード（To）<input id="pi-vto" list="pi-vlist" maxlength="7" style="width:110px" value="9999999"></label><datalist id="pi-vlist">${(masters.vendors || []).map(v => `<option value="${esc(v.code)}">${esc(v.name)}</option>`).join('')}</datalist>`,
+  <label class="field">部門コード<select id="pi-dept">${options(masters.depts || [], '', { blank: '全部門' })}</select></label>${/* 区分（工事／組織）は外し、工事コード From〜To を加える（2026-11-24 ユーザー指示）。部門別で出す */ ''}
+  <div class="filters-break"></div><label class="field">業者コード（From）<input id="pi-vfrom" list="pi-vlist" maxlength="7" style="width:110px"></label><label class="field">業者コード（To）<input id="pi-vto" list="pi-vlist" maxlength="7" style="width:110px" value="9999999"></label><label class="field">工事コード（From）<input id="pi-mfrom" maxlength="7" style="width:110px"></label><label class="field">工事コード（To）<input id="pi-mto" maxlength="7" style="width:110px"></label><datalist id="pi-vlist">${(masters.vendors || []).map(v => `<option value="${esc(v.code)}">${esc(v.name)}</option>`).join('')}</datalist>`,
   '<button data-act="misc" data-kind="payable-input" data-src="pi" id="pi-btn">定時請求データ入力明細表</button>', '業者コード：ブランク＝出力しない／From〜To＝範囲の業者／To に 9999999＝全業者（10/21 打合せ）。削減案6では画面照会で代用可とされていますが、帳票としても出力できます。');
 const pettyReportsCard = () => miscCard('小口現金出納簿', '定額資金前渡制（推定）', rangeInputs('pc', '期間', ...closingRange()),
   '<button data-act="misc" data-kind="petty-book" data-src="pc">小口現金出納簿</button>' + (canWrite() && !isUser01() /* user01 は出さない（2026-11-20） */ ? '<button data-act="fund">定額資金の設定</button><button data-act="refill">現金補充を登録</button>' : ''), '期首に定額資金を受入、支払ごとに残高を表示し、支払合計を次期補充額とします。JV構成員が登録済みなら出資比率で配分列を表示します。');
@@ -2439,7 +2443,7 @@ async function jvAllocDialog() {
 }
 function miscParams(kind, src) {
   if (src === 'mi' || src === 'mx') return { month: $(`#${src}-month`).value, closing: $(`#${src}-closing`).value };
-  if (src === 'pi') return { date: $('#pi-date').value, dept: $('#pi-dept').value, kb: $('#pi-kb').value || '0' /* ブランク（工事）は空文字だと送られずサーバの既定 1（組織）になっていた。2026-11-20 */, vendorFrom: $('#pi-vfrom').value.trim().toUpperCase(), vendorTo: $('#pi-vto').value.trim().toUpperCase() };
+  if (src === 'pi') return { date: $('#pi-date').value, dept: $('#pi-dept').value, kb: '1' /* 区分は外した：部門別（2026-11-24） */, vendorFrom: $('#pi-vfrom').value.trim().toUpperCase(), vendorTo: $('#pi-vto').value.trim().toUpperCase(), memoFrom: $('#pi-mfrom').value.trim().toUpperCase(), memoTo: $('#pi-mto').value.trim().toUpperCase() };
   if (src === 'jv') return { closing: $('#jv-closing').value };
   if (src === 'jvs') return { closing: $('#jv-closing').value, layout: 'summary' };
   if (src === 'pc') return { from: $('#pc-from').value, to: $('#pc-to').value };
@@ -2499,7 +2503,7 @@ async function miscReport(kind, src, showIn) {
     { label: '現場', value: r => `${r.site}${r.site2 ? '　' + r.site2 : ''}` }, { label: '在庫品コード', value: r => r.stock }], cu.rows)).join('') : '<div class="empty">期間内の売上はありません</div>';
   // 現行 HAR136 の並び（2026-11-20 ユーザー指示）：業者の行（住所）→ 伝票ごとに 明細・計・支払条件 → 業者計・内消費税 → 部門計（工事計）→ 総　合　計。相殺・支払率は出さない
   if (kind === 'payable-input') { const sub = (label, a, t) => `<tr class="subtotal"><td colspan="5"></td><td>${label}</td><td class="num">${a}</td><td colspan="2"></td></tr><tr class="subtotal"><td colspan="5"></td><td>（内消費税</td><td class="num">${t}</td><td>）</td><td></td></tr>`;   // 金額は 1 回だけ（2026-11-21）
-    body = `<p class="small">部門 ${esc(d.dept)} ／ 区分 ${d.kb ? '1 組織' : 'ブランク 工事'}${d.allVendors ? '' : ' ／ 業者 ' + esc(d.vendor)}</p>` + (d.depts.length ? d.depts.map(dp => `<h3 style="margin:10px 0 4px">${esc(d.groupLabel)} : ${esc(dp.dept)} ${esc(dp.name)}</h3><div class="table-wrap"><table><thead><tr><th rowspan="2">業者</th><th>業者名</th><th rowspan="2">科目</th><th rowspan="2">内訳</th><th rowspan="2">科目名</th><th rowspan="2">内訳名</th><th rowspan="2" class="num">請求金額</th><th rowspan="2">摘要</th><th rowspan="2">処税率</th></tr><tr><th>伝票No</th></tr></thead><tbody>`
+    body = `<p class="small">部門 ${esc(d.dept)}${d.allVendors ? '' : ' ／ 業者 ' + esc(d.vendor)}${d.memo ? ' ／ 工事コード ' + esc(d.memo) : ''}</p>` + (d.depts.length ? d.depts.map(dp => `<h3 style="margin:10px 0 4px">${esc(d.groupLabel)} : ${esc(dp.dept)} ${esc(dp.name)}</h3><div class="table-wrap"><table><thead><tr><th rowspan="2">業者</th><th>業者名</th><th rowspan="2">科目</th><th rowspan="2">内訳</th><th rowspan="2">科目名</th><th rowspan="2">内訳名</th><th rowspan="2" class="num">請求金額</th><th rowspan="2">摘要</th><th rowspan="2">処税率</th></tr><tr><th>伝票No</th></tr></thead><tbody>`
       + dp.vendors.map(v => `<tr style="background:#fff2cc"><td colspan="9">${esc(v.vendor)}　${esc(v.name)}　${esc(v.address)}</td></tr>` + v.docs.map(x => x.rows.map(r => `<tr><td></td><td>${esc(r.docNo)}</td><td>${esc(r.account)}</td><td>${esc(r.sub)}</td><td>${esc(r.accountName)}</td><td>${esc(r.subName)}</td><td class="num">${yen(r.amount)}</td><td>${esc(r.memo)}</td><td>${esc(r.tax)}</td></tr>`).join('')
         + `<tr><td colspan="6"></td><td class="num">${yen(x.total)}</td><td>（ ${esc(x.term)} ）</td><td></td></tr>`).join('') + sub('業者合計', yen(v.total), yen(v.tax))).join('')
       + `</tbody><tfoot>${sub(esc(d.groupLabel) + '計', yen(dp.total), yen(dp.tax))}</tfoot></table></div>`).join('')
@@ -2587,7 +2591,7 @@ const monthStart = () => thisMonth() + '-01';
 // 締日は毎月20日（選んだ日の月の20日にそろえる）、初めは 売掛金計上 の次の締日。対象期間（前月21日〜当月20日）の A01 をすべて出す（20日締め以外の請求も含む。2026-11-17 ユーザー指示）
 // bankOnly：支払メニューの「銀行別随時支払一覧表」から（帳票の選択は銀行別随時支払一覧表だけ。メニューは支払のまま）
 async function journalListsView(q, bankOnly = false) {
-  const A = actions, kind = meta.journalLists[q.list] ? q.list : 'A01';
+  const A = actions, kind = meta.journalLists[q.list] && (bankOnly || q.list !== 'BANK') ? q.list : 'A01';   // 仕訳・会計連携からは銀行別随時支払一覧表を開かない（2026-11-24）
   const closing = kind !== 'A01' ? '' : /^\d{4}-\d{2}/.test(q.closing || '') ? q.closing.slice(0, 7) + '-20' : (await api('/api/ar-post')).next.to;
   const pFrom = closing ? addMonths(closing.slice(0, 7), -1) + '-21' : '', from = pFrom || q.from || monthStart(), to = closing || q.to || today();
   A.tab = d => go('journals', { tab: d.tab });
@@ -2626,7 +2630,7 @@ async function journalListsView(q, bankOnly = false) {
     if (last) html += total('日付合計', d.dates.find(x => x.date === last).total);
     body = d.slips.length ? `<div class="table-wrap"><table class="jl"><thead>${head}</thead><tbody>${html}</tbody></table></div>` : '<div class="empty">対象期間の仕訳はありません</div>';
   }
-  const kinds = Object.entries(meta.journalLists).filter(([code]) => !bankOnly || code === 'BANK').map(([code, v]) => ({ code, name: v.title }));
+  const kinds = Object.entries(meta.journalLists).filter(([code]) => (bankOnly ? code === 'BANK' : code !== 'BANK' /* 仕訳・会計連携のメニューには置かない（2026-11-24 ユーザー指示。支払 → 銀行別随時支払一覧表だけ） */)).map(([code, v]) => ({ code, name: v.title }));
   return page('仕訳・会計連携', '自動仕訳リストは現行帳票（⑥⑦⑨・資料ア〜エ）と同じ項目・2段の並びで表示・Excel出力します（削減案5：同一フォーマット）。',
     `<select name="list" data-filter>${options(kinds, kind, { label: r => r.name })}</select>${closing ? `<label class="field">締日<span style="display:flex;align-items:center;gap:4px"><input type="month" name="closing" value="${closing.slice(0, 7)}" data-filter style="width:140px">20日</span></label>`
        : `<input type="date" name="from" value="${from}" data-filter><input type="date" name="to" value="${to}" data-filter>`}${bankOnly ? '' : '<input type="hidden" name="tab" value="lists" data-filter>'}${kind === 'BANK' || isUser01() ? '' : `<label class="field">状態<select name="status" data-filter data-after-search>${JL_STATUS.map(([k, l]) => `<option value="${k}"${k === jst ? ' selected' : ''}>${l}</option>`).join('')}</select></label>`}

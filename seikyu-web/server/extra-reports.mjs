@@ -29,12 +29,16 @@ export async function payableInputList(c, q) {
   const cmp = (a, b) => (/^\d+$/.test(a) && /^\d+$/.test(b) ? Number(a) - Number(b) : a.localeCompare(b));
   check(!vFrom || toAll || cmp(vFrom, vTo) <= 0, `業者コードの範囲が不正です（From ${vFrom} ＞ To ${vTo}）`);
   const inRange = code => !none && (!vFrom || cmp(up(code), vFrom) >= 0) && (toAll || cmp(up(code), vTo) <= 0);
+  // 工事コード（摘要コード）From〜To（2026-11-24 ユーザー指示。区分（工事／組織）は外して部門別だけ）：両方ブランクは全件。指定したときは工事コードのない明細は出さない
+  const mFrom = up(q.memoFrom), mTo = up(q.memoTo), memoAny = !!(mFrom || mTo);
+  check(!mFrom || !mTo || cmp(mFrom, mTo) <= 0, `工事コードの範囲が不正です（From ${mFrom} ＞ To ${mTo}）`);
+  const memoIn = code => { const m = up(code); return !memoAny || (!!m && (!mFrom || cmp(m, mFrom) >= 0) && (!mTo || cmp(m, mTo) <= 0)); };
   const all = !vFrom && toAll;
   const fetch = async (from, to) => (await rows(c, `SELECT d.document_no, d.bill_no, d.booked_on, d.due_on, d.memo, l.gross_amount, l.tax_amount, l.memo line_memo, l.memo_code, l.department_code, l.account_code, l.sub_code, l.source_tax_code, a.account_name, s.sub_name, v.vendor_code, v.vendor_name, v.pref, v.addr1, v.addr2,
       (SELECT COALESCE(SUM(pa.amount),0) FROM payment_allocation pa JOIN payment p ON p.payment_id=pa.payment_id AND p.status='POSTED' WHERE pa.expense_id=d.expense_id) paid
     FROM expense_document d JOIN expense_line l ON l.expense_id=d.expense_id LEFT JOIN account_subject a ON a.account_code=l.account_code LEFT JOIN account_subsubject s ON s.account_code=l.account_code AND s.sub_code=l.sub_code
     LEFT JOIN vendor v ON v.vendor_id=d.vendor_id WHERE d.expense_kind='PAYABLE' AND d.status='POSTED' AND d.booked_on BETWEEN ? AND ?${dept ? ' AND l.department_code=?' : ''} ORDER BY ${kb ? 'l.department_code' : 'l.memo_code'}, v.vendor_code, d.bill_no, d.document_no, l.line_no`, dept ? [from, to, dept] : [from, to]))
-    .filter(r => inRange(r.vendor_code));
+    .filter(r => inRange(r.vendor_code) && memoIn(r.memo_code));
   const ls = await fetch(from, to);
   // 支払条件（現行 HAR136 の業者合計の上の行「（ 翌月 15 日払 ）」）：業者マスタの支払繰延区分（code_m VPAY）。繰延最低限度額以上は支払繰延区分の 1 か月後（2026-11-23）。未設定は翌月末
   const vcodes = [...new Set(ls.map(r => r.vendor_code))];
@@ -58,8 +62,8 @@ export async function payableInputList(c, q) {
   for (const dp of depts) for (const v of dp.vendors) for (const x of v.docs) x.term = termOf(v.vendor, x.total);
   const vendorLabel = none ? '未入力（出力しない）' : all ? '全業者（9999999）' : vFrom === vTo ? vFrom : `${vFrom || '（最初）'} 〜 ${vTo}`;
   return { title: '定時請求データ入力明細表' /* 現行の帳票名どおり（組織別／工事別）は付けない。部門は表題の下に（2026-11-20 ユーザー指示） */, ref: 'NO30 / 添付帳票⑩（HAR136）', month, date: cdate, from, to, depts, total: depts.reduce((n, x) => n + x.total, 0), tax: depts.reduce((n, x) => n + (x.tax || 0), 0),
-    kb, allVendors: !!all, groupLabel: kb ? '部門' : '工事', dept: dept ? `${dept} ${deptNames[dept] || ''}`.trim() : '全部門', vendor: vendorLabel,
-    note: '月度は20日締め（現行と同じ）。区分 1＝組織（部門別）、ブランク＝工事（摘要コード＝工事コード別）。業者コードはブランクなら出力しない・From〜To で範囲・To に 9999999 で全業者（10/21）。請求No は業者ごとの4桁連番。発注残金額は発注管理が対象外のため0、相殺金額は定時請求時点では0（支払時に相殺）。現比は振込のみのため削除（10/19）。' };
+    kb, allVendors: !!all, groupLabel: kb ? '部門' : '工事', dept: dept ? `${dept} ${deptNames[dept] || ''}`.trim() : '全部門', vendor: vendorLabel, memo: memoAny ? (mFrom === mTo ? mFrom : `${mFrom || '（最初）'} 〜 ${mTo || '（最後）'}`) : '',
+    note: '月度は20日締め（現行と同じ）。部門別（区分は 2026-11-24 に外した）。工事コード（摘要コード）は From〜To で範囲、ブランクは全件。業者コードはブランクなら出力しない・From〜To で範囲・To に 9999999 で全業者（10/21）。請求No は業者ごとの4桁連番。発注残金額は発注管理が対象外のため0、相殺金額は定時請求時点では0（支払時に相殺）。現比は振込のみのため削除（10/19）。' };
 }
 // ---------- NO33 小口現金出納簿（定額資金前渡制を仮定） ----------
 export async function pettyCashBook(c, q) {
@@ -173,7 +177,7 @@ export async function extraBook(c, kind, q) {
     // 部門の行 → 業者ごとに「業者 : コード　名称　住所」の行（幅いっぱい）→ 見出し 1 段 → 伝票ごとに 明細・請求金額の計・支払条件 → 業者計・（内消費税）
     // 部門（工事）が 1 つだけなら、部門の行を出さず表の上（抽出条件の行）に「部門 : コード 名称」を出す（2026-11-21 ユーザー指示）
     const d = await payableInputList(c, q), one1 = d.depts.length === 1 ? d.depts[0] : null;
-    const out = head(d, `${one1 ? `${d.groupLabel} : ${`${one1.dept} ${one1.name || ""}`.trim()}　` : d.dept === '全部門' ? '' : '部門 ' + d.dept + '　'}${d.date ? `締切日 ${d.date}` : `${d.month} 月度`}　区分 ${d.kb ? '組織' : '工事'}${d.allVendors ? '' : '　業者 ' + d.vendor}`);   // 出力日は右上（2026-11-21 ユーザー指示）。全業者（9999999）・全部門は表示しない、区分は 組織／工事 だけ（2026-11-20 ユーザー指示）
+    const out = head(d, `${one1 ? `${d.groupLabel} : ${`${one1.dept} ${one1.name || ""}`.trim()}　` : d.dept === '全部門' ? '' : '部門 ' + d.dept + '　'}${d.date ? `締切日 ${d.date}` : `${d.month} 月度`}${d.allVendors ? '' : '　業者 ' + d.vendor}${d.memo ? '　工事コード ' + d.memo : ''}`);   /* 区分は外した（2026-11-24） */   // 出力日は右上（2026-11-21 ユーザー指示）。全業者（9999999）・全部門は表示しない、区分は 組織／工事 だけ（2026-11-20 ユーザー指示）
     // 右上は現行 HAR136 どおり会社名（会社情報の会社名1）と頁（2026-11-21 ユーザー指示）。表題の行の表題以外は listify が右上に出す
     const co = await one(c, 'SELECT company_name1 FROM company_info_m ORDER BY company_info_id LIMIT 1');
     if (co?.company_name1) out[0].push(co.company_name1);
