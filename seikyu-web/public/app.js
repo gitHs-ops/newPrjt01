@@ -396,7 +396,10 @@ const SUBMENUS = {
 };
 // 1:n 入力画面（現場2・内訳科目2、2026-11-06 ／得意先別単価2、2026-11-07 ユーザー指示）は元のマスタの次に置く（元のマスタの画面はそのまま）。定義は ONE_TO_MANY
 // マスタ2 のある元のマスタ（現場・内訳科目・得意先別単価・金融機関）は user01 には出さない。小メニューの名前は「…1」（例 現場マスタ1。2026-11-24 ユーザー指示）
-const subsOf = name => (name === 'masters' && meta?.masters ? Object.entries(meta.masters).flatMap(([k, x], _, __, two = Object.values(ONE_TO_MANY).some(o => o.after === k)) => [{ k, l: (two ? x.label + '1' : x.label) + (noEditU01(k) ? '（照会のみ）' : ''), q: { kind: k }, noUser01: two }, ...Object.entries(ONE_TO_MANY).filter(([, x]) => x.after === k).map(([k2, x]) => ({ k: k2, l: x.label + (noEditU01(x.child) ? '（照会のみ）' : ''), q: { kind: k2 } }))]) : SUBMENUS[name] || null);
+// マスタ名の（…）はメニューに出さず「〇〇マスタ」とし、一覧画面の見出しに（…）を付ける（例 メニュー 金融機関マスタ → 見出し 金融機関マスタ（銀行・支店）。user01 の照会のみも見出しだけ。2026-11-24 ユーザー指示）
+const masterName = (label, suffix = '', ro = false) => { const m = label.match(/^([^（]+)（(.+)）$/), base = m ? m[1].trim() : label, name = (m && !base.endsWith('マスタ') ? base + 'マスタ' : base) + suffix, note = [m?.[2], ro ? '照会のみ' : ''].filter(Boolean).join('・');
+  return { l: name, title: note ? `${name}（${note}）` : name }; };
+const subsOf = name => (name === 'masters' && meta?.masters ? Object.entries(meta.masters).flatMap(([k, x], _, __, two = Object.values(ONE_TO_MANY).some(o => o.after === k)) => [{ k, ...masterName(x.label, two ? '1' : '', noEditU01(k)), q: { kind: k }, noUser01: two }, ...Object.entries(ONE_TO_MANY).filter(([, x]) => x.after === k).map(([k2, x]) => ({ k: k2, ...masterName(x.label, '', noEditU01(x.child)), q: { kind: k2 } }))]) : SUBMENUS[name] || null);
 const TITLES = {};
 // 非表示にするメニュー（2026-10-22 ダッシュボードは使わない）。初期画面は表示メニューの先頭
 const HIDDEN_MENUS = new Set(['dashboard']);
@@ -493,7 +496,7 @@ async function render({ fresh = false } = {}) {
     // 小メニュー：該当する区画だけ表示（data-sub はスペース区切りで複数可）。先頭以外では上部の検索・登録を隠す
     if (route.sub) { content.querySelectorAll('[data-sub]').forEach(el => (el.hidden = !el.dataset.sub.split(' ').includes(route.sub))); const tools = content.querySelector('.page-head > .filters'); if (tools) tools.hidden = !route.subTools; }
     // 画面の見出しは開いている小メニュー名（大メニュー名はパンくずに表示）
-    const h1 = content.querySelector('.page-head h1'); if (h1 && route.subItem) h1.textContent = route.subItem.l;
+    const h1 = content.querySelector('.page-head h1'); if (h1 && route.subItem) h1.textContent = route.subItem.title || route.subItem.l;
     // カードの見出しが小メニュー名と同じなら出さない（より下位の名称のカードはそのまま）
     if (route.subItem) {
       const norm = t => t.replace(/[\s（）()・、,]|NO/g, ''), base = t => t.split(/[（(]/)[0].trim(), sub = norm(route.subItem.l);
