@@ -46,7 +46,7 @@ async function purchaseInput(c, p) {
     if (!String(l.item || '').trim()) {
       check(!Number(String(l.quantity || 0).replace(/,/g, '')) && String(l.amount ?? '').trim() !== '', `${label}: 商品コードを入力してください（運賃は商品コードなし・数量 0 で金額を入力）`);
       const amount = yen(l.amount, `${label}の運賃`, { negative: true }); check(amount !== 0, `${label}: 運賃を入力してください`);
-      out.push({ item: null, qty: '0.00', price: 0, net: amount, tax: mustDecode(l.taxCode || '241', `${label}の処税率`).code, lineKind: '2', unit: null, memo: text(l.memo, `${label}の摘要`, 500, { required: false }) || '運賃' });
+      out.push({ item: null, qty: '0.00', price: 0, net: amount, tax: mustDecode(l.taxCode || '000', `${label}の処税率`).code, lineKind: '2', unit: null, memo: text(l.memo, `${label}の摘要`, 500, { required: false }) || '運賃' });
       continue;
     }
     const it = await one(c, 'SELECT * FROM item_m WHERE item_cd=?', [String(l.item || '')]); check(it && it.delete_f !== '1', `${label}: 有効な商品を選択してください`);
@@ -55,7 +55,7 @@ async function purchaseInput(c, p) {
     // 材料の運賃（現行⑭ 10900 アスファルト 0.00 … 運賃）は、画面で数量を空欄にして金額を入れた行が lineKind=2 で来る（2026-11-01）
     // 運賃（30001）も一般の商品と同じ：商品名では決めない（2026-11-06 ユーザー指示）
     const freight = String(l.lineKind || '1') === '2';
-    const tax = mustDecode(l.taxCode || '241', `${label}の処税率`).code;
+    const tax = mustDecode(l.taxCode || '000', `${label}の処税率`).code;   // 空欄は 空白・空白・0（消費税なし。運賃も同じ。2026-11-24 打合せ No.22。以前は 241）
     if (freight) {
       const amount = yen(l.amount, `${label}の運賃`, { negative: true }); check(amount !== 0, `${label}: 運賃を入力してください`);
       // 運賃の商品以外の金額だけの行（単価調整のマイナスなど。11/04 打合せ No.17・18）は摘要に「運賃」と入れない

@@ -21,6 +21,7 @@ export function normalize(v) {
   let s = raw.replaceAll('　', ' ').replace(/[^\d ]/g, '');
   if (!s.trim()) return null;
   if (s.trim() === '9') return '090'; // 「 9 」「  9」「9」= 対象外
+  if (/^0+$/.test(s.trim())) return '000'; // 「  0」＝空白・空白・0＝消費税なし（商品仕入の既定。2026-11-24 打合せ No.22）
   s = s.padStart(3, ' ').replaceAll(' ', '0');
   return s.length === 3 && '012'.includes(s[0]) && TAX_KIND[s[1]] && s[2] in TAX_RATE ? s : null;
 }
@@ -30,21 +31,21 @@ export function normalize(v) {
 export function decode(v) {
   const code = normalize(v); if (!code) return null;
   const [incl, kind, r] = code, rate = TAX_RATE[r], k = Number(kind);
-  const side = k <= 3 ? 'S' : k <= 7 ? 'P' : '';
+  const side = k === 0 || k === 9 ? '' : k <= 3 ? 'S' : 'P';
   // 「 41」は消費税区分.xlsx の例示どおり非課税（2026-11-16。外税 10% として計算していたのはプロトタイプの誤り）
   // 仕入（2桁目 4・5・6）は 1桁目 空白＝非課税、1＝内税（2026-11-24 打合せ No.16。外税 2 は実際には使わないが、入っていれば外税）。売上（1〜3）は従来どおり空白＝外税
   const taxable = rate > 0 && [1, 4, 5, 6].includes(k) && !NON_TAX.has(code) && !(incl === '0' && side === 'P');
   const excl = taxable && incl !== '1';
   const how = !taxable ? '' : excl ? '外税' : '税込';
-  const name = k === 9 ? '対象外' : NON_TAX.has(code) || (incl === '0' && side === 'P') ? '非課税' : !taxable && [4, 5, 6].includes(k) ? `非課税・不課税（${TAX_KIND[k]}）` : `${TAX_KIND[k]}${rate && [1, 4, 5, 6].includes(k) ? ' ' + rate + '%' : ''}${how ? `（${how}）` : ''}`;
-  return { code, display: (incl === '0' ? ' ' : incl) + kind + (r === '0' ? ' ' : r), incl, kind: k, rate, side, taxable, excl, name };
+  const name = k === 0 ? '消費税なし' : k === 9 ? '対象外' : NON_TAX.has(code) || (incl === '0' && side === 'P') ? '非課税' : !taxable && [4, 5, 6].includes(k) ? `非課税・不課税（${TAX_KIND[k]}）` : `${TAX_KIND[k]}${rate && [1, 4, 5, 6].includes(k) ? ' ' + rate + '%' : ''}${how ? `（${how}）` : ''}`;
+  return { code, display: k === 0 ? '  0' : (incl === '0' ? ' ' : incl) + kind + (r === '0' ? ' ' : r), incl, kind: k, rate, side, taxable, excl, name };
 }
 export const mustDecode = (v, label = '処税率') => { const d = decode(v); check(d, `${label}「${v ?? ''}」は処税率として不正です（例 141・148・041・011・090）`); return d; };
 // 税額：税込なら内税計算、外税なら金額×税率。円未満切捨て（端数処理 Q02）。
 export function taxOf(amount, v) { const d = decode(v); if (!d?.taxable) return 0; const r = Math.round(d.rate * 10); return Math.floor(amount * r / (d.excl ? 1000 : 1000 + r)); }
 
 // 画面の選択肢（よく使うもの）。これ以外の組合せも decode できれば入力可。251（非課税売上対応仕入 10% 外税）は 2026-11-01 追加
-const CATALOG_CODES = ['090', '011', '111', '018', '118', '211', '020', '030', '141', '148', '241', '248', '151', '251', '161', '070', '041'];
+const CATALOG_CODES = ['000', '090', '011', '111', '018', '118', '211', '020', '030', '141', '148', '241', '248', '151', '251', '161', '070', '041'];
 export const CATALOG = CATALOG_CODES.map(decode);
 // 税率区分マスタの内容を反映する（list：[{ digit, rate }]）。0 は 0% 固定。CATALOG（画面の選択肢）も作り直す
 export function setRateDigits(list) {

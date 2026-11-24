@@ -1792,7 +1792,8 @@ const taxSelect = (name, value) => `<select name="${name}" style="width:130px">$
 const tax3Show = c => { const s = String(c ?? ''); return s.length === 3 ? [s[0] === '0' ? '' : s[0], s[1].trim(), s[2] === '0' ? '' : s[2].trim()] : ['', '', '']; };
 // 3 つの入力欄の右に各桁の意味（server/taxcode.mjs と同じ。2026-11-23 ユーザー指示）。1桁目 1=内税・空白=非課税（仕入。2026-11-24 打合せ No.16。2=外税は使わない）、2桁目 税区分、3桁目 税率区分（空白=0%）
 const TX3_KIND = { 1: '課税売上', 2: '非課税売上', 3: '輸出売上', 4: '課税売上対応仕入', 5: '非課税売上対応仕入', 6: '共通対応仕入', 7: '非課税仕入', 9: '対象外' }, TX3_RATE = { 0: 0, 1: 10, 2: 3, 3: 6, 4: 2.8, 5: 5, 8: 8 };
-const tax3Note = c => { const s = String(c ?? '').padEnd(3, ' ').replace(/0/g, ' '), [a, b, r] = s, ng = '<span class="check-ng">不正</span>';
+const tax3Note = c => { if (/^[ 0]*0$/.test(String(c ?? '')) && String(c ?? '').length === 3) return '<span>空白・空白・0 消費税なし</span>';   /* 商品仕入の既定（2026-11-24 打合せ No.22） */
+  const s = String(c ?? '').padEnd(3, ' ').replace(/0/g, ' '), [a, b, r] = s, ng = '<span class="check-ng">不正</span>';
   const one = a === '1' ? '1 税込（内税）' : a === '2' ? '2 外税' : a === ' ' ? (['4', '5', '6'].includes(b) ? '空白 非課税' : '空白 外税') : `${esc(a)} ${ng}`;   /* 仕入（2 桁目 4〜6）の 1 桁目空白は非課税（2026-11-24 打合せ No.16） */
   const two = b === ' ' ? '空白 <span class="check-ng">要入力</span>' : TX3_KIND[b] ? `${b} ${TX3_KIND[b]}` : `${esc(b)} ${ng}`;
   const three = r === ' ' ? '空白 0%' : r in TX3_RATE ? `${r} ${TX3_RATE[r]}%` : `${esc(r)} ${ng}`;
@@ -1821,12 +1822,12 @@ VIEWS.purchases = async q => {
   const cols = [{ name: 'item', label: '商品コード', cell: () => '<input name="item" list="dl-pu-items" maxlength="12" style="width:90px" autocomplete="off">' }, { name: 'iname', label: '商品名', cell: () => '<span data-iname class="muted small">商品コードを入力</span>' },
     { name: 'quantity', label: '仕入数量', cell: () => '<input name="quantity" class="num" style="width:90px">' }, { name: 'unit', label: '単位', cell: () => '<input name="unit" maxlength="1" inputmode="numeric" style="width:36px" title="1: t　2: 袋　3:"> <span data-unit class="muted small"></span>', foot: unitGuide },
     { name: 'price', label: '仕入単価', cell: () => '<input name="price" class="num" style="width:100px" inputmode="decimal" placeholder="マスタ単価" title="小数2桁まで（例 2267.40）">' }, { name: 'amount', label: '仕入金額', sum: 1, cell: () => '<input name="amount" class="num" style="width:120px" placeholder="自動">' },
-    { name: 'taxCode', label: '処税率', cell: () => tax3('') /* 定時請求・小口現金と同じ 1 桁ずつの入力欄 3 つ（2026-11-23 ユーザー指示。全部空白はサーバの既定 241） */ }];
+    { name: 'taxCode', label: '処税率', cell: () => tax3('') /* 定時請求・小口現金と同じ 1 桁ずつの入力欄 3 つ（2026-11-23 ユーザー指示。全部空白はサーバの既定 空白・空白・0＝消費税なし。2026-11-24 打合せ No.22） */ }];
   // 単位は現行画面（HAW010）の下のガイダンスどおり 1〜3 で入力し、右に単位名（単位マスタからの取得は保留。2026-11-03）
   const calc = tr => { const f = n => tr.querySelector(`[name=${n}]`), code = f('item').value.trim(), hit = masters.items.find(i => i.code === code && !noPurchase(i)), fr = false, nm = tr.querySelector('[data-iname]'), un = tr.querySelector('[data-unit]');
     nm.innerHTML = code && !hit ? `<span class="check-ng">${masters.items.some(i => i.code === code) ? '仕入では使えない商品' : '該当なし'}</span>` : hit ? esc(hit.name) : '商品コードを入力'; nm.classList.toggle('muted', !hit);
     // 運賃「1: 運賃の登録」（現行 HAW010。2026-11-20 ユーザー指示）：全行 金額だけ入力（数量・単位・単価は入力しない）。商品コードは任意（空欄は「運賃」）
-    // 運賃の登録では処税率を入力できない（2026-11-24 ユーザー指示）。値は変えない（新しい行は空欄＝サーバの既定 241、修正は登録済みの値のまま）
+    // 運賃の登録では処税率を入力できない（2026-11-24 ユーザー指示）。値は変えない（新しい行は空欄＝サーバの既定 空白・空白・0＝消費税なし、修正は登録済みの値のまま）
     { const frH = tr.closest('form')?.querySelector('[name=freight]')?.value === '1'; tr.querySelectorAll('.tx3 [data-tx]').forEach(el => { el.disabled = frH; }); }
     if (tr.closest('form')?.querySelector('[name=freight]')?.value === '1') { for (const n of ['quantity', 'unit', 'price']) { f(n).value = ''; f(n).disabled = true; } un.textContent = ''; if (f('amount').readOnly) f('amount').value = ''; f('amount').readOnly = false; f('amount').placeholder = '運賃の金額'; f('amount').title = ''; if (!code) { nm.textContent = '運賃'; nm.classList.remove('muted'); } return Number(String(f('amount').value).replace(/,/g, '') || 0); }
     // 材料の運賃（現行⑭「10900 アスファルト 0.00 t 0.00 1,108,214- 運賃」）：数量を空欄（0）にすると金額を直接入力でき、その行は運賃（2026-11-01）
