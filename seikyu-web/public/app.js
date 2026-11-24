@@ -2835,6 +2835,8 @@ function masterForm(kind, r, init) {
       if (kind === 'jv') jvSumCheck(f, r);
       // 出資比率は編集画面では変えられない（1 行だけ変えると合計 100% にならないため。比率の変更は［出資比率の一括登録］。2026-11-24 ユーザー指示）
       if (kind === 'jv' && r && f.ratio) { f.ratio.disabled = true; const h = f.ratio.closest('.field')?.querySelector('small'); if (h) h.textContent = '比率の変更は［出資比率の一括登録］で同じ月度の構成員をまとめて登録'; }
+      // 「有効」も同じ理由で編集画面では変えられない（構成員の増減は［出資比率の一括登録］。2026-11-24 ユーザー指示）
+      if (kind === 'jv' && r && f.active) { f.active.disabled = true; f.active.closest('label').title = '構成員の有効・無効は［出資比率の一括登録］で同じ月度の構成員をまとめて登録'; }
       if (f.site && f.customer) f.customer.onchange = () => (f.site.innerHTML = siteOptions(f.customer.value, '', '（得意先共通）'));
       // 削除：使用中のコードはサーバーが拒否し、無効化を案内する。管理者だけに表示し、項目が多くても見えるよう下のボタン列の左端に置く（2026-11-06 ユーザー指示）
       // user01 はマスタの［削除］を出さない（2026-11-24 ユーザー指示。無効化で対応）
