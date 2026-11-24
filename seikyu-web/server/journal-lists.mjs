@@ -301,19 +301,26 @@ export async function journalListBook(c, q) {
 }
 // 現行 HAR321 の並び（2026-11-04）：ｺｰﾄﾞ 業者名 伝票No. 日付 請求金額 相殺金額 安全協力費 手数料 業者計 支払方法計 支払方法 銀行名 支店名（銀行・支店は支払元）。
 const BANKPAY_W = [9, 26, 9, 10, 13, 11, 11, 10, 13, 13, 11, 16, 14];
+// 1 ページの明細・合計の行数：A4 横・上下余白 0.6in の 509pt から見出し（約 82pt）を引き、行 15pt（縮小なしで数えるので縮小されても必ず入る）
+const BANKPAY_ROWS = 28;
 // 支払日ごとに「YY 年 M 月 D 日支払」、銀行ごとに銀行計、支払日ごとに日付計（金額 4 列と支払方法計）
-// 2026-11-19 ユーザー指示：画面と同じく支払日ごとに別の様式で出力（シートは分けず 1 シートに縦に並べる。表題は 1 回だけ）。支払日は見出しの上の帯ではなく表題の下（抽出条件の行）に出す
+// 2026-11-24 ユーザー指示：支払日ごとに改ページ（11/24 No.28「支払日ごとに 1 枚」）。各ページに表題。左上に帳票ID・出力日時、右上に会社名・頁（頁はページの右上。フッターの頁は出さない）。
+// 「yy 年 mm 月 dd 日支払」は支払方法の列の上（右寄り）。いずれも現行 HAR321 どおり
 export async function bankPaymentBook(c, q) {
   const d = await bankPaymentList(c, q), yy = x => `${x.slice(2, 4)}/${x.slice(5, 7)}/${x.slice(8, 10)}`;
   const head = ['ｺｰﾄﾞ', '業　者　名', '伝票No.', '日付', '請求金額', '相殺金額', '安全協力費', '手数料', '業者計', '支払方法計', '支払方法', '銀　行　名', '支　店　名'].map(H);
   const sum = (x, label, bank, branch) => ['', '', '', '', S(x.billed), S(x.offset), S(x.safety), S(x.fee), '', S(x.total), S(label), bank === undefined ? '' : S(bank), branch === undefined ? '' : S(branch)];
+  const co = await one(c, 'SELECT company_name1 FROM company_info_m ORDER BY company_info_id LIMIT 1');
+  const W = BANKPAY_W.length, top = Array.from({ length: W }, (_, j) => (j === 0 ? `HAR321　出力日時 ${today()} ${new Date(Date.now() + 9 * 3600e3).toISOString().slice(11, 19)}`   /* yy/mm/dd hh:mm:ss（現行どおり。2026-11-25 ユーザー指示） */ : j === W - 1 ? { v: co?.company_name1 || '', s: 'tInfo' } : ''));
   const sheets = d.days.map(day => {
-    const [y, m, dd] = day.date.split('-'), label = `${y.slice(2)} 年 ${Number(m)} 月 ${Number(dd)} 日支払`;
-    const out = [[T(d.title)], [label], [], head];   // 期間は出さない（2026-11-19 ユーザー指示）
-    for (const g of day.banks) { for (const r of g.rows) out.push([r.vendor, r.vendorName, r.no, yy(r.date), r.billed, r.offset, r.safety, r.fee, r.vendorTotal, r.methodTotal ?? '', r.method, r.fromBankName, r.fromBranchName]); out.push([], sum(g, '銀　行　計', g.bankName, g.branchName)); }
-    out.push([], sum(day.sums, '日　付　計'));
-    return { name: d.title, rows: out, widths: BANKPAY_W };
-  });
-  if (!sheets.length) sheets.push({ name: d.title, rows: [[T(d.title)], [`期間 ${d.from} 〜 ${d.to}`], [], ['対象期間の支払はありません']], widths: BANKPAY_W });
-  return { name: `${d.title}_${d.from}_${d.to}.xlsx`, body: xlsx([{ name: d.title, stack: sheets }]) };
+    const [y, m, dd] = day.date.split('-'), label = Array.from({ length: W }, (_, j) => (j === 10 ? { v: `${y.slice(2)} 年 ${m} 月 ${dd} 日支払`, s: 'tInfo' } : ''));
+    const body = [];
+    for (const g of day.banks) { for (const r of g.rows) body.push([r.vendor, r.vendorName, r.no, yy(r.date), r.billed, r.offset, r.safety, r.fee, r.vendorTotal, r.methodTotal ?? '', r.method, r.fromBankName, r.fromBranchName]); body.push(sum(g, '銀　行　計', g.bankName, g.branchName)); }
+    body.push(sum(day.sums, '日　付　計'));
+    // 1 つの支払日が 1 ページに入らないときは BANKPAY_ROWS 行ごとに改ページし、続きのページにも同じ見出し（帳票ID・出力日時・会社名・頁・題名・支払日・列見出し）を出す
+    const pages = []; for (let i = 0; i < body.length; i += BANKPAY_ROWS) pages.push(body.slice(i, i + BANKPAY_ROWS));
+    return pages.map(rs => ({ name: d.title, rows: [top, [T(d.title)], label, head, ...rs], widths: BANKPAY_W, pageTop: true }));   // 期間は出さない（2026-11-19 ユーザー指示）
+  }).flat();
+  if (!sheets.length) sheets.push({ name: d.title, rows: [top, [T(d.title)], [`期間 ${d.from} 〜 ${d.to}`], [], ['対象期間の支払はありません']], widths: BANKPAY_W, pageTop: true });
+  return { name: `${d.title}_${d.from}_${d.to}.xlsx`, body: xlsx([{ name: d.title, stack: sheets, pageBreak: true }]) };
 }
