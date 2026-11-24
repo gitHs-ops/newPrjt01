@@ -2678,16 +2678,17 @@ function pageNav(list, page, per = 15) {
 // 1:n 入力画面（2026-11-06 ユーザー指示）：①親マスタの一覧（子の件数）→ ②選んだ親の子一覧 → ［編集］で子マスタの編集、［＋ 新規登録］で空欄の登録画面（親だけ入れておく）
 // 現場2 = 得意先 → 現場、内訳科目2 = 勘定科目 → 内訳科目、得意先別単価2 = 商品 → 得意先別単価（商品ごとの得意先の単価、2026-11-07 ユーザー指示）。データは元のマスタと同じ
 const priceSite = r => { if (!r.site) return '（得意先共通）'; const s = (masters.sites || []).find(x => x.customer === r.customer && `${x.code}|${x.suffix}` === r.site); return `${r.site.replace('|', '-')} ${s?.name || ''}`; };
+// 小メニューの名前は元のマスタと同じ（「2」を付けない。元のマスタは「…1」。2026-11-24 ユーザー指示）
 const ONE_TO_MANY = {
-  sites2: { label: '現場マスタ2', after: 'sites', parent: 'customers', child: 'sites', ref: 'customer', pLabel: '得意先', cLabel: '現場', cCode: '現場コード', cKey: r => [r.code, `${r.code}-${r.suffix}`, `${r.code}${r.suffix}`],
+  sites2: { label: '現場マスタ', after: 'sites', parent: 'customers', child: 'sites', ref: 'customer', pLabel: '得意先', cLabel: '現場', cCode: '現場コード', cKey: r => [r.code, `${r.code}-${r.suffix}`, `${r.code}${r.suffix}`],
     cols: [['現場コード', r => r.code], ['枝番', r => r.suffix], ['現場名1', r => r.name], ['現場名2', r => r.name2 || '']] },
-  subaccounts2: { label: '内訳科目マスタ2', after: 'subaccounts', parent: 'accounts', child: 'subaccounts', ref: 'account', pLabel: '勘定科目', cLabel: '内訳科目', cCode: '内訳コード', cKey: r => [r.code],
+  subaccounts2: { label: '内訳科目マスタ', after: 'subaccounts', parent: 'accounts', child: 'subaccounts', ref: 'account', pLabel: '勘定科目', cLabel: '内訳科目', cCode: '内訳コード', cKey: r => [r.code],
     cols: [['内訳コード', r => r.code], ['内訳名', r => r.name]] },
-  prices2: { label: '得意先別単価2', after: 'prices', parent: 'items', child: 'prices', ref: 'item', pLabel: '商品', cLabel: '得意先別単価', cCode: '得意先コード', cKey: r => [r.customer],
+  prices2: { label: '得意先別単価', after: 'prices', parent: 'items', child: 'prices', ref: 'item', pLabel: '商品', cLabel: '得意先別単価', cCode: '得意先コード', cKey: r => [r.customer],
     cols: [['得意先', r => `${r.customer} ${nameOf('customers', r.customer)}`], ['現場', priceSite], ['単価', r => yen(r.price), 1], ['運賃', r => yen(r.freight), 1],
       ['適用単価', r => r.applyPrice ? yen(r.applyPrice) : '', 1], ['適用運賃', r => r.applyFreight ? yen(r.applyFreight) : '', 1], ['適用期間', r => r.start ? `${r.start}〜${r.end}` : '']] },
   // 金融機関2 = 銀行 → 支店（2026-11-19 ユーザー指示）。金融機関マスタは銀行と支店が同じマスタ（支店番号が空欄＝銀行）なので split で親子に分ける
-  bankdir2: { label: '金融機関（銀行・支店）2', after: 'bankdir', parent: 'bankdir', child: 'bankdir', ref: 'bank', pLabel: '銀行', cLabel: '支店', split: true, cCode: '支店番号', cKey: r => [r.branch],
+  bankdir2: { label: '金融機関（銀行・支店）', after: 'bankdir', parent: 'bankdir', child: 'bankdir', ref: 'bank', pLabel: '銀行', cLabel: '支店', split: true, cCode: '支店番号', cKey: r => [r.branch],
     cols: [['支店番号', r => r.branch], ['支店名', r => r.name], ['カナ（全銀用）', r => r.kana || '']] },
 };
 async function oneToManyView(q) {
