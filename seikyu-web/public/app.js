@@ -1492,7 +1492,7 @@ const lrTaxCode = l => (l.acc === '8850' ? (l.sub === 'D' ? '141' : l.sub === 'L
 const lrTaxDef = l => { const c = lrTaxCode(l); return c === '9' ? '090' : c; };
 const lrTaxEff = l => l.tax || lrTaxDef(l);
 const lrTaxAuto = l => { const s = String(lrTaxEff(l)).padStart(3, ' ').replace(/ /g, '0'), rate = { 1: 10, 2: 3, 3: 6, 4: 2.8, 5: 5, 8: 8 }[s[2]] || 0, r = Math.round(rate * 10), a = lrNum(l.amount) || 0;
-  return s.length === 3 && r && [1, 4, 5, 6].includes(Number(s[1])) && s !== '041' /* 空白は 0、041 は非課税（server/taxcode.mjs と同じ） */ ? Math.floor(a * r / (1000 + r)) : 0; };
+  return s.length === 3 && r && [1, 4, 5, 6].includes(Number(s[1])) && s !== '041' && !(s[0] === '0' && [4, 5, 6].includes(Number(s[1]))) /* 空白は 0、041・仕入の 1 桁目空白は非課税（server/taxcode.mjs と同じ。2026-11-24 打合せ No.16） */ ? Math.floor(a * r / (1000 + r)) : 0; };
 // 消費税額：入力があればその額、なければ自動計算（課税の処税率のときだけ）。入金額は税込なので外税でも 入金額×税率/(1+税率)（2026-11-01 決定）
 // 資金の科目（当座預金・現金・受取手形・預り金）は課税の処税率を使えない（2026-11-23 ユーザー指示。サーバも同じ）
 const LR_FUND = new Set(['bank', 'cash', 'notes', 'deposit']), lrCodeTaxable = l => lrTaxAuto({ ...l, amount: 1000 }) > 0, lrFundNg = l => LR_FUND.has(lrKind(l)) && lrCodeTaxable(l);
@@ -1790,13 +1790,13 @@ const taxLabel = c => { const t = meta.taxCodes.find(x => x.code === String(c ??
 const taxSelect = (name, value) => `<select name="${name}" style="width:130px">${meta.taxCodes.map(t => `<option value="${t.code}" title="${esc(t.name)}" ${t.code === value ? 'selected' : ''}>${esc(t.code)}</option>`).join('')}</select>`;
 // 処税率を 1 桁ずつ入れる入力欄 3 つ（定時請求データ入力。2026-11-23 ユーザー指示）。保存形の 0（1・3 桁目）は空白で表示。入力すると次の欄へ進む
 const tax3Show = c => { const s = String(c ?? ''); return s.length === 3 ? [s[0] === '0' ? '' : s[0], s[1].trim(), s[2] === '0' ? '' : s[2].trim()] : ['', '', '']; };
-// 3 つの入力欄の右に各桁の意味（server/taxcode.mjs と同じ。2026-11-23 ユーザー指示）。1桁目 1=内税・2/空白=外税、2桁目 税区分、3桁目 税率区分（空白=0%）
+// 3 つの入力欄の右に各桁の意味（server/taxcode.mjs と同じ。2026-11-23 ユーザー指示）。1桁目 1=内税・空白=非課税（仕入。2026-11-24 打合せ No.16。2=外税は使わない）、2桁目 税区分、3桁目 税率区分（空白=0%）
 const TX3_KIND = { 1: '課税売上', 2: '非課税売上', 3: '輸出売上', 4: '課税売上対応仕入', 5: '非課税売上対応仕入', 6: '共通対応仕入', 7: '非課税仕入', 9: '対象外' }, TX3_RATE = { 0: 0, 1: 10, 2: 3, 3: 6, 4: 2.8, 5: 5, 8: 8 };
 const tax3Note = c => { const s = String(c ?? '').padEnd(3, ' ').replace(/0/g, ' '), [a, b, r] = s, ng = '<span class="check-ng">不正</span>';
-  const one = a === '1' ? '1 税込（内税）' : a === '2' ? '2 外税' : a === ' ' ? '空白 外税' : `${esc(a)} ${ng}`;
+  const one = a === '1' ? '1 税込（内税）' : a === '2' ? '2 外税' : a === ' ' ? (['4', '5', '6'].includes(b) ? '空白 非課税' : '空白 外税') : `${esc(a)} ${ng}`;   /* 仕入（2 桁目 4〜6）の 1 桁目空白は非課税（2026-11-24 打合せ No.16） */
   const two = b === ' ' ? '空白 <span class="check-ng">要入力</span>' : TX3_KIND[b] ? `${b} ${TX3_KIND[b]}` : `${esc(b)} ${ng}`;
   const three = r === ' ' ? '空白 0%' : r in TX3_RATE ? `${r} ${TX3_RATE[r]}%` : `${esc(r)} ${ng}`;
-  return String(c ?? '').trim() ? `<span>1桁 ${one}</span><span>2桁 ${two}</span><span>3桁 ${three}</span>` : '<span>1桁 1=内税・2/空白=外税</span><span>2桁 4=課税仕入・9=対象外</span><span>3桁 1=10%・8=8%・空白=0%</span>'; };
+  return String(c ?? '').trim() ? `<span>1桁 ${one}</span><span>2桁 ${two}</span><span>3桁 ${three}</span>` : '<span>1桁 1=内税・空白=非課税</span><span>2桁 4=課税仕入・9=対象外</span><span>3桁 1=10%・8=8%・空白=0%</span>'; };
 const tax3 = (value, attrs = '') => `<div class="tx3${String(value ?? '').trim() ? ' tx3-on' : ''}" title="処税率（1桁目 税込区分・2桁目 税区分・3桁目 税率区分。空白可）"><input type="hidden" name="taxCode" ${attrs} value="${esc(value)}">${tax3Show(value).map((d, k) => `<input class="num" data-tx="${k}" value="${d}" inputmode="numeric" autocomplete="off" aria-label="処税率 ${k + 1}桁目">`).join('')}<span class="tx3-note">${tax3Note(value)}</span></div>`;
 const tax3Sync = tr => { const w = tr?.querySelector('.tx3'); if (!w) return; const v = tax3Show(w.querySelector('[name=taxCode]').value); w.querySelectorAll('[data-tx]').forEach((el, k) => { el.value = v[k]; }); w.querySelector('.tx3-note').innerHTML = tax3Note(w.querySelector('[name=taxCode]').value); if (w.querySelector('[name=taxCode]').value.trim()) w.classList.add('tx3-on'); };
 // 入っている桁に打っても、打った数字に置き換える
@@ -2007,7 +2007,7 @@ function expenseView(kind) {
     const sumBar = payable ? `<div class="hw-sum"><span>対象外 <b id="hw-out">0</b></span><span>内税 <b id="hw-in">0</b></span><span>外税 <b id="hw-ex">0</b></span>
       <label>外税消費税 <input name="extTax" class="num" value="0" inputmode="numeric" style="width:110px"></label><span>合計 <b id="hw-total">0</b> 円</span></div>` : '';
     // 処税率の区分（1桁目 1＝内税、2・空白＝外税、税率0や対象外は対象外）
-    const RATE = { 0: 0, 1: 10, 2: 3, 3: 6, 4: 2.8, 5: 5, 8: 8 }, taxClass = code => { const s3 = (String(code ?? '').trim() ? String(code) : '141').padStart(3, ' ').replace(/ /g, '0'), rate = RATE[s3[2]] || 0, taxable = rate > 0 && [1, 4, 5, 6].includes(Number(s3[1])) && s3 !== '041'; return { kind: !taxable ? 'out' : s3[0] === '1' ? 'in' : 'ex', rate }; };
+    const RATE = { 0: 0, 1: 10, 2: 3, 3: 6, 4: 2.8, 5: 5, 8: 8 }, taxClass = code => { const s3 = (String(code ?? '').trim() ? String(code) : '141').padStart(3, ' ').replace(/ /g, '0'), rate = RATE[s3[2]] || 0, taxable = rate > 0 && [1, 4, 5, 6].includes(Number(s3[1])) && s3 !== '041' && !(s3[0] === '0' && [4, 5, 6].includes(Number(s3[1])));   /* 仕入の 1 桁目空白は非課税（2026-11-24 打合せ No.16） */ return { kind: !taxable ? 'out' : s3[0] === '1' ? 'in' : 'ex', rate }; };
     const num = v => Number(String(v || '').replace(/[,，\s]/g, '')) || 0;
     // 登録画面と詳細（R：登録済みの伝票）は同じ様式。詳細は値を入れて全項目を入力不可にする（2026-10-29）
     const form = (R, edit = false) => modal({ title: R ? `${R.no} の詳細` : payable ? '定時請求データ入力' : '小口現金出納登録', submit: R && !edit ? '' : edit ? '更新' : payable ? '登録' : '登録する', wide: true, sample: R ? false : payable ? f => { const vs = active('vendors'); if (vs.length && !vendorName(f.vendor.value)) { f.vendor.value = vs[Math.floor(Math.random() * vs.length)].code; f.vendor.dispatchEvent(new Event('input', { bubbles: true })); } f.total.value = $('#hw-total').textContent.replace(/[^\d-]/g, ''); f.total.dispatchEvent(new Event('input', { bubbles: true })); } : f => { const el = f.querySelector('#ex-lines tbody tr [name=lvendor]'), vs = active('vendors'); if (el && vs.length && !vendorName(el.value)) { el.value = vs[Math.floor(Math.random() * vs.length)].code; el.dispatchEvent(new Event('input', { bubbles: true })); } }, body: `${head}${lineGrid('ex-lines', payable ? hwCols : cols, R ? R.lines.map(() => ({})) : payable ? [{}, {}, {}, {}] /* 定時請求は現行どおり 4 行（［＋ 行追加］で増やせる。2026-11-20） */ : Array.from({ length: 8 }, () => ({})) /* 小口現金出納登録は 8 行（2026-11-23 内部会議 No.12、ユーザー指示） */)}${sumBar}

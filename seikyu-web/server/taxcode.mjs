@@ -1,5 +1,5 @@
 // 処税率（現行 AS400 の 3 桁コード）。定義は顧客資料「消費税区分.xlsx」（山田様 2026-07-06）。
-//   1桁目 税込区分: 1=税込み（内税） / 2=外税 / 空白=外税（2 と同じ）。2026-10-22 確定：10/21 打合せ・現行 HAW050 の集計（141=内税）・消費税区分.xlsx（1=税込み）による
+//   1桁目 税込区分: 1=税込み（内税） / 2=外税 / 空白=外税（2 と同じ）。2026-11-24 打合せ No.16：仕入（2桁目 4〜6）は 空白＝非課税、外税は実際には使わない。2026-10-22 確定：10/21 打合せ・現行 HAW050 の集計（141=内税）・消費税区分.xlsx（1=税込み）による
 //   2桁目 税区分  : 1 課税売上 / 2 非課税売上 / 3 輸出売上 / 4 課税売上対応仕入 / 5 非課税売上対応仕入 / 6 その他仕入（共通）/ 7 非課税仕入 / 9 対象外
 //   3桁目 税率区分: 空白 0% / 1 10% / 2 3% / 3 6% / 4 2.8% / 5 5% / 8 8%
 // 保存形は空白を 0 にした 3 桁（例 141, 041, 011, 090）。現行の帳票は「 41」「 11」「 9 」のように空白を詰めて表示する。
@@ -32,10 +32,11 @@ export function decode(v) {
   const [incl, kind, r] = code, rate = TAX_RATE[r], k = Number(kind);
   const side = k <= 3 ? 'S' : k <= 7 ? 'P' : '';
   // 「 41」は消費税区分.xlsx の例示どおり非課税（2026-11-16。外税 10% として計算していたのはプロトタイプの誤り）
-  const taxable = rate > 0 && [1, 4, 5, 6].includes(k) && !NON_TAX.has(code);
+  // 仕入（2桁目 4・5・6）は 1桁目 空白＝非課税、1＝内税（2026-11-24 打合せ No.16。外税 2 は実際には使わないが、入っていれば外税）。売上（1〜3）は従来どおり空白＝外税
+  const taxable = rate > 0 && [1, 4, 5, 6].includes(k) && !NON_TAX.has(code) && !(incl === '0' && side === 'P');
   const excl = taxable && incl !== '1';
   const how = !taxable ? '' : excl ? '外税' : '税込';
-  const name = k === 9 ? '対象外' : NON_TAX.has(code) ? '非課税' : !taxable && [4, 5, 6].includes(k) ? `非課税・不課税（${TAX_KIND[k]}）` : `${TAX_KIND[k]}${rate && [1, 4, 5, 6].includes(k) ? ' ' + rate + '%' : ''}${how ? `（${how}）` : ''}`;
+  const name = k === 9 ? '対象外' : NON_TAX.has(code) || (incl === '0' && side === 'P') ? '非課税' : !taxable && [4, 5, 6].includes(k) ? `非課税・不課税（${TAX_KIND[k]}）` : `${TAX_KIND[k]}${rate && [1, 4, 5, 6].includes(k) ? ' ' + rate + '%' : ''}${how ? `（${how}）` : ''}`;
   return { code, display: (incl === '0' ? ' ' : incl) + kind + (r === '0' ? ' ' : r), incl, kind: k, rate, side, taxable, excl, name };
 }
 export const mustDecode = (v, label = '処税率') => { const d = decode(v); check(d, `${label}「${v ?? ''}」は処税率として不正です（例 141・148・041・011・090）`); return d; };
