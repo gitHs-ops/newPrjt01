@@ -2713,10 +2713,8 @@ async function oneToManyView(q) {
       if (!hit) { if (c) return toast(`${d.pLabel}コード「${p}」はありません`, true); return go('masters', { kind, search: p }); }
       go('masters', { kind, parent: p, ...(c ? { edit: c } : {}) }); };
     A.pick = x => go('masters', { kind, parent: x.code, back: q.search || '' });
-    // 親（得意先・勘定科目・商品・銀行）の新規登録（2026-11-24 ユーザー指示）。金融機関2 は支店番号を空欄にすると銀行として登録
-    const pKind = d.split ? d.child : d.parent, canNewP = canWrite() && !meta.masters[pKind]?.readOnly && !noEditU01(pKind);
-    A.newParent = () => masterForm(pKind);
-    return page('マスタ管理', desc, `<input id="s2-search" placeholder="${d.pLabel}コード（名称の一部でも可）" title="${d.pLabel}コード" value="${esc(q.search || '')}" style="width:200px"><input id="s2-child" placeholder="${d.cCode}" title="${d.cCode}（${d.pLabel}コードと両方入れると編集画面）" style="width:140px"><button class="primary" data-act="search">検索</button>${canNewP ? `<button class="primary" data-act="newParent">＋ ${d.pLabel}の新規登録</button>` : ''}`,
+    // 親の新規登録ボタンは設けない（2026-11-24 いったん追加 → 同日ユーザー指示で削除。親の一覧は子が 0 件の親も出すので、親は元のマスタで登録）
+    return page('マスタ管理', desc, `<input id="s2-search" placeholder="${d.pLabel}コード（名称の一部でも可）" title="${d.pLabel}コード" value="${esc(q.search || '')}" style="width:200px"><input id="s2-child" placeholder="${d.cCode}" title="${d.cCode}（${d.pLabel}コードと両方入れると編集画面）" style="width:140px"><button class="primary" data-act="search">検索</button>`,
       `<section class="card glass master-list">${term ? `<p class="muted small">「${esc(q.search)}」の検索結果 ${list.length} / ${parents.length} 件</p>` : ''}${html}${table([{ label: '', html: r => `<button class="mini" data-act="pick" data-code="${esc(r.code)}">選択</button>` },
         { label: d.pLabel + 'コード', value: r => r.code }, { label: d.pLabel + '名', value: r => r.name }, { label: d.cLabel + '数', num: 1, value: r => (count[r.code] || 0).toLocaleString('ja-JP') }, { label: '状態', html: state }],
         shown, { rowClass: r => r.active ? '' : 'muted' })}</section>`);
