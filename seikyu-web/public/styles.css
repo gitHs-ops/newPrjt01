@@ -213,7 +213,8 @@ dialog.modal[open] { animation: rise .35s var(--ease) both; display: flex; flex-
 .modal-head { padding: 18px 56px 8px 22px; }
 /* 表題の右の入力（定時請求データ入力の組織。2026-11-25 ユーザー指示） */
 .modal-head:has(.modal-head-extra) { display: flex; align-items: center; gap: 28px; flex-wrap: wrap; padding-right: 110px; }
-.modal-head-extra label.field { display: flex; align-items: center; gap: 10px; margin: 0; }
+.modal-head-extra label.field { display: flex; align-items: center; gap: 10px; margin: 0; white-space: nowrap; }
+.modal-head-extra label.field > span { flex: none; }   /* 「組織」を 1 行に（2026-11-25 ユーザー指示） */
 .modal-head-extra select { width: 220px; }
 .modal-body { padding: 8px 22px 16px; overflow-y: auto; }
 .modal-foot { padding: 12px 22px 18px; display: flex; justify-content: flex-end; gap: 8px; border-top: 1px solid var(--field-border); background: rgba(255,255,255,.35); }
@@ -625,7 +626,7 @@ dialog .table-wrap:has(> table.one-line) { max-height: none; overflow-y: visible
   .hw-head label.field > small, .hw-head #hw-check { position: absolute; grid-column: 2; grid-row: 1; left: 0; bottom: calc(100% + 2px); white-space: nowrap; }
   /* 業者・締切日が伝票No と同じ行になったため（2026-11-25）、案内は 1 行だけ：一致チェックの文言が出ている間は「明細の合計と一致させる」を隠し、その 1 行分だけ上の行と空ける */
   .hw-head label.field:has(#hw-check:not(:empty)) > small { display: none; }
-  .hw-head > label.field:has(> small, > #hw-check) { margin-top: 14px; }
+  .hw-head > label.field:has(> small, > #hw-check) { margin-top: 26px; }   /* 案内が上の行の入力欄の下に付いて見えないよう、上の行と空ける（2026-11-25 ユーザー指示） */
 }
 .hw-head #hw-check:empty { display: none; }
 label.field.req > #hw-check::after { content: none; }
