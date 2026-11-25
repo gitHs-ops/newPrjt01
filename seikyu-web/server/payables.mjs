@@ -27,11 +27,14 @@ export async function listPurchases(c, q = {}) {
   return rs.map(r => ({ id: r.purchase_id, no: r.source_document_no, line: Number(r.line_no), date: r.purchase_date, locked: lockOf.get(String(r.purchase_date).slice(0, 10)) || '', vendor: r.vendor_code, vendorName: r.vendor_name, kind: r.purchase_kb || '1', kindName: PURCHASE_KINDS[r.purchase_kb || '1'],
     lineKind: r.line_kind || '1', item: r.item_cd || '', itemName: r.item_cd ? r.item_nam : '運賃', unitCode: r.unit_cd || '', unit: r.unit, quantity: Number(r.quantity), price: Number(r.unit_price), net: Number(r.net_amount), taxCode: r.source_tax_code, memo: r.memo }));
 }
-// 在庫計上済みの月度（またはそれより後の月度が計上済み）の仕入は登録・取消できない（材料受払表の当月仕入高と計上済みの在庫金額がずれるため。2026-10-28）
-async function assertNotInventoried(c, date) {
-  const month = (await companyPeriod(c)).labelOf(date);
-  const r = await one(c, "SELECT period_start FROM inventory_count WHERE location_code='MAIN' AND status='POSTED' AND period_start>=? ORDER BY period_start LIMIT 1", [month + '-01']);
-  check(!r, `${month} 月度${r && String(r.period_start).slice(0, 7) !== month ? `より後の ${String(r.period_start).slice(0, 7)} 月度` : ''}は在庫計上済みのため、仕入の登録・取消はできません`); // 在庫計上の取消ボタンは画面から削除したので案内しない（2026-11-03）
+// 在庫計上済みの月度（またはそれより後の月度が計上済み）の仕入は、会計連携前なら登録・修正・取消でき、在庫計上をやり直す（2026-11-25 ユーザー指示。
+// 以前は在庫計上済みならできなかった：2026-10-28）。計上済みの月度が会計連携済みならできない（在庫計上をやり直せないため）
+async function assertNotInventoried(c, date, what = '仕入の登録・取消') {
+  const P = await companyPeriod(c), month = P.labelOf(date);
+  for (const r of await rows(c, "SELECT DISTINCT period_start FROM inventory_count WHERE location_code='MAIN' AND status='POSTED' AND period_start>=? ORDER BY period_start", [month + '-01'])) {
+    const m = String(r.period_start).slice(0, 7);
+    check(!(await acctLinked(c, P.closeOf(+m.slice(0, 4), +m.slice(5, 7)))), `${month} 月度${m !== month ? `より後の ${m} 月度` : ''}は在庫計上・会計連携済みのため、${what}はできません`);
+  } // 在庫計上の取消ボタンは画面から削除したので案内しない（2026-11-03）
 }
 // 入力内容の検査と明細の組み立て（登録・修正で共通）
 async function purchaseInput(c, p) {
@@ -80,6 +83,7 @@ async function insertPurchase(c, no, { date, v, kind, out, memo }) {
 export async function createPurchase(c, ctx, p) {
   const x = await purchaseInput(c, p), no = await nextSlipNoFy(c, DOC_SERIES.purchase, x.date), total = await insertPurchase(c, no, x);
   await audit(c, ctx, 'purchase', no, 'purchase.create', { no, vendor: x.v.vendor_code, kind: x.kind, lines: x.out.length, net: total });
+  await revalueInventory(c, ctx, x.date);
   return { no, lines: x.out.length, net: total };
 }
 // 仕入の修正（2026-11-08 ユーザー指示「一覧で、あれば修正、なければ新規」）：伝票No はそのまま、伝票の明細をすべて入れ替える。
@@ -93,6 +97,7 @@ export async function updatePurchase(c, ctx, p) {
   await c.query('DELETE FROM purchase WHERE source_document_no=?', [r.source_document_no]);
   const total = await insertPurchase(c, r.source_document_no, x);
   await audit(c, ctx, 'purchase', r.source_document_no, 'purchase.update', { no: r.source_document_no, vendor: x.v.vendor_code, kind: x.kind, lines: x.out.length, net: total, before: { date: oldDate, lines: before.length, net: before.reduce((n, l) => n + Number(l.net_amount), 0) } });
+  await revalueInventory(c, ctx, oldDate < x.date ? oldDate : x.date);
   return { no: r.source_document_no, lines: x.out.length, net: total };
 }
 // 伝票単位で取消（明細のどれを指定しても伝票全体）
@@ -101,6 +106,7 @@ export async function deletePurchase(c, ctx, { id }) {
   await assertOpen(c, r.purchase_date); await assertNotInventoried(c, String(r.purchase_date).slice(0, 10));
   const [d] = await c.query('DELETE FROM purchase WHERE source_document_no=?', [r.source_document_no]);
   await audit(c, ctx, 'purchase', r.source_document_no, 'purchase.delete', { no: r.source_document_no, lines: d.affectedRows });
+  await revalueInventory(c, ctx, String(r.purchase_date).slice(0, 10));
   return { no: r.source_document_no, lines: d.affectedRows };
 }
 
@@ -151,11 +157,13 @@ export async function listCounts(c, q = {}) {
   for (const code of Object.keys(counts)) if (!items.some(i => i.code === code)) items.push({ code, name: code, unit: '', kind: '', quantity: Number(counts[code].quantity) });
   const any = Object.values(counts)[0];
   const no = (await one(c, "SELECT doc_no FROM app_doc_no WHERE kind='count' AND ref=?", [month]))?.doc_no || '';
-  return { month, date, no, countedOn: any ? String(any.counted_on).slice(0, 10) : '', posted: await isPosted(c, month), registered: Object.keys(counts).length, items };
+  const linked = (await isPosted(c, month)) && (await acctLinked(c, P.closeOf(+month.slice(0, 4), +month.slice(5, 7))));
+  return { month, date, no, countedOn: any ? String(any.counted_on).slice(0, 10) : '', posted: await isPosted(c, month), linked, registered: Object.keys(counts).length, items };
 }
 export async function saveCounts(c, ctx, p) {
   const P = await companyPeriod(c), date = isoDate(p.date, '調査日'), month = P.labelOf(date); await assertOpen(c, date);
-  check(!(await isPosted(c, month)), `${month} 月度は在庫計上済みのため変更できません`);
+  // 在庫計上済みでも会計連携前なら変更でき、在庫計上をやり直す（2026-11-25 ユーザー指示。以前は計上済みなら変更できなかった）
+  await assertNotInventoried(c, date, '実在庫の登録');
   check(Array.isArray(p.lines), '在庫数量を入力してください');
   let saved = 0, cleared = 0;
   for (const l of p.lines) {
@@ -170,6 +178,7 @@ export async function saveCounts(c, ctx, p) {
   }
   const no = saved ? await docNo(c, 'count', month, date) : '';
   await audit(c, ctx, 'inventory_count', month.replace('-', ''), 'inventory.count', { month, date, saved, cleared, no });
+  await revalueInventory(c, ctx, date);
   return { month, saved, cleared, no };
 }
 // 在庫計上（C01）の直近の伝票番号（結果のポップアップ表示用）
@@ -207,6 +216,17 @@ export async function postInventory(c, ctx, p) {
   }
   await audit(c, ctx, 'inventory_count', month.replace('-', ''), rerun ? 'inventory.repost' : 'inventory.post', { month, items, value: total, ...(later.length ? { later } : {}) });
   return { month, items, value: total, date: end, rerun, later, slipNo: await lastInvSlip(c, end) };
+}
+// 実在庫・仕入を変えたとき：その月度以降で最初の計上済みの月度から在庫計上をやり直す（後の月度も順に）。その月度の実在庫が無くなったら仕訳だけ削除する（2026-11-25）
+async function revalueInventory(c, ctx, date) {
+  const P = await companyPeriod(c), month = P.labelOf(date);
+  const first = await one(c, "SELECT period_start FROM inventory_count WHERE location_code='MAIN' AND status='POSTED' AND period_start>=? ORDER BY period_start LIMIT 1", [month + '-01']);
+  const hadJournal = await one(c, "SELECT 1 x FROM journal_entry WHERE source_type='inventory_month' AND source_id=? AND status='POSTED' AND reversal_of IS NULL LIMIT 1", [month.replace('-', '')]);
+  const exists = await one(c, "SELECT 1 x FROM inventory_count WHERE period_start=? AND location_code='MAIN' LIMIT 1", [month + '-01']);
+  if (hadJournal && !exists) await repostInventoryMonth(c, month, P.closeOf(+month.slice(0, 4), +month.slice(5, 7)), true);
+  // 実在庫を入れ直すと行は未計上に戻るため、仕訳のある月度（計上済みだった月度）はその月度から
+  const start = hadJournal && exists ? month : first ? String(first.period_start).slice(0, 7) : null;
+  if (start) await postInventory(c, ctx, { month: start });
 }
 // 在庫計上の模擬実行（2026-11-19 ユーザー指示：user01 のテスト用。何度でも実行できる）：在庫計上と同じ式で評価額と洗い替えの金額を計算して返すだけで、
 // DB は変えない（計上済みの月度でも計算する。状態・仕訳・操作履歴は作らない）
