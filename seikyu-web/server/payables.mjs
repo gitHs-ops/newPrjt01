@@ -1,6 +1,6 @@
 import { randomUUID } from 'crypto';
 import { check, Conflict, yen, qty, lineAmount, isoDate, isoMonth, text, dueDate, nextBusinessDay, addMonths, isHoliday, closingPeriodOfDate } from './domain.mjs';
-import { rows, one, nextSlipNoFy, docNo, DOC_SERIES, assertOpen, audit, postJournal, reverseJournal, line } from './db.mjs';
+import { rows, one, nextSlipNoFy, docNo, DOC_SERIES, assertOpen, audit, postJournal, reverseJournal, discardOrReverseJournal, line } from './db.mjs';
 import { mustDecode, taxOf, CATALOG, decode } from './taxcode.mjs';
 import { companyPeriod } from './period.mjs';
 
@@ -112,10 +112,12 @@ export async function listInventory(c, q = {}) {
   return rs.map(r => ({ id: r.inventory_id, month: r.period_start.slice(0, 7), item: r.item_cd, itemName: r.item_nam, unit: r.unit, location: r.location_code, countedOn: r.counted_on, quantity: Number(r.quantity), price: Number(r.valuation_price), value: Number(r.valuation_amount), status: r.status }));
 }
 // 棚卸の振替仕訳は月度ごとに1伝票（現行 C01：期首在庫→82316／期末在庫←82316、1360 の補助＝商品コード、処税率 9）。登録・取消のたびに月度分を組み直す。
-async function repostInventoryMonth(c, month, date) {
+// discard：在庫計上の再実行（会計連携前）は前の仕訳を逆仕訳にせず削除して作り直す（売掛金計上 A01 の作り直しと同じ。2026-11-25 ユーザー指示）
+async function repostInventoryMonth(c, month, date, discard = false) {
   const list = await rows(c, "SELECT i.*, m.item_nam FROM inventory_count i LEFT JOIN item_m m ON m.item_cd=i.item_cd WHERE i.period_start=? AND i.location_code='MAIN' AND i.status='POSTED' ORDER BY i.item_cd", [month + '-01']);
-  for (const r of list) await reverseJournal(c, { sourceType: 'inventory_count', sourceId: r.inventory_id, date }); // 旧：商品別伝票
-  await reverseJournal(c, { sourceType: 'inventory_month', sourceId: month.replace('-', ''), date });
+  const undo = discard ? discardOrReverseJournal : reverseJournal;
+  for (const r of list) await undo(c, { sourceType: 'inventory_count', sourceId: r.inventory_id, date }); // 旧：商品別伝票
+  await undo(c, { sourceType: 'inventory_month', sourceId: month.replace('-', ''), date });
   const lines = [];
   for (const r of list) {
     const prior = await one(c, "SELECT valuation_amount FROM inventory_count WHERE item_cd=? AND location_code='MAIN' AND period_start<? AND status='POSTED' ORDER BY period_start DESC LIMIT 1", [r.item_cd, month + '-01']);
@@ -183,21 +185,28 @@ export async function inventoryPrice(c, item, month, from, to) {
   const pq = Number(prior?.quantity || 0) + Number(pur.q), pv = (Number(prior?.valuation_amount || 0) || Math.round(Number(prior?.quantity || 0) * tanka)) + Number(pur.v);
   return pq > 0 && pv > 0 ? Math.round(pv / pq * 100) / 100 : Number(prior?.valuation_price || 0) || tanka;
 }
+// 在庫計上は会計連携前ならいつでも再実行できる（2026-11-25 ユーザー指示。以前は月度ごとに 1 回）。計上済みの月度は評価し直して仕訳 C01 を作り直す（前の仕訳は削除）。
+// 後の月度が計上済みなら、前月末在庫が変わるため後の月度も順に評価し直す。会計連携済みの月度（仕訳日付が会計連携の期間内）が含まれると実行しない
+const acctLinked = async (c, d) => !!(await one(c, "SELECT 1 x FROM app_acct_link k WHERE CAST(? AS date) BETWEEN CAST(split_part(k.period,'..',1) AS date) AND CAST(split_part(k.period,'..',2) AS date) LIMIT 1", [d]));
 export async function postInventory(c, ctx, p) {
-  const P = await companyPeriod(c), month = isoMonth(p.month, '計上月'), end = P.closeOf(+month.slice(0, 4), +month.slice(5, 7)), { from, to } = P.monthRange(month); await assertOpen(c, end);
-  check(!(await isPosted(c, month)), `${month} 月度は在庫計上済みです（在庫計上は月次で1回）`);
-  const list = await rows(c, "SELECT * FROM inventory_count WHERE period_start=? AND location_code='MAIN' AND status='DRAFT' ORDER BY item_cd", [month + '-01']);
-  check(list.length, `${month} 月度の実在庫が登録されていません。先に実在庫登録をしてください`);
-  check(!(await one(c, "SELECT 1 x FROM inventory_count WHERE location_code='MAIN' AND period_start>? AND status='POSTED' LIMIT 1", [month + '-01'])), '後の月度が在庫計上済みです');
-  let total = 0;
-  for (const r of list) {
-    const price = await inventoryPrice(c, r.item_cd, month, from, to), value = Math.round(Number(r.quantity) * price); // 単価は小数2桁まで（移動平均）のため金額は円未満四捨五入
-    await c.query("UPDATE inventory_count SET valuation_price=?, valuation_amount=?, status='POSTED', row_version=row_version+1 WHERE inventory_id=?", [price, value, r.inventory_id]);
-    total += value;
+  const P = await companyPeriod(c), month = isoMonth(p.month, '計上月'), endOf = m => P.closeOf(+m.slice(0, 4), +m.slice(5, 7)), end = endOf(month);
+  const rerun = await isPosted(c, month);
+  check(await one(c, "SELECT 1 x FROM inventory_count WHERE period_start=? AND location_code='MAIN' LIMIT 1", [month + '-01']), `${month} 月度の実在庫が登録されていません。先に実在庫登録をしてください`);
+  const later = (await rows(c, "SELECT DISTINCT period_start FROM inventory_count WHERE location_code='MAIN' AND period_start>? AND status='POSTED' ORDER BY period_start", [month + '-01'])).map(r => String(r.period_start).slice(0, 7));
+  for (const m of [month, ...later]) { await assertOpen(c, endOf(m)); check(!(await acctLinked(c, endOf(m))), `${m} 月度は会計連携済みのため在庫計上を${m === month && !rerun ? '実行' : '再実行'}できません`); }
+  let items = 0, total = 0;
+  for (const m of [month, ...later]) {
+    const { from, to } = P.monthRange(m), e = endOf(m);
+    const list = await rows(c, "SELECT * FROM inventory_count WHERE period_start=? AND location_code='MAIN' ORDER BY item_cd", [m + '-01']);
+    for (const r of list) {
+      const price = await inventoryPrice(c, r.item_cd, m, from, to), value = Math.round(Number(r.quantity) * price); // 単価は小数2桁まで（移動平均）のため金額は円未満四捨五入
+      await c.query("UPDATE inventory_count SET valuation_price=?, valuation_amount=?, status='POSTED', row_version=row_version+1 WHERE inventory_id=?", [price, value, r.inventory_id]);
+      if (m === month) { items++; total += value; }
+    }
+    await repostInventoryMonth(c, m, e, true);   // 前の仕訳（あれば）を削除して作り直す
   }
-  await repostInventoryMonth(c, month, end);
-  await audit(c, ctx, 'inventory_count', month.replace('-', ''), 'inventory.post', { month, items: list.length, value: total });
-  return { month, items: list.length, value: total, date: end, slipNo: await lastInvSlip(c, end) };
+  await audit(c, ctx, 'inventory_count', month.replace('-', ''), rerun ? 'inventory.repost' : 'inventory.post', { month, items, value: total, ...(later.length ? { later } : {}) });
+  return { month, items, value: total, date: end, rerun, later, slipNo: await lastInvSlip(c, end) };
 }
 // 在庫計上の模擬実行（2026-11-19 ユーザー指示：user01 のテスト用。何度でも実行できる）：在庫計上と同じ式で評価額と洗い替えの金額を計算して返すだけで、
 // DB は変えない（計上済みの月度でも計算する。状態・仕訳・操作履歴は作らない）
