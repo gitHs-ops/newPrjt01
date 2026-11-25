@@ -161,7 +161,7 @@ export const MASTERS = {
     label: '業者マスタ', table: 'vendor',
     fields: [F('code', '業者コード', { max: 20, key: true }), F('name', '業者名', { max: 200 }), F('bank', '振込先銀行(4桁)', { max: 4, optional: true }), F('branch', '支店(3桁)', { max: 3, optional: true }),
       F('accountType', '預金種別', { type: 'select', options: [['1', '普通'], ['2', '当座'], ['4', '貯蓄']], optional: true }), F('account', '口座番号', { max: 16, optional: true }),
-      F('advance', '業者立替金残高（開始）', { list: false, type: 'int', optional: true, hint: '支払時に相殺できる額' }), F('holder', '受取人名(カナ)', { list: false, max: 200, optional: true }),
+      F('holder', '受取人名(カナ)', { list: false, max: 200, optional: true }),
       // 10/19 打合せ：支払繰延区分（「1 15」＝翌月15日、「3 31」＝3か月後の月末）・振込日・振込元銀行は業者マスタに持つ（code_m VPAY）
       F('payMonths', '支払繰延（○か月後）', { list: false, type: 'int', optional: true, hint: '0〜12。未設定は翌月末払い' }), F('payDay', '支払日', { list: false, type: 'int', optional: true, hint: '1〜31（31=月末）' }),
       // 2026-11-01 決定：繰延最低限度額。定時請求 1 件の合計がこの額以上なら支払繰延区分の 1 か月後（2026-11-23 変更）、未満・空欄は支払繰延区分（code_m VPAY の code_dtl_nam）
@@ -169,13 +169,13 @@ export const MASTERS = {
       F('payCycle', '振込サイクル', { list: false, type: 'select', optional: true, options: [['', '（未設定）'], ['15', '15日'], ['31', '月末']] }), F('payBank', '振込元口座', { list: false, type: 'ref', ref: 'banks', optional: true }),
       F('pref', '都道府県', { list: false, max: 8, optional: true }), F('addr1', '住所1（市区町村）', { list: false, max: 42, optional: true }), F('addr2', '住所2（番地）', { list: false, max: 42, optional: true }),
       F('active', '有効', { type: 'bool' })],
-    select: "SELECT v.*, b.bank_code, b.branch_code, b.account_number, b.holder_name, b.account_type_code, ob.amount advance, vp.category1 pay_m, vp.category2 pay_d, vp.category3 pay_cycle, vp.code_dtl_abr pay_bank, vp.code_dtl_nam defer_min FROM vendor v LEFT JOIN bank_account b ON b.bank_account_id=v.bank_account_id LEFT JOIN opening_balance ob ON ob.source_reference=CONCAT('OPEN-VADV-',v.vendor_code) LEFT JOIN code_m vp ON vp.code_key='VPAY' AND vp.code_dtl=v.vendor_code",
+    select: "SELECT v.*, b.bank_code, b.branch_code, b.account_number, b.holder_name, b.account_type_code, vp.category1 pay_m, vp.category2 pay_d, vp.category3 pay_cycle, vp.code_dtl_abr pay_bank, vp.code_dtl_nam defer_min FROM vendor v LEFT JOIN bank_account b ON b.bank_account_id=v.bank_account_id LEFT JOIN code_m vp ON vp.code_key='VPAY' AND vp.code_dtl=v.vendor_code",
     where: 'v.vendor_code=?', keyOf: r => [r.code],
-    decode: r => ({ id: r.vendor_id, code: r.vendor_code, name: r.vendor_name, bank: r.bank_code || '', branch: r.branch_code || '', accountType: r.account_type_code || '1', account: r.account_number || '', holder: r.holder_name || '', advance: Number(r.advance || 0),
+    decode: r => ({ id: r.vendor_id, code: r.vendor_code, name: r.vendor_name, bank: r.bank_code || '', branch: r.branch_code || '', accountType: r.account_type_code || '1', account: r.account_number || '', holder: r.holder_name || '',
       payMonths: r.pay_m ?? '', payDay: r.pay_d ?? '', payCycle: r.pay_cycle || '', payBank: r.pay_bank || '', deferMin: r.defer_min ?? '', pref: r.pref || '', addr1: r.addr1 || '', addr2: r.addr2 || '', active: !!r.active }),
     validate: r => {
       const v = { code: text(r.code, '業者コード', 20, { pattern: CODE }), name: text(r.name, '業者名', 200), bank: String(r.bank || '').trim(), branch: String(r.branch || '').trim(),
-        accountType: String(r.accountType || '1'), account: String(r.account || '').trim(), holder: toZenginKana(String(r.holder || '').trim()), advance: yen(r.advance || 0, '業者立替金残高'), active: bool(r.active ?? true),
+        accountType: String(r.accountType || '1'), account: String(r.account || '').trim(), holder: toZenginKana(String(r.holder || '').trim()), active: bool(r.active ?? true),
         payMonths: String(r.payMonths ?? '').trim(), payDay: String(r.payDay ?? '').trim(), payCycle: String(r.payCycle || ''), payBank: String(r.payBank || '').trim(), deferMin: String(r.deferMin ?? '').trim().replace(/,/g, ''),
         pref: text(r.pref, '都道府県', 8, { required: false }), addr1: text(r.addr1, '住所1', 42, { required: false }), addr2: text(r.addr2, '住所2', 42, { required: false }) };
       if (v.payMonths !== '') check(/^\d{1,2}$/.test(v.payMonths) && Number(v.payMonths) <= 12, '支払繰延は0〜12か月です');
@@ -197,13 +197,7 @@ export const MASTERS = {
       await c.query("DELETE FROM code_m WHERE code_key='VPAY' AND code_dtl=?", [r.code]);
       if (r.payMonths !== '' || r.payDay !== '' || r.payCycle || r.payBank || r.deferMin) await c.query("INSERT INTO code_m (code_key,code_key_nam,code_dtl,code_dtl_nam,code_dtl_abr,category1,category2,category3) VALUES ('VPAY','支払条件',?,?,?,?,?,?)",
         [r.code, r.deferMin, r.payBank, r.payMonths, r.payDay, r.payCycle]);
-      if ((old?.advance || 0) !== r.advance) {
-        const v = await one(c, 'SELECT vendor_id FROM vendor WHERE vendor_code=?', [r.code]);
-        const used = await one(c, "SELECT COALESCE(SUM(offset_amount),0) n FROM payment WHERE vendor_id=? AND status='POSTED'", [v.vendor_id]);
-        check(r.advance >= Number(used.n), '相殺済みの額より小さい立替金残高にはできません');
-        await c.query("DELETE FROM opening_balance WHERE source_reference=CONCAT('OPEN-VADV-',?)", [r.code]);
-        if (r.advance) await c.query("INSERT INTO opening_balance (cutover_on,balance_kind,vendor_id,amount,source_reference) VALUES (?,'ADVANCE',?,?,CONCAT('OPEN-VADV-',?))", [today(), v.vendor_id, r.advance, r.code]);
-      }
+      // 業者立替金残高（開始）の項目は削除（11/11 打合せ：業者立替金の科目は使わない。要件定義書 No.2、2026-11-25 ユーザー指示）
     },
   },
   company: {
