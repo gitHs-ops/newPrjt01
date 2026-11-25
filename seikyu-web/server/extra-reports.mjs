@@ -7,7 +7,7 @@ import { allocate, members as jvMembersChecked } from './misc-reports.mjs';
 import { companyPeriod } from './period.mjs';
 import { customerSite, siteDue, slipNoOf, priceOf } from './sales.mjs';
 
-const num = v => Number(v || 0);
+const num = v => Number(v || 0), s0 = v => v != null && String(v).trim() !== '';
 const H = v => ({ v, s: 'bold' }), S = v => ({ v, s: 'sum' }), T = v => ({ v, s: 'title' });
 const range = q => { const from = isoDate(q.from, '開始日'), to = isoDate(q.to, '終了日'); check(from <= to, '期間が不正です'); return { from, to }; };
 const monthEnd = m => new Date(Date.UTC(+m.slice(0, 4), +m.slice(5, 7), 0)).toISOString().slice(0, 10);
@@ -96,25 +96,26 @@ export async function pettyCashBook(c, q) {
 // ---------- NO40 商品売上登録リスト：現行 HAR021 の並び（2026-11-04）。得意先は小見出し 1 行、その下に明細。小計・合計なし ----------
 //   列：売上日 区分 伝票No 商品名 数量 単位 売上単価 売上金額 処税率 運送区分 運賃 現場（現場CD＋名称1） 現場名2 在庫品コード
 //   売上日・区分は前の行と同じなら空白（現行どおり）。売上単価は単価＋運賃（現行と同じく 売上金額＝数量×売上単価）
-//   処税率は売上（外税・課税売上）の 3 桁コード「2 1 税率区分」。運送区分は納入区分が引取（category1=2）なら 2 先方、それ以外は 1 現場
+//   処税率は売上（外税・課税売上）の 3 桁コード「2 1 税率区分」。運送区分は納入区分の「コード 略称」（1 大現〜5 その他。2026-11-25：旧区分 1 現場／2 先方 から変更）。末尾に「総　合　計」（売上金額。要点 #15）
 //   在庫品コードは商品コードと違うときだけ出す
 const SR_KIND = { 1: '売上', 2: '他社', 3: '他社', 4: '他社', 5: '訂正', 9: '値引' };
 export async function salesRegister(c, q) {
   const { from, to } = range(q);
   const rs = await rows(c, `SELECT s.*, c.customers_name, unit_name(i.unit) unit, sl.unit_price slip_price, sl.freight slip_freight,
-      (SELECT COUNT(*) FROM sales_trn x WHERE x.sales_no=s.order_no AND x.order_no<>s.order_no) corrections, (SELECT k.category1 FROM code_m k WHERE k.code_key='A0000' AND k.code_dtl=CAST(s.shipping_kb AS TEXT)) kbn_cat
+      (SELECT COUNT(*) FROM sales_trn x WHERE x.sales_no=s.order_no AND x.order_no<>s.order_no) corrections, (SELECT COALESCE(NULLIF(TRIM(k.code_dtl_abr), ''), k.code_dtl_nam) FROM code_m k WHERE k.code_key='A0000' AND k.code_dtl=CAST(s.shipping_kb AS TEXT)) kbn_name
     FROM sales_trn s LEFT JOIN client_m c ON c.customers_cd=s.customers_cd LEFT JOIN item_m i ON i.item_cd=s.item_cd LEFT JOIN shipment_slip sl ON sl.order_no=s.order_no
     WHERE s.sales_date BETWEEN ? AND ? ORDER BY s.customers_cd, s.sales_date, CASE WHEN s.ship_kb='5' AND COALESCE(s.sales_no, '')<>'' THEN s.sales_no ELSE s.order_no END, s.sales_suffix, s.order_no`, [toNum(from), toNum(to)]);
   const customers = [];
   for (const r of rs) {
-    let cu = customers.find(x => x.customer === r.customers_cd); if (!cu) customers.push(cu = { customer: r.customers_cd, name: r.customers_name, rows: [] });
+    let cu = customers.find(x => x.customer === r.customers_cd); if (!cu) customers.push(cu = { customer: r.customers_cd, name: r.customers_name, rows: [], net: 0 });
+    cu.net += num(r.money);
     const prev = cu.rows[cu.rows.length - 1], date = fromNum(r.sales_date), kind = SR_KIND[r.ship_kb] || '', rate = num(r.tax_rate);
     cu.rows.push({ date, kind, showDate: prev?.date !== date, showKind: prev?.date !== date || prev?.kind !== kind, no: slipNoOf(r), item: r.item_cd || '', itemName: r.item_name || '',
       qty: num(r.quantity), unit: r.unit || '', price: num(r.unit_price), net: num(r.money), tax: rate ? `21${digitOfRate(rate) ?? ''}` : '090',
-      carry: r.kbn_cat === '2' ? '2 先方' : '1 現場', freight: priceOf(r.unit_price, r.slip_price, r.slip_freight).freight,
+      carry: s0(r.shipping_kb) ? `${r.shipping_kb}${r.kbn_name ? ' ' + r.kbn_name : ''}` : '', freight: priceOf(r.unit_price, r.slip_price, r.slip_freight).freight,
       site: [r.field_cd, String(r.field_name1 || '').trim()].filter(Boolean).join(' '), site2: String(r.field_name2 || '').trim(), stock: r.item_zaiko_cd && r.item_zaiko_cd !== r.item_cd ? r.item_zaiko_cd : '' });
   }
-  return { title: '商品売上登録リスト', ref: 'NO40 / 添付帳票⑮（HAR021）', from, to, customers };
+  return { title: '商品売上登録リスト', ref: 'NO40 / 添付帳票⑮（HAR021）', from, to, customers, total: customers.reduce((n, cu) => n + cu.net, 0) };
 }
 // ---------- NO44 入金予定チェックリスト（得意先別・工事（現場）別） ----------
 export async function receiptSchedule(c, q) {
@@ -224,7 +225,8 @@ export async function extraBook(c, kind, q) {
   if (kind === 'sales-register') {
     const d = await salesRegister(c, q), out = head(d, `期間 ${d.from} 〜 ${d.to}`);
     out.push(['売上日', '区分', '伝票No', '商品名', '', '数量', '', '売上単価', '売上金額', '処税率', '運送区分', '運賃', '現場', '', '在庫品コード'].map(H));
-    for (const cu of d.customers) { out.push(band(SALES_REG_W, [`${cu.customer} ${cu.name || ''}`])); for (const r of cu.rows) out.push([r.showDate ? r.date : '', r.showKind ? r.kind : '', r.no, r.item, r.itemName, { v: r.qty, s: 'qty' }, r.unit, r.price, r.net, r.tax, r.carry, r.freight, r.site, r.site2, r.stock]); }   // 数量は小数 2 桁（整数の書式だと 12.5t が 13 と表示される。2026-11-16）
+    for (const cu of d.customers) { out.push(band(SALES_REG_W, [`${cu.customer} ${cu.name || ''}`])); for (const r of cu.rows) out.push([r.showDate ? r.date : '', r.showKind ? r.kind : '', r.no, r.item, r.itemName, { v: r.qty, s: 'qty' }, r.unit, r.price, r.net, r.tax, r.carry, r.freight, r.site, r.site2, r.stock]); }
+    if (d.customers.length) out.push([], ['', '', '', '', S('総　合　計'), '', '', '', S(d.total)]);   // 数量は小数 2 桁（整数の書式だと 12.5t が 13 と表示される。2026-11-16）
     return { name: `商品売上登録リスト_${d.from}_${d.to}.xlsx`, body: xlsx([{ name: '商品売上登録リスト', rows: out, widths: SALES_REG_W }]) };
   }
   if (kind === 'receipt-schedule') {

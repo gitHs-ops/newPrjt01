@@ -2,6 +2,7 @@
 import { check, today } from './domain.mjs';
 import { issuedDocument, siteLabel } from './sales.mjs';
 import { xlsx } from './xlsx.mjs';
+import { digitOfRate } from './taxcode.mjs';
 
 const H = v => ({ v, s: 'bold' }), S = v => ({ v, s: 'sum' }), T = v => ({ v, s: 'title' });
 const jp = d => (d ? `${d.slice(0, 4)}年${d.slice(5, 7)}月${d.slice(8, 10)}日` : '');
@@ -55,15 +56,16 @@ function legacySheet(s) {
   merges.push(ref(push([st('工　事　名', 'rCenter'), '', '', st('当月御買上額', 'rCenter'), '', st('消費税額', 'rCenter'), '', st('当月御請求額', 'rCenter')]), 0, 2), ref(rows.length, 3, 4), ref(rows.length, 5, 6));
   merges.push(ref(push([st(s.siteName || '', 'rCenter'), '', '', st(s.net, 'rNum'), '', st(s.tax, 'rNum'), '', st(s.total, 'rNum')]), 0, 2), ref(rows.length, 3, 4), ref(rows.length, 5, 6));
   push([], 12);
-  push(['年月日', '伝票番号', '商品名', '数量', '単位', '単価', '金額', '備考'].map(h => st(h, 'rHead')), 18);
+  // 明細の右端の区分（見出しなし）は現行 帳票③④⑤ どおり税率区分（処税率の 3 桁目。10%＝1）。請求書番号は現行に無いので出さない（2026-11-25 ユーザー指示「現行どおり」）
+  push(['年月日', '伝票番号', '商品名', '数量', '単位', '単価', '金額', '備考', ''].map(h => st(h, 'rHead')), 18);
   // 全部の請求書（⑤）の赤黒の行（box）は現行どおり枠で囲む（2026-11-18）。枠の上下は box の続きの最初・最後の行
   s.lines.forEach((l, k) => {
     const b = l.box ? (s.lines[k - 1]?.box ? (s.lines[k + 1]?.box ? 'M' : 'B') : (s.lines[k + 1]?.box ? 'T' : 'S')) : '', bx = (name, side = 'I') => (b ? `box${b}${side}_${name}` : name);
-    push([st(ymd(l.date), bx('rCenter', 'L')), st(l.orderNo, bx('rCell')), st(l.itemName, bx('rCell')), st(l.quantity, bx('rQty')), st(l.unit || '', bx('rCenter')), st(l.price, bx('rNum')), st(l.net, bx('rNum')), st(`${l.siteName || ''}${l.remarks ? ' ' + l.remarks : ''}`, bx('rCell', 'R'))], 17);
+    push([st(ymd(l.date), bx('rCenter', 'L')), st(l.orderNo, bx('rCell')), st(l.itemName, bx('rCell')), st(l.quantity, bx('rQty')), st(l.unit || '', bx('rCenter')), st(l.price, bx('rNum')), st(l.net, bx('rNum')), st(`${l.siteName || ''}${l.remarks ? ' ' + l.remarks : ''}`, bx('rCell')), st(digitOfRate(l.taxRate) ?? '', bx('rCenter', 'R'))], 17);
   });
   push([], 8);
   for (const b of s.buckets) { push(['', '', '', '', '', '', st(b.net, 'rNum'), st(`${b.rate}%`, 'rCell')]); push(['', '', '', '', '', '', st(b.tax, 'rNum'), st('税', 'rCell')]); }
-  return { name: `${s.invoiceId}_${s.customer.code}${s.pages > 1 ? '_' + s.page : ''}`.slice(0, 31), rows, heights, merges, gridlines: false, widths: [10, 11, 30, 10, 6, 11, 13, 34] };
+  return { name: `${s.invoiceId}_${s.customer.code}${s.pages > 1 ? '_' + s.page : ''}`.slice(0, 31), rows, heights, merges, gridlines: false, widths: [10, 11, 30, 10, 6, 11, 13, 34, 4] };
 }
 // 提案書様式の請求書（2026-11-08 ユーザー提示の Excel 見本どおり）：A4 縦・目盛線なし・黒の罫線。
 // 2026-11-17 文字の大きさ・列の幅・行の高さを 帳票イメージ_20261108.xlsx の請求書に合わせた（ユーザー指示）。列の幅は見本の B〜K と同じ並び

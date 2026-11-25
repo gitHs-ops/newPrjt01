@@ -1241,6 +1241,8 @@ function proposalInvoice(s) {
 const zipOf = z => (z ? `〒 ${String(z).replace(/^(\d{3})-?(\d{4})$/, '$1-$2')}` : '');
 // 版の表示（2026-11-20 ユーザー指示）：④ 訂正分・⑤ 修正版は表題の横に【訂正分】【修正版】（③ 初回発行版は出さない）
 const editionTag = s => ({ diff: '訂正分', all: '修正版' }[s.kind] ? `<span style="font-size:.6em;margin-left:.6em;letter-spacing:0">【${{ diff: '訂正分', all: '修正版' }[s.kind]}】</span>` : '');
+// 現行 帳票③④⑤ の明細右端の区分（見出しなし）＝税率区分（処税率の 3 桁目。10%＝1。2026-11-25）
+const rateKb = r => ({ 10: '1', 3: '2', 6: '3', 2.8: '4', 5: '5', 8: '8' })[Number(r)] ?? '';
 function legacyInvoice(s) {
   const c = s.company, u = s.customer, ymd = d => String(d || '').slice(2).replaceAll('-', '/'), day = Number(String(s.closing).slice(8)), banks = c.banks || (c.bankText ? [c.bankText] : []);
   const uAddr = [[u.pref, u.addr1].filter(Boolean).join('　'), u.addr2].filter(x => x !== undefined), cAddr = [c.pref, c.addr1].filter(Boolean).join('') + (c.addr2 ? ' ' + c.addr2 : '');
@@ -1252,9 +1254,9 @@ function legacyInvoice(s) {
     <table class="lg-key"><tr><th>請求年月日</th><th>得意先コード</th><th>締日</th></tr><tr><td>${ymd(s.closing)}</td><td>${esc(u.code)}</td><td>${day >= 28 ? 31 : day}</td></tr></table>
     <table class="lg-sum"><tr><th class="lg-site">工　事　名</th><th>当月御買上額</th><th>消費税額</th><th>当月御請求額</th></tr>
       <tr><td>${esc(s.siteName || '')}</td><td class="num">${yen(s.net)}</td><td class="num">${yen(s.tax)}</td><td class="num">${yen(s.total)}</td></tr></table>
-    <table class="lg-lines"><tr><th>年月日</th><th>伝票番号</th><th>商品名</th><th class="num">数量</th><th>単位</th><th class="num">単価</th><th class="num">金額</th><th>備考</th></tr>
-      ${s.lines.map(l => `<tr><td>${ymd(l.date)}</td><td>${esc(l.orderNo)}</td><td>${esc(l.itemName)}</td><td class="num">${Number(l.quantity).toFixed(2)}</td><td>${esc(l.unit || '')}</td><td class="num">${yen(l.price)}</td><td class="num">${yen(l.net)}</td><td>${esc(l.siteName || '')}${l.remarks ? ' ' + esc(l.remarks) : ''}</td></tr>`).join('')}
-      ${s.buckets.map(b => `<tr class="lg-rate"><td colspan="6"></td><td class="num">${yen(b.net)}</td><td>${b.rate}%</td></tr><tr class="lg-rate"><td colspan="6"></td><td class="num">${yen(b.tax)}</td><td>税</td></tr>`).join('')}</table>
+    <table class="lg-lines"><tr><th>年月日</th><th>伝票番号</th><th>商品名</th><th class="num">数量</th><th>単位</th><th class="num">単価</th><th class="num">金額</th><th>備考</th><th></th></tr>
+      ${s.lines.map(l => `<tr><td>${ymd(l.date)}</td><td>${esc(l.orderNo)}</td><td>${esc(l.itemName)}</td><td class="num">${Number(l.quantity).toFixed(2)}</td><td>${esc(l.unit || '')}</td><td class="num">${yen(l.price)}</td><td class="num">${yen(l.net)}</td><td>${esc(l.siteName || '')}${l.remarks ? ' ' + esc(l.remarks) : ''}</td><td>${rateKb(l.taxRate)}</td></tr>`).join('')}
+      ${s.buckets.map(b => `<tr class="lg-rate"><td colspan="6"></td><td class="num">${yen(b.net)}</td><td>${b.rate}%</td><td></td></tr><tr class="lg-rate"><td colspan="6"></td><td class="num">${yen(b.tax)}</td><td>税</td><td></td></tr>`).join('')}</table>
     </section>`;
 }
 // 2026-11-04 請求書は請求現場（明細の現場CD・枝番）ごとに1枚（現行 帳票③④⑤）。現場CD の無い明細は現場名ごとに1枚（2026-11-12）。納入先（明細の現場名）は備考に出すだけ。工事名は請求現場の名称（現場マスタ。s.siteNames）。
@@ -2485,7 +2487,7 @@ async function miscReport(kind, src, showIn) {
   // 現行 HAR551 の並び：得意先は 1 行目だけ、得意先ごとに「*** 得意先計 ***」（2026-11-04）
   if (kind === 'cash-sales') body = d.customers.length ? `<div class="table-wrap"><table><thead><tr><th>得意先</th><th></th><th>売上日</th><th>伝票No</th><th colspan="2">商品名</th><th class="num">数量</th><th class="num">単価</th><th class="num">金額</th><th>処税率</th><th>運送</th><th>備考</th></tr></thead><tbody>`
     + d.customers.map(cu => cu.rows.map((r, i) => `<tr><td>${i ? '' : `${esc(cu.customer)} ${esc(cu.name)}`}</td><td>${esc(r.site)}</td><td>${esc(r.date)}</td><td>${esc(r.no)}</td><td>${esc(r.item)}</td><td>${esc(r.itemName)}</td><td class="num">${r.qty.toFixed(2)} ${esc(r.unit)}</td><td class="num">${yen(r.price)}</td><td class="num">${yen(r.net)}</td><td>${esc(r.tax)}</td><td>${esc(r.carry)}</td><td>${esc(r.remarks)}</td></tr>`).join('')
-      + `<tr class="subtotal"><td colspan="8" class="right">*** 得意先計 ***</td><td class="num">${yen(cu.net)}</td><td colspan="3"></td></tr>`).join('') + '</tbody></table></div>' : '<div class="empty">期間内の現金売上はありません</div>';
+      + `<tr class="subtotal"><td colspan="8" class="right">*** 得意先計 ***</td><td class="num">${yen(cu.net)}</td><td colspan="3"></td></tr>`).join('') + `<tr class="subtotal"><td colspan="8" class="right">総　合　計</td><td class="num">${yen(d.total)}</td><td colspan="3"></td></tr>` + '</tbody></table></div>' : '<div class="empty">期間内の現金売上はありません</div>';
   if (kind === 'material-ledger') { const q = (o, k = 'qty') => (o ? (k === 'qty' ? o.qty : yen(o.value)) : ''); body = `<p class="muted small">対象月 ${esc(d.month)}（期首 ${esc(d.fiscalStart)}）</p>` + table([{ label: '材料', value: r => `${r.item} ${r.name}` },
     { label: '期首 数量', num: 1, value: r => q(r.opening) }, { label: '期首 金額', num: 1, value: r => q(r.opening, 'v') }, { label: '前月来 数量', num: 1, value: r => q(r.prev) }, { label: '前月来 金額', num: 1, value: r => q(r.prev, 'v') }, { label: '当月仕入 数量', num: 1, value: r => q(r.purchase) }, { label: '当月仕入 金額', num: 1, value: r => q(r.purchase, 'v') },
     { label: '当月使用 数量', num: 1, value: r => q(r.used) }, { label: '当月使用 金額', num: 1, value: r => q(r.used, 'v') }, { label: '当月末 数量', num: 1, value: r => q(r.end) }, { label: '当月末 金額', num: 1, value: r => q(r.end, 'v') }, { label: '単価', num: 1, value: r => (r.price ?? '') === '' ? '' : yen(r.price) }],
@@ -2515,7 +2517,7 @@ async function miscReport(kind, src, showIn) {
   // 現行 HAR021 の並び：得意先は小見出し、明細の売上日・区分は前の行と同じなら空白。小計・合計なし（2026-11-04）
   if (kind === 'sales-register') body = d.customers.length ? d.customers.map(cu => `<h3 style="margin:10px 0 4px">${esc(cu.customer)} ${esc(cu.name)}</h3>` + table([{ label: '売上日', value: r => r.showDate ? r.date : '' }, { label: '区分', value: r => r.showKind ? r.kind : '' }, { label: '伝票No', value: r => r.no }, { label: '商品名', value: r => `${r.item} ${r.itemName}` },
     { label: '数量', num: 1, value: r => `${r.qty.toFixed(2)} ${r.unit}` }, { label: '売上単価', num: 1, value: r => yen(r.price) }, { label: '売上金額', num: 1, value: r => yen(r.net) }, { label: '処税率', value: r => r.tax }, { label: '運送区分', value: r => r.carry }, { label: '運賃', num: 1, value: r => yen(r.freight) },
-    { label: '現場', value: r => `${r.site}${r.site2 ? '　' + r.site2 : ''}` }, { label: '在庫品コード', value: r => r.stock }], cu.rows)).join('') : '<div class="empty">期間内の売上はありません</div>';
+    { label: '現場', value: r => `${r.site}${r.site2 ? '　' + r.site2 : ''}` }, { label: '在庫品コード', value: r => r.stock }], cu.rows)).join('') + `<p class="right" style="margin-top:8px"><b>総　合　計　${yen(d.total)}</b></p>` : '<div class="empty">期間内の売上はありません</div>';
   // 現行 HAR136 の並び（2026-11-20 ユーザー指示）：業者の行（住所）→ 伝票ごとに 明細・計・支払条件 → 業者計・内消費税 → 部門計（工事計）→ 総　合　計。相殺・支払率は出さない
   if (kind === 'payable-input') { const sub = (label, a, t) => `<tr class="subtotal"><td colspan="5"></td><td>${label}</td><td class="num">${a}</td><td colspan="2"></td></tr><tr class="subtotal"><td colspan="5"></td><td>（内消費税</td><td class="num">${t}</td><td>）</td><td></td></tr>`;   // 金額は 1 回だけ（2026-11-21）
     body = `<p class="small">部門 ${esc(d.dept)}${d.allVendors ? '' : ' ／ 業者 ' + esc(d.vendor)}${d.memo ? ' ／ 工事コード ' + esc(d.memo) : ''}</p>` + (d.depts.length ? d.depts.map(dp => `<h3 style="margin:10px 0 4px">${esc(d.groupLabel)} : ${esc(dp.dept)} ${esc(dp.name)}</h3><div class="table-wrap"><table><thead><tr><th rowspan="2">業者</th><th>業者名</th><th rowspan="2">科目</th><th rowspan="2">内訳</th><th rowspan="2">科目名</th><th rowspan="2">内訳名</th><th rowspan="2" class="num">請求金額</th><th rowspan="2">摘要</th><th rowspan="2">処税率</th></tr><tr><th>伝票No</th></tr></thead><tbody>`

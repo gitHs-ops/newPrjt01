@@ -3,6 +3,7 @@ import { check, isoDate, isoMonth, toNum, fromNum, today, addMonths, METHODS, ye
 import { taxOf, decode as taxDecode, digitOfRate } from './taxcode.mjs';
 import { slipNoOf } from './sales.mjs';
 import { rows, one, audit } from './db.mjs';
+const s0 = v => v != null && String(v).trim() !== '';
 import { xlsx, band } from './xlsx.mjs';
 import { companyPeriod } from './period.mjs';
 import { jvAsOf } from './masters.mjs';
@@ -60,11 +61,11 @@ export async function customerItems(c, q) {
 }
 // ---------- NO43 現金売上明細表：現行 HAR551 の並び（2026-11-04） ----------
 // 列は 得意先（コード＋名称、得意先の 1 行目だけ）・現場名・売上日・伝票No・商品名（コード＋名称）・数量・単位・単価・金額・処税率・運送・備考。得意先ごとに「*** 得意先計 ***」（金額）
-// 単価は売上単価（単価＋運賃）。処税率は売上の 3 桁コード「2 1 税率区分」。運送は納入区分が引取（category1=2）なら 2 先方、それ以外は 1 現場
+// 単価は売上単価（単価＋運賃）。処税率は売上の 3 桁コード「2 1 税率区分」。運送は納入区分の「コード 略称」（1 大現・2 ８現・3 ４現・4 引取・5 その他。2026-11-25：旧区分 1 現場／2 先方 から変更）。末尾に「総　合　計」
 export async function cashSales(c, q) {
   const { from, to } = range(q);
   const rs = await rows(c, `SELECT s.*, c.customers_name, unit_name(i.unit) unit, (SELECT COUNT(*) FROM sales_trn x WHERE x.sales_no=s.order_no AND x.order_no<>s.order_no) corrections,
-      (SELECT k.category1 FROM code_m k WHERE k.code_key='A0000' AND k.code_dtl=CAST(s.shipping_kb AS TEXT)) kbn_cat
+      (SELECT COALESCE(NULLIF(TRIM(k.code_dtl_abr), ''), k.code_dtl_nam) FROM code_m k WHERE k.code_key='A0000' AND k.code_dtl=CAST(s.shipping_kb AS TEXT)) kbn_name
     FROM sales_trn s LEFT JOIN client_m c ON c.customers_cd=s.customers_cd LEFT JOIN item_m i ON i.item_cd=s.item_cd
     WHERE s.payment_method_cd=1 AND s.sales_date BETWEEN ? AND ? ORDER BY s.customers_cd, s.sales_date, CASE WHEN s.ship_kb='5' AND COALESCE(s.sales_no, '')<>'' THEN s.sales_no ELSE s.order_no END, s.sales_suffix, s.order_no`, [toNum(from), toNum(to)]);
   const customers = [];
@@ -72,15 +73,16 @@ export async function cashSales(c, q) {
     let cu = customers.find(x => x.customer === r.customers_cd); if (!cu) customers.push(cu = { customer: r.customers_cd, name: r.customers_name || '', rows: [], net: 0 });
     const rate = num(r.tax_rate);
     cu.rows.push({ site: [r.field_name1, r.field_name2].map(v => String(v || '').trim()).filter(Boolean).join(' '), date: fromNum(r.sales_date), no: slipNoOf(r), item: r.item_cd || '', itemName: String(r.item_name || '').trim(),
-      qty: num(r.quantity), unit: r.unit || '', price: num(r.unit_price), net: num(r.money), tax: rate ? `21${digitOfRate(rate) ?? ''}` : '090', carry: r.kbn_cat === '2' ? '2 先方' : '1 現場', remarks: r.remarks || '' });
+      qty: num(r.quantity), unit: r.unit || '', price: num(r.unit_price), net: num(r.money), tax: rate ? `21${digitOfRate(rate) ?? ''}` : '090', carry: s0(r.shipping_kb) ? `${r.shipping_kb}${r.kbn_name ? ' ' + r.kbn_name : ''}` : '', remarks: r.remarks || '' });
     cu.net += num(r.money);
   }
-  return { title: '現金売上明細表', ref: 'NO43 / 添付帳票⑲（HAR551）', from, to, customers };
+  return { title: '現金売上明細表', ref: 'NO43 / 添付帳票⑲（HAR551）', from, to, customers, total: customers.reduce((n, cu) => n + cu.net, 0) };
 }
 // ---------- NO26 材料受払表（月次：前月末在庫＋当月仕入−当月末在庫＝当月使用） ----------
 async function inv(c, month) {
   return Object.fromEntries((await rows(c, "SELECT item_cd, quantity, valuation_price, valuation_amount, status FROM inventory_count WHERE period_start=? AND location_code='MAIN' AND status IN ('POSTED','DRAFT')", [month + '-01'])).map(r => [r.item_cd, { posted: r.status === 'POSTED', qty: num(r.quantity), price: num(r.valuation_price), value: num(r.valuation_amount) }]));
 }
+const isMaterialCode = code => /^1\d{4}$/.test(String(code || ''));
 export async function materialLedger(c, q) {
   const month = isoMonth(q.month, '対象月');
   const co = await one(c, 'SELECT closing_m FROM company_info_m ORDER BY company_info_id LIMIT 1');
@@ -89,9 +91,10 @@ export async function materialLedger(c, q) {
   const [prev, end, open] = [await inv(c, addMonths(month, -1)), await inv(c, month), await inv(c, addMonths(fs, -1))];
   const cr = closingRange(month, q.closing);
   const pur = Object.fromEntries((await rows(c, "SELECT item_cd, SUM(quantity) q, SUM(net_amount) v FROM purchase WHERE purchase_date BETWEEN ? AND ? AND COALESCE(purchase_kb,'1')<>'2' GROUP BY item_cd", [cr.from, cr.to])).map(r => [r.item_cd, { qty: num(r.q), value: num(r.v) }]));
-  const codes = new Set([...Object.keys(prev), ...Object.keys(end), ...Object.keys(open), ...Object.keys(pur)]);
-  const kinds = await rows(c, "SELECT item_cd, item_nam, unit_name(unit) unit, item_product_kb FROM item_m WHERE item_product_kb='1'"); // 1=材料（現行 Java）
-  kinds.forEach(k => codes.add(k.item_cd));
+  // 材料＝製品・材料区分 1 かつ商品コード 1xxxx（現行 帳票⑧ HAR491 と同じ。運賃 30001・運搬費・製品 9xxxx などは出さない。05 No.45、2026-11-25）
+  const kinds = await rows(c, "SELECT item_cd FROM item_m WHERE item_product_kb='1'"), mat = new Set(kinds.map(k => k.item_cd).filter(isMaterialCode));
+  const codes = new Set([...Object.keys(prev), ...Object.keys(end), ...Object.keys(open), ...Object.keys(pur)].filter(k => mat.has(k)));
+  mat.forEach(k => codes.add(k));
   const names = Object.fromEntries((await rows(c, 'SELECT item_cd, item_nam, unit_name(unit) unit, tanka FROM item_m')).map(r => [r.item_cd, r]));
   const z = { qty: 0, value: 0 };
   // 金額のない在庫（実在庫登録のみ・評価額 0）は商品マスタの単価で評価する（2026-11-02 ユーザー指摘：マスタ単価を入れても金額が出ない）
@@ -122,7 +125,8 @@ async function runMixLedger(c, ctx, q) {
 export async function savedMaterialLedger(c, q) {
   const month = isoMonth(q.month, '対象月'), r = await one(c, 'SELECT result FROM app_mix_result WHERE month=? AND closing=?', [month, mixKey(q.closing)]);
   check(r, `${month}（${closingRange(month, q.closing).label}）の配合計算が実行されていません。在庫 → 配合計算 で実行してから出力してください`);
-  const d = JSON.parse(r.result);
+  const d0 = JSON.parse(r.result), items = d0.items.filter(x => isMaterialCode(x.item)), t = (k, f) => items.reduce((n, x) => n + (x[k]?.[f] || 0), 0);
+  const d = { ...d0, items, totals: { opening: t('opening', 'value'), prev: t('prev', 'value'), purchase: t('purchase', 'value'), used: t('used', 'value'), end: t('end', 'value'), openingQty: t('opening', 'qty'), prevQty: t('prev', 'qty'), purchaseQty: t('purchase', 'qty'), usedQty: t('used', 'qty'), endQty: t('end', 'qty') } };
   return { ...d, note: `配合計算の結果（${d.runAt} ${d.runBy} 実行）。実行後に実在庫・仕入を直したときは配合計算をやり直してください。` + d.note };
 }
 
@@ -216,11 +220,16 @@ async function jvRange(c, q) {
 // NO35 出資金請求明細表（定時請求分）／出資金請求合計表（定時請求分）
 // 10/21 打合せ：定時請求データをもとに支払日ごと・科目ごとに出力。明細表は入力単位（明細行）、合計表は科目ごとに集計。
 // 支払日が翌月15日と翌々月末のものが混在する。端数調整（データの読込 0/1 と端数調整画面）は要検討のため、按分は各社切捨て・端数は第1構成員。
+const ADJUST_ACCOUNT = '1431';
 export async function jvExpenses(c, q) {
   const { from, to, closing, month } = await jvRange(c, q), ms = await members(c, month), summary = q.layout === 'summary';
-  const ls = await rows(c, `SELECT d.document_no, d.due_on, d.booked_on, d.memo, l.line_no, l.account_code, a.account_name, l.source_tax_code, l.gross_amount, l.tax_amount, l.memo line_memo, v.vendor_name
-    FROM expense_document d JOIN expense_line l ON l.expense_id=d.expense_id LEFT JOIN account_subject a ON a.account_code=l.account_code LEFT JOIN vendor v ON v.vendor_id=d.vendor_id
-    WHERE d.expense_kind='PAYABLE' AND d.status='POSTED' AND d.booked_on BETWEEN ? AND ? ORDER BY COALESCE(d.due_on, d.booked_on), l.account_code, v.vendor_code, d.document_no, l.line_no`, [from, to]);
+  // 05 No.47（2026-11-25 ユーザー指示）：定時請求に加えて小口現金出納データ（支払日＝出納日）と、調整金＝支払内訳入力の立替金（相殺額。支払日の行、マイナス＝出資金の減）も按分する
+  const ls = await rows(c, `SELECT d.expense_kind, d.document_no, d.due_on, d.booked_on, d.memo, d.payee, l.line_no, l.account_code, a.account_name, l.source_tax_code, l.gross_amount, l.tax_amount, l.memo line_memo, l.payee line_payee, v.vendor_name, lv.vendor_name line_vendor_name
+    FROM expense_document d JOIN expense_line l ON l.expense_id=d.expense_id LEFT JOIN account_subject a ON a.account_code=l.account_code LEFT JOIN vendor v ON v.vendor_id=d.vendor_id LEFT JOIN vendor lv ON lv.vendor_id=l.vendor_id
+    WHERE d.expense_kind IN ('PAYABLE','PETTY_CASH') AND d.status='POSTED' AND d.booked_on BETWEEN ? AND ? ORDER BY COALESCE(d.due_on, d.booked_on), l.account_code, v.vendor_code, d.document_no, l.line_no`, [from, to]);
+  const adj = await rows(c, `SELECT p.payment_no, p.paid_on, p.offset_amount, v.vendor_name FROM payment p LEFT JOIN vendor v ON v.vendor_id=p.vendor_id
+    WHERE p.status='POSTED' AND COALESCE(p.offset_amount,0)<>0 AND p.paid_on BETWEEN ? AND ? ORDER BY p.paid_on, v.vendor_code, p.payment_no`, [from, to]);
+  for (const p of adj) ls.push({ expense_kind: 'ADJUST', document_no: p.payment_no, due_on: p.paid_on, booked_on: p.paid_on, account_code: ADJUST_ACCOUNT, account_name: '調整金（立替金）', source_tax_code: null, gross_amount: -num(p.offset_amount), tax_amount: 0, line_memo: '立替金（支払内訳入力）', vendor_name: p.vendor_name });
   const accounts = [], rates = [], zero = () => ms.map(() => 0);
   for (const l of ls) {
     const due = String(l.due_on || l.booked_on).slice(0, 10);
@@ -234,9 +243,12 @@ export async function jvExpenses(c, q) {
     let g = rates.find(x => x.rate === rate);
     if (!g) rates.push(g = { rate, gross: 0, net: 0, tax: 0, parts: zero(), taxParts: zero() });
     g.gross += gross; g.net += gross - tax; g.tax += tax; parts.forEach((v, k) => { g.parts[k] += v; g.taxParts[k] += ptax[k]; });
-    if (!summary) a.rows.push({ date: due, no: l.document_no, vendor: l.vendor_name, memo: l.line_memo || l.memo, taxCode: l.source_tax_code, rate, gross, net: gross - tax, tax, parts });
+    const vendor = l.expense_kind === 'PETTY_CASH' ? l.line_vendor_name || l.line_payee || l.vendor_name || l.payee || '' : l.vendor_name;
+    if (!summary) a.rows.push({ date: due, no: l.document_no, vendor, kind: l.expense_kind, memo: l.line_memo || l.memo, taxCode: l.source_tax_code, rate, gross, net: gross - tax, tax, parts });
     a.count++; a.gross += gross; a.net += gross - tax; a.tax += tax; parts.forEach((v, k) => (a.parts[k] += v));
   }
+  // 支払日ごと・科目ごと（定時請求・小口現金を合わせて科目順。調整金は支払日の最後）
+  accounts.sort((x, y) => x.due.localeCompare(y.due) || (x.account === ADJUST_ACCOUNT) - (y.account === ADJUST_ACCOUNT) || String(x.account).localeCompare(String(y.account)));
   // 合計表の出資金額は明細表の科目計と同じ（明細ごとの按分の合計。現行 HJR011 の合計表＝明細表の科目計。2026-11-04 再按分をやめた）
   // 出資本体＝出資金額−出資消費税（現行の合計表の見出し：出資金額・出資本体・出資消費税。2026-11-02）
   for (const a of [...accounts, ...rates]) a.netParts = a.parts.map((v, k) => v - a.taxParts[k]);
@@ -245,7 +257,7 @@ export async function jvExpenses(c, q) {
   const days = [...new Set(accounts.map(a => a.due))].map(due => { const as = accounts.filter(a => a.due === due); return { due, gross: tot(as, 'gross'), net: tot(as, 'net'), tax: tot(as, 'tax'), parts: add(as, 'parts'), netParts: add(as, 'netParts'), taxParts: add(as, 'taxParts') }; });
   const totals = { gross: tot(accounts, 'gross'), net: tot(accounts, 'net'), tax: tot(accounts, 'tax'), parts: add(accounts, 'parts'), netParts: add(accounts, 'netParts'), taxParts: add(accounts, 'taxParts') };
   return { title: summary ? '出資金請求合計表（定時請求分）' : '出資金請求明細表（定時請求分）', ref: 'NO35 / 添付帳票⑫', layout: summary ? 'summary' : 'detail', closing, from, to, members: ms, accounts, days, totals, rates,
-    note: `締切日 ${closing || to} の月度（${from}〜${to}）の定時請求を、支払日ごと・科目ごとに${summary ? '集計して' : '明細行単位で'}${month} 月度の出資比率で按分。各社切捨て、端数は第1構成員${summary ? '。出資金額は明細ごとの按分の合計、出資消費税は明細ごとに出資金額から税率で逆算（切捨て）した合計' : ''}。端数調整の入力（現行の「データの読込 0/1」）は要検討。` };
+    note: `締切日 ${closing || to} の月度（${from}〜${to}）の定時請求・小口現金と調整金（支払内訳入力の立替金）を、支払日ごと・科目ごとに${summary ? '集計して' : '明細行単位で'}${month} 月度の出資比率で按分。各社切捨て、端数は第1構成員${summary ? '。出資金額は明細ごとの按分の合計、出資消費税は明細ごとに出資金額から税率で逆算（切捨て）した合計' : ''}。端数調整の入力（現行の「データの読込 0/1」）は要検討。` };
 }
 // 入金科目は現行 HJR031 の表記（2026-11-04）：当座預金　売掛金入金／当座預金　受取手形満期日／雑　費　売掛金入金／雑損失　売掛金入金／（空白）現金売上
 const PART_ACCOUNT = { BANK: '当座預金', NOTE: '当座預金', FEE: '雑　費', COOP: '雑　費', LOSS: '雑損失' };
@@ -339,6 +351,7 @@ export async function miscBook(c, kind, q) {
     const d = await cashSales(c, q), out = head(d, `期間 ${d.from} 〜 ${d.to}`);
     out.push(['得意先', '', '', '売上日', '伝票No', '商品名', '', '数量', '', '単価', '金額', '処税率', '運送', '備考'].map(H));
     for (const cu of d.customers) { cu.rows.forEach((r, i) => out.push([i ? '' : cu.customer, i ? '' : cu.name, r.site, r.date, r.no, r.item, r.itemName, Q2(r.qty), r.unit, r.price, r.net, r.tax, r.carry, r.remarks])); out.push(['', '', '', '', '', '', S('*** 得意先計 ***'), '', '', '', S(cu.net)]); }
+    if (d.customers.length) out.push([], ['', '', '', '', '', '', S('総　合　計'), '', '', '', S(d.total)]);
     return { name: `現金売上明細表_${d.from}_${d.to}.xlsx`, body: xlsx([{ name: '現金売上明細表', rows: out, widths: [8, 18, 20, 11, 12, 7, 22, 9, 4, 10, 12, 7, 8, 20] }]) };
   }
   if (kind === 'material-ledger') {
