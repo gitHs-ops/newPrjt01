@@ -619,7 +619,9 @@ dialog .table-wrap:has(> table.one-line) { max-height: none; overflow-y: visible
 @media (min-width: 761px) {   /* 1 列になる狭い画面は上の項目と重なるため従来どおり */
   .hw-head > label.field { position: relative; }
   .hw-head label.field > small, .hw-head #hw-check { position: absolute; grid-column: 2; grid-row: 1; left: 0; bottom: calc(100% + 2px); white-space: nowrap; }
-  .hw-head label.field:has(#hw-check:not(:empty)) > small { bottom: calc(100% + 20px); }
+  /* 業者・締切日が伝票No と同じ行になったため（2026-11-25）、案内は 1 行だけ：一致チェックの文言が出ている間は「明細の合計と一致させる」を隠し、その 1 行分だけ上の行と空ける */
+  .hw-head label.field:has(#hw-check:not(:empty)) > small { display: none; }
+  .hw-head > label.field:has(> small, > #hw-check) { margin-top: 14px; }
 }
 .hw-head #hw-check:empty { display: none; }
 label.field.req > #hw-check::after { content: none; }

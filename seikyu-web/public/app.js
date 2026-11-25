@@ -1996,9 +1996,8 @@ function expenseView(kind) {
     // 小口現金の組織（部門）は表示のみ。現行 HAW150 に入力欄がなく、HAR733 の部は 063（登録時はサーバーの既定値 063）
     const deptLabel = (code = '063') => { const d = (masters.depts || []).find(x => x.code === code); return d ? `${d.code} ${d.name}` : code; };
     const head = payable ? `<div class="hw-head">
-        ${field('組織', deptSel)}<div></div>${field('締切日', `<input type="date" name="date" value="${lastClosing()}">`, { req: 1 })}
-        ${field('伝票No', '<input name="docNo" value="（登録時に自動採番）" disabled>')}<div class="span2"></div>
-        <div class="span2">${field('業者', '<div style="display:flex;gap:12px;align-items:center"><input name="vendor" list="dl-hw-vendors" maxlength="7" autocomplete="off" placeholder="業者コード" style="width:140px;min-width:0"><output id="hw-vname"></output></div>', { req: 1 })}</div><div></div>
+        ${field('組織', deptSel)}<div class="span2"></div>
+        ${field('伝票No', '<input name="docNo" value="（登録時に自動採番）" disabled>')}${field('業者', '<div style="display:flex;gap:12px;align-items:center"><input name="vendor" list="dl-hw-vendors" maxlength="7" autocomplete="off" placeholder="業者コード" style="width:140px;min-width:0"><output id="hw-vname" style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"></output></div>', { req: 1 })}${field('締切日', `<input type="date" name="date" value="${lastClosing()}">`, { req: 1 })}${'' /* 業者は伝票No の右、締切日も同じ行（2026-11-25 ユーザー指示） */}
         ${tekiyoList()}<datalist id="dl-hw-vendors">${active('vendors').map(x => `<option value="${esc(x.code)}">${esc(x.name)}</option>`).join('')}</datalist>
         ${field('支払繰延区分', '<output id="ex-defer" class="muted">業者コードを入力すると業者マスタから表示</output>')}${field('支払予定日', '<input type="date" name="due" title="業者マスタの支払繰延区分から自動計算（休日は翌営業日）。手入力で修正できます">', { hint: '業者マスタから自動・修正可' })}${field('合計金額', '<input name="total" class="num" inputmode="numeric"><span id="hw-check" class="small"></span>' /* 一致チェックは合計金額の欄のすぐ上（2026-11-24 ユーザー指示。11/23 内部会議 No.7 は下。位置は styles.css） */, { req: 1, hint: '明細の合計と一致させる' })}
       </div>` : `<div class="inline-fields">
@@ -2042,7 +2041,7 @@ function expenseView(kind) {
           const manual = () => { due.dataset.manual = due.value ? '1' : ''; };
           due.addEventListener('input', manual); due.addEventListener('change', manual);
           const terms = () => { const code = f.querySelector('[name=vendor]').value.trim(), v = (masters.vendors || []).find(x => x.code === code), t = vendorTerms(v, f.querySelector('[name=date]').value, num(f.dataset.total || 0));
-            $('#hw-vname').innerHTML = !code ? '' : v ? esc(v.name) : '<span class="check-ng">該当なし</span>';
+            $('#hw-vname').innerHTML = !code ? '' : v ? esc(v.name) : '<span class="check-ng">該当なし</span>'; $('#hw-vname').title = v ? v.name : '';   /* 欄に入らない業者名は … で省略し、マウスを重ねると全体（2026-11-25） */
             $('#ex-defer').textContent = v ? t.label : '業者コードを入力すると業者マスタから表示'; if (!due.dataset.manual) due.value = v && t.due ? t.due : ''; };
           const reterms = () => { due.dataset.manual = ''; terms(); };
           f._terms = terms; f.querySelector('[name=vendor]').addEventListener('input', reterms); f.querySelector('[name=vendor]').addEventListener('change', reterms); f.querySelector('[name=date]').addEventListener('change', reterms);
