@@ -73,6 +73,7 @@ export async function createApp({ pool, publicDir, secureCookies = process.env.N
     const k = x.params.kind, fn = MR.MISC[k] || XR.EXTRA[k] || NEW_REPORTS[k]; if (!fn) throw new DomainError('帳票の種類が不正です');
     return x.q.format === 'xlsx' ? db(c => (NEW_REPORTS[k] ? genericBook : XR.EXTRA[k] ? XR.extraBook : MR.miscBook)(c, k, x.q)).then(b => ({ file: b })) : db(c => fn(c, x.q));
   });
+  route('GET', '/api/mix/status', 'read', x => db(c => MR.mixStatus(c, x.q)));   // 配合計算の実行済み確認（2026-11-25）
   route('GET', '/api/ar-ledger', 'read', x => x.q.format === 'xlsx' ? db(c => X.arLedgerBook(c, x.q)).then(b => ({ file: b })) : db(c => S.arLedger(c, x.q)));
   route('GET', '/api/receipt-plan', 'read', x => x.q.format === 'xlsx' ? db(c => X.receiptPlanBook(c, x.q)).then(b => ({ file: b })) : db(c => S.receiptPlan(c, x.q)));
   route('GET', '/api/receipt-context', 'read', x => db(c => S.receiptContext(c, x.q.customer, x.q.exclude)));

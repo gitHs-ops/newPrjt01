@@ -1890,7 +1890,7 @@ const lastClosing = () => { const [y, m, d] = today().split('-').map(Number); re
 VIEWS.inventory = async q => {
   const A = actions;
   A.misc = d => miscReport(d.kind, d.src).catch(e => toast(e.message, true)); A.mix = () => mixDialog().catch(e => toast(e.message, true));
-  A.mixXl = () => saveXlsx(`/api/reports/misc/mix?${qs(miscParams('mix', 'mr'))}&format=xlsx`).then(() => toast('配合計算結果を Excel で出力しました')).catch(e => toast(e.message, true));
+  A.mixXl = d => saveXlsx(`/api/reports/misc/mix?${qs(miscParams('mix', d.src))}&format=xlsx`).then(() => toast('配合計算結果を Excel で出力しました')).catch(e => toast(e.message, true));
   A.icSort = d => { const st = listSort.ic; listSort.ic = st?.k === d.k ? { k: d.k, dir: -st.dir } : { k: d.k, dir: 1 }; icApplySort(); };   // 入力中の数量を消さないよう再描画せずに行を並べ替える（2026-11-21）
   const [list, cnt] = await Promise.all([api('/api/inventory?' + qs({ month: q.month || thisMonth() })), api('/api/inventory/counts?' + qs({ date: q.date || lastClosing() }))]);
   A.countSave = async (_, btn) => {
@@ -2361,8 +2361,8 @@ const dailyReportsCard = () => dailyCard('日報出力', 'dr', '<button data-act
 const shipDailyCard = () => dailyCard('出荷日報', 'sd', '<button data-act="misc" data-kind="item-ship-daily" data-src="sd">商品別出荷日報</button><button data-act="misc" data-kind="customer-ship-daily" data-src="sd">得意先別出荷日報</button>');
 const invPeriod = p => `<label class="field">処理年月（計算年月）<input type="month" id="${p}-month" value="${lastClosing().slice(0, 7)}"></label><label class="field">締日<select id="${p}-closing"><option value="20" selected>20日</option><option value="10">10日</option><option value="31">月末（暦月）</option></select></label>`;
 // 配合計算の画面（2026-11-04）。2026-11-12 から［配合計算を実行］で結果を保存し（材料受払の計算結果・原価）、材料受払表はその結果を出力する（D-072・機能一覧 9-3・10-3）
-const mixCard = () => miscCard('配合計算', '月次（実在庫登録・商品仕入登録の後に実行）。計算年月を指定して実行し、結果を保存して材料受払表に使う', invPeriod('mx'), `${canWrite() ? '<button class="primary" data-act="mix">配合計算を実行</button>' : ''}<a class="button" id="mx-ledger" href="#inventory/ledger">材料受払表</a>`);   // ［材料受払表］（メニュー画面を開く）は［配合計算を実行］の右（2026-11-21 ユーザー指示）
-const mixXlCard = () => miscCard('配合計算結果（Excel）', '配合計算の結果を Excel で出力（2026-11-25 ユーザー指示：小メニューに追加）', invPeriod('mr'), '<button data-act="mixXl">⇩ 配合計算結果（Excel）</button>');
+const mixCard = () => miscCard('配合計算', '月次（実在庫登録・商品仕入登録の後に実行）。計算年月を指定して実行し、結果を保存して材料受払表に使う', invPeriod('mx'), `${canWrite() ? '<button class="primary" data-act="mix">配合計算を実行</button>' : ''}<a class="button" id="mx-ledger" href="#inventory/ledger">材料受払表</a><button id="mx-xl" data-act="mixXl" data-src="mx" disabled title="配合計算を実行すると出力できます">⇩ 配合計算結果（Excel）</button>`);   // 実行前も押せない状態で出す（2026-11-25 ユーザー指示）   // ［材料受払表］（メニュー画面を開く）は［配合計算を実行］の右（2026-11-21 ユーザー指示）
+const mixXlCard = () => miscCard('配合計算結果（Excel）', '配合計算の結果を Excel で出力（2026-11-25 ユーザー指示：小メニューに追加）', invPeriod('mr'), '<button id="mr-xl" data-act="mixXl" data-src="mr" disabled title="配合計算を実行すると出力できます">⇩ 配合計算結果（Excel）</button>');
 const ledgerCard = () => miscCard('材料受払表', '配合計算で保存した結果を出力（先に 在庫 → 配合計算 を実行）', invPeriod('mi'), '<button data-act="misc" data-kind="material-ledger" data-src="mi">⇩ Excel</button>'); // 「現行の配合計算処理＋材料受払表印刷」の注記は削除（2026-11-03）
 // 10/19 打合せ：出力指示＝締切日・部門コード（組織マスタ）・区分（ブランク＝工事、1＝組織）・業者コード From〜To（ブランク〜9999999＝全業者）
 const payableReportsCard = () => miscCard('定時請求入力明細表', '部門（工事）→業者→請求明細', `<label class="field">締切日<input type="date" id="pi-date" value="${lastClosing()}"></label>${/* 締日→締切日（定時請求データ入力の入力項目と同じ。2026-11-20 ユーザー指示） */ ''}
@@ -2543,11 +2543,19 @@ async function miscReport(kind, src, showIn) {
   modal({ title: `${d.title}`, body: reportConfirm(body, 'mr-body', d.sub || (d.from ? `${d.from} 〜 ${d.to}` : d.month), '') });
 }
 // 実行後は［配合計算を実行］の右に結果の Excel を出す（2026-11-17 ユーザー指示）。年月・締日を変えたら消す（別条件の結果と取り違えないため）
-function mixResultLink(month, closing) {
-  $('#mx-xl')?.remove();
-  ($('#mx-ledger') || $('[data-act="mix"]'))?.insertAdjacentHTML('afterend', `<a class="button" id="mx-xl" href="/api/reports/misc/mix?${qs({ month, closing })}&format=xlsx" download>⇩ 配合計算結果（Excel）</a>`);
+// 2026-11-25 から：ボタンは常に出し、その処理年月・締日で配合計算が未実行なら押せない（ユーザー指示）
+function mixResultLink() { mixXlState('mx'); mixXlState('mr'); }
+async function mixXlState(src) {
+  const b = $(`#${src}-xl`), m = $(`#${src}-month`), cl = $(`#${src}-closing`); if (!b || !m || !cl) return;
+  b.disabled = true; if (!m.value) return;
+  const key = `${m.value}|${cl.value}`; b.dataset.key = key;
+  const r = await api(`/api/mix/status?${qs({ month: m.value, closing: cl.value })}`).catch(() => null);
+  if (b.dataset.key !== key) return;   // 待つ間に条件が変わった
+  b.disabled = !r?.ran; b.title = r?.ran ? '' : '配合計算を実行すると出力できます';
 }
-document.addEventListener('change', e => { if (['mx-month', 'mx-closing'].includes(e.target.id)) $('#mx-xl')?.remove(); });
+document.addEventListener('change', e => { const m = /^(mx|mr)-(month|closing)$/.exec(e.target.id); if (m) mixXlState(m[1]); });
+// 画面を描いたら（ボタンが現れたら）実行済みかを確かめる
+new MutationObserver(() => { for (const src of ['mx', 'mr']) { const b = document.getElementById(src + '-xl'); if (b && !b.dataset.key) { b.dataset.key = '-'; mixXlState(src); } } }).observe(document.body, { childList: true, subtree: true });
 // 配合計算モーダル（配合マスタ×材料単価＋経費単価 → 原価）は 2026-11-02 から画面から開かない（現行の配合計算処理とは別物。API は残す）
 async function mixDialog() {
   const month = $('#mx-month').value, closing = $('#mx-closing').value, d = await api('/api/reports/misc/mix?' + qs({ month, closing }));

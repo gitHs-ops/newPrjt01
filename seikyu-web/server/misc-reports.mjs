@@ -121,6 +121,11 @@ async function runMixLedger(c, ctx, q) {
   await c.query('INSERT INTO app_mix_result (month,closing,result,run_by,run_at) VALUES (?,?,?,?,UTC_TIMESTAMP(6)) ON DUPLICATE KEY UPDATE result=VALUES(result),run_by=VALUES(run_by),run_at=VALUES(run_at)',
     [d.month, mixKey(q.closing), JSON.stringify({ ...d, runAt, runBy: ctx.user.login_id }), ctx.user.login_id]);
 }
+// 配合計算を実行済みか（配合計算結果（Excel）のボタンを実行前は押せなくする。2026-11-25 ユーザー指示）
+export async function mixStatus(c, q) {
+  const month = isoMonth(q.month, '対象月'), r = await one(c, 'SELECT run_at FROM app_mix_result WHERE month=? AND closing=?', [month, mixKey(q.closing)]);
+  return { month, closing: mixKey(q.closing), ran: !!r };
+}
 // 材料受払表：配合計算で保存した結果を出す。未実行の処理年月・締日は出さない
 export async function savedMaterialLedger(c, q) {
   const month = isoMonth(q.month, '対象月'), r = await one(c, 'SELECT result FROM app_mix_result WHERE month=? AND closing=?', [month, mixKey(q.closing)]);
