@@ -394,7 +394,7 @@ const SUBMENUS = {
   // 10/21 打合せの処理順（実在庫登録 → 配合計算 → 材料受払表 → 在庫計上）に並べる
   // 在庫登録リスト・配合計算・材料受払表は 2026-11-02 にそれぞれ小メニューに分けた（ユーザー指示）
   // 配合計算は自分の画面を出す（2026-11-04 ユーザー指示。以前は材料受払表の画面へ移っていた）。現行の配合計算処理は配合マスタ・配合単価と無関係で、結果が材料受払表（2026-11-02 ユーザー回答）
-  inventory: [{ k: 'count', l: '実在庫登録', tools: false }, { k: 'register', l: '在庫登録リスト' }, { k: 'mix', l: '配合計算' }, { k: 'mixxl', l: '配合計算結果（Excel）' } /* 2026-11-25 ユーザー指示 */, { k: 'ledger', l: '材料受払表' }, { k: 'post', l: '在庫計上', tools: false }, { k: 'list', l: '在庫一覧', tools: true }],   // 在庫一覧は 2026-11-08 小メニュー非表示 → 2026-11-20 user01 だけ表示 → 同日ユーザー指示「user01 に出るメニューは全ログインに」で全ログインに表示
+  inventory: [{ k: 'count', l: '実在庫登録', tools: false }, { k: 'register', l: '在庫登録リスト' }, { k: 'mix', l: '配合計算' }, { k: 'mixxl', l: '配合計算結果表' } /* 2026-11-25 ユーザー指示（名前も同日指示） */, { k: 'ledger', l: '材料受払表' }, { k: 'post', l: '在庫計上', tools: false }, { k: 'list', l: '在庫一覧', tools: true }],   // 在庫一覧は 2026-11-08 小メニュー非表示 → 2026-11-20 user01 だけ表示 → 同日ユーザー指示「user01 に出るメニューは全ログインに」で全ログインに表示
   purchases: [{ k: 'list', l: '商品仕入一覧・登録' }, { k: 'reports', l: '商品仕入登録リスト' }, { k: 'itemlist', l: '商品別仕入一覧' } /* 2026-11-24 ユーザー指示：商品別仕入日報の期間版 */], // 2026-10-29 帳票を小メニューに分けた
   payables: [{ k: 'list', l: '定時請求一覧・入力' }, { k: 'reports', l: '定時請求入力明細表' }, { k: 'post', l: '定時請求計上', tools: false }],   // 定時請求計上は 2026-11-21 ユーザー指示
   cash: [{ k: 'list', l: '小口現金出納登録' }, { k: 'book', l: '小口現金出納簿' }],   // 名称「出納簿・定額資金・現金補充」→「小口現金出納簿」（2026-11-20 ユーザー指示）
@@ -2362,7 +2362,7 @@ const shipDailyCard = () => dailyCard('出荷日報', 'sd', '<button data-act="m
 const invPeriod = p => `<label class="field">処理年月（計算年月）<input type="month" id="${p}-month" value="${lastClosing().slice(0, 7)}"></label><label class="field">締日<select id="${p}-closing"><option value="20" selected>20日</option><option value="10">10日</option><option value="31">月末（暦月）</option></select></label>`;
 // 配合計算の画面（2026-11-04）。2026-11-12 から［配合計算を実行］で結果を保存し（材料受払の計算結果・原価）、材料受払表はその結果を出力する（D-072・機能一覧 9-3・10-3）
 const mixCard = () => miscCard('配合計算', '月次（実在庫登録・商品仕入登録の後に実行）。計算年月を指定して実行し、結果を保存して材料受払表に使う', invPeriod('mx'), `${canWrite() ? '<button class="primary" data-act="mix">配合計算を実行</button>' : ''}<a class="button" id="mx-ledger" href="#inventory/ledger">材料受払表</a><button id="mx-xl" data-act="mixXl" data-src="mx" disabled title="配合計算を実行すると出力できます">⇩ 配合計算結果（Excel）</button>`);   // 実行前も押せない状態で出す（2026-11-25 ユーザー指示）   // ［材料受払表］（メニュー画面を開く）は［配合計算を実行］の右（2026-11-21 ユーザー指示）
-const mixXlCard = () => miscCard('配合計算結果（Excel）', '配合計算の結果を Excel で出力（2026-11-25 ユーザー指示：小メニューに追加）', invPeriod('mr'), '<button id="mr-xl" data-act="mixXl" data-src="mr" disabled title="配合計算を実行すると出力できます">⇩ 配合計算結果（Excel）</button>');
+const mixXlCard = () => miscCard('配合計算結果表', '配合計算の結果を Excel で出力（2026-11-25 ユーザー指示：小メニューに追加）', invPeriod('mr'), '<button id="mr-xl" data-act="mixXl" data-src="mr" disabled title="配合計算を実行すると出力できます">⇩ 配合計算結果（Excel）</button>');
 const ledgerCard = () => miscCard('材料受払表', '配合計算で保存した結果を出力（先に 在庫 → 配合計算 を実行）', invPeriod('mi'), '<button data-act="misc" data-kind="material-ledger" data-src="mi">⇩ Excel</button>'); // 「現行の配合計算処理＋材料受払表印刷」の注記は削除（2026-11-03）
 // 10/19 打合せ：出力指示＝締切日・部門コード（組織マスタ）・区分（ブランク＝工事、1＝組織）・業者コード From〜To（ブランク〜9999999＝全業者）
 const payableReportsCard = () => miscCard('定時請求入力明細表', '部門（工事）→業者→請求明細', `<label class="field">締切日<input type="date" id="pi-date" value="${lastClosing()}"></label>${/* 締日→締切日（定時請求データ入力の入力項目と同じ。2026-11-20 ユーザー指示） */ ''}
