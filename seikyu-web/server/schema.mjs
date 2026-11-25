@@ -165,6 +165,9 @@ export async function prepare(pool, env = process.env) {
   // 支払計上の実行の記録（締切日ごと。定時請求計上と同じ。2026-11-24）
   await pool.query(`CREATE TABLE IF NOT EXISTS app_pay_post_run (closing varchar(10) COLLATE "C" PRIMARY KEY, run_by varchar(256) COLLATE "C" NOT NULL, run_at varchar(16) COLLATE "C" NOT NULL, slips integer NOT NULL, total bigint NOT NULL)`);
   // 会計連携済みの印（締日＝毎月20日の年月ごと。会計連携データを作成したときに付け、元に戻さない。売掛金計上はこの次の締日を出す。2026-11-17）
+  // 会計連携の出力済み管理（10 会計システム連携仕様 共通事項「二重連携の防止」。2026-11-25）：出力ごとに 1 行、仕訳に出力した回の番号
+  await pool.query(`CREATE TABLE IF NOT EXISTS app_acct_export (export_id serial PRIMARY KEY, exported_at varchar(19) COLLATE "C" NOT NULL, exported_by varchar(256) COLLATE "C" NOT NULL, from_d varchar(10) COLLATE "C" NOT NULL, to_d varchar(10) COLLATE "C" NOT NULL, slips integer NOT NULL, again boolean NOT NULL DEFAULT false)`);
+  await pool.query('ALTER TABLE journal_entry ADD COLUMN IF NOT EXISTS export_id integer');
   await pool.query(`CREATE TABLE IF NOT EXISTS app_acct_link (month varchar(7) COLLATE "C" PRIMARY KEY, linked_by varchar(256) COLLATE "C" NOT NULL, linked_at varchar(16) COLLATE "C" NOT NULL, period varchar(30) COLLATE "C" NOT NULL)`);
   // JV 構成員・出資比率の履歴（2026-11-02。11/01 決定：適用開始日を持たせ、帳票は月度時点の比率で配分）。start_month＝適用開始の月度 YYYY-MM（''＝最初から）、ratio＝出資比率×100
   // 旧 code_m 'JV'（1 件 1 値）は表を作るときに一度だけ「最初から」の行として写す（code_m の行は消さない）

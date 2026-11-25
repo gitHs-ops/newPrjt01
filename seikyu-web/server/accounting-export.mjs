@@ -7,7 +7,7 @@
 import iconv from 'iconv-lite';
 import { check, isoDate, csv, parseCsv, DomainError } from './domain.mjs';
 import { importCsv as masterImport } from './masters.mjs';
-import { audit, rows as dbRows } from './db.mjs';
+import { audit, rows as dbRows, isClosed } from './db.mjs';
 import { journalList, LISTS, markAcctLinked } from './journal-lists.mjs';
 import { decode, NON_TAX } from './taxcode.mjs';
 import { bugyoSettings, bugyoFile } from './bugyo.mjs';
@@ -31,8 +31,21 @@ async function entries(c, from, to) {
 }
 export async function accountingExport(c, ctx, q) {
   const from = isoDate(q.from, '開始日'), to = isoDate(q.to, '終了日'); check(from <= to, '期間が不正です');
-  const format = ['yayoi', 'bugyo'].includes(q.format) ? q.format : 'generic', slips = await entries(c, from, to);
+  const format = ['yayoi', 'bugyo'].includes(q.format) ? q.format : 'generic';
+  let slips = await entries(c, from, to);
   check(slips.length, '期間内の仕訳がありません');
+  // 勘定奉行 受入CSV（2026-11-25）：① 月次確定してから出力（10 連携仕様 IF-01「月次確定の後」）② 出力済みの仕訳は出さない。再出力は確認のうえ again=1
+  let exported = [];
+  if (format === 'bugyo') {
+    const open = []; for (const m of [...new Set(slips.map(s => String(s.date).slice(0, 7)))].sort()) if (!(await isClosed(c, m))) open.push(m);
+    if (open.length) throw new DomainError(`月次確定していない月があります：${open.join('、')}。「月次確定」で確定してから出力してください`);
+    const ids = slips.map(s => s.id), done = new Set(ids.length ? (await dbRows(c, `SELECT journal_id FROM journal_entry WHERE export_id IS NOT NULL AND journal_id IN (${ids.map(() => '?').join(',')})`, ids)).map(r => Number(r.journal_id)) : []);
+    exported = slips.filter(s => done.has(Number(s.id)));
+    if (String(q.again || '') !== '1') {
+      if (exported.length === slips.length) throw new DomainError(`ALREADY:期間内の仕訳 ${slips.length} 件はすべて出力済みです。もう一度出力しますか（勘定奉行で二重に取り込まないよう注意）`);
+      slips = slips.filter(s => !done.has(Number(s.id)));
+    }
+  }
   const bad = [...new Set(slips.flatMap(s => s.pairs.flatMap(p => [p.dr?.tax, p.cr?.tax])).filter(t => t && !decode(t)))];
   if (format !== 'generic' && bad.length) throw new DomainError('処税率として解釈できないコードがあります: ' + bad.join(', '));
   const conv = new Map((await dbRows(c, "SELECT code_dtl, code_dtl_nam FROM code_m WHERE code_key='PCNV' AND category3<>'0'")).map(r => [r.code_dtl, r.code_dtl_nam])), missing = new Map();
@@ -69,8 +82,14 @@ export async function accountingExport(c, ctx, q) {
     });
     file = { name: `会計連携_弥生_${from}_${to}.csv`, body: iconv.encode(lines.join('\r\n') + '\r\n', 'Shift_JIS'), type: 'text/csv; charset=Shift_JIS' };
   }
+  if (format === 'bugyo') {
+    const now = new Date(Date.now() + 9 * 3600e3).toISOString().slice(0, 19).replace('T', ' ');
+    await c.query('INSERT INTO app_acct_export (exported_at,exported_by,from_d,to_d,slips,again) VALUES (?,?,?,?,?,?)', [now, ctx?.user?.login_id || 'system', from, to, slips.length, String(q.again || '') === '1']);
+    const eid = Number((await dbRows(c, 'SELECT MAX(export_id) id FROM app_acct_export'))[0]?.id);
+    const ids = slips.map(s => s.id); if (eid && ids.length) await c.query(`UPDATE journal_entry SET export_id=? WHERE journal_id IN (${ids.map(() => '?').join(',')})`, [eid, ...ids]);
+  }
   const linked = await markAcctLinked(c, ctx, from, to); // 会計連携済みの印（売掛金計上は次の締日に進む。2026-11-17）
-  await audit(c, ctx, 'journal_entry', `${from}..${to}`, 'accounting.export', { format, slips: slips.length, linked });
+  await audit(c, ctx, 'journal_entry', `${from}..${to}`, 'accounting.export', { format, slips: slips.length, skippedExported: format === 'bugyo' && String(q.again || '') !== '1' ? exported.length : 0, again: String(q.again || '') === '1', linked });
   return { file };
 }
 

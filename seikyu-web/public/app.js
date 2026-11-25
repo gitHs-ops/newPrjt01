@@ -2397,9 +2397,12 @@ function masterImportResult(kind, label, r) {
     ${table([{ label: '結果', html: x => badge(x.state, color(x.state)) }, { label: '勘定科目コード', value: x => x.account }, ...(sub ? [{ label: '勘定科目名', value: x => x.accountName }, { label: '補助科目コード', value: x => x.code }, { label: '補助科目名', value: x => x.name }] : [{ label: '勘定科目名', value: x => x.name }]),
       { label: '変更前の名称', value: x => x.oldName }], rows, { empty: '取込んだ行はありません' })}` });
 }
-async function accountingDownload(format) {
-  const url = '/api/accounting/export?' + qs({ from: $('#ac-from').value, to: $('#ac-to').value, format }), res = await fetch(url, { cache: 'no-store' });
-  if (!res.ok) return toast((await res.json().catch(() => ({}))).error || '出力できません', true);
+// 勘定奉行 受入CSV は月次確定済みの月だけ・未出力の仕訳だけ（2026-11-25）。すべて出力済みなら確認して再出力（again=1）
+async function accountingDownload(format, again) {
+  const url = '/api/accounting/export?' + qs({ from: $('#ac-from').value, to: $('#ac-to').value, format, ...(again ? { again: 1 } : {}) }), res = await fetch(url, { cache: 'no-store' });
+  if (!res.ok) { const msg = (await res.json().catch(() => ({}))).error || '出力できません';
+    if (msg.startsWith('ALREADY:')) return confirmBox('出力済みの仕訳の再出力', msg.slice(8), () => accountingDownload(format, true), '再出力する');
+    return toast(msg, true); }
   const blob = await res.blob(), href = URL.createObjectURL(blob), el = document.createElement('a');
   el.href = href; el.download = `会計連携_${{ yayoi: '弥生', bugyo: '勘定奉行' }[format] || '汎用'}_${$('#ac-from').value}_${$('#ac-to').value}.csv`; el.click(); setTimeout(() => URL.revokeObjectURL(href), 2000);
   toast('会計連携データを出力しました');
