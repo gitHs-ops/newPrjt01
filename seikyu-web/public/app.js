@@ -246,9 +246,11 @@ const csvLink = (kind, q = {}) => `<a class="button" href="/api/export/${kind}?$
 
 // Modal with top-right X and bottom close/cancel button. onSubmit returns truthy to close.
 // sample：新規の入力画面に「サンプル入力」アイコンを付け、空欄に見本の値を入れる（関数なら汎用の入力の後に呼ぶ。画面独自のサンプル入力がある画面は sampleButton を直接置く）
-function modal({ title, body, submit, onSubmit, wide = false, onOpen, danger = false, sample = false }) {
+function modal({ title, body, submit, onSubmit, wide = false, onOpen, danger = false, sample = false, headExtra = '' }) {
   const d = $('#dialog'), form = $('#modal-form');
-  d.classList.toggle('wide', wide); $('#modal-title').textContent = title; $('#modal-body').innerHTML = (sample ? sampleButton : '') + body + '<p class="form-error" id="form-error"></p>';
+  d.classList.toggle('wide', wide); $('#modal-title').textContent = title;
+  // headExtra：表題の右に置く入力（定時請求データ入力の組織。2026-11-25 ユーザー指示）。表題はフォームの外なので入力には form="modal-form" を付ける
+  { const h = d.querySelector('.modal-head'), old = h.querySelector('.modal-head-extra'); if (old) old.remove(); if (headExtra) h.insertAdjacentHTML('beforeend', `<div class="modal-head-extra">${headExtra}</div>`); } $('#modal-body').innerHTML = (sample ? sampleButton : '') + body + '<p class="form-error" id="form-error"></p>';
   $('#modal-foot').innerHTML = `${submit ? `<button type="submit" class="${danger ? 'danger' : 'primary'}" id="modal-submit">${esc(submit)}</button>` : ''}<button type="button" id="modal-cancel">閉じる</button>`;   // ［キャンセル］→［閉じる］にして最後に置く（2026-11-18 ユーザー指示：UI 統一）
   const close = () => { d.close(); form.onsubmit = null; };
   $('#modal-cancel').onclick = close; $('#modal-x').onclick = close;
@@ -1992,11 +1994,10 @@ function expenseView(kind) {
       { name: 'account', label: '科目・内訳／摘要名', cell: () => `<div class="l2"><div style="display:flex;gap:6px;align-items:center"><select name="account" style="width:170px;flex:none">${accOpts}</select><span data-accname class="muted small" style="width:8em;flex:none"></span><select name="sub" style="width:150px;flex:none"><option value="">（なし）</option></select><span data-subname class="muted small" style="width:8em;flex:none"></span></div><div style="display:flex;gap:6px"><input name="memoCode" maxlength="7" list="dl-tekiyo" inputmode="numeric" autocomplete="off" placeholder="摘要コード" style="width:100px;flex:none"><input name="lmemo" maxlength="500" placeholder="摘要名（コードが無ければ手入力）"></div></div>` },
       { name: 'amount', label: '支払額（税込）', sum: 1, cell: () => '<input name="amount" class="num" style="width:120px">' }, { name: 'taxCode', label: '処税率', cell: () => tax3('') /* 定時請求と同じ 1 桁ずつの入力欄 3 つ（2026-11-23 ユーザー指示） */ }];
     // 定時請求データ入力は現行 HAW050（10/21 打合せ資料 スライド5）の並び：組織・締切日／請求No／業者／支払繰延区分・合計金額 → 明細（2段）→ 対象外・内税・外税・外税消費税・合計
-    const deptSel = `<select name="dept">${options(active('depts').length ? active('depts') : [{ code: '063', name: '部門063' }], '063')}</select>`;
+    const deptSel = `<select name="dept" form="modal-form">${options(active('depts').length ? active('depts') : [{ code: '063', name: '部門063' }], '063')}</select>`;
     // 小口現金の組織（部門）は表示のみ。現行 HAW150 に入力欄がなく、HAR733 の部は 063（登録時はサーバーの既定値 063）
     const deptLabel = (code = '063') => { const d = (masters.depts || []).find(x => x.code === code); return d ? `${d.code} ${d.name}` : code; };
     const head = payable ? `<div class="hw-head">
-        ${field('組織', deptSel)}<div class="span2"></div>
         ${field('伝票No', '<input name="docNo" value="（登録時に自動採番）" disabled>')}${field('業者', '<div style="display:flex;gap:12px;align-items:center"><input name="vendor" list="dl-hw-vendors" maxlength="7" autocomplete="off" placeholder="業者コード" style="width:140px;min-width:0"><output id="hw-vname" style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"></output></div>', { req: 1 })}${field('締切日', `<input type="date" name="date" value="${lastClosing()}">`, { req: 1 })}${'' /* 業者は伝票No の右、締切日も同じ行（2026-11-25 ユーザー指示） */}
         ${tekiyoList()}<datalist id="dl-hw-vendors">${active('vendors').map(x => `<option value="${esc(x.code)}">${esc(x.name)}</option>`).join('')}</datalist>
         ${field('支払繰延区分', '<output id="ex-defer" class="muted">業者コードを入力すると業者マスタから表示</output>')}${field('支払予定日', '<input type="date" name="due" title="業者マスタの支払繰延区分から自動計算（休日は翌営業日）。手入力で修正できます">', { hint: '業者マスタから自動・修正可' })}${field('合計金額', '<input name="total" class="num" inputmode="numeric"><span id="hw-check" class="small"></span>' /* 一致チェックは合計金額の欄のすぐ上（2026-11-24 ユーザー指示。11/23 内部会議 No.7 は下。位置は styles.css） */, { req: 1, hint: '明細の合計と一致させる' })}
@@ -2010,7 +2011,7 @@ function expenseView(kind) {
     const RATE = { 0: 0, 1: 10, 2: 3, 3: 6, 4: 2.8, 5: 5, 8: 8 }, taxClass = code => { const s3 = (String(code ?? '').trim() ? String(code) : '141').padStart(3, ' ').replace(/ /g, '0'), rate = RATE[s3[2]] || 0, taxable = rate > 0 && [1, 4, 5, 6].includes(Number(s3[1])) && s3 !== '041' && !(s3[0] === '0' && [4, 5, 6].includes(Number(s3[1])));   /* 仕入の 1 桁目空白は非課税（2026-11-24 打合せ No.16） */ return { kind: !taxable ? 'out' : s3[0] === '1' ? 'in' : 'ex', rate }; };
     const num = v => Number(String(v || '').replace(/[,，\s]/g, '')) || 0;
     // 登録画面と詳細（R：登録済みの伝票）は同じ様式。詳細は値を入れて全項目を入力不可にする（2026-10-29）
-    const form = (R, edit = false) => modal({ title: R ? `${R.no} の詳細` : payable ? '定時請求データ入力' : '小口現金出納登録', submit: R && !edit ? '' : edit ? '更新' : payable ? '登録' : '登録する', wide: true, sample: R ? false : payable ? f => { const vs = active('vendors'); if (vs.length && !vendorName(f.vendor.value)) { f.vendor.value = vs[Math.floor(Math.random() * vs.length)].code; f.vendor.dispatchEvent(new Event('input', { bubbles: true })); } f.total.value = $('#hw-total').textContent.replace(/[^\d-]/g, ''); f.total.dispatchEvent(new Event('input', { bubbles: true })); } : f => { const el = f.querySelector('#ex-lines tbody tr [name=lvendor]'), vs = active('vendors'); if (el && vs.length && !vendorName(el.value)) { el.value = vs[Math.floor(Math.random() * vs.length)].code; el.dispatchEvent(new Event('input', { bubbles: true })); } }, body: `${head}${lineGrid('ex-lines', payable ? hwCols : cols, R ? R.lines.map(() => ({})) : payable ? [{}, {}, {}, {}] /* 定時請求は現行どおり 4 行（［＋ 行追加］で増やせる。2026-11-20） */ : Array.from({ length: 8 }, () => ({})) /* 小口現金出納登録は 8 行（2026-11-23 内部会議 No.12、ユーザー指示） */)}${sumBar}
+    const form = (R, edit = false) => modal({ title: R ? `${R.no} の詳細` : payable ? '定時請求データ入力' : '小口現金出納登録', submit: R && !edit ? '' : edit ? '更新' : payable ? '登録' : '登録する', wide: true, headExtra: payable ? `<label class="field"><span>組織</span>${deptSel}</label>` /* 組織は表題の右（2026-11-25 ユーザー指示） */ : '', sample: R ? false : payable ? f => { const vs = active('vendors'); if (vs.length && !vendorName(f.vendor.value)) { f.vendor.value = vs[Math.floor(Math.random() * vs.length)].code; f.vendor.dispatchEvent(new Event('input', { bubbles: true })); } f.total.value = $('#hw-total').textContent.replace(/[^\d-]/g, ''); f.total.dispatchEvent(new Event('input', { bubbles: true })); } : f => { const el = f.querySelector('#ex-lines tbody tr [name=lvendor]'), vs = active('vendors'); if (el && vs.length && !vendorName(el.value)) { el.value = vs[Math.floor(Math.random() * vs.length)].code; el.dispatchEvent(new Event('input', { bubbles: true })); } }, body: `${head}${lineGrid('ex-lines', payable ? hwCols : cols, R ? R.lines.map(() => ({})) : payable ? [{}, {}, {}, {}] /* 定時請求は現行どおり 4 行（［＋ 行追加］で増やせる。2026-11-20） */ : Array.from({ length: 8 }, () => ({})) /* 小口現金出納登録は 8 行（2026-11-23 内部会議 No.12、ユーザー指示） */)}${sumBar}
       `,
       onOpen: () => { const g = $('#ex-lines'), f = $('#modal-body'); if (payable && !R) previewDocNo(f.querySelector('[name=docNo]'), 'payable', f.querySelector('[name=date]'));
         const recalc = () => {
@@ -2073,12 +2074,12 @@ function expenseView(kind) {
     // 定時請求：一覧のボタンは［詳細］だけ。修正できる伝票（計上済・支払なし）は詳細の画面で入力でき［取消］［更新］を出す（2026-11-18 ユーザー指示）
     // 2026-11-21 ユーザー指示：計上は「定時請求計上」で行うため、ここは照会・更新だけ（［取消］は出さない）
     A.detail = d => { const r = list.find(x => x.id === Number(d.id)), ok = payable && !!revBtn(r); form(r, ok); if (!payable) footFirst(revBtn(r));
-      if (payable && !ok) { const b = $('#modal-body'); b.querySelectorAll('input, select, textarea').forEach(e => { e.disabled = true; }); b.querySelectorAll('button').forEach(e => { e.style.display = 'none'; }); b.querySelectorAll('label.field > small').forEach(e => { e.hidden = true; }); } };   // 修正できない伝票（支払あり等）は照会だけ。入力の説明（「修正可」等）も出さない（2026-11-20）
+      if (payable && !ok) { const b = $('#modal-body'); document.querySelectorAll('#dialog .modal-head-extra select').forEach(e => { e.disabled = true; }); b.querySelectorAll('input, select, textarea').forEach(e => { e.disabled = true; }); b.querySelectorAll('button').forEach(e => { e.style.display = 'none'; }); b.querySelectorAll('label.field > small').forEach(e => { e.hidden = true; }); } };   // 修正できない伝票（支払あり等）は照会だけ。入力の説明（「修正可」等）も出さない（2026-11-20）
     A.edit = d => { const r = list.find(x => x.id === Number(d.id)); form(r, true); if (!payable) footFirst(revBtn(r)); };
     const showDoc = (R, f, edit) => {
       const set = (el, v, ev = 'change') => { if (!el) return; if (el._flatpickr) el._flatpickr.setDate(v || '', false); el.value = v ?? ''; el.dispatchEvent(new Event(ev, { bubbles: true })); };
       const q = n => f.querySelector(`[name=${n}]`);
-      set(q('date'), R.date); set(q('dept'), R.dept);
+      set(q('date'), R.date); set(q('dept') || $('#dialog .modal-head [name=dept]'), R.dept);
       const deptOut = f.querySelector('#ex-dept'); if (deptOut) deptOut.textContent = deptLabel(R.dept || undefined);
       const docNo = f.querySelector('[name=docNo]'); if (docNo) docNo.value = R.no;   // 請求No は表示しない（11/04 打合せ No.12）
       if (payable) { set(q('vendor'), R.vendor); set(q('due'), R.due, 'input'); set(q('total'), R.amount, 'input'); }

@@ -211,6 +211,10 @@ dialog.modal[open] { animation: rise .35s var(--ease) both; display: flex; flex-
 .modal-x { position: absolute; top: 12px; right: 12px; width: 32px; height: 32px; border-radius: 50%; padding: 0; justify-content: center; font-size: 18px; line-height: 1; z-index: 2; background: rgba(255,255,255,.85); }
 .modal-x:hover { background: #fff; color: var(--danger); }
 .modal-head { padding: 18px 56px 8px 22px; }
+/* 表題の右の入力（定時請求データ入力の組織。2026-11-25 ユーザー指示） */
+.modal-head:has(.modal-head-extra) { display: flex; align-items: center; gap: 28px; flex-wrap: wrap; padding-right: 110px; }
+.modal-head-extra label.field { display: flex; align-items: center; gap: 10px; margin: 0; }
+.modal-head-extra select { width: 220px; }
 .modal-body { padding: 8px 22px 16px; overflow-y: auto; }
 .modal-foot { padding: 12px 22px 18px; display: flex; justify-content: flex-end; gap: 8px; border-top: 1px solid var(--field-border); background: rgba(255,255,255,.35); }
 .form-error { color: var(--danger); font-size: 12.5px; min-height: 1em; margin: 6px 0 0; }
