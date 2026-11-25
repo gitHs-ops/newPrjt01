@@ -305,7 +305,7 @@ const BANKPAY_W = [9, 26, 9, 10, 13, 11, 11, 10, 13, 13, 11, 16, 14];
 const BANKPAY_ROWS = 28;
 // 支払日ごとに「YY 年 M 月 D 日支払」、銀行ごとに銀行計、支払日ごとに日付計（金額 4 列と支払方法計）
 // 2026-11-24 ユーザー指示：支払日ごとに改ページ（11/24 No.28「支払日ごとに 1 枚」）。各ページに表題。左上に帳票ID・出力日時、右上に会社名・頁（頁はページの右上。フッターの頁は出さない）。
-// 「yy 年 mm 月 dd 日支払」は支払方法の列の上（右寄り）。いずれも現行 HAR321 どおり
+// 「yy 年 m 月 d 日支払」（月日は 0 を付けない。現行 HAR321「26 年 11 月  2 日支払」。2026-11-25 ユーザー指示）は支払方法の列の上（右寄り）。いずれも現行 HAR321 どおり
 export async function bankPaymentBook(c, q) {
   const d = await bankPaymentList(c, q), yy = x => `${x.slice(2, 4)}/${x.slice(5, 7)}/${x.slice(8, 10)}`;
   const head = ['ｺｰﾄﾞ', '業　者　名', '伝票No.', '日付', '請求金額', '相殺金額', '安全協力費', '手数料', '業者計', '支払方法計', '支払方法', '銀　行　名', '支　店　名'].map(H);
@@ -313,7 +313,7 @@ export async function bankPaymentBook(c, q) {
   const co = await one(c, 'SELECT company_name1 FROM company_info_m ORDER BY company_info_id LIMIT 1');
   const W = BANKPAY_W.length, top = Array.from({ length: W }, (_, j) => (j === 0 ? `HAR321　出力日時 ${today()} ${new Date(Date.now() + 9 * 3600e3).toISOString().slice(11, 19)}`   /* yy/mm/dd hh:mm:ss（現行どおり。2026-11-25 ユーザー指示） */ : j === W - 1 ? { v: co?.company_name1 || '', s: 'tInfo' } : ''));
   const sheets = d.days.map(day => {
-    const [y, m, dd] = day.date.split('-'), label = Array.from({ length: W }, (_, j) => (j === 10 ? { v: `${y.slice(2)} 年 ${m} 月 ${dd} 日支払`, s: 'tInfo' } : ''));
+    const [y, m, dd] = day.date.split('-'), label = Array.from({ length: W }, (_, j) => (j === 10 ? { v: `${y.slice(2)} 年 ${Number(m)} 月 ${Number(dd)} 日支払`, s: 'tInfo' } : ''));
     const body = [];
     for (const g of day.banks) { for (const r of g.rows) body.push([r.vendor, r.vendorName, r.no, yy(r.date), r.billed, r.offset, r.safety, r.fee, r.vendorTotal, r.methodTotal ?? '', r.method, r.fromBankName, r.fromBranchName]); body.push(sum(g, '銀　行　計', g.bankName, g.branchName)); }
     body.push(sum(day.sums, '日　付　計'));
