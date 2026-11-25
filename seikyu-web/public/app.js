@@ -394,7 +394,7 @@ const SUBMENUS = {
   // 10/21 打合せの処理順（実在庫登録 → 配合計算 → 材料受払表 → 在庫計上）に並べる
   // 在庫登録リスト・配合計算・材料受払表は 2026-11-02 にそれぞれ小メニューに分けた（ユーザー指示）
   // 配合計算は自分の画面を出す（2026-11-04 ユーザー指示。以前は材料受払表の画面へ移っていた）。現行の配合計算処理は配合マスタ・配合単価と無関係で、結果が材料受払表（2026-11-02 ユーザー回答）
-  inventory: [{ k: 'count', l: '実在庫登録', tools: false }, { k: 'register', l: '在庫登録リスト' }, { k: 'mix', l: '配合計算' }, { k: 'ledger', l: '材料受払表' }, { k: 'post', l: '在庫計上', tools: false }, { k: 'list', l: '在庫一覧', tools: true }],   // 在庫一覧は 2026-11-08 小メニュー非表示 → 2026-11-20 user01 だけ表示 → 同日ユーザー指示「user01 に出るメニューは全ログインに」で全ログインに表示
+  inventory: [{ k: 'count', l: '実在庫登録', tools: false }, { k: 'register', l: '在庫登録リスト' }, { k: 'mix', l: '配合計算' }, { k: 'mixxl', l: '配合計算結果（Excel）' } /* 2026-11-25 ユーザー指示 */, { k: 'ledger', l: '材料受払表' }, { k: 'post', l: '在庫計上', tools: false }, { k: 'list', l: '在庫一覧', tools: true }],   // 在庫一覧は 2026-11-08 小メニュー非表示 → 2026-11-20 user01 だけ表示 → 同日ユーザー指示「user01 に出るメニューは全ログインに」で全ログインに表示
   purchases: [{ k: 'list', l: '商品仕入一覧・登録' }, { k: 'reports', l: '商品仕入登録リスト' }, { k: 'itemlist', l: '商品別仕入一覧' } /* 2026-11-24 ユーザー指示：商品別仕入日報の期間版 */], // 2026-10-29 帳票を小メニューに分けた
   payables: [{ k: 'list', l: '定時請求一覧・入力' }, { k: 'reports', l: '定時請求入力明細表' }, { k: 'post', l: '定時請求計上', tools: false }],   // 定時請求計上は 2026-11-21 ユーザー指示
   cash: [{ k: 'list', l: '小口現金出納登録' }, { k: 'book', l: '小口現金出納簿' }],   // 名称「出納簿・定額資金・現金補充」→「小口現金出納簿」（2026-11-20 ユーザー指示）
@@ -1890,6 +1890,7 @@ const lastClosing = () => { const [y, m, d] = today().split('-').map(Number); re
 VIEWS.inventory = async q => {
   const A = actions;
   A.misc = d => miscReport(d.kind, d.src).catch(e => toast(e.message, true)); A.mix = () => mixDialog().catch(e => toast(e.message, true));
+  A.mixXl = () => saveXlsx(`/api/reports/misc/mix?${qs(miscParams('mix', 'mr'))}&format=xlsx`).then(() => toast('配合計算結果を Excel で出力しました')).catch(e => toast(e.message, true));
   A.icSort = d => { const st = listSort.ic; listSort.ic = st?.k === d.k ? { k: d.k, dir: -st.dir } : { k: d.k, dir: 1 }; icApplySort(); };   // 入力中の数量を消さないよう再描画せずに行を並べ替える（2026-11-21）
   const [list, cnt] = await Promise.all([api('/api/inventory?' + qs({ month: q.month || thisMonth() })), api('/api/inventory/counts?' + qs({ date: q.date || lastClosing() }))]);
   A.countSave = async (_, btn) => {
@@ -1934,7 +1935,7 @@ VIEWS.inventory = async q => {
   return page('在庫', '実在庫登録 → 配合計算 → 材料受払表 → 在庫計上（月次1回）の順に処理します（10/21 打合せ）。', `${monthInput('month', q.month || thisMonth())}${''/* ⇩CSV は機能一覧・決定事項台帳に根拠がないため出さない（2026-11-24 ユーザー指示） */}`,
     `${countCard}${postCard}<section class="card glass" data-sub="list"><h2>在庫一覧</h2>${table([{ label: '月度', value: r => r.month }, { label: '調査日', value: r => String(r.countedOn || '').slice(0, 10) }, { label: '商品', value: r => `${r.item} ${r.itemName}` }, { label: '数量', num: 1, value: r => `${r.quantity} ${r.unit || ''}` },
       { label: '評価単価', num: 1, value: r => (r.status === 'POSTED' ? yen(r.price) : '') }, { label: '評価額', num: 1, value: r => (r.status === 'POSTED' ? yen(r.value) : '') }, { label: '状態', html: r => (r.status === 'POSTED' ? badge('計上済', 'green') : badge('未計上', 'gray')) }], list, { empty: 'この条件の在庫はありません' })}</section>
-    <div data-sub="register">${miscCard('在庫登録リスト', '実在庫登録のチェックリスト。画面で確認しにくいため一覧・Excel で確認', `<label class="field">月度<input type="month" id="ir-month" value="${esc(cnt.month)}"></label>`, '<button data-act="misc" data-kind="inventory-register" data-src="ir">⇩ Excel</button>')}</div><div data-sub="mix">${mixCard()}</div><div data-sub="ledger">${ledgerCard()}</div>`);
+    <div data-sub="register">${miscCard('在庫登録リスト', '実在庫登録のチェックリスト。画面で確認しにくいため一覧・Excel で確認', `<label class="field">月度<input type="month" id="ir-month" value="${esc(cnt.month)}"></label>`, '<button data-act="misc" data-kind="inventory-register" data-src="ir">⇩ Excel</button>')}</div><div data-sub="mix">${mixCard()}</div><div data-sub="mixxl">${mixXlCard()}</div><div data-sub="ledger">${ledgerCard()}</div>`);
 };
 // 実在庫登録の「在庫登録リスト」ボタン（登録の右。2026-11-03）は小メニュー「在庫登録リスト」と同じ出力（#ir-month＝この月度）。初めは使えず、［登録］した月度だけ使える
 const icSaved = new Set();
@@ -2361,6 +2362,7 @@ const shipDailyCard = () => dailyCard('出荷日報', 'sd', '<button data-act="m
 const invPeriod = p => `<label class="field">処理年月（計算年月）<input type="month" id="${p}-month" value="${lastClosing().slice(0, 7)}"></label><label class="field">締日<select id="${p}-closing"><option value="20" selected>20日</option><option value="10">10日</option><option value="31">月末（暦月）</option></select></label>`;
 // 配合計算の画面（2026-11-04）。2026-11-12 から［配合計算を実行］で結果を保存し（材料受払の計算結果・原価）、材料受払表はその結果を出力する（D-072・機能一覧 9-3・10-3）
 const mixCard = () => miscCard('配合計算', '月次（実在庫登録・商品仕入登録の後に実行）。計算年月を指定して実行し、結果を保存して材料受払表に使う', invPeriod('mx'), `${canWrite() ? '<button class="primary" data-act="mix">配合計算を実行</button>' : ''}<a class="button" id="mx-ledger" href="#inventory/ledger">材料受払表</a>`);   // ［材料受払表］（メニュー画面を開く）は［配合計算を実行］の右（2026-11-21 ユーザー指示）
+const mixXlCard = () => miscCard('配合計算結果（Excel）', '配合計算の結果を Excel で出力（2026-11-25 ユーザー指示：小メニューに追加）', invPeriod('mr'), '<button data-act="mixXl">⇩ 配合計算結果（Excel）</button>');
 const ledgerCard = () => miscCard('材料受払表', '配合計算で保存した結果を出力（先に 在庫 → 配合計算 を実行）', invPeriod('mi'), '<button data-act="misc" data-kind="material-ledger" data-src="mi">⇩ Excel</button>'); // 「現行の配合計算処理＋材料受払表印刷」の注記は削除（2026-11-03）
 // 10/19 打合せ：出力指示＝締切日・部門コード（組織マスタ）・区分（ブランク＝工事、1＝組織）・業者コード From〜To（ブランク〜9999999＝全業者）
 const payableReportsCard = () => miscCard('定時請求入力明細表', '部門（工事）→業者→請求明細', `<label class="field">締切日<input type="date" id="pi-date" value="${lastClosing()}"></label>${/* 締日→締切日（定時請求データ入力の入力項目と同じ。2026-11-20 ユーザー指示） */ ''}
@@ -2459,7 +2461,7 @@ async function jvAllocDialog() {
     } });
 }
 function miscParams(kind, src) {
-  if (src === 'mi' || src === 'mx') return { month: $(`#${src}-month`).value, closing: $(`#${src}-closing`).value };
+  if (src === 'mi' || src === 'mx' || src === 'mr') return { month: $(`#${src}-month`).value, closing: $(`#${src}-closing`).value };
   if (src === 'pi') return { date: $('#pi-date').value, dept: $('#pi-dept').value, kb: '1' /* 区分は外した：部門別（2026-11-24） */, vendorFrom: $('#pi-vfrom').value.trim().toUpperCase(), vendorTo: $('#pi-vto').value.trim().toUpperCase(), memoFrom: $('#pi-mfrom').value.trim().toUpperCase(), memoTo: $('#pi-mto').value.trim().toUpperCase() };
   if (src === 'jv') return { closing: $('#jv-closing').value };
   if (src === 'jvs') return { closing: $('#jv-closing').value, layout: 'summary' };
