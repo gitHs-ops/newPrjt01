@@ -92,7 +92,7 @@ const DAY_COLS = (first, firstLabel) => [{ key: 'code', label: first ? 'コー�
 const r2d = v => Math.round(v * 100) / 100;
 const dayRow = (r, d) => { const dq = r2d(num(r.dq)), dv = num(r.dv), cq = r2d(num(r.cq)), cv = num(r.cv); return { pq: r2d(cq - dq), pv: cv - dv, dq, dv, cq, cv }; };
 const daySum = list => ['pq', 'pv', 'dq', 'dv', 'cq', 'cv'].reduce((o, k) => ({ ...o, [k]: k.endsWith('q') ? r2d(list.reduce((n, x) => n + x[k], 0)) : list.reduce((n, x) => n + x[k], 0) }), {});
-// ㉖ 商品別出荷日報（現行 HAR511）：商品ごと。合計 → 値引計 → 他社納入分 → 総合計
+// ㉖ 商品別出荷日報（現行 HAR511）：商品ごと。合計 → 値引計 → 他社納入分（総合計は出さない。2026-11-26 ユーザー指示）
 export async function itemShipDaily(c, q) {
   const { d, from } = dayRange(q);
   const rs = await rows(c, `SELECT s.item_cd, MAX(COALESCE(NULLIF(i.item_nam, ''), s.item_name)) item_name, MAX(unit_name(i.unit)) unit,
@@ -109,8 +109,8 @@ export async function itemShipDaily(c, q) {
   if (own.length) groups.push({ rows: own, label: '合　計', totals: daySum(own) });
   if (disc.length) groups.push({ rows: [], label: '値引計', totals: daySum(disc) });
   if (other.length) groups.push({ head: '（他社納入分）', rows: other, label: '合　計', totals: daySum(other) });
-  const all = [...own, ...disc, ...other];
-  return { title: '商品別出荷日報', ref: '帳票㉖（HAR511）', date: d, from, to: d, sub: `${d}（月度 ${from} 〜）`, columns: DAY_COLS(true), groups, ...(all.length ? { totals: daySum(all) } : {}) };
+  // 総合計の行は出さない（2026-11-26 ユーザー指示）。noGrand：Excel で最後の「合　計」を「総合計」に書き換えない
+  return { title: '商品別出荷日報', ref: '帳票㉖（HAR511）', date: d, from, to: d, sub: `${d}（月度 ${from} 〜）`, columns: DAY_COLS(true), groups, noGrand: true };
 }
 // ㉗ 得意先別出荷日報（現行 HAR531）：得意先ごとに商品別、得意先計。最後に値引・総合計
 export async function customerShipDaily(c, q) {
@@ -186,5 +186,5 @@ export async function genericBook(c, kind, q) {
   // g.head：上位ブレイクの見出し、g.label：グループ計の名称、g.foot：上位ブレイクの計（任意）。g.title・g.totals が無いグループは見出し・計の行を出さない
   for (const g of d.groups) { if (g.head) out.push([{ v: g.head, s: 'title' }]); if (g.title) out.push(band(W, [g.title])); for (const r of g.rows) out.push(d.columns.map(col => dec(col, r[col.key] ?? ''))); if (g.totals) out.push(totalRow(g.label || '計', g.totals)); if (g.foot) out.push(totalRow(g.foot.label, g.foot.totals)); }
   if (d.totals) out.push(totalRow('総合計', d.totals));
-  return { name: `${d.title}_${(d.from || d.month || d.to || today())}.xlsx`, body: xlsx([{ name: d.title, rows: out, merges, widths: W }]) };
+  return { name: `${d.title}_${(d.from || d.month || d.to || today())}.xlsx`, body: xlsx([{ name: d.title, rows: out, merges, widths: W, ...(d.noGrand ? { noGrand: true } : {}) }]) };
 }
