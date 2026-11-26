@@ -2423,9 +2423,8 @@ const jvReportsCard = () => miscCard('出資金（JV）帳票', 'JV構成員・�
   '構成員と出資比率は「マスタ管理 → JV構成員・出資比率」で登録します（適用開始月度ごと。有効な構成員の合計100%）。帳票は締切日の月度で有効な比率で配分します。配分は各社切捨て、端数は第1構成員。出資金請求明細表の Excel には同じシートの明細の下に合計表が付きます。端数を調整するときは小メニュー「入金分配端数調整登録」で入金ごとに構成員別の金額を直し、入金明細及び配分表はその金額で出力します。');
 const jvAllocCard = () => miscCard('入金分配端数調整登録', '現行 HJW030：締切日の月度の入金ごとに構成員別の配分額を調整', `<label class="field">締切日<input type="date" id="jva-closing" value="${lastClosing()}"></label>`,
   canWrite() ? '<button class="primary" data-act="jvAlloc">入金分配端数調整登録</button>' : '');
-const JVA_SORT_FNS = { date: (a, b) => jaCmp(a.date, b.date), account: (a, b) => jaCmp(a.account, b.account), billed: (a, b) => jaCmp(a.billed, b.billed), customer: (a, b) => jaCmp(a.customer, b.customer), amount: (a, b) => a.amount - b.amount };
-const jvaSortBar = () => sortBarOf('jva', [['date', '入金日'], ['account', '入金科目'], ['billed', '請求締日'], ['customer', '得意先'], ['amount', '入金額']]).replace(/data-act="listSort"/g, 'data-jvs');
 // 入金額配賦登録（現行 HJW030）：締切日の月度の NO36 対象行ごとに構成員別の配分額（青字欄）を調整。行の合計＝入金額で登録
+// ソート順のボタンは設けない（2026-11-26 ユーザー指示で削除）
 async function jvAllocDialog() {
   const closing = $('#jva-closing').value, d = await api('/api/reports/misc/jv-receipts?' + qs({ closing })), ms = d.members;
   if (!d.lines.length) return alertBox(`データがありません（締切日 ${closing} の月度 ${d.from}〜${d.to} の入金・現金売上はありません）`);
@@ -2434,7 +2433,6 @@ async function jvAllocDialog() {
   const foot = `<tr><td colspan="4"><b>入金計</b></td><td class="num" id="jva-total"></td>${ms.map((_, k) => `<td class="num" id="jva-t${k}"></td>`).join('')}<td colspan="2"></td></tr>`;
   modal({ title: `入金分配端数調整登録　締切日 ${closing}（${d.from}〜${d.to}）`, wide: true, submit: '登録',
     body: `
-      <div id="jva-sort">${jvaSortBar()}</div>
       <div class="table-wrap" style="max-height:60vh;overflow:auto"><table id="jva" style="width:auto"><thead><tr><th>入金日</th><th>入金科目</th><th title="消し込んだ請求の締日">請求締日</th><th>得意先</th><th class="num">入金額</th>${ms.map(m => `<th>${esc(m.name || m.code)}<br><span class="small muted">${m.ratio.toFixed(2)}%</span></th>`).join('')}<th></th><th></th></tr></thead>
       <tbody>${d.lines.map(row).join('')}</tbody><tfoot>${foot}</tfoot></table></div>`,
     onOpen: () => {
@@ -2447,8 +2445,6 @@ async function jvAllocDialog() {
         return ok;
       };
       t.addEventListener('input', sums);
-      // ソート：入力中の配分額を消さないよう再描画せずに行を並べ替える（2026-11-21）
-      $('#jva-sort').addEventListener('click', e => { const b = e.target.closest('[data-jvs]'); if (!b) return; const st = listSort.jva; listSort.jva = st?.k === b.dataset.k ? { k: b.dataset.k, dir: -st.dir } : { k: b.dataset.k, dir: 1 }; const tb = $('tbody', t), of = tr => ({ ...d.lines[tr.dataset.i], i: Number(tr.dataset.i) }); sortedBy('jva', $$('tr', tb), Object.fromEntries(Object.entries(JVA_SORT_FNS).map(([k, f]) => [k, (x, y) => f(of(x), of(y)) || of(x).i - of(y).i]))).forEach(tr => tb.appendChild(tr)); $('#jva-sort').innerHTML = jvaSortBar(); });
       t.addEventListener('click', e => { const b = e.target.closest('[data-auto]'); if (!b) return; const l = d.lines[b.dataset.auto]; $$(`tr[data-i="${b.dataset.auto}"] .jv-part`, t).forEach((x, k) => (x.value = l.auto[k])); sums(); });
       sums();
     },
