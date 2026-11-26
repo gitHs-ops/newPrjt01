@@ -126,12 +126,12 @@ const nameOf = (kind, code) => masters[kind]?.find(r => r.code === code)?.name |
 const active = kind => (masters[kind] || []).filter(r => r.active);
 // 適用コード（摘要）マスタ（2026-11-04 打合せ No.7・11・13）：コードを入れると摘要の名称を出す。候補は datalist dl-tekiyo
 const tekiyoName = code => { const c = String(code || '').trim(); return c ? active('tekiyo').find(x => x.code === c)?.name : undefined; };
-// 定時請求の摘要コード欄：桁数で摘要コード（3 桁以内）と工事コード（6 桁）を見分けて欄の下に表示（2026-11-24 打合せ No.15）。4・5 桁は赤
+// 定時請求の摘要コード欄：桁数で摘要コード（3 桁以内）と工事コード（6～7 桁。2026-11-26）を見分けて欄の下に表示（2026-11-24 打合せ No.15）。4・5 桁は赤
 const memoCodeKind = el => {
   const out = el?.parentElement?.querySelector('[data-mck]'); if (!out) return;
   const v = el.value.trim(), nm = tekiyoName(v);
-  out.className = 'small'; out.textContent = !v ? '' : /^\d{6}$/.test(v) ? '工事コード' : /^\d{1,3}$/.test(v) ? (nm !== undefined ? '摘要コード' : '摘要コード（マスタになし）') : '摘要は 3 桁以内・工事は 6 桁';
-  if (v && !/^(\d{1,3}|\d{6})$/.test(v)) out.className = 'small check-ng'; else if (v && nm === undefined && !/^\d{6}$/.test(v)) out.className = 'small muted';
+  out.className = 'small'; out.textContent = !v ? '' : /^\d{6,7}$/.test(v) ? '工事コード' : /^\d{1,3}$/.test(v) ? (nm !== undefined ? '摘要コード' : '摘要コード（マスタになし）') : '摘要は 3 桁以内・工事は 6～7 桁';
+  if (v && !/^(\d{1,3}|\d{6,7})$/.test(v)) out.className = 'small check-ng'; else if (v && nm === undefined && !/^\d{6,7}$/.test(v)) out.className = 'small muted';
 };
 const tekiyoList = () => `<datalist id="dl-tekiyo">${active('tekiyo').map(x => `<option value="${esc(x.code)}">${esc(x.name)}</option>`).join('')}</datalist>`;
 // 摘要名の欄：摘要コードを選ぶ（マスタにあるコードになる）と、摘要名をそのコードの名称に入れ替える（2026-11-23 ユーザー指示：更新の画面で摘要コードを選んでも摘要が変わらない。
@@ -1985,7 +1985,7 @@ function expenseView(kind) {
     const accs = active('accounts').filter(a => !['1111', '1112', '1120', '1131', '1431', '4121', '4415'].includes(a.code)),   /* 1431 業者立替金は選べない（2026-11-21） */ top = payable ? [] : PETTY_ACCOUNTS.map(c => accs.find(a => a.code === c)).filter(Boolean);
     const accOpts = top.length ? `<option value="">（科目）</option><optgroup label="小口現金でよく使う科目">${options(top, '')}</optgroup><optgroup label="その他の科目">${options(accs.filter(a => !top.includes(a)), '')}</optgroup>` : options(accs, '', { blank: '（科目）' });
     const hwCols = [{ name: 'account', label: '科目', cell: () => `<select name="account">${accOpts}</select>` },
-      { name: 'sub', label: '内訳／摘要コード', cell: () => '<div class="l2"><select name="sub"><option value="">（なし）</option></select><input name="memoCode" maxlength="6" inputmode="numeric" list="dl-tekiyo" autocomplete="off" placeholder="摘要3桁／工事6桁" title="摘要コードは 3 桁以内（摘要マスタの名称が摘要名に入ります）、工事コードは 6 桁（摘要名は直接入力）。桁数で見分けます"><small data-mck class="small"></small></div>' },   /* 工事コード（6 桁）と摘要コード（3 桁）は桁数で見分ける（2026-11-24 打合せ No.15） */
+      { name: 'sub', label: '内訳／摘要コード', cell: () => '<div class="l2"><select name="sub"><option value="">（なし）</option></select><input name="memoCode" maxlength="7" inputmode="numeric" list="dl-tekiyo" autocomplete="off" placeholder="摘要3桁／工事6桁" title="摘要コードは 3 桁以内（摘要マスタの名称が摘要名に入ります）、工事コードは 6 桁（摘要名は直接入力）。桁数で見分けます"><small data-mck class="small"></small></div>' },   /* 工事コード（6 桁）と摘要コード（3 桁）は桁数で見分ける（2026-11-24 打合せ No.15） */
       { label: '科目名・内訳名／摘要', cell: () => '<div class="l2"><span class="hw-names muted small">科目を選択</span><input name="lmemo" maxlength="500" placeholder="摘要（自由入力）"></div>' },
       // 処税率は 1 桁ずつの数字の入力欄 3 つ（税込区分・税区分・税率区分。どの桁も空白可。2026-11-23 ユーザー指示）。送る値は hidden の taxCode（例 141・「 41」）
       { name: 'amount', label: '支払金額／処税率', sum: 1, cell: () => `<div class="l2"><input name="amount" class="num" inputmode="numeric">${tax3('')}</div>` }];
