@@ -1225,15 +1225,15 @@ function proposalInvoice(s) {
   const no = s.invoiceNo || 'K' + String(s.closing).slice(0, 7).replace('-', '') + String(s.invoiceId).padStart(5, '0');
   const banks = s.company.banks || (s.company.bankText ? [s.company.bankText] : []);
   return `<section class="invoice-doc prop-inv">
-    <div class="inv-top"><div style="flex:1"></div><h1 style="flex:0 0 auto">請 求 書${editionTag(s)}</h1><div style="flex:1;text-align:right"><p>請求書番号: ${esc(no)}${s.copy ? `<br><span class="reissue">控え（${siteNo(s)}回目の発行分）</span>` : ''}</p><p>${esc(jpDate(s.issuedOn || today()))}</p></div></div>
+    <div class="inv-top"><div style="flex:1"></div><h1 style="flex:0 0 auto">請 求 書${editionTag(s)}</h1><div style="flex:1;text-align:right"><p>請求書番号: ${esc(no)}${s.copy ? `<br><span class="reissue">控え（${siteNo(s)}回目の発行分）</span>` : ''}</p><p>${esc(jpDate(s.issuedOn || today()))}</p><p>得意先コード: ${esc(s.customer.code)}　締日 ${Number(String(s.closing).slice(8)) >= 28 ? 31 : Number(String(s.closing).slice(8))}</p></div></div>
     <div class="inv-top"><div><p>${esc(s.customer.address)}</p><p class="to">${esc(s.customer.name)} 御中</p>
         <p>毎度ありがとうございます。<br>下記のとおり御請求申し上げます。</p><p>${esc(jpDate(s.periodStart))} 〜 ${esc(jpDate(s.closing))}</p>${s.siteName ? `<p class="site-name">現場：<b>${esc(s.siteName)}</b>${s.pages > 1 ? `（${s.page}/${s.pages}）` : ''}</p>` : ''}</div>
       <div><p><b>${esc(s.company.name)}</b><br>${esc(s.company.address)}<br>TEL ${esc(s.company.tel)}${s.company.fax ? ' FAX ' + esc(s.company.fax) : ''}${s.company.invoiceNo ? `<br>登録番号: ${esc(s.company.invoiceNo)}` : ''}</p>
         ${banks.length ? `<p>取引銀行 ${banks.map(esc).join('<br>')}</p>` : ''}<p>お支払期日 ${esc(s.due)}</p></div></div>
     <table class="totals"><tr><th class="hi">当月御買上額</th><th>今回消費税</th><th class="hi">当月御請求額</th></tr>
       <tr><td class="num big">${yen(s.net)}</td><td class="num">${yen(s.tax)}</td><td class="num big">${yen(s.total)}</td></tr></table>
-    <table><tr><th>月日</th><th>伝票NO</th><th>区分</th><th>品名</th><th>数量</th><th>単位</th><th>単価</th><th>金額</th></tr>
-      ${s.lines.map(l => `<tr><td>${esc(String(l.date).slice(5).replace('-', '/'))}</td><td>${esc(l.orderNo)}</td><td>${kind(l)}</td><td>${esc(l.itemName)}</td><td class="num">${l.quantity}</td><td>${esc(l.unit || '')}</td><td class="num">${yen(l.price)}</td><td class="num">${yen(l.net)}</td></tr>`).join('')}
+    <table><tr><th>年月日</th><th>伝票NO</th><th>区分</th><th>品名</th><th>数量</th><th>単位</th><th>単価</th><th>金額</th></tr>
+      ${s.lines.map(l => `<tr><td>${esc(String(l.date).slice(2, 10).replaceAll('-', '/'))}</td><td>${esc(l.orderNo)}</td><td>${kind(l)}</td><td>${esc(l.itemName)}</td><td class="num">${l.quantity}</td><td>${esc(l.unit || '')}</td><td class="num">${yen(l.price)}</td><td class="num">${yen(l.net)}</td></tr>`).join('')}
       <tr class="subtotal"><td colspan="7" class="right">現場計</td><td class="num"><b>${yen(s.net)}</b></td></tr></table>
     <table class="inv-rates"><tr><th>税率区分</th><th>対象額(税抜)</th><th>消費税</th></tr>${s.buckets.map(b => `<tr><td>${b.rate}%対象</td><td class="num">${yen(b.net)}</td><td class="num">${yen(b.tax)}</td></tr>`).join('')}</table>
     </section>`;

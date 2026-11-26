@@ -87,6 +87,8 @@ function proposalSheet(s) {
   row([[3, 4, '請　求　書', 'vTitle'], ...(edition(s) ? [[5, 6, edition(s), 'vBold']] : [])], 28); // 「再発行（N回目）」は出さない（2026-11-17 ユーザー指示）
   row([[6, 7, '請求書番号：', 'vTextR'], [8, 9, no, 'vText']]);
   row([[8, 9, jp(s.issuedOn || today()), 'vText']]);
+  // 得意先コード・締日の行（現行 ③④⑤・帳票イメージ REP-INV-0020。2026-11-26 プロトタイプ再検証 E-4）。締日は現行どおり数字（28 以降は 31）
+  { const dd = Number(String(s.closing).slice(8)); row([[6, 7, '得意先コード：', 'vTextR'], [8, 8, u.code, 'vText'], [9, 9, `締日 ${dd >= 28 ? 31 : dd}`, 'vText']]); }
   // 会社名1（太字）の下に会社名2（共同企業体名。長いので別の行）
   row([[0, 4, zipOf(u.postcode), 'vText'], [5, 9, c.name1 || c.name, 'vBold']]);
   row([[0, 4, custAddr, 'vText'], [5, 9, c.name1 ? c.name2 || '' : '', 'vFit9']]);
@@ -104,18 +106,18 @@ function proposalSheet(s) {
   row([[0, 2, '当月御買上額', 'vBoxHi'], [3, 4, '今回消費税', 'vBoxH'], [5, 5, '当月御請求額', 'vBoxHi']]);
   row([[0, 2, s.net, 'vBoxBig'], [3, 4, s.tax, 'vBoxNum'], [5, 5, s.total, 'vBoxBig']], 24);
   row([]);
-  row([[0, 0, '月 日', 'vHead'], [1, 1, '伝票NO', 'vHead'], [2, 2, '区分', 'vHead'], [3, 5, '品　　　名', 'vHead'], [6, 6, '数 量', 'vHead'], [7, 7, '単位', 'vHead'], [8, 8, '単 価', 'vHead'], [9, 9, '金　　額', 'vHead']]);
+  row([[0, 0, '年月日', 'vHead'], [1, 1, '伝票NO', 'vHead'], [2, 2, '区分', 'vHead'], [3, 5, '品　　　名', 'vHead'], [6, 6, '数 量', 'vHead'], [7, 7, '単位', 'vHead'], [8, 8, '単 価', 'vHead'], [9, 9, '金　　額', 'vHead']]);
   // 全部の請求書（⑤）の赤黒の行（box）は現行どおり枠で囲む（2026-11-18）
   s.lines.forEach((l, k) => {
     const b = l.box ? (s.lines[k - 1]?.box ? (s.lines[k + 1]?.box ? 'M' : 'B') : (s.lines[k + 1]?.box ? 'T' : 'S')) : '', bx = (name, side = 'I') => (b ? `box${b}${side}_${name}` : name);
-    row([[0, 0, String(l.date).slice(5).replace('-', '/'), bx('vCellC', 'L')], [1, 1, l.orderNo, bx('vCellC')], [2, 2, kind(l), bx('vCellC')], [3, 5, l.itemName, bx('vCell')], [6, 6, l.quantity, bx('vQty')], [7, 7, l.unit || '', bx('vCellC')], [8, 8, l.price, bx('vNum')], [9, 9, l.net, bx('vNum', 'R')]]);
+    row([[0, 0, String(l.date).slice(2, 10).replaceAll('-', '/'), bx('vCellC', 'L')], [1, 1, l.orderNo, bx('vCellC')], [2, 2, kind(l), bx('vCellC')], [3, 5, l.itemName, bx('vCell')], [6, 6, l.quantity, bx('vQty')], [7, 7, l.unit || '', bx('vCellC')], [8, 8, l.price, bx('vNum')], [9, 9, l.net, bx('vNum', 'R')]]);
   });
   for (let k = s.lines.length; k < MIN_LINES; k++) row([[0, 0, '', 'vCell'], [1, 1, '', 'vCell'], [2, 2, '', 'vCell'], [3, 5, '', 'vCell'], [6, 6, '', 'vCell'], [7, 7, '', 'vCell'], [8, 8, '', 'vCell'], [9, 9, '', 'vCell']]);
   row([]);
   row([[5, 5, '税率区分', 'vHead'], [6, 8, '対象額（税抜）', 'vHead'], [9, 9, '消費税', 'vHead']]);
   for (const b of s.buckets) row([[5, 5, `${b.rate}% 対象`, 'vCellC'], [6, 8, b.net, 'vNum'], [9, 9, b.tax, 'vNum']]);
   return { name: `${s.invoiceId}_${s.customer.code}${s.pages > 1 ? '_' + s.page : ''}`.slice(0, 31), rows, heights, merges, gridlines: false, portrait: true, margins: [0.4, 0.6],
-    footer: `&L&8請求書番号 ${no}&R&8&P / &N`, widths: [8.5, 13, 5, 12, 9, 24, 8, 5, 9, 11] };
+    footer: `&L&8請求書番号 ${no}&R&8&P / &N`, widths: [9, 13, 5, 12, 9, 24, 8, 5, 9, 11] };   // 月日は yy/mm/dd（2026-11-26）
 }
 // sites：{請求ID: [現場名]}（JSON、2026-10-27 現場別発行）。指定した現場はその現場の最新の発行分、指定が無い請求は最新の発行分で発行した現場
 // kind（new・diff・all）：その区分の最後の発行分（2026-11-18 現行 帳票③ 新規・④ 訂正分・⑤ 全部）
