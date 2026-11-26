@@ -410,8 +410,8 @@ const SUBMENUS = {
 // マスタ名の（…）はメニューに出さず「〇〇マスタ」とし、一覧画面の見出しに（…）を付ける（例 メニュー 金融機関マスタ → 見出し 金融機関マスタ（銀行・支店）。user01 の照会のみも見出しだけ。2026-11-24 ユーザー指示）
 const masterName = (label, suffix = '', ro = false) => { const m = label.match(/^([^（]+)（(.+)）$/), base = m ? m[1].trim() : label, name = (m && !base.endsWith('マスタ') ? base + 'マスタ' : base) + suffix, note = [m?.[2], ro ? '照会のみ' : ''].filter(Boolean).join('・');
   return { l: name, title: note ? `${name}（${note}）` : name }; };
-// user01 には出さないマスタ（現場・得意先別単価は 1:n 画面の方。2026-11-26 ユーザー指示。URL でも開けない）
-const MASTER_NO_U01 = new Set(['sites2', 'prices2', 'company', 'jv', 'mixes', 'matPrices', 'genka', 'deliveryKinds', 'weathers', 'units', 'operators']);
+// user01 には出さないマスタ（現場・得意先別単価は 1:n 画面の方。2026-11-26 ユーザー指示。URL でも開けない。納入区分は同日「必要」で表示に戻した）
+const MASTER_NO_U01 = new Set(['sites2', 'prices2', 'company', 'jv', 'mixes', 'matPrices', 'genka', 'weathers', 'units', 'operators']);
 const subsOf = name => (name === 'masters' && meta?.masters ? Object.entries(meta.masters).flatMap(([k, x], _, __, two = Object.values(ONE_TO_MANY).some(o => o.after === k)) => [{ k, ...masterName(x.label, two ? '1' : '', noEditU01(k)), q: { kind: k }, noUser01: two || MASTER_NO_U01.has(k), hidden: two }, ...Object.entries(ONE_TO_MANY).filter(([, x]) => x.after === k).map(([k2, x]) => ({ k: k2, ...masterName(x.label, '', noEditU01(x.child)), q: { kind: k2 }, noUser01: MASTER_NO_U01.has(k2) }))]) : SUBMENUS[name] || null);
 const TITLES = {};
 // 非表示にするメニュー（2026-10-22 ダッシュボードは使わない）。初期画面は表示メニューの先頭
