@@ -228,10 +228,11 @@ async function jvRange(c, q) {
 const ADJUST_ACCOUNT = '1431';
 export async function jvExpenses(c, q) {
   const { from, to, closing, month } = await jvRange(c, q), ms = await members(c, month), summary = q.layout === 'summary';
-  // 05 No.47（2026-11-25 ユーザー指示）：定時請求に加えて小口現金出納データ（支払日＝出納日）と、調整金＝支払内訳入力の立替金（相殺額。支払日の行、マイナス＝出資金の減）も按分する
+  // 05 No.47（2026-11-25 ユーザー指示）：定時請求に加えて、調整金＝支払内訳入力の立替金（相殺額。支払日の行、マイナス＝出資金の減）も按分する。
+  // 小口現金は対象にしない（2026-11-26 ユーザー指示。2026-11-25 は小口現金出納データも按分していた）
   const ls = await rows(c, `SELECT d.expense_kind, d.document_no, d.due_on, d.booked_on, d.memo, d.payee, l.line_no, l.account_code, a.account_name, l.source_tax_code, l.gross_amount, l.tax_amount, l.memo line_memo, l.payee line_payee, v.vendor_name, lv.vendor_name line_vendor_name
     FROM expense_document d JOIN expense_line l ON l.expense_id=d.expense_id LEFT JOIN account_subject a ON a.account_code=l.account_code LEFT JOIN vendor v ON v.vendor_id=d.vendor_id LEFT JOIN vendor lv ON lv.vendor_id=l.vendor_id
-    WHERE d.expense_kind IN ('PAYABLE','PETTY_CASH') AND d.status='POSTED' AND d.booked_on BETWEEN ? AND ? ORDER BY COALESCE(d.due_on, d.booked_on), l.account_code, v.vendor_code, d.document_no, l.line_no`, [from, to]);
+    WHERE d.expense_kind='PAYABLE' AND d.status='POSTED' AND d.booked_on BETWEEN ? AND ? ORDER BY COALESCE(d.due_on, d.booked_on), l.account_code, v.vendor_code, d.document_no, l.line_no`, [from, to]);
   const adj = await rows(c, `SELECT p.payment_no, p.paid_on, p.offset_amount, v.vendor_name FROM payment p LEFT JOIN vendor v ON v.vendor_id=p.vendor_id
     WHERE p.status='POSTED' AND COALESCE(p.offset_amount,0)<>0 AND p.paid_on BETWEEN ? AND ? ORDER BY p.paid_on, v.vendor_code, p.payment_no`, [from, to]);
   for (const p of adj) ls.push({ expense_kind: 'ADJUST', document_no: p.payment_no, due_on: p.paid_on, booked_on: p.paid_on, account_code: ADJUST_ACCOUNT, account_name: '調整金（立替金）', source_tax_code: null, gross_amount: -num(p.offset_amount), tax_amount: 0, line_memo: '立替金（支払内訳入力）', vendor_name: p.vendor_name });
@@ -252,7 +253,7 @@ export async function jvExpenses(c, q) {
     if (!summary) a.rows.push({ date: due, no: l.document_no, vendor, kind: l.expense_kind, memo: l.line_memo || l.memo, taxCode: l.source_tax_code, rate, gross, net: gross - tax, tax, parts });
     a.count++; a.gross += gross; a.net += gross - tax; a.tax += tax; parts.forEach((v, k) => (a.parts[k] += v));
   }
-  // 支払日ごと・科目ごと（定時請求・小口現金を合わせて科目順。調整金は支払日の最後）
+  // 支払日ごと・科目ごと（科目順。調整金は支払日の最後）
   accounts.sort((x, y) => x.due.localeCompare(y.due) || (x.account === ADJUST_ACCOUNT) - (y.account === ADJUST_ACCOUNT) || String(x.account).localeCompare(String(y.account)));
   // 合計表の出資金額は明細表の科目計と同じ（明細ごとの按分の合計。現行 HJR011 の合計表＝明細表の科目計。2026-11-04 再按分をやめた）
   // 出資本体＝出資金額−出資消費税（現行の合計表の見出し：出資金額・出資本体・出資消費税。2026-11-02）
