@@ -159,7 +159,7 @@ export async function itemPurchaseList(c, q) {
       SUM(CASE WHEN p.purchase_date>=? THEN p.quantity ELSE 0 END) dq, SUM(CASE WHEN p.purchase_date>=? THEN p.net_amount ELSE 0 END) dv, SUM(p.quantity) cq, SUM(p.net_amount) cv
     FROM purchase p JOIN vendor v ON v.vendor_id=p.vendor_id LEFT JOIN item_m i ON i.item_cd=p.item_cd
     WHERE p.purchase_date BETWEEN ? AND ? GROUP BY 1, v.vendor_code, p.item_cd HAVING SUM(CASE WHEN p.purchase_date>=? THEN 1 ELSE 0 END)>0 ORDER BY 1, v.vendor_code, p.item_cd`, [from, from, ms, to, from]);
-  const groups = [];
+  const groups = [], all = [];
   for (const [kb, label] of [['1', '仕入'], ['2', '他社納入']]) {
     const mine = rs.filter(r => String(r.kb || '1') === kb); if (!mine.length) continue;
     const gs = [];
@@ -167,11 +167,13 @@ export async function itemPurchaseList(c, q) {
       let g = gs.find(x => x.cd === r.vendor_code); if (!g) gs.push(g = { cd: r.vendor_code, title: `${r.vendor_code}　${r.vendor_name || ''}`, rows: [] });
       g.rows.push({ code: r.item_cd || '', name: r.item_cd ? String(r.item_name || '').trim() : '運賃・金額のみ', unit: r.unit || '', ...dayRow(r) });
     }
-    gs.forEach(g => delete g.cd); gs[0].head = `区分 ${kb}．${label}`;
+    // 区分ごとの合計・総合計を出す（11/24 打合せ決定「商品仕入登録リストも商品別仕入一覧も両方合計を出力」。2026-11-27 ユーザー指示）
+    const sec = gs.flatMap(g => g.rows); all.push(...sec);
+    gs.forEach(g => delete g.cd); gs[0].head = `区分 ${kb}．${label}`; gs[gs.length - 1].foot = { label: `${label} 合計`, totals: daySum(sec) };
     groups.push(...gs);
   }
   const columns = DAY_COLS(true).map(col => ({ ...col, label: col.label.replace('当日', '期間') }));
-  return { title: '商品別仕入一覧', ref: '帳票㉘（HAR521）の様式で期間指定', from, to, sub: `${from} 〜 ${to}（月度 ${ms} 〜）`, columns, groups, noGrand: true };
+  return { title: '商品別仕入一覧', ref: '帳票㉘（HAR521）の様式で期間指定', from, to, sub: `${from} 〜 ${to}（月度 ${ms} 〜）`, columns, groups, ...(all.length ? { totals: daySum(all) } : {}) };
 }
 export const NEW_REPORTS = { 'item-purchase-list': itemPurchaseList, 'purchase-register': purchaseRegister, 'inventory-register': inventoryRegister, 'transfer-list': transferList, 'item-ship-daily': itemShipDaily, 'customer-ship-daily': customerShipDaily, 'item-purchase-daily': itemPurchaseDaily };
 export async function genericBook(c, kind, q) {
