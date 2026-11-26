@@ -2744,9 +2744,9 @@ VIEWS.periods = async () => {
   };
   A.jclose = d => {
     const def = d?.month || (p.months.find(m => !m.closed) || p.months[0])?.month || today().slice(0, 7);   // 行の［仕訳別確定］はその月を開く（2026-11-26）
-    modal({ title: '仕訳別確定', wide: true, body: `<p class="small">自動仕訳の種類ごとに月を確定します。確定した仕訳を作る業務は、その月の日付で登録・変更・取消・計上ができなくなります（例：定時請求自動仕訳 → 定時請求の登録・修正・取消と定時請求計上）。月次確定はすべての仕訳を確定します。</p>
-      <label class="field" style="margin:8px 0">月<select id="jc-month">${p.months.map(m => `<option value="${m.month}" ${m.month === def ? 'selected' : ''}>${m.month}${m.closed ? '（月次確定済）' : ''}</option>`).join('')}</select></label>
-      <div id="jc-body"></div>`, onOpen: f => { f.querySelector('#jc-month').onchange = e => jcRender(e.target.value).catch(err => toast(err.message, true)); jcRender(def).catch(err => toast(err.message, true)); } });
+    // 月は一覧の行で決まっているので選択欄は出さず、表題に月を出す（2026-11-26 ユーザー指示）
+    modal({ title: `仕訳別確定　${def.replace('-', '/')}`, wide: true, body: `<p class="small">自動仕訳の種類ごとに月を確定します。確定した仕訳を作る業務は、その月の日付で登録・変更・取消・計上ができなくなります（例：定時請求自動仕訳 → 定時請求の登録・修正・取消と定時請求計上）。月次確定はすべての仕訳を確定します。</p>
+      <div id="jc-body"></div>`, onOpen: () => { jcRender(def).catch(err => toast(err.message, true)); } });
   };
   A.jcDo = async d => {
     try { await post(`/api/periods/journals/${d.op}`, { month: d.month, pattern: d.pattern }); toast(d.op === 'close' ? '確定しました' : '解除しました'); await jcRender(d.month); }
