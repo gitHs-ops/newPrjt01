@@ -411,8 +411,10 @@ const SUBMENUS = {
 const masterName = (label, suffix = '', ro = false) => { const m = label.match(/^([^（]+)（(.+)）$/), base = m ? m[1].trim() : label, name = (m && !base.endsWith('マスタ') ? base + 'マスタ' : base) + suffix, note = [m?.[2], ro ? '照会のみ' : ''].filter(Boolean).join('・');
   return { l: name, title: note ? `${name}（${note}）` : name }; };
 // user01 には出さないマスタ（現場・得意先別単価は 1:n 画面の方。2026-11-26 ユーザー指示。URL でも開けない。納入区分は同日「必要」で表示に戻した）
+// 全ログインで小メニューに出さないマスタ（取引先コード変換表。2026-11-26 ユーザー指示。マスタ・会計連携での置き換えはそのまま）
+const MASTER_HIDDEN = new Set(['partnerCodes']);
 const MASTER_NO_U01 = new Set(['sites2', 'prices2', 'company', 'jv', 'mixes', 'matPrices', 'genka', 'weathers', 'units', 'operators']);
-const subsOf = name => (name === 'masters' && meta?.masters ? Object.entries(meta.masters).flatMap(([k, x], _, __, two = Object.values(ONE_TO_MANY).some(o => o.after === k)) => [{ k, ...masterName(x.label, two ? '1' : '', noEditU01(k)), q: { kind: k }, noUser01: two || MASTER_NO_U01.has(k), hidden: two }, ...Object.entries(ONE_TO_MANY).filter(([, x]) => x.after === k).map(([k2, x]) => ({ k: k2, ...masterName(x.label, '', noEditU01(x.child)), q: { kind: k2 }, noUser01: MASTER_NO_U01.has(k2) }))]) : SUBMENUS[name] || null);
+const subsOf = name => (name === 'masters' && meta?.masters ? Object.entries(meta.masters).flatMap(([k, x], _, __, two = Object.values(ONE_TO_MANY).some(o => o.after === k)) => [{ k, ...masterName(x.label, two ? '1' : '', noEditU01(k)), q: { kind: k }, noUser01: two || MASTER_NO_U01.has(k), hidden: two || MASTER_HIDDEN.has(k) }, ...Object.entries(ONE_TO_MANY).filter(([, x]) => x.after === k).map(([k2, x]) => ({ k: k2, ...masterName(x.label, '', noEditU01(x.child)), q: { kind: k2 }, noUser01: MASTER_NO_U01.has(k2) }))]) : SUBMENUS[name] || null);
 const TITLES = {};
 // 非表示にするメニュー（2026-10-22 ダッシュボードは使わない）。初期画面は表示メニューの先頭
 const HIDDEN_MENUS = new Set(['dashboard']);
