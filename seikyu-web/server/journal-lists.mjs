@@ -275,7 +275,8 @@ const pairRows = (p, first, s, end = true) => {
 };
 // 伝票合計・日付合計の行（2026-11-21 ユーザー様式「定時請求自動仕訳リスト_2026-10-21_2026-11-20 (3).xlsx」）：上下は実線、縦線は 借方金額・摘要1（借方）の右・貸方金額・元伝票の区切りだけ。
 // 伝票合計は日付・伝票No の列を伝票の明細から続けて（上の線なし）、その右に縦線。日付合計は日付の列から続けて 1 つの枠
-const TOTAL_V = [5, 6, 9, 15, 16, 17];
+// 文言（K 列）の右（L 列の左）の縦線は引かない（2026-11-26 ユーザー指示。プロトタイプ再検証 E-1）
+const TOTAL_V = [5, 6, 15, 16, 17];
 const totalRow = (label, amount, slip = false) => jrow({ 9: label, 6: amount, 16: amount }).map((v, j) => {
   const V = new Set(slip ? [0, ...TOTAL_V] : TOTAL_V), mask = (j === 0 || V.has(j - 1) ? 8 : 0) + (V.has(j) ? 4 : 0) + (slip && j === 0 ? 0 : 2) + 1;
   return { v, s: `jEdge${mask}` };
