@@ -3,6 +3,9 @@ import { check, Conflict, yen, qty, lineAmount, isoDate, isoMonth, text, dueDate
 import { rows, one, nextSlipNoFy, docNo, DOC_SERIES, assertOpen, audit, postJournal, reverseJournal, discardOrReverseJournal, line } from './db.mjs';
 import { mustDecode, taxOf, CATALOG, decode } from './taxcode.mjs';
 import { companyPeriod } from './period.mjs';
+// 配合計算の結果（材料受払表）は、実在庫登録・商品仕入・在庫計上で変わった月度とそれより後の月度を無効にする（配合計算のやり直しが必要。2026-11-26 ユーザー指示）。
+// 仕入日の月の仕入は、その月か翌月の材料受払表（締日による）に入るため、仕入日の月から無効にする
+const invalidateMix = (c, monthOrDate) => c.query('DELETE FROM app_mix_result WHERE month>=?', [String(monthOrDate).slice(0, 7)]);
 
 const monthWhere = (col, q, w, args) => { if (q.month) { isoMonth(q.month); w.push(`to_char(${col},'YYYY-MM')=?`); args.push(q.month); } };
 async function vendorOf(c, code) { const v = await one(c, 'SELECT * FROM vendor WHERE vendor_code=?', [String(code || '')]); check(v && v.active, '有効な業者を選択してください'); return v; }
@@ -82,6 +85,7 @@ async function insertPurchase(c, no, { date, v, kind, out, memo }) {
 }
 export async function createPurchase(c, ctx, p) {
   const x = await purchaseInput(c, p), no = await nextSlipNoFy(c, DOC_SERIES.purchase, x.date), total = await insertPurchase(c, no, x);
+  await invalidateMix(c, x.date);
   await audit(c, ctx, 'purchase', no, 'purchase.create', { no, vendor: x.v.vendor_code, kind: x.kind, lines: x.out.length, net: total });
   await revalueInventory(c, ctx, x.date);
   return { no, lines: x.out.length, net: total };
@@ -96,6 +100,7 @@ export async function updatePurchase(c, ctx, p) {
   const before = await rows(c, 'SELECT line_no, item_cd, quantity, unit_price, net_amount FROM purchase WHERE source_document_no=? ORDER BY line_no', [r.source_document_no]);
   await c.query('DELETE FROM purchase WHERE source_document_no=?', [r.source_document_no]);
   const total = await insertPurchase(c, r.source_document_no, x);
+  await invalidateMix(c, oldDate < x.date ? oldDate : x.date);
   await audit(c, ctx, 'purchase', r.source_document_no, 'purchase.update', { no: r.source_document_no, vendor: x.v.vendor_code, kind: x.kind, lines: x.out.length, net: total, before: { date: oldDate, lines: before.length, net: before.reduce((n, l) => n + Number(l.net_amount), 0) } });
   await revalueInventory(c, ctx, oldDate < x.date ? oldDate : x.date);
   return { no: r.source_document_no, lines: x.out.length, net: total };
@@ -105,6 +110,7 @@ export async function deletePurchase(c, ctx, { id }) {
   const r = await one(c, 'SELECT * FROM purchase WHERE purchase_id=? FOR UPDATE', [Number(id)]); if (!r) throw new Conflict('仕入が見つかりません');
   await assertOpen(c, r.purchase_date, 'C01'); await assertNotInventoried(c, String(r.purchase_date).slice(0, 10));
   const [d] = await c.query('DELETE FROM purchase WHERE source_document_no=?', [r.source_document_no]);
+  await invalidateMix(c, String(r.purchase_date).slice(0, 10));
   await audit(c, ctx, 'purchase', r.source_document_no, 'purchase.delete', { no: r.source_document_no, lines: d.affectedRows });
   await revalueInventory(c, ctx, String(r.purchase_date).slice(0, 10));
   return { no: r.source_document_no, lines: d.affectedRows };
@@ -142,6 +148,7 @@ export async function saveInventory(c, ctx, p) {
   const previous = Number(prior?.valuation_amount || 0);
   const [r] = await c.query("INSERT INTO inventory_count (period_start,location_code,item_cd,counted_on,quantity,valuation_price,valuation_amount,status) VALUES (?,'MAIN',?,?,?,?,?,'POSTED')", [month + '-01', it.item_cd, end, q.text, price, value]);
   await repostInventoryMonth(c, month, end);
+  await invalidateMix(c, month);
   await audit(c, ctx, 'inventory_count', r.insertId, 'inventory.create', { month, item: it.item_cd, value, previous });
   return { id: r.insertId, value, previous };
 }
@@ -177,6 +184,7 @@ export async function saveCounts(c, ctx, p) {
     saved++;
   }
   const no = saved ? await docNo(c, 'count', month, date) : '';
+  await invalidateMix(c, month);
   await audit(c, ctx, 'inventory_count', month.replace('-', ''), 'inventory.count', { month, date, saved, cleared, no });
   await revalueInventory(c, ctx, date);
   return { month, saved, cleared, no };
@@ -214,6 +222,7 @@ export async function postInventory(c, ctx, p) {
     }
     await repostInventoryMonth(c, m, e, true);   // 前の仕訳（あれば）を削除して作り直す
   }
+  await invalidateMix(c, month);
   await audit(c, ctx, 'inventory_count', month.replace('-', ''), rerun ? 'inventory.repost' : 'inventory.post', { month, items, value: total, ...(later.length ? { later } : {}) });
   return { month, items, value: total, date: end, rerun, later, slipNo: await lastInvSlip(c, end) };
 }
@@ -248,6 +257,7 @@ export async function unpostInventory(c, ctx, p) {
   check(!(await one(c, "SELECT 1 x FROM inventory_count WHERE location_code='MAIN' AND period_start>? AND status='POSTED' LIMIT 1", [month + '-01'])), '後の月度の在庫計上を先に取消してください');
   await c.query("UPDATE inventory_count SET valuation_price=0, valuation_amount=0, status='DRAFT', row_version=row_version+1 WHERE period_start=? AND location_code='MAIN' AND status='POSTED'", [month + '-01']);
   await repostInventoryMonth(c, month, end);
+  await invalidateMix(c, month);
   await audit(c, ctx, 'inventory_count', month.replace('-', ''), 'inventory.unpost', { month });
   return { month, date: end, slipNo: await lastInvSlip(c, end) };
 }
@@ -258,6 +268,7 @@ export async function deleteInventory(c, ctx, { id }) {
   await reverseJournal(c, { sourceType: 'inventory_count', sourceId: r.inventory_id, date: r.counted_on });
   await c.query('DELETE FROM inventory_count WHERE inventory_id=?', [r.inventory_id]);
   await repostInventoryMonth(c, String(r.period_start).slice(0, 7), String(r.counted_on).slice(0, 10));
+  await invalidateMix(c, String(r.period_start).slice(0, 7));
   await audit(c, ctx, 'inventory_count', r.inventory_id, 'inventory.delete', { month: r.period_start.slice(0, 7), item: r.item_cd });
   return { id: r.inventory_id };
 }

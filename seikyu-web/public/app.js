@@ -2371,7 +2371,7 @@ const dailyReportsCard = () => dailyCard('日報出力', 'dr', '<button data-act
 const shipDailyCard = () => dailyCard('出荷日報', 'sd', '<button data-act="misc" data-kind="item-ship-daily" data-src="sd">商品別出荷日報</button><button data-act="misc" data-kind="customer-ship-daily" data-src="sd">得意先別出荷日報</button>');
 const invPeriod = p => `<label class="field">処理年月（計算年月）<input type="month" id="${p}-month" value="${lastClosing().slice(0, 7)}"></label><label class="field">締日<select id="${p}-closing"><option value="20" selected>20日</option><option value="10">10日</option><option value="31">月末（暦月）</option></select></label>`;
 // 配合計算の画面（2026-11-04）。2026-11-12 から［配合計算を実行］で結果を保存し（材料受払の計算結果・原価）、材料受払表はその結果を出力する（D-072・機能一覧 9-3・10-3）
-const mixCard = () => miscCard('配合計算', '月次（実在庫登録・商品仕入登録の後に実行）。計算年月を指定して実行し、結果を保存して材料受払表に使う', invPeriod('mx'), `${canWrite() ? '<button class="primary" data-act="mix">配合計算を実行</button>' : ''}<a class="button" id="mx-ledger" href="#inventory/ledger">材料受払表</a>${isUser01() ? '' /* user01 は［配合計算結果表］を出さない（2026-11-26 ユーザー指示） */ : '<button id="mx-xl" data-act="mixXl" data-src="mx" disabled title="配合計算を実行すると出力できます">⇩ 配合計算結果表</button>'}`);   // 実行前も押せない状態で出す（2026-11-25 ユーザー指示）   // ［材料受払表］（メニュー画面を開く）は［配合計算を実行］の右（2026-11-21 ユーザー指示）
+const mixCard = () => miscCard('配合計算', '月次（実在庫登録・商品仕入登録の後に実行）。計算年月を指定して実行し、結果を保存して材料受払表に使う', invPeriod('mx'), `${canWrite() ? '<button class="primary" data-act="mix">配合計算を実行</button>' : ''}<a class="button" id="mx-ledger" href="#inventory/ledger">材料受払表</a>${isUser01() ? '' /* user01 は［配合計算結果表］を出さない（2026-11-26 ユーザー指示） */ : '<button id="mx-xl" data-act="mixXl" data-src="mx" disabled title="配合計算を実行すると出力できます">⇩ 配合計算結果表</button>'}<span id="mx-stale" class="small check-ng" hidden>実行後に実在庫登録・商品仕入・在庫計上で変更があったため、結果は無効です。配合計算をやり直してください</span>`);   // 実行前も押せない状態で出す（2026-11-25 ユーザー指示）   // ［材料受払表］（メニュー画面を開く）は［配合計算を実行］の右（2026-11-21 ユーザー指示）
 const mixXlCard = () => miscCard('配合計算結果表', '配合計算の結果を Excel で出力（2026-11-25 ユーザー指示：小メニューに追加）', invPeriod('mr'), '<button id="mr-xl" data-act="mixXl" data-src="mr" disabled title="配合計算を実行すると出力できます">⇩ 配合計算結果表</button>');
 const ledgerCard = () => miscCard('材料受払表', '配合計算で保存した結果を出力（先に 在庫 → 配合計算 を実行）', invPeriod('mi'), '<button data-act="misc" data-kind="material-ledger" data-src="mi">⇩ Excel</button>'); // 「現行の配合計算処理＋材料受払表印刷」の注記は削除（2026-11-03）
 // 10/19 打合せ：出力指示＝締切日・部門コード（組織マスタ）・区分（ブランク＝工事、1＝組織）・業者コード From〜To（ブランク〜9999999＝全業者）
@@ -2556,17 +2556,19 @@ async function miscReport(kind, src, showIn) {
 // 実行後は［配合計算を実行］の右に結果の Excel を出す（2026-11-17 ユーザー指示）。年月・締日を変えたら消す（別条件の結果と取り違えないため）
 // 2026-11-25 から：ボタンは常に出し、その処理年月・締日で配合計算が未実行なら押せない（ユーザー指示）
 function mixResultLink() { mixXlState('mx'); mixXlState('mr'); }
+// 結果が無効（実行後に実在庫・仕入・在庫計上を変更）なら「やり直し」を表示する（2026-11-26 ユーザー指示）。user01 はボタンが無いので表示だけ
 async function mixXlState(src) {
-  const b = $(`#${src}-xl`), m = $(`#${src}-month`), cl = $(`#${src}-closing`); if (!b || !m || !cl) return;
-  b.disabled = true; if (!m.value) return;
-  const key = `${m.value}|${cl.value}`; b.dataset.key = key;
+  const b = $(`#${src}-xl`), st = $(`#${src}-stale`), m = $(`#${src}-month`), cl = $(`#${src}-closing`), el = b || st; if (!el || !m || !cl) return;
+  if (b) b.disabled = true; if (st) st.hidden = true; if (!m.value) return;
+  const key = `${m.value}|${cl.value}`; el.dataset.key = key;
   const r = await api(`/api/mix/status?${qs({ month: m.value, closing: cl.value })}`).catch(() => null);
-  if (b.dataset.key !== key) return;   // 待つ間に条件が変わった
-  b.disabled = !r?.ran; b.title = r?.ran ? '' : '配合計算を実行すると出力できます';
+  if (el.dataset.key !== key) return;   // 待つ間に条件が変わった
+  if (b) { b.disabled = !r?.ran; b.title = r?.ran ? '' : r?.stale ? '実行後に実在庫登録・商品仕入・在庫計上で変更があったため無効です。配合計算をやり直すと出力できます' : '配合計算を実行すると出力できます'; }
+  if (st) st.hidden = !r?.stale;
 }
 document.addEventListener('change', e => { const m = /^(mx|mr)-(month|closing)$/.exec(e.target.id); if (m) mixXlState(m[1]); });
 // 画面を描いたら（ボタンが現れたら）実行済みかを確かめる
-new MutationObserver(() => { for (const src of ['mx', 'mr']) { const b = document.getElementById(src + '-xl'); if (b && !b.dataset.key) { b.dataset.key = '-'; mixXlState(src); } } }).observe(document.body, { childList: true, subtree: true });
+new MutationObserver(() => { for (const src of ['mx', 'mr']) { const b = document.getElementById(src + '-xl') || document.getElementById(src + '-stale'); if (b && !b.dataset.key) { b.dataset.key = '-'; mixXlState(src); } } }).observe(document.body, { childList: true, subtree: true });
 // 配合計算モーダル（配合マスタ×材料単価＋経費単価 → 原価）は 2026-11-02 から画面から開かない（現行の配合計算処理とは別物。API は残す）
 async function mixDialog() {
   const month = $('#mx-month').value, closing = $('#mx-closing').value, d = await api('/api/reports/misc/mix?' + qs({ month, closing }));
@@ -2732,8 +2734,8 @@ VIEWS.periods = async () => {
         { label: '確定日時 / 実行者', value: r => r.closed ? `${jst(r.closedAt, 16)} / ${r.closedBy}` : k.monthClosed ? '（月次確定）' : '' },
         { label: '', html: r => !isAdmin() || k.monthClosed ? '' : r.closed ? `<button type="button" class="mini danger" data-act="jcDo" data-op="reopen" data-month="${esc(month)}" data-pattern="${r.pattern}">解除</button>` : `<button type="button" class="mini primary" data-act="jcDo" data-op="close" data-month="${esc(month)}" data-pattern="${r.pattern}">確定</button>` }], k.items);
   };
-  A.jclose = () => {
-    const def = (p.months.find(m => !m.closed) || p.months[0])?.month || today().slice(0, 7);
+  A.jclose = d => {
+    const def = d?.month || (p.months.find(m => !m.closed) || p.months[0])?.month || today().slice(0, 7);   // 行の［仕訳別確定］はその月を開く（2026-11-26）
     modal({ title: '仕訳別確定', wide: true, body: `<p class="small">自動仕訳の種類ごとに月を確定します。確定した仕訳を作る業務は、その月の日付で登録・変更・取消・計上ができなくなります（例：定時請求自動仕訳 → 定時請求の登録・修正・取消と定時請求計上）。月次確定はすべての仕訳を確定します。</p>
       <label class="field" style="margin:8px 0">月<select id="jc-month">${p.months.map(m => `<option value="${m.month}" ${m.month === def ? 'selected' : ''}>${m.month}${m.closed ? '（月次確定済）' : ''}</option>`).join('')}</select></label>
       <div id="jc-body"></div>`, onOpen: f => { f.querySelector('#jc-month').onchange = e => jcRender(e.target.value).catch(err => toast(err.message, true)); jcRender(def).catch(err => toast(err.message, true)); } });
@@ -2742,9 +2744,9 @@ VIEWS.periods = async () => {
     try { await post(`/api/periods/journals/${d.op}`, { month: d.month, pattern: d.pattern }); toast(d.op === 'close' ? '確定しました' : '解除しました'); await jcRender(d.month); }
     catch (e) { toast(e.message, true); }
   };
-  return page('月次確定', `確定した月の伝票は登録・変更・取消ができなくなります。確定・解除は管理者のみ実行できます。［仕訳別確定］で自動仕訳の種類ごとにも確定できます。`, isAdmin() ? '<button class="primary" data-act="jclose">仕訳別確定</button>' : '', `<section class="card glass">${table([{ label: '月', value: r => r.month + (r.fiscalEnd ? '（決算月）' : '') }, { label: '状態', html: r => r.closed ? badge('確定済', 'green') : badge('未確定', 'gray') },
+  return page('月次確定', `確定した月の伝票は登録・変更・取消ができなくなります。確定・解除は管理者のみ実行できます。［仕訳別確定］で自動仕訳の種類ごとにも確定できます。`, '' /* ［仕訳別確定］は各月の［確定］の前（2026-11-26 ユーザー指示。以前は画面右上） */, `<section class="card glass">${table([{ label: '月', value: r => r.month + (r.fiscalEnd ? '（決算月）' : '') }, { label: '状態', html: r => r.closed ? badge('確定済', 'green') : badge('未確定', 'gray') },
     { label: '確定日時 / 実行者', value: r => r.closed ? `${jst(r.closedAt, 16)} / ${r.closedBy}` : '' }, { label: 'チェック', html: r => `<div id="chk-${r.month}">${r.closed ? '' : `<button class="mini" data-act="check" data-month="${r.month}">確定前チェック</button>`}</div>` },
-    { label: '', html: r => isAdmin() ? (r.closed ? (r.kind === '1' ? '' : `<button class="mini danger" data-act="reopen" data-month="${r.month}">解除</button>`) : `<button class="mini primary" data-act="close" data-month="${r.month}">確定</button>`) : '' }], p.months)}</section>
+    { label: '', html: r => isAdmin() ? `<button class="mini" data-act="jclose" data-month="${r.month}">仕訳別確定</button>` + (r.closed ? (r.kind === '1' ? '' : `<button class="mini danger" data-act="reopen" data-month="${r.month}">解除</button>`) : `<button class="mini primary" data-act="close" data-month="${r.month}">確定</button>`) : '' }], p.months)}</section>
     `);
 };
 

@@ -122,14 +122,18 @@ async function runMixLedger(c, ctx, q) {
     [d.month, mixKey(q.closing), JSON.stringify({ ...d, runAt, runBy: ctx.user.login_id }), ctx.user.login_id]);
 }
 // 配合計算を実行済みか（配合計算結果（Excel）のボタンを実行前は押せなくする。2026-11-25 ユーザー指示）
+// stale：実行したことはあるが、その後の実在庫登録・商品仕入・在庫計上で結果が無効になった（やり直しが必要。2026-11-26）
+const mixRanBefore = async (c, month, closing) => !!(await one(c, "SELECT 1 x FROM audit_event WHERE action='mix.calc' AND entity_id=? AND COALESCE(change_summary->>'closing', '20')=? LIMIT 1", [month, closing]));
 export async function mixStatus(c, q) {
-  const month = isoMonth(q.month, '対象月'), r = await one(c, 'SELECT run_at FROM app_mix_result WHERE month=? AND closing=?', [month, mixKey(q.closing)]);
-  return { month, closing: mixKey(q.closing), ran: !!r };
+  const month = isoMonth(q.month, '対象月'), closing = mixKey(q.closing), r = await one(c, 'SELECT run_at FROM app_mix_result WHERE month=? AND closing=?', [month, closing]);
+  return { month, closing, ran: !!r, stale: !r && (await mixRanBefore(c, month, closing)) };
 }
 // 材料受払表：配合計算で保存した結果を出す。未実行の処理年月・締日は出さない
 export async function savedMaterialLedger(c, q) {
   const month = isoMonth(q.month, '対象月'), r = await one(c, 'SELECT result FROM app_mix_result WHERE month=? AND closing=?', [month, mixKey(q.closing)]);
-  check(r, `${month}（${closingRange(month, q.closing).label}）の配合計算が実行されていません。在庫 → 配合計算 で実行してから出力してください`);
+  check(r, !r && (await mixRanBefore(c, month, mixKey(q.closing)))
+    ? `${month}（${closingRange(month, q.closing).label}）の配合計算の結果は、実行後に実在庫登録・商品仕入・在庫計上で変更があったため無効になりました。在庫 → 配合計算 でやり直してから出力してください`
+    : `${month}（${closingRange(month, q.closing).label}）の配合計算が実行されていません。在庫 → 配合計算 で実行してから出力してください`);
   const d0 = JSON.parse(r.result), items = d0.items.filter(x => isMaterialCode(x.item)), t = (k, f) => items.reduce((n, x) => n + (x[k]?.[f] || 0), 0);
   const d = { ...d0, items, totals: { opening: t('opening', 'value'), prev: t('prev', 'value'), purchase: t('purchase', 'value'), used: t('used', 'value'), end: t('end', 'value'), openingQty: t('opening', 'qty'), prevQty: t('prev', 'qty'), purchaseQty: t('purchase', 'qty'), usedQty: t('used', 'qty'), endQty: t('end', 'qty') } };
   return { ...d, note: `配合計算の結果（${d.runAt} ${d.runBy} 実行）。実行後に実在庫・仕入を直したときは配合計算をやり直してください。` + d.note };
