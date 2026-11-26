@@ -2718,7 +2718,26 @@ VIEWS.periods = async () => {
   };
   // 仮更新（更新区分 2）・年次更新の選択は設けない（D-057：月次整理→自動仕訳→会計システムへ取込。会計の月次更新は会計システム側。2026-11-12 結合テスト IT-11）
   A.reopen = d => confirmBox('確定解除', `${d.month} の確定を解除します。`, () => post('/api/periods/reopen', { month: d.month }).then(() => { toast('解除しました'); render(); }), '解除する');
-  return page('月次確定', `確定した月の伝票は登録・変更・取消ができなくなります。確定・解除は管理者のみ実行できます。`, '', `<section class="card glass">${table([{ label: '月', value: r => r.month + (r.fiscalEnd ? '（決算月）' : '') }, { label: '状態', html: r => r.closed ? badge('確定済', 'green') : badge('未確定', 'gray') },
+  // 仕訳別確定（2026-11-26 ユーザー指示）：月次確定（月全体）のほかに、自動仕訳 6 種ごとに月を確定・解除するポップアップ。
+  // 確定した仕訳を作る業務（例 定時請求自動仕訳＝定時請求の登録・修正・取消・定時請求計上）は、その月の日付で止まる
+  const jcRender = async month => {
+    const k = await api('/api/periods/journals?' + qs({ month })), box = $('#jc-body'); if (!box) return;
+    box.innerHTML = (k.monthClosed ? `<p class="note small">${esc(month)} は月次確定済みです（${jst(k.monthClosed.at, 16)} / ${esc(k.monthClosed.by)}）。すべての仕訳が確定しています。仕訳別に解除するには、先に月次確定を解除してください。</p>` : '')
+      + table([{ label: '自動仕訳', value: r => r.name }, { label: '状態', html: r => k.monthClosed || r.closed ? badge('確定済', 'green') : badge('未確定', 'gray') },
+        { label: '確定日時 / 実行者', value: r => r.closed ? `${jst(r.closedAt, 16)} / ${r.closedBy}` : k.monthClosed ? '（月次確定）' : '' },
+        { label: '', html: r => !isAdmin() || k.monthClosed ? '' : r.closed ? `<button type="button" class="mini danger" data-act="jcDo" data-op="reopen" data-month="${esc(month)}" data-pattern="${r.pattern}">解除</button>` : `<button type="button" class="mini primary" data-act="jcDo" data-op="close" data-month="${esc(month)}" data-pattern="${r.pattern}">確定</button>` }], k.items);
+  };
+  A.jclose = () => {
+    const def = (p.months.find(m => !m.closed) || p.months[0])?.month || today().slice(0, 7);
+    modal({ title: '仕訳別確定', wide: true, body: `<p class="small">自動仕訳の種類ごとに月を確定します。確定した仕訳を作る業務は、その月の日付で登録・変更・取消・計上ができなくなります（例：定時請求自動仕訳 → 定時請求の登録・修正・取消と定時請求計上）。月次確定はすべての仕訳を確定します。</p>
+      <label class="field" style="margin:8px 0">月<select id="jc-month">${p.months.map(m => `<option value="${m.month}" ${m.month === def ? 'selected' : ''}>${m.month}${m.closed ? '（月次確定済）' : ''}</option>`).join('')}</select></label>
+      <div id="jc-body"></div>`, onOpen: f => { f.querySelector('#jc-month').onchange = e => jcRender(e.target.value).catch(err => toast(err.message, true)); jcRender(def).catch(err => toast(err.message, true)); } });
+  };
+  A.jcDo = async d => {
+    try { await post(`/api/periods/journals/${d.op}`, { month: d.month, pattern: d.pattern }); toast(d.op === 'close' ? '確定しました' : '解除しました'); await jcRender(d.month); }
+    catch (e) { toast(e.message, true); }
+  };
+  return page('月次確定', `確定した月の伝票は登録・変更・取消ができなくなります。確定・解除は管理者のみ実行できます。［仕訳別確定］で自動仕訳の種類ごとにも確定できます。`, isAdmin() ? '<button class="primary" data-act="jclose">仕訳別確定</button>' : '', `<section class="card glass">${table([{ label: '月', value: r => r.month + (r.fiscalEnd ? '（決算月）' : '') }, { label: '状態', html: r => r.closed ? badge('確定済', 'green') : badge('未確定', 'gray') },
     { label: '確定日時 / 実行者', value: r => r.closed ? `${jst(r.closedAt, 16)} / ${r.closedBy}` : '' }, { label: 'チェック', html: r => `<div id="chk-${r.month}">${r.closed ? '' : `<button class="mini" data-act="check" data-month="${r.month}">確定前チェック</button>`}</div>` },
     { label: '', html: r => isAdmin() ? (r.closed ? (r.kind === '1' ? '' : `<button class="mini danger" data-act="reopen" data-month="${r.month}">解除</button>`) : `<button class="mini primary" data-act="close" data-month="${r.month}">確定</button>`) : '' }], p.months)}</section>
     `);

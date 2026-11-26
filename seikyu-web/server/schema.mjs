@@ -128,6 +128,8 @@ export async function prepare(pool, env = process.env) {
   await pool.query(`CREATE TABLE IF NOT EXISTS app_period_close (period varchar(7) COLLATE "C" PRIMARY KEY, closed_at timestamp(6) NOT NULL, closed_by varchar(256) COLLATE "C" NOT NULL)`);
   // 更新区分（現行の月次更新。10/26 打合せ）：'2' 仮更新（各月の伝票終了。解除して追加修正できる）／'1' 年次更新（決算後。解除できない）
   await pool.query(`ALTER TABLE app_period_close ADD COLUMN IF NOT EXISTS kind char(1) NOT NULL DEFAULT '2'`);
+  // 仕訳別確定（2026-11-26）：月（YYYY-MM）×自動仕訳の種類（A01〜F01）
+  await pool.query(`CREATE TABLE IF NOT EXISTS app_journal_close (period varchar(7) COLLATE "C" NOT NULL, pattern varchar(3) COLLATE "C" NOT NULL, closed_at timestamp(6) NOT NULL, closed_by varchar(256) COLLATE "C" NOT NULL, PRIMARY KEY (period, pattern))`);
   // 支払の振込方法（0 電信／1 文書）・手数料区分（0 とらない／1 とる）。現行 HJW200 支払内訳入力（2026-11-08）
   await pool.query(`ALTER TABLE payment ADD COLUMN IF NOT EXISTS transfer_method char(1) NOT NULL DEFAULT '0'`);
   await pool.query(`ALTER TABLE payment ADD COLUMN IF NOT EXISTS fee_kbn char(1) NOT NULL DEFAULT '0'`);

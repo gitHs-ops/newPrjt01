@@ -120,7 +120,7 @@ export async function siteOf(c, cust, p) {
   return { field_cd: '', field_suffix: '', field_name1: text(p.siteName1, '現場名1', 20, { required: false }), field_name2: text(p.siteName2, '現場名2', 20, { required: false }) };
 }
 async function slipValues(c, p, label = '', keepKbn = '') {
-  const date = isoDate(p.date, label + '出荷日'); await assertOpen(c, date);
+  const date = isoDate(p.date, label + '出荷日'); await assertOpen(c, date, 'A01');
   const cust = await one(c, 'SELECT * FROM client_m WHERE customers_cd=?', [String(p.customer || '')]); check(cust && cust.delete_f !== '1', '有効な得意先を選択してください');
   const f = await siteOf(c, cust, p);
   const it = await one(c, 'SELECT * FROM item_m WHERE item_cd=?', [String(p.item || '')]); check(it && it.delete_f !== '1', '有効な商品を選択してください');
@@ -155,7 +155,7 @@ export async function saveShipment(c, ctx, p) {
     if (!u1) check(old.ship_kb !== CORRECTION, '訂正伝票は変更できません。取消して再登録してください');
     check(v.shipKb !== CORRECTION || (u1 && old.ship_kb === CORRECTION), '登録済みの伝票を訂正（区分 5）に変えることはできません。元伝票No を指定して赤伝票を新規登録してください');
     if (!u1) check(!(await one(c, 'SELECT 1 x FROM sales_trn WHERE sales_no=? AND order_no<>? LIMIT 1', [orderNo, orderNo])), '訂正済みの伝票は変更できません');
-    await assertOpen(c, fromNum(old.sales_date));
+    await assertOpen(c, fromNum(old.sales_date), 'A01');
     await c.query(`UPDATE sales_trn SET sales_date=?,customers_cd=?,field_cd=?,field_suffix=?,field_name1=?,field_name2=?,item_cd=?,item_name=?,quantity=?,unit_price=?,money=?,tax_rate=?,consumption_tax=?,remarks=?,payment_method_cd=?,payment_money=?,update_day=?,update_time=?,update_pgm=?,update_ws=? WHERE order_no=? AND order_suffix=1`,
       [toNum(v.date), v.cust.customers_cd, v.f.field_cd, v.f.field_suffix, v.f.field_name1, v.f.field_name2, v.it.item_cd, v.it.item_nam.slice(0, 20), v.q.text, v.price + v.freight, v.net, v.rate, v.tax, v.remarks, v.method, v.net + v.tax, st.update_day, st.update_time, st.update_pgm, st.update_ws, orderNo]);
     await c.query('UPDATE sales_trn SET shipping_kb=?,unit_cd=?,ship_kb=? WHERE order_no=?', [Number(v.kbn), /^\d+$/.test(v.it.unit) ? Number(v.it.unit) : null, v.shipKb, orderNo]);
@@ -211,7 +211,7 @@ export async function correctShipment(c, ctx, p) {
   check(!base.later, 'この伝票は訂正済みです。訂正後（黒）の伝票を訂正してください');
   const slip = await one(c, 'SELECT * FROM shipment_slip WHERE order_no=?', [orig.order_no]);
   // 赤・黒の売上日は元伝票の売上日（現行と同じ、2026-10-27 大西さん回答 H）。訂正日は correction_date に持つ
-  const corrDate = isoDate(p.date, '訂正日'), origDate = fromNum(orig.sales_date); await assertOpen(c, corrDate);
+  const corrDate = isoDate(p.date, '訂正日'), origDate = fromNum(orig.sales_date); await assertOpen(c, corrDate, 'A01');
   check(corrDate >= origDate, '訂正日が元伝票の出荷日より前です');
   // 元伝票の月が月次確定済みなら、赤・黒の売上日は訂正日（翌月以降の請求・仕訳で訂正する。2026-11-07 ユーザー指示「NG 修正」：2次テスト 7.会計連携 STEP⑥）
   const date = await isClosed(c, origDate) ? corrDate : origDate;
@@ -266,7 +266,7 @@ export async function deleteShipment(c, ctx, { orderNo }) {
   if (!old) throw new Conflict('出荷伝票が見つかりません。再読込してください');
   check(old.process_status === '0', '請求済みの出荷は取消できません');
   check(!(await one(c, 'SELECT 1 x FROM sales_trn WHERE sales_no=? AND order_no<>? LIMIT 1', [orderNo, orderNo])), '訂正伝票がある出荷は取消できません（先に訂正伝票を取消してください）');
-  await assertOpen(c, fromNum(old.sales_date));
+  await assertOpen(c, fromNum(old.sales_date), 'A01');
   // 赤黒は組で取消（赤だけ・黒だけを残さない）
   // 枝番は元伝票基準（赤＝偶数・黒＝奇数で 1 組）。後の赤黒がある組は取消できない（後の組から取消）
   const linked = old.ship_kb === CORRECTION && old.sales_no && old.sales_no !== old.order_no, pb = Number(old.sales_suffix) - (Number(old.sales_suffix) % 2);
@@ -315,7 +315,7 @@ async function postBillingJournal(c, id, end, customer, net, tax, slip) {
 // 請求締め（NO6）: 当期締日までの未請求掛売上（前回締め後に入力された過去日付の売上・訂正伝票を含む）を得意先単位で請求。
 // 同じ締日の請求が未発行・未消込なら追加分を加算、発行済みなら次回締めで請求。マイナス（訂正のみ）はクレジット請求として作成。
 export async function runBilling(c, ctx, { month, closing, customers, slip: cont }) {
-  const { end } = period(month, closing), day = closingDay(closing); await assertOpen(c, end);
+  const { end } = period(month, closing), day = closingDay(closing); await assertOpen(c, end, 'A01');
   check(end <= today(), `締日（${end}）が到来していないため請求締めはできません`);
   let targets = await rows(c, "SELECT * FROM client_m WHERE delete_f<>'1' AND CAST(substring(deadline from '^ *([0-9]+)') AS INTEGER)=? ORDER BY customers_cd", [day]);
   if (Array.isArray(customers) && customers.length) targets = targets.filter(t => customers.includes(t.customers_cd));
@@ -713,7 +713,7 @@ export async function issuedDocument(c, id, site = null, kind = null) {
 // 現場の明細が請求の全明細なら請求ごと取消す
 export async function cancelInvoice(c, ctx, { id, site, siteName }) {
   const h = await one(c, 'SELECT * FROM billing_head WHERE invoice_id=? FOR UPDATE', [Number(id)]); check(h, '請求が見つかりません');
-  await assertOpen(c, fromNum(h.closing_date));
+  await assertOpen(c, fromNum(h.closing_date), 'A01');
   check(!(await one(c, 'SELECT 1 x FROM invoice_issue WHERE invoice_id=? LIMIT 1', [h.invoice_id])), '発行済みの請求は取消できません（発行履歴を保全するため）');
   check(!(await one(c, 'SELECT 1 x FROM receipt_allocation WHERE invoice_id=? LIMIT 1', [h.invoice_id])), '入金消込のある請求は取消できません');
   const w = detailWhere(h);
@@ -806,7 +806,7 @@ export async function createReceipt(c, ctx, p) {
   const idem = text(p.idempotencyKey, '処理キー', 100);
   const dup = await one(c, 'SELECT receipt_id, receipt_no FROM receipt WHERE idempotency_key=?', [idem]);
   if (dup) return { id: dup.receipt_id, no: dup.receipt_no, duplicate: true };
-  const date = isoDate(p.date, '入金日'); await assertOpen(c, date);
+  const date = isoDate(p.date, '入金日'); await assertOpen(c, date, 'B01');
   // Customer row lock serialises receipts of the same customer (deposit balance, allocations).
   const cust = await one(c, 'SELECT customers_cd FROM client_m WHERE customers_cd=? FOR UPDATE', [String(p.customer || '')]); check(cust, '得意先を選択してください');
   const parts = { BANK: yen(p.bank || 0, '振込'), CASH: yen(p.cash || 0, '現金'), NOTE: yen(p.notes || 0, '手形'), FEE: yen(p.fee || 0, '振込手数料'), COOP: yen(p.coop || 0, '協力会費等'), DEPOSIT: yen(p.deposit || 0, '預り金充当'), DISCOUNT: yen(p.discount || 0, '値引・端数') , LOSS: yen(p.loss || 0, '雑損失') };
@@ -869,7 +869,7 @@ export async function updateReceipt(c, ctx, p) {
 }
 export async function reverseReceipt(c, ctx, { id }) {
   const r = await one(c, 'SELECT * FROM receipt WHERE receipt_id=? FOR UPDATE', [Number(id)]); check(r, '入金が見つかりません');
-  check(r.status === 'POSTED', '取消済みです'); await assertOpen(c, r.receipt_date);
+  check(r.status === 'POSTED', '取消済みです'); await assertOpen(c, r.receipt_date, 'B01');
   await c.query("UPDATE receipt SET status='REVERSED', row_version=row_version+1 WHERE receipt_id=?", [r.receipt_id]);
   await reverseJournal(c, { sourceType: 'receipt', sourceId: r.receipt_id, date: r.receipt_date });
   await audit(c, ctx, 'receipt', r.receipt_id, 'receipt.reverse', { no: r.receipt_no });

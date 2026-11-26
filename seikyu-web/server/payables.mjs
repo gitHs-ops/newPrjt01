@@ -23,7 +23,7 @@ export async function listPurchases(c, q = {}) {
   const rs = await rows(c, `SELECT p.*, v.vendor_code, v.vendor_name, p.unit unit_cd, i.item_nam, ${PU_UNIT} unit FROM purchase p JOIN vendor v ON v.vendor_id=p.vendor_id LEFT JOIN item_m i ON i.item_cd=p.item_cd ${w.length ? 'WHERE ' + w.join(' AND ') : ''} ORDER BY p.purchase_date DESC, p.source_document_no DESC, p.line_no LIMIT 3000`, args);
   // 取消できない伝票（月次確定済み・在庫計上済みの月度）は理由を返す。画面は詳細の［取消］を出さない（2026-11-23 ユーザー指示）
   const lockOf = new Map();
-  for (const d of new Set(rs.map(r => String(r.purchase_date).slice(0, 10)))) { try { await assertOpen(c, d); await assertNotInventoried(c, d); lockOf.set(d, ''); } catch (e) { lockOf.set(d, e.message || '取消できません'); } }
+  for (const d of new Set(rs.map(r => String(r.purchase_date).slice(0, 10)))) { try { await assertOpen(c, d, 'C01'); await assertNotInventoried(c, d); lockOf.set(d, ''); } catch (e) { lockOf.set(d, e.message || '取消できません'); } }
   return rs.map(r => ({ id: r.purchase_id, no: r.source_document_no, line: Number(r.line_no), date: r.purchase_date, locked: lockOf.get(String(r.purchase_date).slice(0, 10)) || '', vendor: r.vendor_code, vendorName: r.vendor_name, kind: r.purchase_kb || '1', kindName: PURCHASE_KINDS[r.purchase_kb || '1'],
     lineKind: r.line_kind || '1', item: r.item_cd || '', itemName: r.item_cd ? r.item_nam : '運賃', unitCode: r.unit_cd || '', unit: r.unit, quantity: Number(r.quantity), price: Number(r.unit_price), net: Number(r.net_amount), taxCode: r.source_tax_code, memo: r.memo }));
 }
@@ -38,7 +38,7 @@ async function assertNotInventoried(c, date, what = '仕入の登録・取消') 
 }
 // 入力内容の検査と明細の組み立て（登録・修正で共通）
 async function purchaseInput(c, p) {
-  const date = isoDate(p.date, '仕入日'); await assertOpen(c, date); await assertNotInventoried(c, date);
+  const date = isoDate(p.date, '仕入日'); await assertOpen(c, date, 'C01'); await assertNotInventoried(c, date);
   const v = await vendorOf(c, p.vendor), kind = String(p.kind || '1'); check(PURCHASE_KINDS[kind], '区分が不正です');
   const input = Array.isArray(p.lines) ? p.lines : [p];
   const out = [];
@@ -90,7 +90,7 @@ export async function createPurchase(c, ctx, p) {
 // 元の仕入日・新しい仕入日とも月次確定前・在庫計上前であること。伝票No の年度が変わる仕入日には直せない（取消して登録し直す）
 export async function updatePurchase(c, ctx, p) {
   const r = await one(c, 'SELECT * FROM purchase WHERE purchase_id=? FOR UPDATE', [Number(p.id)]); if (!r) throw new Conflict('仕入が見つかりません');
-  const oldDate = String(r.purchase_date).slice(0, 10); await assertOpen(c, oldDate); await assertNotInventoried(c, oldDate);
+  const oldDate = String(r.purchase_date).slice(0, 10); await assertOpen(c, oldDate, 'C01'); await assertNotInventoried(c, oldDate);
   const x = await purchaseInput(c, p), cp = await companyPeriod(c);
   check(cp.fyOf(x.date) === cp.fyOf(oldDate), '伝票No の年度が変わる仕入日には修正できません（取消して登録し直してください）');
   const before = await rows(c, 'SELECT line_no, item_cd, quantity, unit_price, net_amount FROM purchase WHERE source_document_no=? ORDER BY line_no', [r.source_document_no]);
@@ -103,7 +103,7 @@ export async function updatePurchase(c, ctx, p) {
 // 伝票単位で取消（明細のどれを指定しても伝票全体）
 export async function deletePurchase(c, ctx, { id }) {
   const r = await one(c, 'SELECT * FROM purchase WHERE purchase_id=? FOR UPDATE', [Number(id)]); if (!r) throw new Conflict('仕入が見つかりません');
-  await assertOpen(c, r.purchase_date); await assertNotInventoried(c, String(r.purchase_date).slice(0, 10));
+  await assertOpen(c, r.purchase_date, 'C01'); await assertNotInventoried(c, String(r.purchase_date).slice(0, 10));
   const [d] = await c.query('DELETE FROM purchase WHERE source_document_no=?', [r.source_document_no]);
   await audit(c, ctx, 'purchase', r.source_document_no, 'purchase.delete', { no: r.source_document_no, lines: d.affectedRows });
   await revalueInventory(c, ctx, String(r.purchase_date).slice(0, 10));
@@ -134,7 +134,7 @@ async function repostInventoryMonth(c, month, date, discard = false) {
   if (lines.some(l => l.amount)) await postJournal(c, { date, pattern: 'C01', sourceType: 'inventory_month', sourceId: month.replace('-', ''), lines });
 }
 export async function saveInventory(c, ctx, p) {
-  const month = isoMonth(p.month, '計上月'), end = (await companyPeriod(c)).closeOf(+month.slice(0, 4), +month.slice(5, 7)); await assertOpen(c, end);
+  const month = isoMonth(p.month, '計上月'), end = (await companyPeriod(c)).closeOf(+month.slice(0, 4), +month.slice(5, 7)); await assertOpen(c, end, 'C01');
   const it = await one(c, 'SELECT * FROM item_m WHERE item_cd=?', [String(p.item || '')]); check(it, '商品を選択してください');
   const q = qty(p.quantity, '月末在庫数量', { max: 99999999, positive: false }), price = yen(p.price, '評価単価', { max: 99999999 }), value = lineAmount(q, price);
   check(!(await one(c, "SELECT 1 x FROM inventory_count WHERE item_cd=? AND location_code='MAIN' AND period_start>? LIMIT 1", [it.item_cd, month + '-01'])), '後の月の在庫が登録済みです');
@@ -161,7 +161,7 @@ export async function listCounts(c, q = {}) {
   return { month, date, no, countedOn: any ? String(any.counted_on).slice(0, 10) : '', posted: await isPosted(c, month), linked, registered: Object.keys(counts).length, items };
 }
 export async function saveCounts(c, ctx, p) {
-  const P = await companyPeriod(c), date = isoDate(p.date, '調査日'), month = P.labelOf(date); await assertOpen(c, date);
+  const P = await companyPeriod(c), date = isoDate(p.date, '調査日'), month = P.labelOf(date); await assertOpen(c, date, 'C01');
   // 在庫計上済みでも会計連携前なら変更でき、在庫計上をやり直す（2026-11-25 ユーザー指示。以前は計上済みなら変更できなかった）
   await assertNotInventoried(c, date, '実在庫の登録');
   check(Array.isArray(p.lines), '在庫数量を入力してください');
@@ -202,7 +202,7 @@ export async function postInventory(c, ctx, p) {
   const rerun = await isPosted(c, month);
   check(await one(c, "SELECT 1 x FROM inventory_count WHERE period_start=? AND location_code='MAIN' LIMIT 1", [month + '-01']), `${month} 月度の実在庫が登録されていません。先に実在庫登録をしてください`);
   const later = (await rows(c, "SELECT DISTINCT period_start FROM inventory_count WHERE location_code='MAIN' AND period_start>? AND status='POSTED' ORDER BY period_start", [month + '-01'])).map(r => String(r.period_start).slice(0, 7));
-  for (const m of [month, ...later]) { await assertOpen(c, endOf(m)); check(!(await acctLinked(c, endOf(m))), `${m} 月度は会計連携済みのため在庫計上を${m === month && !rerun ? '実行' : '再実行'}できません`); }
+  for (const m of [month, ...later]) { await assertOpen(c, endOf(m), 'C01'); check(!(await acctLinked(c, endOf(m))), `${m} 月度は会計連携済みのため在庫計上を${m === month && !rerun ? '実行' : '再実行'}できません`); }
   let items = 0, total = 0;
   for (const m of [month, ...later]) {
     const { from, to } = P.monthRange(m), e = endOf(m);
@@ -243,7 +243,7 @@ export async function simulateInventory(c, ctx, p) {
   return { month, date: end, posted: await isPosted(c, month), items, value: items.reduce((n, x) => n + x.value, 0), previous: items.reduce((n, x) => n + x.previous, 0) };
 }
 export async function unpostInventory(c, ctx, p) {
-  const P = await companyPeriod(c), month = isoMonth(p.month, '計上月'), end = P.closeOf(+month.slice(0, 4), +month.slice(5, 7)); await assertOpen(c, end);
+  const P = await companyPeriod(c), month = isoMonth(p.month, '計上月'), end = P.closeOf(+month.slice(0, 4), +month.slice(5, 7)); await assertOpen(c, end, 'C01');
   check(await isPosted(c, month), `${month} 月度は在庫計上されていません`);
   check(!(await one(c, "SELECT 1 x FROM inventory_count WHERE location_code='MAIN' AND period_start>? AND status='POSTED' LIMIT 1", [month + '-01'])), '後の月度の在庫計上を先に取消してください');
   await c.query("UPDATE inventory_count SET valuation_price=0, valuation_amount=0, status='DRAFT', row_version=row_version+1 WHERE period_start=? AND location_code='MAIN' AND status='POSTED'", [month + '-01']);
@@ -253,7 +253,7 @@ export async function unpostInventory(c, ctx, p) {
 }
 export async function deleteInventory(c, ctx, { id }) {
   const r = await one(c, 'SELECT * FROM inventory_count WHERE inventory_id=? FOR UPDATE', [Number(id)]); if (!r) throw new Conflict('在庫が見つかりません');
-  await assertOpen(c, r.counted_on);
+  await assertOpen(c, r.counted_on, 'C01');
   check(!(await one(c, 'SELECT 1 x FROM inventory_count WHERE item_cd=? AND location_code=? AND period_start>? LIMIT 1', [r.item_cd, r.location_code, r.period_start])), '後の月の在庫を先に取消してください');
   await reverseJournal(c, { sourceType: 'inventory_count', sourceId: r.inventory_id, date: r.counted_on });
   await c.query('DELETE FROM inventory_count WHERE inventory_id=?', [r.inventory_id]);
@@ -338,7 +338,7 @@ async function dropExpenseRows(c, id) {
 // 修正・削除できる伝票か（登録済み・支払なし・月次確定前）
 async function editableExpense(c, id) {
   const d = await one(c, 'SELECT * FROM expense_document WHERE expense_id=? FOR UPDATE', [Number(id)]); check(d, '伝票が見つかりません');
-  check(d.status === 'POSTED', '取消済みです'); await assertOpen(c, d.booked_on);
+  check(d.status === 'POSTED', '取消済みです'); await assertOpen(c, d.booked_on, d.expense_kind === 'PETTY_CASH' ? 'E01' : 'D01');
   check(!(await one(c, "SELECT 1 x FROM payment_allocation a JOIN payment p ON p.payment_id=a.payment_id AND p.status='POSTED' WHERE a.expense_id=? LIMIT 1", [d.expense_id])), '支払済みの伝票は修正・取消できません（先に支払を取消してください）');
   return d;
 }
@@ -361,7 +361,7 @@ export async function updatePettyLine(c, ctx, p) {
 }
 export async function createExpense(c, ctx, p, old = null) {
   const kind = String(p.kind); check(['PAYABLE', 'PETTY_CASH'].includes(kind), '区分が不正です');
-  const date = isoDate(p.date, kind === 'PAYABLE' ? '締切日' : '支払日'); await assertOpen(c, date);
+  const date = isoDate(p.date, kind === 'PAYABLE' ? '締切日' : '支払日'); await assertOpen(c, date, kind === 'PETTY_CASH' ? 'E01' : 'D01');
   // E-1（2026-11-23 ユーザー指示 A＋C）：会計連携済みの期間の定時請求は登録・修正できない（定時請求計上の［実行］ができず、未計上のまま支払えなくなるため）
   if (kind === 'PAYABLE') for (const [dt, label] of [[date, '締切日'], ...(old ? [[String(old.booked_on instanceof Date ? old.booked_on.toISOString() : old.booked_on).slice(0, 10), '元の締切日']] : [])])
     check(!(await one(c, "SELECT 1 x FROM app_acct_link k WHERE CAST(? AS date) BETWEEN CAST(split_part(k.period,'..',1) AS date) AND CAST(split_part(k.period,'..',2) AS date) LIMIT 1", [dt])), `${label} ${dt} は会計連携済みの期間のため、定時請求を登録・修正できません`);
@@ -479,7 +479,7 @@ export async function createPayment(c, ctx, p, opt = {}) {
   const idem = text(p.idempotencyKey, '処理キー', 100);
   const dup = await one(c, 'SELECT payment_id, payment_no FROM payment WHERE idempotency_key=?', [idem]);
   if (dup) return { id: dup.payment_id, no: dup.payment_no, duplicate: true };
-  const date = isoDate(p.date, '支払日'); await assertOpen(c, date);
+  const date = isoDate(p.date, '支払日'); await assertOpen(c, date, 'F01');
   // 会計連携済みの期間の支払日は登録できない（支払計上の［実行］ができず未計上のままになるため。定時請求の E-1 と同じ。2026-11-24）。計上済みの支払の修正（すぐ仕訳を作る）は除く
   if (!opt.postNow) check(!(await one(c, "SELECT 1 x FROM app_acct_link k WHERE CAST(? AS date) BETWEEN CAST(split_part(k.period,'..',1) AS date) AND CAST(split_part(k.period,'..',2) AS date) LIMIT 1", [date])), `支払日 ${date} は会計連携済みの期間のため、支払を登録できません`);
   const v = await vendorOf(c, p.vendor);
@@ -516,7 +516,7 @@ export async function createPayment(c, ctx, p, opt = {}) {
 }
 export async function reversePayment(c, ctx, { id, force }) {
   const p = await one(c, 'SELECT * FROM payment WHERE payment_id=? FOR UPDATE', [Number(id)]); check(p, '支払が見つかりません');
-  check(p.status === 'POSTED', '取消済みです'); await assertOpen(c, p.paid_on);
+  check(p.status === 'POSTED', '取消済みです'); await assertOpen(c, p.paid_on, 'F01');
   const zg = (await zenginExported(c, [p.payment_no]))[p.payment_no];
   check(!zg || force, `支払 ${p.payment_no} は全銀データ作成済みです（${zg}）。銀行へ送信済みの場合は振込の組戻しが必要です。確認のうえ取消してください`);
   await c.query("UPDATE payment SET status='REVERSED' WHERE payment_id=?", [p.payment_id]);
@@ -602,7 +602,7 @@ export async function savePettyFund(c, ctx, p) {
   return { fund };
 }
 export async function pettyRefill(c, ctx, p) {
-  const date = isoDate(p.date, '補充日'); await assertOpen(c, date);
+  const date = isoDate(p.date, '補充日'); await assertOpen(c, date, 'E01');
   const amount = yen(p.amount, '補充額'); check(amount > 0, '補充額を入力してください');
   const bankCode = String(p.bankCode || ''); const b = await one(c, "SELECT category1 FROM code_m WHERE code_key='BANK' AND code_dtl=?", [bankCode]); check(b && b.category1 !== '0', '引出口座（銀行）を選択してください');
   const id = 'PR' + date.replaceAll('-', '') + '-' + Date.now().toString(36);

@@ -41,7 +41,7 @@ async function nextPlanNo(c, date) {
 
 // NS001001.validate：出荷日・得意先・納入場所名1・商品・納入区分・数量・担当者は必須。他社得意先は区分2・4のみ。累計台数・累計数量は手入力可（空欄は自動）
 export async function savePlan(c, ctx, p) {
-  const date = isoDate(p.date, '出荷日'); await assertOpen(c, date);
+  const date = isoDate(p.date, '出荷日'); await assertOpen(c, date, 'A01');
   const cust = await one(c, 'SELECT * FROM client_m WHERE customers_cd=?', [String(p.customer || '')]); check(cust && cust.delete_f !== '1', '有効な得意先を選択してください');
   const f = await siteOf(c, cust, p); check(f.field_name1, '納入場所名1を入力してください');
   const it = await one(c, 'SELECT * FROM item_m WHERE item_cd=?', [String(p.item || '')]); check(it && it.delete_f !== '1', '有効な商品を選択してください');

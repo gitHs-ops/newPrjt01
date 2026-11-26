@@ -163,6 +163,7 @@ export async function runArPost(c, ctx, b) {
   check(/^\d{4}-(0[1-9]|1[0-2])$/.test(b?.month || ''), '締日の年月を指定してください');
   const st = await arPostStatus(c, b.month), { month, from, to } = st.sel;
   check(!st.sel.linked, `締日 ${to} は会計連携済みのため実行できません。次の締日は ${st.next.to} です`);
+  await assertOpen(c, to, 'A01');   // 月次確定・仕訳別確定（2026-11-26）
   const d = await journalList(c, { pattern: 'A01', from, to }); // 締日20日の請求だけでなく、対象期間（前月21日〜当月20日）の売掛金計上をすべて対象（2026-11-17 ユーザー指示）
   await c.query('INSERT INTO app_ar_post_run (month,run_by,run_at,slips,total) VALUES (?,?,?,?,?) ON DUPLICATE KEY UPDATE run_by=VALUES(run_by),run_at=VALUES(run_at),slips=VALUES(slips),total=VALUES(total)', [month, ctx.user.login_id, jstNow(), d.slips.length, d.total]);
   await audit(c, ctx, 'app_ar_post_run', month, 'arpost.run', { closing: to, slips: d.slips.length, total: d.total });
@@ -182,10 +183,11 @@ export async function runApPost(c, ctx, b) {
   check(/^\d{4}-\d{2}-\d{2}$/.test(b?.date || ''), '締切日を指定してください');
   const st = await apPostStatus(c, b.date), { from, to } = st.sel;
   check(!st.sel.linked, `締切日 ${to} は会計連携済みのため実行できません`);
+  await assertOpen(c, to, 'D01');   // 計上する伝票が 0 件でも、締切日の月が確定済みなら実行しない（2026-11-26）
   // 2026-11-21 ユーザー指示（C-2 案 B）：期間の未計上の定時請求に仕訳 D01 を作る（登録では作らない）。計上済みの伝票はそのまま
   const todo = await rows(c, `SELECT d.* FROM expense_document d WHERE d.expense_kind='PAYABLE' AND d.status='POSTED' AND d.booked_on BETWEEN ? AND ? AND NOT ${BOOKED} ORDER BY d.booked_on, d.document_no FOR UPDATE`, [from, to]);
   // E-1（2026-11-23 ユーザー指示 A＋C）：1 伝票でも計上できなければ全体を取り消す（全部か無し）。どの伝票で止まったかをメッセージに出す
-  for (const x of todo) { try { await assertOpen(c, x.booked_on); await postPayableJournal(c, x); } catch (e) { check(false, `伝票 ${x.document_no} を計上できないため、定時請求計上を中止しました（1 件も計上していません）：${e.message}`); } }
+  for (const x of todo) { try { await assertOpen(c, x.booked_on, 'D01'); await postPayableJournal(c, x); } catch (e) { check(false, `伝票 ${x.document_no} を計上できないため、定時請求計上を中止しました（1 件も計上していません）：${e.message}`); } }
   const d = await journalList(c, { pattern: 'D01', from, to });
   await c.query('INSERT INTO app_ap_post_run (closing,run_by,run_at,slips,total) VALUES (?,?,?,?,?) ON DUPLICATE KEY UPDATE run_by=VALUES(run_by),run_at=VALUES(run_at),slips=VALUES(slips),total=VALUES(total)', [to, ctx.user.login_id, jstNow(), d.slips.length, d.total]);
   await audit(c, ctx, 'app_ap_post_run', to, 'appost.run', { from, to, posted: todo.map(x => x.document_no), slips: d.slips.length, total: d.total });
@@ -204,9 +206,10 @@ export async function runPayPost(c, ctx, b) {
   check(/^\d{4}-\d{2}-\d{2}$/.test(b?.date || ''), '締切日を指定してください');
   const st = await payPostStatus(c, b.date), { from, to } = st.sel;
   check(!st.sel.linked, `締切日 ${to} は会計連携済みのため実行できません`);
+  await assertOpen(c, to, 'F01');   // 同上（2026-11-26）
   const todo = await rows(c, `SELECT p.* FROM payment p WHERE p.status='POSTED' AND p.paid_on BETWEEN ? AND ? AND NOT ${PAY_BOOKED} ORDER BY p.paid_on, p.payment_no FOR UPDATE`, [from, to]);
   // 1 件でも計上できなければ全体を取り消す（定時請求計上と同じく全部か無し）
-  for (const x of todo) { try { check(x.from_bank, '支払元口座がありません'); await assertOpen(c, x.paid_on); await postPaymentJournal(c, x); } catch (e) { check(false, `支払 ${x.payment_no} を計上できないため、支払計上を中止しました（1 件も計上していません）：${e.message}`); } }
+  for (const x of todo) { try { check(x.from_bank, '支払元口座がありません'); await assertOpen(c, x.paid_on, 'F01'); await postPaymentJournal(c, x); } catch (e) { check(false, `支払 ${x.payment_no} を計上できないため、支払計上を中止しました（1 件も計上していません）：${e.message}`); } }
   const d = await journalList(c, { pattern: 'F01', from, to });
   await c.query('INSERT INTO app_pay_post_run (closing,run_by,run_at,slips,total) VALUES (?,?,?,?,?) ON DUPLICATE KEY UPDATE run_by=VALUES(run_by),run_at=VALUES(run_at),slips=VALUES(slips),total=VALUES(total)', [to, ctx.user.login_id, jstNow(), d.slips.length, d.total]);
   await audit(c, ctx, 'app_pay_post_run', to, 'paypost.run', { from, to, posted: todo.map(x => x.payment_no), slips: d.slips.length, total: d.total });

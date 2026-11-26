@@ -1,5 +1,5 @@
 import { check, isoMonth, period, today, addMonths, fromNum, toNum, METHODS } from './domain.mjs';
-import { rows, one, audit } from './db.mjs';
+import { rows, one, audit, JOURNAL_CLOSE } from './db.mjs';
 import { listShipments, listInvoices, listReceipts } from './sales.mjs';
 import { listPayments, listExpenses, listPurchases, listInventory } from './payables.mjs';
 import { MASTERS, list as listMaster, exportRows } from './masters.mjs';
@@ -95,6 +95,32 @@ export async function reopenMonth(c, ctx, { month }) {
   await c.query('DELETE FROM app_period_close WHERE period=?', [month]);
   await audit(c, ctx, 'app_period_close', month, 'period.reopen', {});
   return { month };
+}
+
+// ---------- 仕訳別確定（2026-11-26 ユーザー指示）----------
+// 月次確定（月全体）とは別に、自動仕訳 6 種ごとに月を確定する。確定した仕訳を作る業務（例 D01＝定時請求の登録・修正・取消・定時請求計上）はその月の日付で止まる
+export async function journalCloses(c, month) {
+  isoMonth(month, '月');
+  const mc = await one(c, 'SELECT closed_at, closed_by FROM app_period_close WHERE period=?', [month]);
+  const rs = await rows(c, 'SELECT pattern, closed_at, closed_by FROM app_journal_close WHERE period=?', [month]);
+  return { month, monthClosed: mc ? { at: mc.closed_at, by: mc.closed_by } : null,
+    items: Object.entries(JOURNAL_CLOSE).map(([pattern, name]) => { const r = rs.find(x => x.pattern === pattern); return { pattern, name: `${name}自動仕訳`, closed: !!r, closedAt: r?.closed_at || '', closedBy: r?.closed_by || '' }; }) };
+}
+export async function closeJournal(c, ctx, { month, pattern }) {
+  isoMonth(month, '月'); check(JOURNAL_CLOSE[pattern], '仕訳の種類が不正です'); check(month <= today().slice(0, 7), '未来の月は確定できません');
+  check(!(await one(c, 'SELECT 1 x FROM app_period_close WHERE period=?', [month])), `${month} は月次確定済みです（すべての仕訳が確定しています）`);
+  check(!(await one(c, 'SELECT 1 x FROM app_journal_close WHERE period=? AND pattern=? FOR UPDATE', [month, pattern])), 'すでに確定済みです');
+  await c.query('INSERT INTO app_journal_close (period, pattern, closed_at, closed_by) VALUES (?, ?, UTC_TIMESTAMP(6), ?)', [month, pattern, ctx.user.login_id]);
+  await audit(c, ctx, 'app_journal_close', `${month}:${pattern}`, 'journal.close', { month, pattern, name: JOURNAL_CLOSE[pattern] });
+  return journalCloses(c, month);
+}
+export async function reopenJournal(c, ctx, { month, pattern }) {
+  isoMonth(month, '月'); check(JOURNAL_CLOSE[pattern], '仕訳の種類が不正です');
+  check(!(await one(c, 'SELECT 1 x FROM app_period_close WHERE period=?', [month])), `${month} は月次確定済みです。先に月次確定を解除してください`);
+  check(await one(c, 'SELECT 1 x FROM app_journal_close WHERE period=? AND pattern=? FOR UPDATE', [month, pattern]), '確定されていません');
+  await c.query('DELETE FROM app_journal_close WHERE period=? AND pattern=?', [month, pattern]);
+  await audit(c, ctx, 'app_journal_close', `${month}:${pattern}`, 'journal.reopen', { month, pattern, name: JOURNAL_CLOSE[pattern] });
+  return journalCloses(c, month);
 }
 
 // ---------- ダッシュボード・残高 ----------

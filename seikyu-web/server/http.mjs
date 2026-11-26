@@ -93,6 +93,7 @@ export async function createApp({ pool, publicDir, secureCookies = process.env.N
   route('GET', '/api/journals', 'read', x => db(c => L.listJournals(c, x.q)));
   route('GET', '/api/trial-balance', 'read', x => db(c => L.trialBalance(c, x.q.month)));
   route('GET', '/api/periods', 'read', () => db(c => L.periods(c)));
+  route('GET', '/api/periods/journals', 'read', x => db(c => L.journalCloses(c, x.q.month)));
   route('GET', '/api/periods/check', 'read', x => db(c => (x.q.detail ? L.closeCheckDetail(c, x.q.month) : L.closeCheck(c, x.q.month))));
   route('GET', '/api/dashboard', 'read', () => db(c => L.dashboard(c)));
   route('GET', '/api/reports/ar', 'read', x => x.q.format === 'xlsx' ? db(c => X.arBook(c)).then(b => ({ file: b })) : db(c => L.arReport(c)));
@@ -149,6 +150,9 @@ export async function createApp({ pool, publicDir, secureCookies = process.env.N
   w('/api/payments/auto', (c, x, b) => P.autoPayments(c, x, { ...b, commit: true }));   // 支払データ作成のときに未払から支払を自動作成（2026-11-19）
   w('/api/periods/close', (c, x, b) => L.closeMonth(c, x, b), 'admin');
   w('/api/periods/reopen', (c, x, b) => L.reopenMonth(c, x, b), 'admin');
+  // 仕訳別確定（2026-11-26）
+  w('/api/periods/journals/close', (c, x, b) => L.closeJournal(c, x, b), 'admin');
+  w('/api/periods/journals/reopen', (c, x, b) => L.reopenJournal(c, x, b), 'admin');
   // ----- 財務会計（勘定奉行相当） -----
   const kbRead = (path, fn, book) => route('GET', '/api/kb/' + path, 'read', x => x.q.format === 'xlsx' && book ? db(c => KB.book(c, book, x.q)).then(b => ({ file: b })) : db(c => fn(c, x.q, x)));
   kbRead('meta', c => KB.kbMeta(c));

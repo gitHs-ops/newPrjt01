@@ -24,9 +24,13 @@ export async function nextNo(c, kind) {
   return prefix + String(next).padStart(8, '0');
 }
 export const isClosed = async (c, iso) => !!(await one(c, 'SELECT period FROM app_period_close WHERE period=?', [String(iso).slice(0, 7)]));
-export async function assertOpen(c, iso) {
-  const r = await one(c, 'SELECT period FROM app_period_close WHERE period=? FOR SHARE', [String(iso).slice(0, 7)]);
-  check(!r, `${String(iso).slice(0, 7)} は月次確定済みのため登録・変更できません`);
+// pattern（A01〜F01）を付けると仕訳別確定（app_journal_close）も見る（2026-11-26 ユーザー指示：月次確定のほかに自動仕訳ごとに確定）
+export const JOURNAL_CLOSE = { A01: '売掛金計上', B01: '入金', C01: '在庫計上', D01: '定時請求', E01: '小口現金出納分', F01: '支払内訳' };
+export async function assertOpen(c, iso, pattern) {
+  const ym = String(iso instanceof Date ? iso.toISOString() : iso).slice(0, 7);
+  const r = await one(c, 'SELECT period FROM app_period_close WHERE period=? FOR SHARE', [ym]);
+  check(!r, `${ym} は月次確定済みのため登録・変更できません`);
+  if (pattern && JOURNAL_CLOSE[pattern]) check(!(await one(c, 'SELECT 1 x FROM app_journal_close WHERE period=? AND pattern=? FOR SHARE', [ym, pattern])), `${ym} の${JOURNAL_CLOSE[pattern]}（${JOURNAL_CLOSE[pattern]}自動仕訳）は仕訳別確定済みのため登録・変更・計上できません`);
 }
 export async function audit(c, ctx, entity, id, action, summary = {}) {
   await c.query('INSERT INTO audit_event (occurred_at,actor_id,entity_type,entity_id,action,request_id,change_summary) VALUES (UTC_TIMESTAMP(6),?,?,?,?,?,?)',
