@@ -98,7 +98,7 @@ export async function pettyCashBook(c, q) {
 // ---------- NO40 商品売上登録リスト：現行 HAR021 の並び（2026-11-04）。得意先は小見出し 1 行、その下に明細。小計・合計なし ----------
 //   列：売上日 区分 伝票No 商品名 数量 単位 売上単価 売上金額 処税率 運送区分 運賃 現場（現場CD＋名称1） 現場名2 在庫品コード
 //   売上日・区分は前の行と同じなら空白（現行どおり）。売上単価は単価＋運賃（現行と同じく 売上金額＝数量×売上単価）
-//   処税率は売上（外税・課税売上）の 3 桁コード「2 1 税率区分」。運送区分は納入区分の「コード 略称」（1 大現〜5 その他。2026-11-25：旧区分 1 現場／2 先方 から変更）。末尾に「総　合　計」（売上金額。要点 #15）
+//   処税率は売上（外税・課税売上）の 3 桁コード「2 1 税率区分」。運送区分は納入区分の「コード 略称」（1 大現〜5 その他。2026-11-25：旧区分 1 現場／2 先方 から変更）。総合計は出さない（現行 HAR021 に無い。2026-11-26 ユーザー指示）
 //   在庫品コードは商品コードと違うときだけ出す
 const SR_KIND = { 1: '売上', 2: '他社', 3: '他社', 4: '他社', 5: '訂正', 9: '値引' };
 export async function salesRegister(c, q) {
@@ -227,8 +227,7 @@ export async function extraBook(c, kind, q) {
   if (kind === 'sales-register') {
     const d = await salesRegister(c, q), out = head(d, `期間 ${d.from} 〜 ${d.to}`);
     out.push(['売上日', '区分', '伝票No', '商品名', '', '数量', '', '売上単価', '売上金額', '処税率', '運送区分', '運賃', '現場', '', '在庫品コード'].map(H));
-    for (const cu of d.customers) { out.push(band(SALES_REG_W, [`${cu.customer} ${cu.name || ''}`])); for (const r of cu.rows) out.push([r.showDate ? r.date : '', r.showKind ? r.kind : '', r.no, r.item, r.itemName, { v: r.qty, s: 'qty' }, r.unit, r.price, r.net, r.tax, r.carry, r.freight, r.site, r.site2, r.stock]); }
-    if (d.customers.length) out.push([], ['', '', '', '', S('総　合　計'), '', '', '', S(d.total)]);   // 数量は小数 2 桁（整数の書式だと 12.5t が 13 と表示される。2026-11-16）
+    for (const cu of d.customers) { out.push(band(SALES_REG_W, [`${cu.customer} ${cu.name || ''}`])); for (const r of cu.rows) out.push([r.showDate ? r.date : '', r.showKind ? r.kind : '', r.no, r.item, r.itemName, { v: r.qty, s: 'qty' }, r.unit, r.price, r.net, r.tax, r.carry, r.freight, r.site, r.site2, r.stock]); }   // 数量は小数 2 桁（整数の書式だと 12.5t が 13 と表示される。2026-11-16）
     return { name: `商品売上登録リスト_${d.from}_${d.to}.xlsx`, body: xlsx([{ name: '商品売上登録リスト', rows: out, widths: SALES_REG_W }]) };
   }
   if (kind === 'receipt-schedule') {
