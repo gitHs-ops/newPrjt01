@@ -394,14 +394,14 @@ const SUBMENUS = {
   // 10/21 打合せの処理順（実在庫登録 → 配合計算 → 材料受払表 → 在庫計上）に並べる
   // 在庫登録リスト・配合計算・材料受払表は 2026-11-02 にそれぞれ小メニューに分けた（ユーザー指示）
   // 配合計算は自分の画面を出す（2026-11-04 ユーザー指示。以前は材料受払表の画面へ移っていた）。現行の配合計算処理は配合マスタ・配合単価と無関係で、結果が材料受払表（2026-11-02 ユーザー回答）
-  inventory: [{ k: 'count', l: '実在庫登録', tools: false }, { k: 'register', l: '在庫登録リスト' }, { k: 'mix', l: '配合計算' }, { k: 'mixxl', l: '配合計算結果表' } /* 2026-11-25 ユーザー指示（名前も同日指示） */, { k: 'ledger', l: '材料受払表' }, { k: 'post', l: '在庫計上', tools: false }, { k: 'list', l: '在庫一覧', tools: true }],   // 在庫一覧は 2026-11-08 小メニュー非表示 → 2026-11-20 user01 だけ表示 → 同日ユーザー指示「user01 に出るメニューは全ログインに」で全ログインに表示
+  inventory: [{ k: 'count', l: '実在庫登録', tools: false }, { k: 'register', l: '在庫登録リスト' }, { k: 'mix', l: '配合計算' }, { k: 'mixxl', l: '配合計算結果表', noUser01: true } /* 2026-11-25 ユーザー指示（名前も同日指示）。user01 は非表示（2026-11-26 ユーザー指示） */, { k: 'ledger', l: '材料受払表' }, { k: 'post', l: '在庫計上', tools: false }, { k: 'list', l: '在庫一覧', tools: true, hidden: true /* メニューは非表示（2026-11-26 ユーザー指示。画面は残す） */ }],   // 在庫一覧は 2026-11-08 小メニュー非表示 → 2026-11-20 user01 だけ表示 → 同日ユーザー指示「user01 に出るメニューは全ログインに」で全ログインに表示
   purchases: [{ k: 'list', l: '商品仕入一覧・登録' }, { k: 'reports', l: '商品仕入登録リスト' }, { k: 'itemlist', l: '商品別仕入一覧' } /* 2026-11-24 ユーザー指示：商品別仕入日報の期間版 */], // 2026-10-29 帳票を小メニューに分けた
   payables: [{ k: 'list', l: '定時請求一覧・入力' }, { k: 'reports', l: '定時請求入力明細表' }, { k: 'post', l: '定時請求計上', tools: false }],   // 定時請求計上は 2026-11-21 ユーザー指示
   cash: [{ k: 'list', l: '小口現金出納登録' }, { k: 'book', l: '小口現金出納簿' }],   // 名称「出納簿・定額資金・現金補充」→「小口現金出納簿」（2026-11-20 ユーザー指示）
   // 要件定義の業務順（2026-11-19 ユーザー指示）：振込先一覧（支払予定・口座の確認）→ 支払データ作成（全銀：未払から自動作成 → 全銀、機能一覧 14-1）→ 支払一覧・支払内訳入力（修正、14-7）→ 支払帳票（14-2〜14-5）→ 銀行別随時支払一覧表（14-6）。
   // 一覧の絞り込み（月・状態・CSV）は支払内訳入力の小メニューに出す（tools）
   payments: [{ k: 'transfer', l: '振込先一覧', tools: false }, { k: 'zengin', l: '支払データ作成（全銀）' }, { k: 'list', l: '支払一覧・支払内訳入力', tools: true }, { k: 'reports', l: '支払帳票', noUser01: true /* user01 は出さない（2026-11-20 ユーザー指示） */ }, { k: 'post', l: '支払計上', tools: false /* 2026-11-24 ユーザー指示：定時請求計上と同じ形。銀行別随時支払一覧表の前 */ }, { k: 'bank', l: '銀行別随時支払一覧表', q: { list: 'BANK' } }],   // 銀行別随時支払一覧表は自動仕訳リスト（帳票）の画面を支払メニューのまま表示（2026-11-19 ユーザー指示：メニューは移らない）,
-  journals: [{ k: 'list', l: '仕訳一覧' }, { k: 'tb', l: '月次残高試算', q: { tab: 'tb' }, noUser01: true /* user01 は非表示（2026-11-26 ユーザー指示） */ }, { k: 'lists', l: '自動仕訳リスト（帳票）', q: { tab: 'lists' } }, { k: 'export', l: '会計連携データ' }],
+  journals: [{ k: 'list', l: '仕訳一覧', noUser01: true }, { k: 'tb', l: '月次残高試算', q: { tab: 'tb' }, noUser01: true /* 仕訳一覧・月次残高試算は user01 は非表示（2026-11-26 ユーザー指示） */ }, { k: 'lists', l: '自動仕訳リスト（帳票）', q: { tab: 'lists' } }, { k: 'export', l: '会計連携データ' }],
   external: [{ k: 'gslink', l: 'gsLink' }], // 2026-11-05 ユーザー指示
   reports: [{ k: 'csv', l: 'CSV出力', tools: true, hidden: true /* 機能一覧・決定事項台帳に根拠がないため非表示（削除はしない。2026-11-24 ユーザー指示） */ }, { k: 'ar', l: '売掛金残高一覧', noUser01: true }, { k: 'ap', l: '未払残高一覧', noUser01: true } /* user01 は非表示（2026-11-26 ユーザー指示） */, { k: 'itempu', l: '商品別仕入一覧' } /* 商品仕入のメニューと同じもの（2026-11-24 打合せ No.24） */, { k: 'jv', l: '出資金（JV）帳票' }, { k: 'jvalloc', l: '入金分配端数調整登録' }, { k: 'daily', l: '日報出力' }], // 入金分配端数調整登録は 2026-11-03 に小メニューへ。日報出力は 2026-11-20 ユーザー指示（日報をまとめて出す）
 };
@@ -510,6 +510,8 @@ async function render({ fresh = false } = {}) {
     requestAnimationFrame(fitTables);   // 一覧の高さを画面に合わせ、横スクロールバーを画面内に出す
     // 小メニュー：該当する区画だけ表示（data-sub はスペース区切りで複数可）。先頭以外では上部の検索・登録を隠す
     if (route.sub) { content.querySelectorAll('[data-sub]').forEach(el => (el.hidden = !el.dataset.sub.split(' ').includes(route.sub))); const tools = content.querySelector('.page-head > .filters'); if (tools) tools.hidden = !route.subTools; }
+    // 右下に固定するボタン（.float-save）は body 直下の層へ移す（カードの backdrop-filter・.page の transform の中では position:fixed が画面に固定されないため。2026-11-26）
+    { let L = $('#float-layer'); if (!L) { L = document.createElement('div'); L.id = 'float-layer'; document.body.appendChild(L); } L.replaceChildren(); for (const b of $$('.float-save', content)) { if (b.closest('[hidden]')) b.remove(); else L.appendChild(b); } }
     // 画面の見出しは開いている小メニュー名（大メニュー名はパンくずに表示）
     const h1 = content.querySelector('.page-head h1'); if (h1 && route.subItem) h1.textContent = route.subItem.title || route.subItem.l;
     // カードの見出しが小メニュー名と同じなら出さない（より下位の名称のカードはそのまま）
@@ -1906,6 +1908,8 @@ VIEWS.inventory = async q => {
     catch (e) { alertBox(e.message); } finally { if (btn) btn.disabled = false; }
   };
   // 完了のポップアップは見出しと［確認］ボタンだけ（計上月度・品目数・評価額・仕訳日付・伝票番号は出さない。2026-11-03）
+  // 在庫計上自動仕訳リスト（C01）：計上月度の仕訳日付（月度の締日）はその月の中なので、期間はその月の 1 日〜末日（2026-11-26 ユーザー指示）
+  A.invJl = () => { const m = $('#ip-month').value; if (!/^\d{4}-\d{2}$/.test(m)) return toast('計上月度を入力してください', true); go('journals', { tab: 'lists', list: 'C01', from: m + '-01', to: monthEnd(m) }); };
   A.post = () => { const month = $('#ip-month').value; confirmBox('在庫計上', `${month} 月度の実在庫を評価し、月末在庫の洗い替え仕訳（C01）を作成します。計上済みの月度は評価し直して仕訳を作り直します（会計連携前のみ。後の月度が計上済みなら後の月度も評価し直します）。`, async () => { await post('/api/inventory/post', { month }); render(); alertBox('', { ok: true, title: '在庫計上が完了しました' }); }, '在庫計上する'); };
   // ［模擬実行］（2026-11-19 ユーザー指示：user01 のテスト用。何度でも）：在庫計上と同じ計算の結果を表示するだけで、DB は変えない（計上済みの月度でも可）
   A.simulate = async (_, btn) => {
@@ -1926,7 +1930,7 @@ VIEWS.inventory = async q => {
   const ro = cnt.linked || !canWrite(), qtyOf = v => (v === null || v === undefined ? '' : String(v));
   const countCard = `<section class="card glass" data-sub="count"><div class="card-head"><h2>実在庫登録</h2></div>
     <div class="filters"><label class="field">調査日<input type="date" id="ic-date" name="date" data-filter value="${esc(cnt.date)}"></label><span>月度 <b>${esc(cnt.month)}</b></span>${'' /* 伝票No（V 番号）は画面に出さない（2026-11-21 ユーザー指示。自動仕訳リストの伝票No には出す） */}${cnt.posted ? badge('在庫計上済', 'green') : badge(`登録 ${cnt.registered}品目`, cnt.registered ? '' : 'gray')}
-      <label class="field">区分<select id="ic-kind"><option value="">すべて</option><option>製品</option><option>商品・材料</option></select></label>${!canWrite() ? '' : cnt.linked ? '<button class="primary" disabled title="この月度は会計連携済みです">登録</button><span class="muted small">（会計連携済みのため登録できません）</span>' : '<button class="primary" data-act="countSave">登録</button>'}<button type="button" data-act="misc" data-kind="inventory-register" data-src="ir" ${icSaved.has(cnt.month) ? '' : 'disabled'} title="［登録］すると使えます。この月度の在庫登録リストを表示">在庫登録リスト</button></div>
+      <label class="field">区分<select id="ic-kind"><option value="">すべて</option><option>製品</option><option>商品・材料</option></select></label>${!canWrite() ? '' : cnt.linked ? '<button class="primary" disabled title="この月度は会計連携済みです">登録</button><span class="muted small">（会計連携済みのため登録できません）</span>' : '<button class="primary float-save" data-act="countSave">登録</button>' /* ［登録］は画面の右下に固定（スクロールしても動かない。2026-11-26 ユーザー指示） */}<button type="button" data-act="misc" data-kind="inventory-register" data-src="ir" ${icSaved.has(cnt.month) ? '' : 'disabled'} title="［登録］すると使えます。この月度の在庫登録リストを表示">在庫登録リスト</button></div>
     ${cnt.linked ? '<p class="note small">この月度は会計連携済みのため変更できません（入力欄はロック）。</p>' : cnt.posted ? '<p class="note small">この月度は在庫計上済みです。［登録］すると在庫計上をやり直します（会計連携前のみ。2026-11-25）。</p>' : isUser01() ? '' /* user01 は案内文を出さない（2026-11-17） */ : '<p class="note small">表示するのは商品マスタの「実在庫登録に表示」に○がある商品だけです（この月度に登録済みの商品は○が無くても表示）。<br>① ここで品目ごとの在庫数量を入力して［登録］ → ② <a href="#inventory/mix">配合計算</a>・<a href="#inventory/ledger">材料受払表</a> → ③ <a href="#inventory/post">在庫計上</a> で［在庫計上］（月度ごとに1回）。</p>'}
     <div id="ic-sort">${icSortBar()}</div>
     <div class="table-wrap" style="max-height:60vh;overflow:auto"><table id="ic-grid"><thead><tr><th>区分</th><th>コード</th><th>商品名／製品名</th><th class="num">在庫数量</th><th>単位</th><th style="width:40%"></th></tr></thead><tbody>
@@ -1934,7 +1938,7 @@ VIEWS.inventory = async q => {
     </tbody></table></div>
     </section>`;   // 下の案内文「空欄は未登録。…数量は小数2桁まで。」は削除（2026-11-21 ユーザー指示）
   const postCard = `<section class="card glass" data-sub="post"><div class="card-head"><h2>在庫計上（月次1回）</h2></div>
-    <div class="filters"><label class="field">計上月度<input type="month" id="ip-month" value="${esc(cnt.month)}"></label>${canWrite() ? '<button class="primary" data-act="post">在庫計上</button>' : ''}${false /* ［模擬実行］は user01 にも出さない（2026-11-26 ユーザー指示。以前は user01 だけ表示。機能は残す） */ ? '<button data-act="simulate" title="テスト用：在庫計上と同じ計算をして結果を表示します。保存しないので何度でも実行できます">模擬実行</button>' : ''}${isReviewer() ? '<button data-act="unpost" title="模擬デモ用：この計上月度の在庫計上を取消し、洗い替え仕訳を逆仕訳します（実在庫の数量は残ります）">逆計上（模擬デモ用）</button>' : '' /* ［逆計上］（在庫計上の取消）は reviewer だけに表示（2026-11-21 ユーザー指示） */}<a class="button" href="#inventory/list">在庫一覧</a>${'' /* ［在庫一覧］（メニュー画面を開く）は［模擬実行］の右（2026-11-21 ユーザー指示） */}${'' /* ［在庫計上の取消］は設けない（2026-11-20 ユーザー指示：user01 にも出さない） */}</div>
+    <div class="filters"><label class="field">計上月度<input type="month" id="ip-month" value="${esc(cnt.month)}"></label>${canWrite() ? '<button class="primary" data-act="post">在庫計上</button>' : ''}${false /* ［模擬実行］は user01 にも出さない（2026-11-26 ユーザー指示。以前は user01 だけ表示。機能は残す） */ ? '<button data-act="simulate" title="テスト用：在庫計上と同じ計算をして結果を表示します。保存しないので何度でも実行できます">模擬実行</button>' : ''}${isReviewer() ? '<button data-act="unpost" title="模擬デモ用：この計上月度の在庫計上を取消し、洗い替え仕訳を逆仕訳します（実在庫の数量は残ります）">逆計上（模擬デモ用）</button>' : '' /* ［逆計上］（在庫計上の取消）は reviewer だけに表示（2026-11-21 ユーザー指示） */}<button data-act="invJl">在庫計上自動仕訳リスト</button>${'' /* ［在庫一覧］→［在庫計上自動仕訳リスト］（計上月度の C01 を開く。2026-11-26 ユーザー指示。［在庫一覧］は 2026-11-21 ユーザー指示） */}${'' /* ［在庫計上の取消］は設けない（2026-11-20 ユーザー指示：user01 にも出さない） */}</div>
     </section>`;
   return page('在庫', '実在庫登録 → 配合計算 → 材料受払表 → 在庫計上（月次1回）の順に処理します（10/21 打合せ）。', `${monthInput('month', q.month || thisMonth())}${''/* ⇩CSV は機能一覧・決定事項台帳に根拠がないため出さない（2026-11-24 ユーザー指示） */}`,
     `${countCard}${postCard}<section class="card glass" data-sub="list"><h2>在庫一覧</h2>${table([{ label: '月度', value: r => r.month }, { label: '調査日', value: r => String(r.countedOn || '').slice(0, 10) }, { label: '商品', value: r => `${r.item} ${r.itemName}` }, { label: '数量', num: 1, value: r => `${r.quantity} ${r.unit || ''}` },
@@ -2367,7 +2371,7 @@ const dailyReportsCard = () => dailyCard('日報出力', 'dr', '<button data-act
 const shipDailyCard = () => dailyCard('出荷日報', 'sd', '<button data-act="misc" data-kind="item-ship-daily" data-src="sd">商品別出荷日報</button><button data-act="misc" data-kind="customer-ship-daily" data-src="sd">得意先別出荷日報</button>');
 const invPeriod = p => `<label class="field">処理年月（計算年月）<input type="month" id="${p}-month" value="${lastClosing().slice(0, 7)}"></label><label class="field">締日<select id="${p}-closing"><option value="20" selected>20日</option><option value="10">10日</option><option value="31">月末（暦月）</option></select></label>`;
 // 配合計算の画面（2026-11-04）。2026-11-12 から［配合計算を実行］で結果を保存し（材料受払の計算結果・原価）、材料受払表はその結果を出力する（D-072・機能一覧 9-3・10-3）
-const mixCard = () => miscCard('配合計算', '月次（実在庫登録・商品仕入登録の後に実行）。計算年月を指定して実行し、結果を保存して材料受払表に使う', invPeriod('mx'), `${canWrite() ? '<button class="primary" data-act="mix">配合計算を実行</button>' : ''}<a class="button" id="mx-ledger" href="#inventory/ledger">材料受払表</a><button id="mx-xl" data-act="mixXl" data-src="mx" disabled title="配合計算を実行すると出力できます">⇩ 配合計算結果表</button>`);   // 実行前も押せない状態で出す（2026-11-25 ユーザー指示）   // ［材料受払表］（メニュー画面を開く）は［配合計算を実行］の右（2026-11-21 ユーザー指示）
+const mixCard = () => miscCard('配合計算', '月次（実在庫登録・商品仕入登録の後に実行）。計算年月を指定して実行し、結果を保存して材料受払表に使う', invPeriod('mx'), `${canWrite() ? '<button class="primary" data-act="mix">配合計算を実行</button>' : ''}<a class="button" id="mx-ledger" href="#inventory/ledger">材料受払表</a>${isUser01() ? '' /* user01 は［配合計算結果表］を出さない（2026-11-26 ユーザー指示） */ : '<button id="mx-xl" data-act="mixXl" data-src="mx" disabled title="配合計算を実行すると出力できます">⇩ 配合計算結果表</button>'}`);   // 実行前も押せない状態で出す（2026-11-25 ユーザー指示）   // ［材料受払表］（メニュー画面を開く）は［配合計算を実行］の右（2026-11-21 ユーザー指示）
 const mixXlCard = () => miscCard('配合計算結果表', '配合計算の結果を Excel で出力（2026-11-25 ユーザー指示：小メニューに追加）', invPeriod('mr'), '<button id="mr-xl" data-act="mixXl" data-src="mr" disabled title="配合計算を実行すると出力できます">⇩ 配合計算結果表</button>');
 const ledgerCard = () => miscCard('材料受払表', '配合計算で保存した結果を出力（先に 在庫 → 配合計算 を実行）', invPeriod('mi'), '<button data-act="misc" data-kind="material-ledger" data-src="mi">⇩ Excel</button>'); // 「現行の配合計算処理＋材料受払表印刷」の注記は削除（2026-11-03）
 // 10/19 打合せ：出力指示＝締切日・部門コード（組織マスタ）・区分（ブランク＝工事、1＝組織）・業者コード From〜To（ブランク〜9999999＝全業者）
