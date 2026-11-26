@@ -305,6 +305,12 @@ export async function vendorDue(c, vendorCode, date, amount) {
   const t = await one(c, "SELECT category1 m, category2 d, code_dtl_nam min FROM code_m WHERE code_key='VPAY' AND code_dtl=?", [vendorCode]);
   let due;
   const defer = !!t?.min && amount >= Number(t.min);
+  // 繰延時の支払条件（業者マスタ。2026-11-26）があればその条件。無ければ従来どおり支払繰延区分の 1 か月後
+  const dv = defer ? await one(c, 'SELECT defer_m, defer_d FROM vendor WHERE vendor_code=?', [vendorCode]) : null;
+  if (dv && dv.defer_m != null && dv.defer_m !== '') {
+    const [y, mo] = date.split('-').map(Number), months = Number(dv.defer_m), day = Number(dv.defer_d) || 31, last = new Date(Date.UTC(y, mo - 1 + months + 1, 0)).getUTCDate();
+    return nextBusinessDay(new Date(Date.UTC(y, mo - 1 + months, Math.min(day, last))).toISOString().slice(0, 10), await holidaySet(c));
+  }
   if (!defer && (!t || (t.m === '' && t.d === ''))) due = dueDate(date);
   else {
     const [y, mo] = date.split('-').map(Number), months = (!t || t.m === '' || t.m == null ? 1 : Number(t.m)) + (defer ? 1 : 0), day = !t || t.d === '' || t.d == null ? 31 : Number(t.d);

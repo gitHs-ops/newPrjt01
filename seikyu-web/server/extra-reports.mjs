@@ -42,9 +42,11 @@ export async function payableInputList(c, q) {
   const ls = await fetch(from, to);
   // 支払条件（現行 HAR136 の業者合計の上の行「（ 翌月 15 日払 ）」）：業者マスタの支払繰延区分（code_m VPAY）。繰延最低限度額以上は支払繰延区分の 1 か月後（2026-11-23）。未設定は翌月末
   const vcodes = [...new Set(ls.map(r => r.vendor_code))];
-  const vpay = vcodes.length ? Object.fromEntries((await rows(c, `SELECT code_dtl, category1 m, category2 d, code_dtl_nam mn FROM code_m WHERE code_key='VPAY' AND code_dtl IN (${vcodes.map(() => '?').join(',')})`, vcodes)).map(r => [r.code_dtl, r])) : {};
+  const vpay = vcodes.length ? Object.fromEntries((await rows(c, `SELECT v.vendor_code code_dtl, p.category1 m, p.category2 d, p.code_dtl_nam mn, v.defer_m dm, v.defer_d dd FROM vendor v LEFT JOIN code_m p ON p.code_key='VPAY' AND p.code_dtl=v.vendor_code WHERE v.vendor_code IN (${vcodes.map(() => '?').join(',')})`, vcodes)).map(r => [r.code_dtl, r])) : {};
   const monthWord = m => ({ 0: '当月', 1: '翌月', 2: '翌々月' }[m] ?? `${m}か月後`);
-  const termOf = (code, total) => { const p = vpay[code], min = Number(p?.mn || 0), m = (p?.m !== undefined && p?.m !== null && p?.m !== '' ? Number(p.m) : 1) + (min && total >= min ? 1 : 0), d = Number(p?.d || 31); return `${monthWord(m)} ${d} 日払`; };
+  // 繰延最低限度額以上は業者マスタの繰延時の支払条件（2026-11-26）。未設定なら支払繰延区分の 1 か月後
+  const termOf = (code, total) => { const p = vpay[code], min = Number(p?.mn || 0), defer = !!min && total >= min, own = defer && p?.dm != null && p.dm !== '';
+    const m = own ? Number(p.dm) : (p?.m !== undefined && p?.m !== null && p?.m !== '' ? Number(p.m) : 1) + (defer ? 1 : 0), d = Number((own ? p.dd : p?.d) || 31); return `${monthWord(m)} ${d} 日払`; };
   const depts = [];
   for (const r of ls) {
     // 区分 1＝組織：部門ごと／ブランク＝工事：摘要コード（工事コード7桁）ごと
