@@ -2384,10 +2384,12 @@ const pettyReportsCard = () => miscCard('小口現金出納簿', '定額資金�
 const receiptScheduleCard = () => miscCard('入金予定チェックリスト', '得意先別・工事（現場）別', `<label class="field">入金予定日（から）<input type="date" id="rs-from" value="${addMonths(thisMonth(), -6)}-01"></label><label class="field">入金予定日（まで）<input type="date" id="rs-to" value="${today()}"></label><label class="field"><span>超過分のみ</span><span><input type="checkbox" id="rs-over"> 予定日を過ぎた未入金</span></label><button data-act="misc" data-kind="receipt-schedule" data-src="rs">入金予定チェックリスト</button>`,
   '', '残高のある請求が対象（未発行を含み、発行の有無を表示）。入金方法・入金先は過去の入金実績から推定します。'); // 条件とボタンを1行に（2026-10-27）
 // 仕訳（年月指定）のカードを先に、マスタのカードを 2 番目に分ける。ボタンの ⇩⇧ は付けない。マスタの見出しは黒字（2026-11-26 ユーザー指示）
-// 仕訳は 対象年月（その月の 1 日〜末日。月次確定と同じ暦月）。マスタのカードには 期間（年月日）を出し、初期表示は 前月21日〜当月20日（2026-11-26 ユーザー指示）
-const accountingCard = () => miscCard('会計連携データ', '会計システムは勘定奉行（奉行クラウド）。受入は CSV／Excel（QA回答 2026-10-08）', `<label class="field">対象年月<input type="month" id="ac-month" value="${thisMonth()}"></label>`,
+// 仕訳は 対象年月（20日締めのサイクル：前月21日〜当月20日）。初期表示は次に処理する月（会計連携済みの月の翌月。未連携なら今日を含むサイクルの月）。マスタは随時なので日付は出さない（11/26 内部会議・2026-11-27 ユーザー指示）
+const acRange = m => ({ from: `${addMonths(m, -1)}-21`, to: `${m}-20` });
+const acRangeText = m => (/^\d{4}-\d{2}$/.test(m || '') ? (r => `${r.from} 〜 ${r.to}`)(acRange(m)) : '');
+const accountingCard = () => miscCard('会計連携データ', '会計システムは勘定奉行（奉行クラウド）。受入は CSV／Excel（QA回答 2026-10-08）', `<label class="field">対象年月<input type="month" id="ac-month" value=""></label><span class="small" id="ac-range"></span>`,
 // 仕訳の出力は勘定奉行 受入CSV だけ（汎用CSV・弥生会計形式のボタンは外す。要件定義 最終版 No.32、2026-11-20 ユーザー指示。サーバの形式は残す）
-  '<button class="primary" data-act="acct" data-format="bugyo">勘定奉行 受入CSV</button>') + miscCard('マスタ（勘定奉行）', '', rangeInputs('am', '期間', `${addMonths(thisMonth(), -1)}-21`, `${thisMonth()}-20`) + '<div class="filters-break"></div>',
+  '<button class="primary" data-act="acct" data-format="bugyo">勘定奉行 受入CSV</button>') + miscCard('マスタ（勘定奉行）', '', '',
   '<span class="small">マスタ（勘定奉行へ送る）</span><button data-act="acctMaster" data-kind="partners">取引先</button><button data-act="acctMaster" data-kind="depts">部門</button><button data-act="acctMaster" data-kind="tekiyo">摘要</button><div class="filters-break"></div><span class="small">マスタ（勘定奉行から受け取る）</span><button data-act="acctMasterIn" data-kind="accounts">勘定科目 受入</button><button data-act="acctMasterIn" data-kind="subaccounts">補助科目 受入</button>',
   '作成すると、期間に入る締日（毎月20日）は会計連携済みになり、売掛金計上は次の締日に進みます（元に戻せません。2026-11-17）。マスタは 取引先・部門・摘要 を勘定奉行へ送り、勘定科目・補助科目は勘定奉行から受け取ります（11/11 打合せ No.3）。補助科目は内訳科目だけ、得意先・業者は取引先コードで連携します（カナを含むコードは「マスタ管理 → 取引先コード変換表」で会計の取引先コードを登録。未登録があると勘定奉行CSVは出力しません）。勘定奉行CSVの見出しは「財務会計 → 会計設定 → 勘定奉行連携」で登録した OBC受入記号（未登録は項目名）、税区分は処税率→奉行税区分の対応表で変換します。受入記号・税区分コードは「データ受入形式一覧表」で確定予定（Q14/Q19）。出力は操作履歴に記録されます。');
 // マスタの勘定奉行形式（取引先・部門・勘定科目・補助科目）。取引先コードは取引先コード変換表で置き換え（2026-11-12 結合テスト IT-13）
@@ -2417,7 +2419,7 @@ function masterImportResult(kind, label, r) {
 // 勘定奉行 受入CSV は月次確定済みの月だけ・未出力の仕訳だけ（2026-11-25）。すべて出力済みなら確認して再出力（again=1）
 async function accountingDownload(format, again) {
   const m = $('#ac-month').value; if (!/^\d{4}-\d{2}$/.test(m)) return toast('対象年月を入力してください', true);
-  const from = `${m}-01`, to = monthLastDay(m);
+  const { from, to } = acRange(m);   // 前月21日〜当月20日（2026-11-27）
   const url = '/api/accounting/export?' + qs({ from, to, format, ...(again ? { again: 1 } : {}) }), res = await fetch(url, { cache: 'no-store' });
   if (!res.ok) { const msg = (await res.json().catch(() => ({}))).error || '出力できません';
     if (msg.startsWith('ALREADY:')) return confirmBox('出力済みの仕訳の再出力', msg.slice(8), () => accountingDownload(format, true), '再出力する');
@@ -2570,6 +2572,16 @@ async function mixXlState(src) {
 }
 document.addEventListener('change', e => { const m = /^(mx|mr|mi)-(month|closing)$/.exec(e.target.id); if (m) mixXlState(m[1]); });
 // 画面を描いたら（ボタンが現れたら）実行済みかを確かめる
+// 会計連携データ：対象年月の初期表示＝次に処理する月（2026-11-27）。期間（前月21日〜当月20日）を横に出す
+async function acMonthInit(el) {
+  let m = '';
+  try { const d = await api('/api/ar-post'); m = d.linked ? addMonths(d.linked.month, 1) : ''; } catch { /* 読めなければ今日から */ }
+  if (!m) { const t = today(); m = Number(t.slice(8, 10)) > 20 ? addMonths(t.slice(0, 7), 1) : t.slice(0, 7); }
+  if (!el.value) el.value = m;
+  const r = $('#ac-range'); if (r) r.textContent = acRangeText(el.value);
+}
+document.addEventListener('change', e => { if (e.target.id === 'ac-month') { const r = $('#ac-range'); if (r) r.textContent = acRangeText(e.target.value); } });
+new MutationObserver(() => { const el = document.getElementById('ac-month'); if (el && !el.dataset.init) { el.dataset.init = '1'; acMonthInit(el); } }).observe(document.body, { childList: true, subtree: true });
 new MutationObserver(() => { for (const src of ['mx', 'mr', 'mi']) { const b = document.getElementById(src + '-xl') || document.getElementById(src + '-stale'); if (b && !b.dataset.key) { b.dataset.key = '-'; mixXlState(src); } } }).observe(document.body, { childList: true, subtree: true });
 // 配合計算モーダル（配合マスタ×材料単価＋経費単価 → 原価）は 2026-11-02 から画面から開かない（現行の配合計算処理とは別物。API は残す）
 async function mixDialog() {
