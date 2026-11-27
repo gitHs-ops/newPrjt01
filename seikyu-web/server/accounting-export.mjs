@@ -7,7 +7,7 @@
 import iconv from 'iconv-lite';
 import { check, isoDate, csv, parseCsv, DomainError } from './domain.mjs';
 import { importCsv as masterImport } from './masters.mjs';
-import { audit, rows as dbRows, isClosed } from './db.mjs';
+import { audit, rows as dbRows, isClosed, cycleMonth } from './db.mjs';
 import { journalList, LISTS, markAcctLinked } from './journal-lists.mjs';
 import { decode, NON_TAX } from './taxcode.mjs';
 import { bugyoSettings, bugyoFile } from './bugyo.mjs';
@@ -37,7 +37,7 @@ export async function accountingExport(c, ctx, q) {
   // 勘定奉行 受入CSV（2026-11-25）：① 月次確定してから出力（10 連携仕様 IF-01「月次確定の後」）② 出力済みの仕訳は出さない。再出力は確認のうえ again=1
   let exported = [];
   if (format === 'bugyo') {
-    const open = []; for (const m of [...new Set(slips.map(s => String(s.date).slice(0, 7)))].sort()) if (!(await isClosed(c, m))) open.push(m);
+    const open = []; for (const m of [...new Set(slips.map(s => cycleMonth(s.date)))].sort()) if (!(await isClosed(c, m))) open.push(m);   // 仕訳日の会計月（20日締め。2026-11-27）
     if (open.length) throw new DomainError(`月次確定していない月があります：${open.join('、')}。「月次確定」で確定してから出力してください`);
     const ids = slips.map(s => s.id), done = new Set(ids.length ? (await dbRows(c, `SELECT journal_id FROM journal_entry WHERE export_id IS NOT NULL AND journal_id IN (${ids.map(() => '?').join(',')})`, ids)).map(r => Number(r.journal_id)) : []);
     exported = slips.filter(s => done.has(Number(s.id)));

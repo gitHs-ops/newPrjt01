@@ -23,14 +23,17 @@ export async function nextNo(c, kind) {
   await c.query('UPDATE numbering_m SET present_value=? WHERE numbering_key=?', [String(next), key]);
   return prefix + String(next).padStart(8, '0');
 }
-export const isClosed = async (c, iso) => !!(await one(c, 'SELECT period FROM app_period_close WHERE period=?', [String(iso).slice(0, 7)]));
+// 月次確定・自動仕訳別確定の月は 20日締めの会計月（前月21日〜当月20日。2026-11-27 ユーザー指示：暦月から変更）。YYYY-MM はそのまま
+export const cycleMonth = iso => { const s = String(iso instanceof Date ? iso.toISOString() : iso); if (s.length < 10) return s.slice(0, 7); const [y, m] = s.split('-').map(Number); return Number(s.slice(8, 10)) > 20 ? new Date(Date.UTC(y, m, 1)).toISOString().slice(0, 7) : s.slice(0, 7); };
+export const cycleRange = month => { const [y, m] = month.split('-').map(Number); return { from: new Date(Date.UTC(y, m - 2, 21)).toISOString().slice(0, 10), to: `${month}-20` }; };
+export const isClosed = async (c, iso) => !!(await one(c, 'SELECT period FROM app_period_close WHERE period=?', [cycleMonth(iso)]));
 // pattern（A01〜F01）を付けると仕訳別確定（app_journal_close）も見る（2026-11-26 ユーザー指示：月次確定のほかに自動仕訳ごとに確定）
 // 入金（B01）・支払内訳（F01）は対象外（2026-11-27 ユーザー指示：仕訳別確定の画面から除外）
 export const JOURNAL_CLOSE = { A01: '売掛金計上', C01: '在庫計上', D01: '定時請求', E01: '小口現金出納分' };
 export async function assertOpen(c, iso, pattern) {
-  const ym = String(iso instanceof Date ? iso.toISOString() : iso).slice(0, 7);
+  const ym = cycleMonth(iso);   // 20日締めの会計月（2026-11-27）
   const r = await one(c, 'SELECT period FROM app_period_close WHERE period=? FOR SHARE', [ym]);
-  check(!r, `${ym} は月次確定済みのため登録・変更できません`);
+  check(!r, `${ym}（${cycleRange(ym).from}〜${cycleRange(ym).to}）は月次確定済みのため登録・変更できません`);
   if (pattern && JOURNAL_CLOSE[pattern]) check(!(await one(c, 'SELECT 1 x FROM app_journal_close WHERE period=? AND pattern=? FOR SHARE', [ym, pattern])), `${ym} の${JOURNAL_CLOSE[pattern]}（${JOURNAL_CLOSE[pattern]}自動仕訳）は自動仕訳別月次確定済みのため登録・変更・計上できません`);
 }
 export async function audit(c, ctx, entity, id, action, summary = {}) {

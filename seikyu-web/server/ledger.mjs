@@ -1,5 +1,5 @@
 import { check, isoMonth, period, today, addMonths, fromNum, toNum, METHODS } from './domain.mjs';
-import { rows, one, audit, JOURNAL_CLOSE } from './db.mjs';
+import { rows, one, audit, JOURNAL_CLOSE, cycleMonth, cycleRange } from './db.mjs';
 import { listShipments, listInvoices, listReceipts } from './sales.mjs';
 import { listPayments, listExpenses, listPurchases, listInventory } from './payables.mjs';
 import { MASTERS, list as listMaster, exportRows } from './masters.mjs';
@@ -10,7 +10,7 @@ const monthEnd = m => new Date(Date.UTC(+m.slice(0, 4), +m.slice(5, 7), 0)).toIS
 
 export async function listJournals(c, q = {}) {
   const w = [], args = [];
-  if (q.month) { isoMonth(q.month); w.push('e.journal_date BETWEEN ? AND ?'); args.push(q.month + '-01', monthEnd(q.month)); }
+  if (q.month) { isoMonth(q.month); const r = cycleRange(q.month); w.push('e.journal_date BETWEEN ? AND ?'); args.push(r.from, r.to); }   // 会計月（前月21日〜当月20日。2026-11-27）
   if (q.pattern) { w.push('e.pattern_code=?'); args.push(q.pattern); }
   const es = await rows(c, `SELECT e.* FROM journal_entry e ${w.length ? 'WHERE ' + w.join(' AND ') : ''} ORDER BY e.journal_date DESC, e.journal_id DESC LIMIT 2000`, args);
   const ls = es.length ? await rows(c, `SELECT l.*, a.account_name, s.sub_name, cu.customers_name, v.vendor_name FROM journal_line l LEFT JOIN account_subject a ON a.account_code=l.account_code
@@ -25,7 +25,7 @@ export async function listJournals(c, q = {}) {
 export async function trialBalance(c, month) {
   isoMonth(month);
   const rs = await rows(c, `SELECT l.account_code, a.account_name, SUM(CASE WHEN l.side='D' THEN l.amount ELSE 0 END) dr, SUM(CASE WHEN l.side='C' THEN l.amount ELSE 0 END) cr
-    FROM journal_line l JOIN journal_entry e ON e.journal_id=l.journal_id LEFT JOIN account_subject a ON a.account_code=l.account_code WHERE e.journal_date BETWEEN ? AND ? GROUP BY l.account_code, a.account_name ORDER BY l.account_code`, [month + '-01', monthEnd(month)]);
+    FROM journal_line l JOIN journal_entry e ON e.journal_id=l.journal_id LEFT JOIN account_subject a ON a.account_code=l.account_code WHERE e.journal_date BETWEEN ? AND ? GROUP BY l.account_code, a.account_name ORDER BY l.account_code`, [cycleRange(month).from, cycleRange(month).to]);   // 会計月（2026-11-27）
   return rs.map(r => ({ account: r.account_code, name: r.account_name, debit: Number(r.dr), credit: Number(r.cr) }));
 }
 
@@ -38,24 +38,24 @@ export async function periods(c) {
   const cm = (await companyPeriod(c)).closingMonth;
   // 自動仕訳別確定の状態（月次確定履歴照会の 売掛金計上・在庫計上・定時請求・小口現金出納分 の列。2026-11-27 ユーザー指示）
   const jc = await rows(c, 'SELECT period, pattern FROM app_journal_close');
-  const now = today().slice(0, 7), list = [];
-  for (let i = -6; i <= 0; i++) { const m = addMonths(now, i); const r = closed.find(x => x.period === m); list.push({ month: m, closed: !!r, kind: r ? r.kind || '2' : '', kindName: r ? CLOSE_KINDS[r.kind || '2'] : '', closedAt: r?.closed_at || '', closedBy: r?.closed_by || '', fiscalEnd: Number(m.slice(5, 7)) === cm }); }
+  const now = cycleMonth(today()), list = [];   // 会計月（2026-11-27）
+  for (let i = -6; i <= 0; i++) { const m = addMonths(now, i); const r = closed.find(x => x.period === m); list.push({ month: m, ...cycleRange(m), closed: !!r, kind: r ? r.kind || '2' : '', kindName: r ? CLOSE_KINDS[r.kind || '2'] : '', closedAt: r?.closed_at || '', closedBy: r?.closed_by || '', fiscalEnd: Number(m.slice(5, 7)) === cm }); }
   for (const x of list) x.journals = Object.fromEntries(Object.keys(JOURNAL_CLOSE).map(k => [k, jc.some(r => r.period === x.month && r.pattern === k)]));
   return { months: list.reverse(), closed: closed.map(r => r.period), closingMonth: cm, journalNames: JOURNAL_CLOSE };
 }
 // 確定前チェック：得意先ごとの締日までの未請求出荷（掛売）と、未発行の請求書
 export async function closeCheckDetail(c, month) {
-  isoMonth(month); const end = monthEnd(month), unbilled = [];
+  isoMonth(month); const { from: start, to: end } = cycleRange(month), unbilled = [];   // 会計月（前月21日〜当月20日。2026-11-27）
   const custs = await rows(c, "SELECT customers_cd, customers_name, deadline FROM client_m WHERE delete_f<>'1'");
   for (const cu of custs) {
     const { end: cl } = period(month, Number(cu.deadline) || 31), limit = cl < end ? cl : end;
-    const r = await one(c, "SELECT COUNT(*) n FROM sales_trn WHERE customers_cd=? AND process_status='0' AND payment_method_cd=2 AND sales_date BETWEEN ? AND ?", [cu.customers_cd, toNum(month + '-01'), toNum(limit)]);
+    const r = await one(c, "SELECT COUNT(*) n FROM sales_trn WHERE customers_cd=? AND process_status='0' AND payment_method_cd=2 AND sales_date BETWEEN ? AND ?", [cu.customers_cd, toNum(start), toNum(limit)]);
     if (Number(r.n)) unbilled.push({ customer: cu.customers_cd, name: cu.customers_name, closing: limit, count: Number(r.n) });
   }
   // 未発行の請求書は件数だけでなく明細（締日・得意先・現場・金額）も返す（確定前チェックの［詳細］。2026-11-21 ユーザー指示）
   const draftList = (await rows(c, `SELECT h.invoice_id, h.closing_date, h.customers_cd, c.customers_name, h.field_cd, h.field_suffix, f.field_name1, h.money, h.consumption_tax
     FROM billing_head h LEFT JOIN client_m c ON c.customers_cd=h.customers_cd LEFT JOIN field_name_m f ON f.customers_cd=h.customers_cd AND f.field_cd=h.field_cd AND f.field_suffix=h.field_suffix
-    WHERE h.closing_date BETWEEN ? AND ? AND NOT EXISTS (SELECT 1 FROM invoice_issue i WHERE i.invoice_id=h.invoice_id) ORDER BY h.closing_date, h.customers_cd, h.field_cd, h.field_suffix`, [toNum(month + '-01'), toNum(end)]))
+    WHERE h.closing_date BETWEEN ? AND ? AND NOT EXISTS (SELECT 1 FROM invoice_issue i WHERE i.invoice_id=h.invoice_id) ORDER BY h.closing_date, h.customers_cd, h.field_cd, h.field_suffix`, [toNum(start), toNum(end)]))
     .map(r => ({ id: Number(r.invoice_id), closing: fromNum(r.closing_date), customer: r.customers_cd, name: r.customers_name || '', field: r.field_cd + (r.field_suffix ? '-' + r.field_suffix : ''), fieldName: r.field_name1 || '', amount: Number(r.money || 0) + Number(r.consumption_tax || 0) }));
   return { month, unbilled, unbilledCount: unbilled.reduce((n, r) => n + r.count, 0), drafts: draftList.length, draftList };
 }
@@ -64,7 +64,7 @@ export async function closeCheck(c, month) {
   return [...d.unbilled.map(r => `${r.name}: ${r.closing}締の未請求出荷 ${r.count}件`), ...(d.drafts ? [`未発行の請求書 ${d.drafts}件`] : [])];
 }
 export async function closeMonth(c, ctx, { month, force, kind = '2' }) {
-  isoMonth(month, '確定月'); check(month <= today().slice(0, 7), '未来の月は確定できません');
+  isoMonth(month, '確定月'); check(month <= cycleMonth(today()), '未来の月は確定できません');
   kind = String(kind || '2'); check(CLOSE_KINDS[kind], '更新区分は 1（年次更新）か 2（仮更新）です');
   const cur = await one(c, 'SELECT * FROM app_period_close WHERE period=? FOR UPDATE', [month]);
   if (kind === '1') {
@@ -110,7 +110,7 @@ export async function journalCloses(c, month) {
     items: Object.entries(JOURNAL_CLOSE).map(([pattern, name]) => { const r = rs.find(x => x.pattern === pattern); return { pattern, name: `${name}自動仕訳`, closed: !!r, closedAt: r?.closed_at || '', closedBy: r?.closed_by || '' }; }) };
 }
 export async function closeJournal(c, ctx, { month, pattern }) {
-  isoMonth(month, '月'); check(JOURNAL_CLOSE[pattern], '仕訳の種類が不正です'); check(month <= today().slice(0, 7), '未来の月は確定できません');
+  isoMonth(month, '月'); check(JOURNAL_CLOSE[pattern], '仕訳の種類が不正です'); check(month <= cycleMonth(today()), '未来の月は確定できません');
   check(!(await one(c, 'SELECT 1 x FROM app_period_close WHERE period=?', [month])), `${month} は月次確定済みです（すべての仕訳が確定しています）`);
   check(!(await one(c, 'SELECT 1 x FROM app_journal_close WHERE period=? AND pattern=? FOR UPDATE', [month, pattern])), 'すでに確定済みです');
   await c.query('INSERT INTO app_journal_close (period, pattern, closed_at, closed_by) VALUES (?, ?, UTC_TIMESTAMP(6), ?)', [month, pattern, ctx.user.login_id]);
@@ -147,16 +147,16 @@ export async function apReport(c) {
   return rs.map(r => ({ vendor: r.vendor_code, name: r.vendor_name, active: !!r.active, billed: Number(r.billed), paid: Number(r.paid), balance: Number(r.billed) - Number(r.paid) })).filter(r => r.active || r.balance);
 }
 export async function dashboard(c) {
-  const now = today(), month = now.slice(0, 7), months = Array.from({ length: 6 }, (_, i) => addMonths(month, i - 5));
+  const now = today(), month = cycleMonth(now), months = Array.from({ length: 6 }, (_, i) => addMonths(month, i - 5));   // 会計月（2026-11-27）
   const sum = async (sql, args) => Number(Object.values(await one(c, sql, args))[0] || 0);
-  const salesMonth = await sum('SELECT COALESCE(SUM(money),0) FROM sales_trn WHERE sales_date BETWEEN ? AND ?', [toNum(month + '-01'), toNum(month + '-31')]);
+  const salesMonth = await sum('SELECT COALESCE(SUM(money),0) FROM sales_trn WHERE sales_date BETWEEN ? AND ?', [toNum(cycleRange(month).from), toNum(cycleRange(month).to)]);
   const unbilled = await one(c, "SELECT COUNT(*) n, COALESCE(SUM(money),0) v FROM sales_trn WHERE process_status='0' AND payment_method_cd=2");
-  const receivedMonth = await sum("SELECT COALESCE(SUM(received_amount),0) FROM receipt WHERE status='POSTED' AND receipt_date BETWEEN ? AND ?", [month + '-01', monthEnd(month)]);
+  const receivedMonth = await sum("SELECT COALESCE(SUM(received_amount),0) FROM receipt WHERE status='POSTED' AND receipt_date BETWEEN ? AND ?", [cycleRange(month).from, cycleRange(month).to]);
   const ar = await arReport(c), ap = await apReport(c), inv = await listInvoices(c, {});
   const trend = [];
   for (const m of months) trend.push({ month: m,
-    sales: await sum('SELECT COALESCE(SUM(money+consumption_tax),0) FROM sales_trn WHERE sales_date BETWEEN ? AND ?', [toNum(m + '-01'), toNum(m + '-31')]),
-    received: await sum("SELECT COALESCE(SUM(settlement_amount),0) FROM receipt WHERE status='POSTED' AND receipt_date BETWEEN ? AND ?", [m + '-01', monthEnd(m)]) });
+    sales: await sum('SELECT COALESCE(SUM(money+consumption_tax),0) FROM sales_trn WHERE sales_date BETWEEN ? AND ?', [toNum(cycleRange(m).from), toNum(cycleRange(m).to)]),
+    received: await sum("SELECT COALESCE(SUM(settlement_amount),0) FROM receipt WHERE status='POSTED' AND receipt_date BETWEEN ? AND ?", [cycleRange(m).from, cycleRange(m).to]) });
   const dueSoon = (await listExpenses(c, { kind: 'PAYABLE', open: true })).filter(e => e.due && e.due <= addDays(now, 14)).sort((a, b) => a.due.localeCompare(b.due));
   const recent = await rows(c, 'SELECT occurred_at, actor_id, action, entity_type, entity_id FROM audit_event ORDER BY audit_id DESC LIMIT 8');
   return {
@@ -203,7 +203,7 @@ export async function exportCsv(c, kind, q = {}) {
       ...l.map(r => [r.no, r.date, r.customer, r.customerName, r.bank, r.bankCode, r.cash, r.notes, r.fee, r.coop, r.deposit, r.discount, r.received, r.settlement, r.status, r.allocations.map(a => a.invoiceId).join(' ')])]; }
     case 'journals': { const l = (await listJournals(c, { month, pattern: q.pattern })).filter(j => !q.valid || (j.status !== 'REVERSED' && !j.reversalOf)); /* valid＝取消された仕訳と逆仕訳を除く（user01 の CSV。2026-11-21 ユーザー指示） */ return [['仕訳ID', '仕訳日', 'パターン', '元伝票種別', '元伝票ID', '版', '取消元仕訳', '状態', '行', '貸借', '科目', '科目名', '内訳', '部門', '税区分', '金額', '取引先'],
       ...l.flatMap(j => j.lines.map(x => [j.id, j.date, j.pattern, j.source, j.sourceId, j.revision, j.reversalOf || '', j.status, x.no, x.side === 'D' ? '借方' : '貸方', x.account, x.accountName, x.sub, x.dept, x.tax, x.amount, x.partner]))]; }
-    case 'trial-balance': { const l = await trialBalance(c, month || today().slice(0, 7)); return [['科目', '科目名', '借方', '貸方', '差額(借-貸)'], ...l.map(r => [r.account, r.name, r.debit, r.credit, r.debit - r.credit]),
+    case 'trial-balance': { const l = await trialBalance(c, month || cycleMonth(today())); return [['科目', '科目名', '借方', '貸方', '差額(借-貸)'], ...l.map(r => [r.account, r.name, r.debit, r.credit, r.debit - r.credit]),
       ['合計', '', l.reduce((n, r) => n + r.debit, 0), l.reduce((n, r) => n + r.credit, 0), '']]; }
     case 'payments': { const l = await listPayments(c, { month }); return [['支払No', '支払日', '業者CD', '業者', '支払額', '支払元銀行内訳', '振込先銀行', '支店', '種別', '口座番号', '受取人', '状態'],
       ...l.map(r => [r.no, r.date, r.vendor, r.vendorName, r.amount, r.fromBank, r.payee?.bank, r.payee?.branch, r.payee?.type, r.payee?.account, r.payee?.holder, r.status])]; }
