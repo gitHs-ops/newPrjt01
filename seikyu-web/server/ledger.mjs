@@ -98,7 +98,7 @@ export async function reopenMonth(c, ctx, { month }) {
 }
 
 // ---------- 仕訳別確定（2026-11-26 ユーザー指示）----------
-// 月次確定（月全体）とは別に、自動仕訳 6 種ごとに月を確定する。確定した仕訳を作る業務（例 D01＝定時請求の登録・修正・取消・定時請求計上）はその月の日付で止まる
+// 月次確定（月全体）とは別に、自動仕訳 4 種（入金・支払内訳は対象外）ごとに月を確定する。確定した仕訳を作る業務（例 D01＝定時請求の登録・修正・取消・定時請求計上）はその月の日付で止まる
 export async function journalCloses(c, month) {
   isoMonth(month, '月');
   const mc = await one(c, 'SELECT closed_at, closed_by FROM app_period_close WHERE period=?', [month]);

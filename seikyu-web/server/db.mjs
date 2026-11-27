@@ -25,7 +25,8 @@ export async function nextNo(c, kind) {
 }
 export const isClosed = async (c, iso) => !!(await one(c, 'SELECT period FROM app_period_close WHERE period=?', [String(iso).slice(0, 7)]));
 // pattern（A01〜F01）を付けると仕訳別確定（app_journal_close）も見る（2026-11-26 ユーザー指示：月次確定のほかに自動仕訳ごとに確定）
-export const JOURNAL_CLOSE = { A01: '売掛金計上', B01: '入金', C01: '在庫計上', D01: '定時請求', E01: '小口現金出納分', F01: '支払内訳' };
+// 入金（B01）・支払内訳（F01）は対象外（2026-11-27 ユーザー指示：仕訳別確定の画面から除外）
+export const JOURNAL_CLOSE = { A01: '売掛金計上', C01: '在庫計上', D01: '定時請求', E01: '小口現金出納分' };
 export async function assertOpen(c, iso, pattern) {
   const ym = String(iso instanceof Date ? iso.toISOString() : iso).slice(0, 7);
   const r = await one(c, 'SELECT period FROM app_period_close WHERE period=? FOR SHARE', [ym]);
