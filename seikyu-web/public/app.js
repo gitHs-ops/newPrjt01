@@ -1913,7 +1913,8 @@ VIEWS.inventory = async q => {
   // 完了のポップアップは見出しと［確認］ボタンだけ（計上月度・品目数・評価額・仕訳日付・伝票番号は出さない。2026-11-03）
   // 在庫計上自動仕訳リスト（C01）：計上月度の仕訳日付（月度の締日）はその月の中なので、期間はその月の 1 日〜末日（2026-11-26 ユーザー指示）
   A.invJl = () => { const m = $('#ip-month').value; if (!/^\d{4}-\d{2}$/.test(m)) return toast('計上月度を入力してください', true); go('journals', { tab: 'lists', list: 'C01', from: m + '-01', to: monthEnd(m) }); };
-  A.post = () => { const month = $('#ip-month').value; confirmBox('在庫計上', `${month} 月度の実在庫を評価し、月末在庫の洗い替え仕訳（C01）を作成します。計上済みの月度は評価し直して仕訳を作り直します（会計連携前のみ。後の月度が計上済みなら後の月度も評価し直します）。`, async () => { await post('/api/inventory/post', { month }); render(); alertBox('', { ok: true, title: '在庫計上を完了しました' }); }, '在庫計上する'); };
+  // 実行前の確認ポップアップは出さず、他の計上と同じく実行後に完了のポップアップだけ（2026-11-27 ユーザー指示）
+  A.post = async (_, btn) => { const month = $('#ip-month').value; if (btn) btn.disabled = true; try { await post('/api/inventory/post', { month }); await render(); alertBox('', { ok: true, title: '在庫計上を完了しました' }); } catch (e) { toast(e.message, true); if (btn) btn.disabled = false; } };
   // ［模擬実行］（2026-11-19 ユーザー指示：user01 のテスト用。何度でも）：在庫計上と同じ計算の結果を表示するだけで、DB は変えない（計上済みの月度でも可）
   A.simulate = async (_, btn) => {
     const month = $('#ip-month').value; if (btn) btn.disabled = true;
