@@ -37,10 +37,15 @@ export async function periods(c) {
   const closed = await rows(c, 'SELECT * FROM app_period_close ORDER BY period DESC');
   const cm = (await companyPeriod(c)).closingMonth;
   // 自動仕訳別確定の状態（月次確定履歴照会の 売掛金計上・在庫計上・定時請求・小口現金出納分 の列。2026-11-27 ユーザー指示）
-  const jc = await rows(c, 'SELECT period, pattern FROM app_journal_close');
+  const jc = await rows(c, 'SELECT period, pattern, closed_at, closed_by FROM app_journal_close');
   const now = cycleMonth(today()), list = [];   // 会計月（2026-11-27）
   for (let i = -6; i <= 0; i++) { const m = addMonths(now, i); const r = closed.find(x => x.period === m); list.push({ month: m, ...cycleRange(m), closed: !!r, kind: r ? r.kind || '2' : '', kindName: r ? CLOSE_KINDS[r.kind || '2'] : '', closedAt: r?.closed_at || '', closedBy: r?.closed_by || '', fiscalEnd: Number(m.slice(5, 7)) === cm }); }
-  for (const x of list) x.journals = Object.fromEntries(Object.keys(JOURNAL_CLOSE).map(k => [k, jc.some(r => r.period === x.month && r.pattern === k)]));
+  for (const x of list) {
+    x.journals = Object.fromEntries(Object.keys(JOURNAL_CLOSE).map(k => [k, jc.some(r => r.period === x.month && r.pattern === k)]));
+    // 自動仕訳 4 種がすべて確定済みならその月は確定済（状態・確定日時は 4 種のうち最後に確定したもの。2026-11-27 ユーザー指示：月全体の月次確定は打合せに無い）
+    const js = jc.filter(r => r.period === x.month && JOURNAL_CLOSE[r.pattern]).sort((a, b) => String(a.closed_at).localeCompare(String(b.closed_at)));
+    x.allJournals = Object.values(x.journals).every(Boolean); if (x.allJournals) { x.journalsAt = js.at(-1)?.closed_at || ''; x.journalsBy = js.at(-1)?.closed_by || ''; }
+  }
   return { months: list.reverse(), closed: closed.map(r => r.period), closingMonth: cm, journalNames: JOURNAL_CLOSE };
 }
 // 確定前チェック：得意先ごとの締日までの未請求出荷（掛売）と、未発行の請求書

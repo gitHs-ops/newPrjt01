@@ -2785,7 +2785,7 @@ VIEWS.periods = async (q = {}) => {
     catch (e) { toast(e.message, true); }
   };
   // 小メニュー 仕訳別確定：対象年月（初期は未確定の月）を変えるとその月を表示（2026-11-27 ユーザー指示）
-  const jm = /^\d{4}-\d{2}$/.test(q.month || '') ? q.month : ((p.months.find(m => m.closed) ? { month: addMonths(p.months.find(m => m.closed).month, 1) } : null) /* 初期は月次確定した最後の月の翌月（次に確定する月。2026-11-27 ユーザー指摘：12 月が出て 11 月の確定が見えない） */ || p.months.find(m => !m.closed) || p.months[0])?.month || today().slice(0, 7);
+  const jm = /^\d{4}-\d{2}$/.test(q.month || '') ? q.month : ((p.months.find(m => m.closed || m.allJournals) ? { month: addMonths(p.months.find(m => m.closed || m.allJournals).month, 1) } : null) /* 初期は月次確定した最後の月の翌月（次に確定する月。2026-11-27 ユーザー指摘：12 月が出て 11 月の確定が見えない） */ || p.months.find(m => !m.closed) || p.months[0])?.month || today().slice(0, 7);
   const jk = route.sub === 'journal' ? await api('/api/periods/journals?' + qs({ month: jm })) : null;
   // 連携取込完了（2026-11-27 ユーザー指示）：勘定奉行に取り込んだ月に［取込完了］。月の順番どおり、戻せない
   const lk = route.sub === 'link' ? await api('/api/accounting/link') : null;
@@ -2802,8 +2802,8 @@ VIEWS.periods = async (q = {}) => {
   return page('月次確定', `確定した月の伝票は登録・変更・取消ができなくなります。確定・解除は管理者のみ実行できます。［自動仕訳別月次確定］で自動仕訳の種類ごとにも確定できます。`, '' /* ［仕訳別確定］は各月の［確定］の前（2026-11-26 ユーザー指示。以前は画面右上） */, `<section class="card glass" data-sub="journal"><div class="filters"><label class="field">対象年月<input type="month" id="jc-month" value="${jm}"></label></div>${jk ? jcHtml(jm, jk) : ''}</section>
     <section class="card glass" data-sub="history">${table([{ label: '月', value: r => r.month + (r.fiscalEnd ? '（決算月）' : '') }, { label: '期間', value: r => r.from ? `${r.from.slice(5).replace('-', '/')}〜${r.to.slice(5).replace('-', '/')}` : '' } /* 20日締めの会計月（2026-11-27） */,
     // 自動仕訳別確定の状態を 状態 の前に（名称は「自動仕訳」を除く。月次確定済みの月はすべて確定。2026-11-27 ユーザー指示）
-    ...Object.entries(p.journalNames || {}).map(([k, name]) => ({ label: name, html: r => r.closed || r.journals?.[k] ? '<span class="check-ok">✓</span>' : '<span class="small">－</span>' })), { label: '状態', html: r => r.closed ? badge('確定済', 'green') : badge('未確定', 'gray') },
-    { label: '確定日時 / 実行者', value: r => r.closed ? `${jst(r.closedAt, 16)} / ${r.closedBy}` : '' }, /* チェック列（確定前チェック）は出さない（2026-11-27 ユーザー指示。［確定］の時に同じチェックをする） */
+    ...Object.entries(p.journalNames || {}).map(([k, name]) => ({ label: name, html: r => r.closed || r.journals?.[k] ? '<span class="check-ok">✓</span>' : '<span class="small">－</span>' })), { label: '状態', html: r => r.closed || r.allJournals ? badge('確定済', 'green') : badge('未確定', 'gray') } /* 4 種すべて ✓ なら確定済（2026-11-27 ユーザー指示） */,
+    { label: '確定日時 / 実行者', value: r => r.closed ? `${jst(r.closedAt, 16)} / ${r.closedBy}` : r.allJournals ? `${jst(r.journalsAt, 16)} / ${r.journalsBy}` : '' }, /* チェック列（確定前チェック）は出さない（2026-11-27 ユーザー指示。［確定］の時に同じチェックをする） */
     /* 月次確定履歴照会は確定の状態を見るだけで、確定・解除・仕訳別確定のボタンは出さない（2026-11-27 ユーザー指示） */], p.months)}</section>
     <section class="card glass" data-sub="link">${linkHtml}</section>
     `);
