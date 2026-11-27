@@ -1,6 +1,6 @@
 // ② 自動仕訳リスト（帳票一覧⑥⑦⑨・9/17資料ア〜エ）。現行 HAR363/HAR413/HAR152/HAR733/CS5785 と同じ「借方・貸方を1行に併記」形式。
 // 削減案5により全リストを同一フォーマットで出力する。エ（銀行別随時支払一覧表）のみ別形式。
-import { check, isoDate, fromNum, today, addMonths, closingPeriodOfDate } from './domain.mjs';
+import { check, isoDate, fromNum, today, addMonths, closingPeriodOfDate, period } from './domain.mjs';
 import { businessDate, RC_BOOKED, postReceiptJournal, AR_BOOKED, AR_NONZERO, postArJournal } from './sales.mjs';
 import { rows, one, audit, invoiceNos, assertOpen, autoCloseJournal, cycleMonth, cycleRange, AR_SLIP_MAX } from './db.mjs';
 import { BOOKED, postPayableJournal, PAY_BOOKED, postPaymentJournal } from './payables.mjs';
@@ -162,11 +162,27 @@ export async function arPostStatus(c, month) {
   return { closing: 20, next: arRange(next), sel: { ...rg, linked: !!linked && sel <= linked.month }, pending: { count: Number(pend.n), amount: Number(pend.amt) }, run: r ? { by: r.run_by, at: r.run_at, slips: Number(r.slips), total: Number(r.total) } : null,
     linked: linked ? { ...arRange(linked.month), by: linked.linked_by, at: linked.linked_at } : null };
 }
+// 期間に締日が来た得意先の未請求の掛売上（請求データ作成の対象）。発行済み・入金消込済みの請求がある締日の分は次回締めで請求されるため除く
+async function arUnbilled(c, from, to) {
+  const out = [], days = await rows(c, "SELECT DISTINCT CAST(substring(deadline from '^ *([0-9]+)') AS INTEGER) d FROM client_m WHERE delete_f<>'1' AND substring(deadline from '^ *([0-9]+)') IS NOT NULL");
+  for (const { d } of days) {
+    const day = Number(d); if (!(day >= 1 && day <= 31)) continue;
+    const end = [from.slice(0, 7), to.slice(0, 7)].map(m => period(m, day).end).find(e => e >= from && e <= to); if (!end) continue;
+    out.push(...(await rows(c, `SELECT cu.customers_cd, cu.customers_name, COUNT(*) n FROM sales_trn s JOIN client_m cu ON cu.customers_cd=s.customers_cd
+      WHERE cu.delete_f<>'1' AND CAST(substring(cu.deadline from '^ *([0-9]+)') AS INTEGER)=? AND s.process_status='0' AND s.payment_method_cd=2 AND s.sales_date<=?
+        AND NOT EXISTS (SELECT 1 FROM billing_head h WHERE h.customers_cd=cu.customers_cd AND h.closing_date=? AND (h.invoice_flag<>'0' OR EXISTS (SELECT 1 FROM receipt_allocation a WHERE a.invoice_id=h.invoice_id)))
+      GROUP BY cu.customers_cd, cu.customers_name ORDER BY cu.customers_cd`, [day, ymd(end), ymd(end)])).map(x => ({ ...x, end })));
+  }
+  return out.sort((a, b) => a.end.localeCompare(b.end) || String(a.customers_cd).localeCompare(String(b.customers_cd)));
+}
 export async function runArPost(c, ctx, b) {
   check(/^\d{4}-(0[1-9]|1[0-2])$/.test(b?.month || ''), '締日の年月を指定してください');
   const st = await arPostStatus(c, b.month), { month, from, to } = st.sel;
   check(!st.sel.linked, `締日 ${to} は会計連携済みのため実行できません。次の締日は ${st.next.to} です`);
   await assertOpen(c, to, 'A01');   // 月次確定・仕訳別確定（2026-11-26）
+  // 未請求の掛売上が残っていれば実行しない（2026-11-28 ユーザー指示：実行すると売掛金計上が確定し、その期間の請求データ作成・出荷伝票の入力ができなくなるため）
+  const ub = await arUnbilled(c, from, to);
+  check(!ub.length, `請求データ作成をしていない売上があるため、売掛金計上を実行できません。先に 請求データ作成 をしてください：\n${ub.slice(0, 10).map(x => `締日 ${x.end}　${x.customers_cd} ${x.customers_name || ''}（${x.n}件）`).join('\n')}${ub.length > 10 ? `\nほか ${ub.length - 10} 得意先` : ''}`);
   // 期間の未計上の請求に仕訳 A01 を作る（2026-11-28）。締日ごとに得意先コード順で 45 得意先ずつ 1 伝票。1 件でも計上できなければ全体を取り消す（全部か無し）
   const todo = await rows(c, `SELECT h.* FROM billing_head h WHERE h.closing_date BETWEEN ? AND ? AND ${AR_NONZERO} AND NOT ${AR_BOOKED} ORDER BY h.closing_date, h.customers_cd, h.invoice_id FOR UPDATE`, [ymd(from), ymd(to)]);
   const slips = {};

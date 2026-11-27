@@ -617,7 +617,7 @@ document.addEventListener('change', e => { if (e.target.id !== 'ship-cust') retu
 document.addEventListener('change', e => { if (e.target.id === 'ar-month' && /^\d{4}-\d{2}-\d{2}$/.test(e.target.value)) go('shipments', { month: e.target.value.slice(0, 7) }); });
 async function arPostView(q = {}) {
   const A = actions, d = await api('/api/ar-post?' + qs({ month: q.month || '' })), nx = d.sel, run = d.run; // actions は await の前に受け取る
-  A.arRun = async (_, btn) => { if (btn) btn.disabled = true; try { await post('/api/ar-post/run', { month: nx.month }); await render({ fresh: true }); alertBox('', { ok: true, title: '売掛金計上を完了しました' }) /* 実行後に完了のポップアップ（2026-11-27 ユーザー指示） */; } catch (e) { toast(e.message, true); if (btn) btn.disabled = false; } };
+  A.arRun = async (_, btn) => { if (btn) btn.disabled = true; try { await post('/api/ar-post/run', { month: nx.month }); await render({ fresh: true }); alertBox('', { ok: true, title: '売掛金計上を完了しました' }) /* 実行後に完了のポップアップ（2026-11-27 ユーザー指示） */; } catch (e) { alertBox(e.message) /* 未請求の得意先の一覧が長いためポップアップ（2026-11-28） */; if (btn) btn.disabled = false; } };
   A.arXlsx = () => run && saveXlsx('/api/reports/journal-list?' + qs({ pattern: 'A01', from: nx.from, to: nx.to, format: 'xlsx' })).catch(e => toast(e.message, true));
   return page('出荷・売上', '', '', `<section class="card glass" data-sub="sales"><div class="card-head"><h2>売掛金計上</h2></div>
     <div class="filters"><label class="field">年月日<input type="date" id="ar-month" value="${esc(nx.to)}" style="width:160px"></label>
