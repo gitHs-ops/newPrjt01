@@ -130,14 +130,14 @@ export async function customerShipDaily(c, q) {
   if (disc.length) { groups.push({ rows: [], label: '値　引', totals: daySum(disc) }); all.push(...disc); }
   return { title: '得意先別出荷日報', ref: '帳票㉗（HAR531）', date: d, from, to: d, sub: `${d}（月度 ${from} 〜）`, columns: DAY_COLS(true), groups, ...(all.length ? { totals: daySum(all) } : {}) };
 }
-// ㉘ 商品別仕入日報（現行 HAR521）：仕入先ごとに商品別。商品仕入登録の区分 1＝仕入、2＝他社納入 を分ける。仕入先計を出す（2026-11-27）。区分ごとの合計・総合計は出さない（2026-11-26 ユーザー指示）
+// ㉘ 商品別仕入日報（現行 HAR521）：仕入先ごとに商品別。商品仕入登録の区分 1＝仕入、2＝他社納入 を分ける。仕入先計と総合計を出す（2026-11-27 ユーザー指示）。区分ごとの合計は出さない
 export async function itemPurchaseDaily(c, q) {
   const { d, from } = dayRange(q);
   const rs = await rows(c, `SELECT COALESCE(p.purchase_kb, '1') kb, v.vendor_code, MAX(v.vendor_name) vendor_name, p.item_cd, MAX(i.item_nam) item_name, MAX(unit_name(i.unit)) unit,
       SUM(CASE WHEN p.purchase_date=? THEN p.quantity ELSE 0 END) dq, SUM(CASE WHEN p.purchase_date=? THEN p.net_amount ELSE 0 END) dv, SUM(p.quantity) cq, SUM(p.net_amount) cv
     FROM purchase p JOIN vendor v ON v.vendor_id=p.vendor_id LEFT JOIN item_m i ON i.item_cd=p.item_cd
     WHERE p.purchase_date BETWEEN ? AND ? GROUP BY 1, v.vendor_code, p.item_cd ORDER BY 1, v.vendor_code, p.item_cd`, [d, d, from, d]);
-  const groups = [];
+  const groups = [];   // 区分 → 仕入先 → 商品、仕入先計と総合計（2026-11-27 ユーザー指示）
   for (const [kb, label] of [['1', '仕入'], ['2', '他社納入']]) {
     const mine = rs.filter(r => String(r.kb || '1') === kb); if (!mine.length) continue;
     const gs = [];
@@ -145,11 +145,11 @@ export async function itemPurchaseDaily(c, q) {
       let g = gs.find(x => x.cd === r.vendor_code); if (!g) gs.push(g = { cd: r.vendor_code, title: `${r.vendor_code}　${r.vendor_name || ''}`, rows: [] });
       const x = { code: r.item_cd || '', name: r.item_cd ? String(r.item_name || '').trim() : '運賃・金額のみ', unit: r.unit || '', ...dayRow(r, d) }; g.rows.push(x);
     }
-    // 仕入先ごとに「仕入先計」を出す（2026-11-27 ユーザー指示）。区分ごとの合計・総合計は出さない（2026-11-26）
+    // 仕入先ごとに「仕入先計」を出す（2026-11-27 ユーザー指示）。区分ごとの合計は出さない
     gs.forEach(g => { delete g.cd; g.label = '仕入先計'; g.totals = daySum(g.rows); }); gs[0].head = `区分 ${kb}．${label}`;
     groups.push(...gs);
   }
-  return { title: '商品別仕入日報', ref: '帳票㉘（HAR521）', date: d, from, to: d, sub: `${d}（月度 ${from} 〜）`, columns: DAY_COLS(true), groups, noGrand: true };
+  return { title: '商品別仕入日報', ref: '帳票㉘（HAR521）', date: d, from, to: d, sub: `${d}（月度 ${from} 〜）`, columns: DAY_COLS(true), groups, ...(groups.length ? { totals: daySum(groups.flatMap(g => g.rows)) } : {}) };
 }
 // 商品別仕入一覧（2026-11-24 ユーザー指示）：2026-11-26 ユーザー指示で商品別仕入日報（帳票㉘ HAR521）と同じ様式にし、対象だけ期間（From〜To）にする。
 // 列は日報と同じ並びで「当日」を「期間」に：前日累計＝月度（From の月度）の初日〜From の前日、期間＝From〜To、累計＝月度の初日〜To。行は期間に仕入のある商品だけ。合計行は出さない（日報と同じ）
