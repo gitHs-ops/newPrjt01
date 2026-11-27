@@ -42,7 +42,7 @@ export async function assertOpen(c, iso, pattern) {
   const ym = cycleMonth(iso);   // 20日締めの会計月（2026-11-27）
   const r = await one(c, 'SELECT period FROM app_period_close WHERE period=? FOR SHARE', [ym]);
   check(!r, `${ym}（${cycleRange(ym).from}〜${cycleRange(ym).to}）は月次確定済みのため登録・変更できません`);
-  if (pattern && JOURNAL_CLOSE[pattern]) check(!(await one(c, 'SELECT 1 x FROM app_journal_close WHERE period=? AND pattern=? FOR SHARE', [ym, pattern])), `${ym} の${JOURNAL_CLOSE[pattern]}（${JOURNAL_CLOSE[pattern]}自動仕訳）は月次確定チェックで確定済みのため登録・変更・計上できません`);
+  if (pattern && JOURNAL_CLOSE[pattern]) check(!(await one(c, 'SELECT 1 x FROM app_journal_close WHERE period=? AND pattern=? FOR SHARE', [ym, pattern])), `${ym} の${JOURNAL_CLOSE[pattern]}（${JOURNAL_CLOSE[pattern]}自動仕訳）は月次確定事前チェックで確定済みのため登録・変更・計上できません`);
 }
 export async function audit(c, ctx, entity, id, action, summary = {}) {
   await c.query('INSERT INTO audit_event (occurred_at,actor_id,entity_type,entity_id,action,request_id,change_summary) VALUES (UTC_TIMESTAMP(6),?,?,?,?,?,?)',

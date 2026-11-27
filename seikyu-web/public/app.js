@@ -401,7 +401,7 @@ const SUBMENUS = {
   // 要件定義の業務順（2026-11-19 ユーザー指示）：振込先一覧（支払予定・口座の確認）→ 支払データ作成（全銀：未払から自動作成 → 全銀、機能一覧 14-1）→ 支払一覧・支払内訳入力（修正、14-7）→ 支払帳票（14-2〜14-5）→ 銀行別随時支払一覧表（14-6）。
   // 一覧の絞り込み（月・状態・CSV）は支払内訳入力の小メニューに出す（tools）
   payments: [{ k: 'transfer', l: '振込先一覧', tools: false }, { k: 'zengin', l: '支払データ作成（全銀）' }, { k: 'list', l: '支払一覧・支払内訳入力', tools: true }, { k: 'reports', l: '支払帳票', noUser01: true /* user01 は出さない（2026-11-20 ユーザー指示） */ }, { k: 'post', l: '支払計上', tools: false /* 2026-11-24 ユーザー指示：定時請求計上と同じ形。銀行別随時支払一覧表の前 */ }, { k: 'bank', l: '銀行別随時支払一覧表', q: { list: 'BANK' } }],   // 銀行別随時支払一覧表は自動仕訳リスト（帳票）の画面を支払メニューのまま表示（2026-11-19 ユーザー指示：メニューは移らない）,
-  journals: [{ k: 'list', l: '仕訳一覧', noUser01: true }, { k: 'tb', l: '月次残高試算', q: { tab: 'tb' }, noUser01: true /* 仕訳一覧・月次残高試算は user01 は非表示（2026-11-26 ユーザー指示） */ }, { k: 'journal', l: '月次確定チェック' /* 名称 自動仕訳別月次確定 → 月次確定チェック（2026-11-28 ユーザー指示）。月次確定 から 自動仕訳リスト（帳票）の前へ移す（2026-11-28 ユーザー指示）。画面は VIEWS.periods を使う */ }, { k: 'lists', l: '自動仕訳リスト（帳票）', q: { tab: 'lists' } }, { k: 'export', l: '会計連携データ' }, { k: 'link', l: '月次確定（送信）履歴' /* 月次確定 から 会計連携データ の次へ移す（2026-11-28 ユーザー指示）。 出力と取込完了を分ける（2026-11-27 ユーザー指示）。名称 連携取込完了 → 月次確定（送信）履歴（同日ユーザー指示） */ }],
+  journals: [{ k: 'list', l: '仕訳一覧', noUser01: true }, { k: 'tb', l: '月次残高試算', q: { tab: 'tb' }, noUser01: true /* 仕訳一覧・月次残高試算は user01 は非表示（2026-11-26 ユーザー指示） */ }, { k: 'journal', l: '月次確定事前チェック' /* 名称 自動仕訳別月次確定 → 月次確定チェック → 月次確定事前チェック（2026-11-28 ユーザー指示）。月次確定 から 自動仕訳リスト（帳票）の前へ移す（2026-11-28 ユーザー指示）。画面は VIEWS.periods を使う */ }, { k: 'lists', l: '自動仕訳リスト（帳票）', q: { tab: 'lists' } }, { k: 'export', l: '会計連携データ' }, { k: 'link', l: '月次確定（送信）履歴' /* 月次確定 から 会計連携データ の次へ移す（2026-11-28 ユーザー指示）。 出力と取込完了を分ける（2026-11-27 ユーザー指示）。名称 連携取込完了 → 月次確定（送信）履歴（同日ユーザー指示） */ }],
   external: [{ k: 'gslink', l: 'gsLink' }], // 2026-11-05 ユーザー指示
   // 月次確定の小メニュー（2026-11-27 ユーザー指示）：仕訳別確定（画面）・月次確定履歴照会（従来の月次確定の一覧）
   periods: [{ k: 'close', l: '月次確定' } /* 月全体の一括の月次確定（確定・解除。2026-11-28 ユーザー指示で再表示。管理者だけ、user01 は出さない）。自動仕訳別月次確定・月次確定（送信）履歴は 仕訳・会計連携 に移した（同日） */],
@@ -2781,7 +2781,7 @@ VIEWS.periods = async (q = {}) => {
   A.jclose = d => {
     const def = d?.month || (p.months.find(m => !m.closed) || p.months[0])?.month || today().slice(0, 7);   // 行の［仕訳別確定］はその月を開く（2026-11-26）
     // 月は一覧の行で決まっているので選択欄は出さず、表題に月を出す（2026-11-26 ユーザー指示）
-    modal({ title: `月次確定チェック　${def.replace('-', '/')}`, wide: true, body: '<div id="jc-body"></div>', onOpen: () => { jcRender(def).catch(err => toast(err.message, true)); } });
+    modal({ title: `月次確定事前チェック　${def.replace('-', '/')}`, wide: true, body: '<div id="jc-body"></div>', onOpen: () => { jcRender(def).catch(err => toast(err.message, true)); } });
   };
   A.jcDo = async d => {
     try { await post(`/api/periods/journals/${d.op}`, { month: d.month, pattern: d.pattern }); toast(d.op === 'close' ? '確定しました' : '解除しました'); if ($('dialog[open] #jc-body')) await jcRender(d.month); else render(); }
@@ -2805,7 +2805,7 @@ VIEWS.periods = async (q = {}) => {
       { label: '取込完了日', html: r => tsCell(r.linked ? `${r.linked.at} / ${r.linked.by}` : '') },
       { label: '', html: r => !isAdmin() || r.linked ? '' : !r.allClosed ? '<span class="small">未確定あり</span>' : !r.exported ? '<span class="small">CSV未出力</span>' : r.withNext ? `<span class="small">${esc(lk.next)} と一緒に取込完了</span>` : !r.next ? '<span class="small">前の月の取込完了の後</span>'
         : `<button type="button" class="mini primary" data-act="linkDone" data-month="${r.month}" data-end="${r.doneTo || r.month}" data-from="${r.from}" data-to="${r.doneTo ? `${r.doneTo}-20` : r.to}">取込完了${r.doneTo && r.doneTo !== r.month ? `（〜${r.doneTo}）` : ''}</button>` } /* ボタンが出ない月は理由を出す（2026-11-27 ユーザー指摘「ボタンが見えない」） */], lk.months);
-  return page(route.name === 'journals' ? '仕訳・会計連携' : '月次確定', `確定した月の伝票は登録・変更・取消ができなくなります。確定・解除は管理者のみ実行できます。${route.name === 'journals' ? '［月次確定チェック］で自動仕訳の種類ごとにも確定できます。' : ''}`, '' /* ［仕訳別確定］は各月の［確定］の前（2026-11-26 ユーザー指示。以前は画面右上） */, `<section class="card glass" data-sub="journal"><div class="filters"><label class="field">対象年月<input type="month" id="jc-month" value="${jm}"></label></div>${jk ? jcHtml(jm, jk) : ''}</section>
+  return page(route.name === 'journals' ? '仕訳・会計連携' : '月次確定', `確定した月の伝票は登録・変更・取消ができなくなります。確定・解除は管理者のみ実行できます。${route.name === 'journals' ? '［月次確定事前チェック］で自動仕訳の種類ごとにも確定できます。' : ''}`, '' /* ［仕訳別確定］は各月の［確定］の前（2026-11-26 ユーザー指示。以前は画面右上） */, `<section class="card glass" data-sub="journal"><div class="filters"><label class="field">対象年月<input type="month" id="jc-month" value="${jm}"></label></div>${jk ? jcHtml(jm, jk) : ''}</section>
     <section class="card glass" data-sub="link">${linkHtml}</section>
     <section class="card glass" data-sub="close">${route.sub !== 'close' ? '' : table([{ label: '月', value: r => r.month + (r.fiscalEnd ? '（決算月）' : '') }, { label: '期間', value: r => `${r.from.slice(5).replace('-', '/')}〜${r.to.slice(5).replace('-', '/')}` },
       { label: '状態', html: r => r.closed ? badge('確定済', 'green') : badge('未確定', 'gray') }, { label: '確定日時 / 実行者', value: r => r.closed ? `${jst(r.closedAt, 16)} / ${r.closedBy}` : '' },
