@@ -244,6 +244,13 @@ export async function runPayPost(c, ctx, b) {
 // 同日ユーザー指示で、支払計上と同じく入金の登録では仕訳を作らず［実行］で期間の未計上の入金に仕訳 B01 を作る。何度でも実行でき、最後の実行で上書き。会計連携済みの期間の締切日は実行できない
 // 移行した入金（入金No MIG…。2026-09、仕訳なし）は未計上に出さず、［実行］でも計上しない（2026-11-27 ユーザー指示）
 const RC_NOT_MIG = "r.receipt_no NOT LIKE 'MIG%'";
+// 期間の未計上の入金・支払（月次確定事前チェックの対象外だが、取込完了の前に知らせる。2026-11-28 ユーザー指示 案(ナ)）
+export async function unpostedCash(c, from, to) {
+  const rc = await one(c, `SELECT COUNT(*) n, COALESCE(SUM(r.settlement_amount),0) amt FROM receipt r WHERE r.status='POSTED' AND r.receipt_date BETWEEN ? AND ? AND NOT ${RC_BOOKED} AND ${RC_NOT_MIG}`, [from, to]);
+  const py = await one(c, `SELECT COUNT(*) n, COALESCE(SUM(p.bank_amount+p.fee_amount+p.offset_amount+COALESCE(p.safety_amount,0)),0) amt FROM payment p WHERE p.status='POSTED' AND p.paid_on BETWEEN ? AND ? AND NOT ${PAY_BOOKED}`, [from, to]);
+  return { receipts: { count: Number(rc.n), amount: Number(rc.amt) }, payments: { count: Number(py.n), amount: Number(py.amt) } };
+}
+export const unpostedText = u => [u.receipts.count ? `入金 ${u.receipts.count} 件（${u.receipts.amount.toLocaleString()} 円）` : '', u.payments.count ? `支払 ${u.payments.count} 件（${u.payments.amount.toLocaleString()} 円）` : ''].filter(Boolean).join('・');
 export async function rcPostStatus(c, date) {
   const dt = /^\d{4}-\d{2}-\d{2}$/.test(date || '') ? date : (await arPostStatus(c)).next.to, { from, to } = closingPeriodOfDate(dt);
   const lk = await one(c, "SELECT period FROM app_acct_link WHERE CAST(? AS date) BETWEEN CAST(split_part(period,'..',1) AS date) AND CAST(split_part(period,'..',2) AS date) LIMIT 1", [to]);

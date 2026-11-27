@@ -8,7 +8,7 @@ import iconv from 'iconv-lite';
 import { check, isoDate, csv, parseCsv, DomainError, addMonths } from './domain.mjs';
 import { importCsv as masterImport } from './masters.mjs';
 import { audit, rows as dbRows, one, isClosed, cycleMonth, cycleRange, JOURNAL_CLOSE } from './db.mjs';
-import { journalList, LISTS, markAcctLinked } from './journal-lists.mjs';
+import { journalList, LISTS, markAcctLinked, unpostedCash, unpostedText } from './journal-lists.mjs';
 import { decode, NON_TAX } from './taxcode.mjs';
 import { bugyoSettings, bugyoFile } from './bugyo.mjs';
 
@@ -126,6 +126,7 @@ export async function acctLinkStatus(c) {
   const jc = await dbRows(c, 'SELECT period, pattern FROM app_journal_close'), pc = new Set((await dbRows(c, 'SELECT period FROM app_period_close')).map(r => r.period));
   // まとめて出力した場合は、次の月を含む最後の出力の終わりの月まで一度に取込完了（2026-11-27 ユーザー指示 案(ナ)）
   const doneTo = next ? endOfExport(exps, next) : null;
+  const unposted = next && doneTo ? unpostedText(await unpostedCash(c, cycleRange(next).from, cycleRange(doneTo).to)) : '';   // 取込完了の前に未計上の入金・支払を知らせる（2026-11-28）
   const out = [];
   for (let i = -7; i <= 0; i++) {   // 現在の会計月まで 8 か月（翌月は出さない。2026-11-27 ユーザー指示）
     const m = addMonths(now, i), { from, to } = cycleRange(m), l = links.find(r => r.month === m);
@@ -135,7 +136,7 @@ export async function acctLinkStatus(c) {
       exported: e ? { at: e.exported_at, by: e.exported_by, slips: Number(e.slips), period: `${e.from_d}..${e.to_d}`, again: !!e.again } : null,
       linked: l ? { at: l.linked_at, by: l.linked_by } : null, next: m === next, doneTo: m === next ? doneTo : null, withNext: !!(next && doneTo && m > next && m <= doneTo) });
   }
-  return { last, next, doneTo, journalNames: JOURNAL_CLOSE, months: out.reverse() };
+  return { last, next, doneTo, unposted, journalNames: JOURNAL_CLOSE, months: out.reverse() };
 }
 export async function completeAcctLink(c, ctx, b) {
   const month = String(b?.month || ''); check(/^\d{4}-(0[1-9]|1[0-2])$/.test(month), '対象年月を指定してください');
@@ -151,8 +152,11 @@ export async function completeAcctLink(c, ctx, b) {
     const miss = Object.entries(JOURNAL_CLOSE).filter(([k]) => !done.has(k)).map(([, n]) => n);
     check(!miss.length, `${m} は確定していない自動仕訳があります：${miss.join('・')}`);
   }
+  // 未計上の入金・支払があれば確認のうえ（force）取込完了。取込完了の後はその期間の入金計上・支払計上ができない（2026-11-28 ユーザー指示 案(ナ)）
+  const un = unpostedText(await unpostedCash(c, from, cycleRange(end).to));
+  check(!un || b?.force === true, `入金計上・支払計上をしていない入金・支払があります：${un}。取込完了にするとこの期間は計上できなくなります。先に 入金計上・支払計上 を［実行］してください`);
   const linked = await markAcctLinked(c, ctx, from, cycleRange(end).to);
-  await audit(c, ctx, 'app_acct_link', month, 'accounting.linkdone', { month, end, from, to: cycleRange(end).to, linked });
+  await audit(c, ctx, 'app_acct_link', month, 'accounting.linkdone', { month, end, from, to: cycleRange(end).to, linked, ...(un ? { unposted: un, forced: true } : {}) });
   return acctLinkStatus(c);
 }
 

@@ -2792,8 +2792,8 @@ VIEWS.periods = async (q = {}) => {
   const jk = route.sub === 'journal' ? await api('/api/periods/journals?' + qs({ month: jm })) : null;
   // 連携取込完了（2026-11-27 ユーザー指示）：勘定奉行に取り込んだ月に［取込完了］。月の順番どおり、戻せない
   const lk = route.sub === 'link' ? await api('/api/accounting/link') : null;
-  A.linkDone = d => confirmBox('取込完了', `${d.month === d.end ? d.month : `${d.month}〜${d.end}`}（${d.from}〜${d.to}）を取込完了にします。勘定奉行への取込が終わっていることを確認してください。取込完了にすると元に戻せず、この期間の計上・登録・修正ができなくなります。`,
-    () => post('/api/accounting/link/complete', { month: d.month }).then(() => { toast('取込完了にしました'); render(); }), '取込完了にする');
+  A.linkDone = d => confirmBox('取込完了', `${d.month === d.end ? d.month : `${d.month}〜${d.end}`}（${d.from}〜${d.to}）を取込完了にします。勘定奉行への取込が終わっていることを確認してください。取込完了にすると元に戻せず、この期間の計上・登録・修正ができなくなります。${lk.unposted ? `　【注意】入金計上・支払計上をしていない入金・支払があります：${lk.unposted}。取込完了にすると、この期間はもう計上できません（入金計上・支払計上 で先に［実行］してください）。` : ''}`,
+    () => post('/api/accounting/link/complete', { month: d.month, force: !!lk.unposted }).then(() => { toast('取込完了にしました'); render(); }), '取込完了にする');
   const linkHtml = !lk ? '' : `<p class="note small">勘定奉行 受入CSV の出力（会計連携データ）は何度でもできます。勘定奉行への取込が終わった月に［取込完了］を押してください。［取込完了］は、自動仕訳 4 種がすべて確定済みで受入CSV を出力した月に出ます。取込完了は月の順番どおりで、元に戻せません。</p>`
     + table([{ label: '月', value: r => r.month }, { label: '期間', value: r => `${r.from.slice(5).replace('-', '/')}〜${r.to.slice(5).replace('-', '/')}` },
       ...Object.entries(lk.journalNames).map(([k, name]) => ({ label: name, html: r => r.journals[k] ? '<span class="check-ok">✓</span>' : '<span class="small">－</span>' })),
