@@ -2780,7 +2780,7 @@ VIEWS.periods = async (q = {}) => {
     catch (e) { toast(e.message, true); }
   };
   // 小メニュー 仕訳別確定：対象年月（初期は未確定の月）を変えるとその月を表示（2026-11-27 ユーザー指示）
-  const jm = /^\d{4}-\d{2}$/.test(q.month || '') ? q.month : (p.months.find(m => !m.closed) || p.months[0])?.month || today().slice(0, 7);
+  const jm = /^\d{4}-\d{2}$/.test(q.month || '') ? q.month : ((p.months.find(m => m.closed) ? { month: addMonths(p.months.find(m => m.closed).month, 1) } : null) /* 初期は月次確定した最後の月の翌月（次に確定する月。2026-11-27 ユーザー指摘：12 月が出て 11 月の確定が見えない） */ || p.months.find(m => !m.closed) || p.months[0])?.month || today().slice(0, 7);
   const jk = route.sub === 'journal' ? await api('/api/periods/journals?' + qs({ month: jm })) : null;
   // 連携取込完了（2026-11-27 ユーザー指示）：勘定奉行に取り込んだ月に［取込完了］。月の順番どおり、戻せない
   const lk = route.sub === 'link' ? await api('/api/accounting/link') : null;
