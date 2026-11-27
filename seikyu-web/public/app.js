@@ -1901,7 +1901,9 @@ VIEWS.inventory = async q => {
   A.misc = d => miscReport(d.kind, d.src).catch(e => toast(e.message, true)); A.mix = () => mixDialog().catch(e => toast(e.message, true));
   A.mixXl = d => saveXlsx(`/api/reports/misc/mix?${qs(miscParams('mix', d.src))}&format=xlsx`).then(() => toast('配合計算結果表を Excel で出力しました')).catch(e => toast(e.message, true));
   A.icSort = d => { const st = listSort.ic; listSort.ic = st?.k === d.k ? { k: d.k, dir: -st.dir } : { k: d.k, dir: 1 }; icApplySort(); };   // 入力中の数量を消さないよう再描画せずに行を並べ替える（2026-11-21）
-  const [list, cnt] = await Promise.all([api('/api/inventory?' + qs({ month: q.month || thisMonth() })), api('/api/inventory/counts?' + qs({ date: q.date || lastClosing() }))]);
+  // 計上月度・実在庫の初期は他の計上と同じ「次に会計連携する締日」（取込完了の翌月の20日。2026-11-28 ユーザー指示。以前は直近の20日）
+  const invDate = q.date || (await api('/api/ar-post')).next.to;
+  const [list, cnt] = await Promise.all([api('/api/inventory?' + qs({ month: q.month || thisMonth() })), api('/api/inventory/counts?' + qs({ date: invDate }))]);
   A.countSave = async (_, btn) => {
     const lines = $$('.ic-qty').filter(x => x.value.trim() !== x.dataset.orig).map(x => ({ item: x.dataset.item, quantity: x.value.trim().replace(/,/g, '') }));
     if (!lines.length) return toast(`変更された在庫数量がありません。「在庫数量」欄に数量を入力・変更してから［登録］してください（${cnt.items.filter(r => qtyOf(r.quantity) !== '').length}件は登録済みで、そのまま有効です）`, true);
