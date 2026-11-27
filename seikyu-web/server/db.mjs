@@ -42,6 +42,8 @@ export async function assertOpen(c, iso, pattern) {
   const ym = cycleMonth(iso);   // 20日締めの会計月（2026-11-27）
   const r = await one(c, 'SELECT period FROM app_period_close WHERE period=? FOR SHARE', [ym]);
   check(!r, `${ym}（${cycleRange(ym).from}〜${cycleRange(ym).to}）は月次確定済みのため登録・変更できません`);
+  // 取込完了（会計連携済み）の会計月はすべての業務で登録・変更・取消できない（2026-11-28 ユーザー指示「모두 막아 주세요」。それまでは定時請求・入金・支払・小口現金だけ）
+  check(!(await one(c, 'SELECT 1 x FROM app_acct_link WHERE month=?', [ym])), `${ym}（${cycleRange(ym).from}〜${cycleRange(ym).to}）は取込完了（会計連携済み）のため登録・変更・取消できません`);
   if (pattern && JOURNAL_CLOSE[pattern]) check(!(await one(c, 'SELECT 1 x FROM app_journal_close WHERE period=? AND pattern=? FOR SHARE', [ym, pattern])), `${ym} の${JOURNAL_CLOSE[pattern]}（${JOURNAL_CLOSE[pattern]}自動仕訳）は月次確定事前チェックで確定済みのため登録・変更・計上できません`);
 }
 export async function audit(c, ctx, entity, id, action, summary = {}) {
