@@ -1912,7 +1912,7 @@ VIEWS.inventory = async q => {
   };
   // 完了のポップアップは見出しと［確認］ボタンだけ（計上月度・品目数・評価額・仕訳日付・伝票番号は出さない。2026-11-03）
   // 在庫計上自動仕訳リスト（C01）：計上月度の仕訳日付（月度の締日）はその月の中なので、期間はその月の 1 日〜末日（2026-11-26 ユーザー指示）
-  A.invJl = () => { const m = $('#ip-month').value; if (!/^\d{4}-\d{2}$/.test(m)) return toast('計上月度を入力してください', true); go('journals', { tab: 'lists', list: 'C01', from: m + '-01', to: monthEnd(m) }); };
+  A.invJl = () => { const m = $('#ip-month').value; if (!/^\d{4}-\d{2}$/.test(m)) return toast('計上月度を入力してください', true); go('journals', { tab: 'lists', list: 'C01', closing: m }); };   // 締日（20日）の年月で開く（2026-11-27）
   // 実行前の確認ポップアップは出さず、他の計上と同じく実行後に完了のポップアップだけ（2026-11-27 ユーザー指示）
   A.post = async (_, btn) => { const month = $('#ip-month').value; if (btn) btn.disabled = true; try { await post('/api/inventory/post', { month }); await render(); alertBox('', { ok: true, title: '在庫計上を完了しました' }); } catch (e) { toast(e.message, true); if (btn) btn.disabled = false; } };
   // ［模擬実行］（2026-11-19 ユーザー指示：user01 のテスト用。何度でも）：在庫計上と同じ計算の結果を表示するだけで、DB は変えない（計上済みの月度でも可）
@@ -2669,7 +2669,8 @@ const monthStart = () => thisMonth() + '-01';
 // bankOnly：支払メニューの「銀行別随時支払一覧表」から（帳票の選択は銀行別随時支払一覧表だけ。メニューは支払のまま）
 async function journalListsView(q, bankOnly = false) {
   const A = actions, kind = meta.journalLists[q.list] && (bankOnly || q.list !== 'BANK') ? q.list : 'A01';   // 仕訳・会計連携からは銀行別随時支払一覧表を開かない（2026-11-24）
-  const closing = kind !== 'A01' ? '' : /^\d{4}-\d{2}/.test(q.closing || '') ? q.closing.slice(0, 7) + '-20' : (await api('/api/ar-post')).next.to;
+  // 期間はすべての自動仕訳リストで 締日（毎月20日）の年月を選び 前月21日〜当月20日（日付は入力させない。2026-11-27 ユーザー指示。以前は売掛金計上だけ）。銀行別随時支払一覧表は支払日の期間のまま
+  const closing = kind === 'BANK' ? '' : /^\d{4}-\d{2}/.test(q.closing || '') ? q.closing.slice(0, 7) + '-20' : (await api('/api/ar-post')).next.to;
   const pFrom = closing ? addMonths(closing.slice(0, 7), -1) + '-21' : '', from = pFrom || q.from || monthStart(), to = closing || q.to || today();
   A.tab = d => go('journals', { tab: d.tab });
   A.print = () => { $('#print-area').innerHTML = `<section class="invoice-doc report-doc journal-doc"><h2>${esc(meta.journalLists[kind].title)}</h2><p>${closing ? `締日 ${closing} ／ ` : kind === 'B01' ? '' : `期間 ${from} 〜 ${to} ／ `}出力日 ${today()}</p>${$('#jl-body').innerHTML}</section>`; setTimeout(() => window.print(), 200); };
