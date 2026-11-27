@@ -404,7 +404,7 @@ const SUBMENUS = {
   journals: [{ k: 'list', l: '仕訳一覧', noUser01: true }, { k: 'tb', l: '月次残高試算', q: { tab: 'tb' }, noUser01: true /* 仕訳一覧・月次残高試算は user01 は非表示（2026-11-26 ユーザー指示） */ }, { k: 'journal', l: '自動仕訳別月次確定' /* 月次確定 から 自動仕訳リスト（帳票）の前へ移す（2026-11-28 ユーザー指示）。画面は VIEWS.periods を使う */ }, { k: 'lists', l: '自動仕訳リスト（帳票）', q: { tab: 'lists' } }, { k: 'export', l: '会計連携データ' }, { k: 'link', l: '月次確定（送信）履歴' /* 月次確定 から 会計連携データ の次へ移す（2026-11-28 ユーザー指示）。 出力と取込完了を分ける（2026-11-27 ユーザー指示）。名称 連携取込完了 → 月次確定（送信）履歴（同日ユーザー指示） */ }],
   external: [{ k: 'gslink', l: 'gsLink' }], // 2026-11-05 ユーザー指示
   // 月次確定の小メニュー（2026-11-27 ユーザー指示）：仕訳別確定（画面）・月次確定履歴照会（従来の月次確定の一覧）
-  periods: [] /* 小メニューは 仕訳・会計連携 に移した（自動仕訳別月次確定・月次確定（送信）履歴。2026-11-28 ユーザー指示）。メニュー 月次確定 は出さない（HIDDEN_MENUS） */,
+  periods: [{ k: 'close', l: '月次確定' } /* 月全体の一括の月次確定（確定・解除。2026-11-28 ユーザー指示で再表示。管理者だけ、user01 は出さない）。自動仕訳別月次確定・月次確定（送信）履歴は 仕訳・会計連携 に移した（同日） */],
   reports: [{ k: 'csv', l: 'CSV出力', tools: true, hidden: true /* 機能一覧・決定事項台帳に根拠がないため非表示（削除はしない。2026-11-24 ユーザー指示） */ }, { k: 'ar', l: '売掛金残高一覧', noUser01: true }, { k: 'ap', l: '未払残高一覧', noUser01: true } /* user01 は非表示（2026-11-26 ユーザー指示） */, { k: 'itempu', l: '商品別仕入一覧' } /* 商品仕入のメニューと同じもの（2026-11-24 打合せ No.24） */, { k: 'jv', l: '出資金（JV）帳票' }, { k: 'jvalloc', l: '入金分配端数調整登録' }, { k: 'daily', l: '日報出力' }], // 入金分配端数調整登録は 2026-11-03 に小メニューへ。日報出力は 2026-11-20 ユーザー指示（日報をまとめて出す）
 };
 // 1:n 入力画面（現場2・内訳科目2、2026-11-06 ／得意先別単価2、2026-11-07 ユーザー指示）は元のマスタの次に置く（元のマスタの画面はそのまま）。定義は ONE_TO_MANY
@@ -419,7 +419,7 @@ const MASTER_NO_U01 = new Set(['sites2', 'prices2', 'company', 'jv', 'mixes', 'm
 const subsOf = name => (name === 'masters' && meta?.masters ? Object.entries(meta.masters).flatMap(([k, x], _, __, two = Object.values(ONE_TO_MANY).some(o => o.after === k)) => [{ k, ...masterName(x.label, two ? '1' : '', noEditU01(k)), q: { kind: k }, noUser01: two || MASTER_NO_U01.has(k), hidden: two || MASTER_HIDDEN.has(k) }, ...Object.entries(ONE_TO_MANY).filter(([, x]) => x.after === k).map(([k2, x]) => ({ k: k2, ...masterName(x.label, '', noEditU01(x.child)), q: { kind: k2 }, noUser01: MASTER_NO_U01.has(k2) }))]) : SUBMENUS[name] || null);
 const TITLES = {};
 // 非表示にするメニュー（2026-10-22 ダッシュボードは使わない）。初期画面は表示メニューの先頭
-const HIDDEN_MENUS = new Set(['dashboard', 'periods' /* 小メニューを 仕訳・会計連携 に移したため（2026-11-28） */]);
+const HIDDEN_MENUS = new Set(['dashboard']);
 // サイドバー最下部に固定表示するメニュー（表示名）と、クリックで開閉するグループ（アイコン）
 const PINNED_MENUS = { migration: '前提・確認事項' };
 const FOLD_GROUPS = { '財務会計': '¥' };
@@ -429,7 +429,7 @@ const noEditU01 = k => isUser01() && ['accounts', 'subaccounts'].includes(k);   
 const foldOpen = new Set((() => { try { return JSON.parse(localStorage.getItem('navFold') || '[]'); } catch { return []; } })());
 const home = () => Object.keys(TITLES).find(k => !PINNED_MENUS[k]) || 'shipments';
 function nav() {
-  const list = session.menus.filter(m => !HIDDEN_MENUS.has(m.url.slice(1)) && !(isUser01() && (m.grp === '財務会計' || USER01_HIDE.has(m.url.slice(1))))), groups = [];
+  const list = session.menus.filter(m => !HIDDEN_MENUS.has(m.url.slice(1)) && !(m.url === '#periods' && (!isAdmin() || isUser01())) /* 月次確定は管理者だけ・user01 は出さない（2026-11-28） */ && !(isUser01() && (m.grp === '財務会計' || USER01_HIDE.has(m.url.slice(1))))), groups = [];
   const link = m => `<a class="nav-link" href="${esc(m.url)}" data-nav="${esc(m.url.slice(1))}"><i>${esc(m.icon)}</i>${esc(m.title)}${subsOf(m.url.slice(1)) ? '<b class="nav-caret">▸</b>' : ''}</a>`;
   for (const m of list) {
     const k = m.url.slice(1); TITLES[k] = m.title; if (PINNED_MENUS[k]) continue;
@@ -2805,8 +2805,12 @@ VIEWS.periods = async (q = {}) => {
       { label: '取込完了日', html: r => tsCell(r.linked ? `${r.linked.at} / ${r.linked.by}` : '') },
       { label: '', html: r => !isAdmin() || r.linked ? '' : !r.allClosed ? '<span class="small">未確定あり</span>' : !r.exported ? '<span class="small">CSV未出力</span>' : r.withNext ? `<span class="small">${esc(lk.next)} と一緒に取込完了</span>` : !r.next ? '<span class="small">前の月の取込完了の後</span>'
         : `<button type="button" class="mini primary" data-act="linkDone" data-month="${r.month}" data-end="${r.doneTo || r.month}" data-from="${r.from}" data-to="${r.doneTo ? `${r.doneTo}-20` : r.to}">取込完了${r.doneTo && r.doneTo !== r.month ? `（〜${r.doneTo}）` : ''}</button>` } /* ボタンが出ない月は理由を出す（2026-11-27 ユーザー指摘「ボタンが見えない」） */], lk.months);
-  return page(route.name === 'journals' ? '仕訳・会計連携' : '月次確定', `確定した月の伝票は登録・変更・取消ができなくなります。確定・解除は管理者のみ実行できます。［自動仕訳別月次確定］で自動仕訳の種類ごとにも確定できます。`, '' /* ［仕訳別確定］は各月の［確定］の前（2026-11-26 ユーザー指示。以前は画面右上） */, `<section class="card glass" data-sub="journal"><div class="filters"><label class="field">対象年月<input type="month" id="jc-month" value="${jm}"></label></div>${jk ? jcHtml(jm, jk) : ''}</section>
+  return page(route.name === 'journals' ? '仕訳・会計連携' : '月次確定', `確定した月の伝票は登録・変更・取消ができなくなります。確定・解除は管理者のみ実行できます。${route.name === 'journals' ? '［自動仕訳別月次確定］で自動仕訳の種類ごとにも確定できます。' : ''}`, '' /* ［仕訳別確定］は各月の［確定］の前（2026-11-26 ユーザー指示。以前は画面右上） */, `<section class="card glass" data-sub="journal"><div class="filters"><label class="field">対象年月<input type="month" id="jc-month" value="${jm}"></label></div>${jk ? jcHtml(jm, jk) : ''}</section>
     <section class="card glass" data-sub="link">${linkHtml}</section>
+    <section class="card glass" data-sub="close">${route.sub !== 'close' ? '' : table([{ label: '月', value: r => r.month + (r.fiscalEnd ? '（決算月）' : '') }, { label: '期間', value: r => `${r.from.slice(5).replace('-', '/')}〜${r.to.slice(5).replace('-', '/')}` },
+      { label: '状態', html: r => r.closed ? badge('確定済', 'green') : badge('未確定', 'gray') }, { label: '確定日時 / 実行者', value: r => r.closed ? `${jst(r.closedAt, 16)} / ${r.closedBy}` : '' },
+      /* 一括の月次確定（2026-11-28 ユーザー指示：以前の画面に戻す）。［確定］は確定前チェックをして未請求・未発行があれば一覧を出す。解除は後の月から順に */
+      { label: '', html: r => !isAdmin() ? '' : r.closed ? (r.kind === '1' ? '' : `<button class="mini danger" data-act="reopen" data-month="${r.month}">解除</button>`) : `<button class="mini primary" data-act="close" data-month="${r.month}">確定</button>` }], p.months)}</section>
     `);
 };
 
