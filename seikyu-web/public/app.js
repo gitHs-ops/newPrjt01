@@ -401,10 +401,10 @@ const SUBMENUS = {
   // 要件定義の業務順（2026-11-19 ユーザー指示）：振込先一覧（支払予定・口座の確認）→ 支払データ作成（全銀：未払から自動作成 → 全銀、機能一覧 14-1）→ 支払一覧・支払内訳入力（修正、14-7）→ 支払帳票（14-2〜14-5）→ 銀行別随時支払一覧表（14-6）。
   // 一覧の絞り込み（月・状態・CSV）は支払内訳入力の小メニューに出す（tools）
   payments: [{ k: 'transfer', l: '振込先一覧', tools: false }, { k: 'zengin', l: '支払データ作成（全銀）' }, { k: 'list', l: '支払一覧・支払内訳入力', tools: true }, { k: 'reports', l: '支払帳票', noUser01: true /* user01 は出さない（2026-11-20 ユーザー指示） */ }, { k: 'post', l: '支払計上', tools: false /* 2026-11-24 ユーザー指示：定時請求計上と同じ形。銀行別随時支払一覧表の前 */ }, { k: 'bank', l: '銀行別随時支払一覧表', q: { list: 'BANK' } }],   // 銀行別随時支払一覧表は自動仕訳リスト（帳票）の画面を支払メニューのまま表示（2026-11-19 ユーザー指示：メニューは移らない）,
-  journals: [{ k: 'list', l: '仕訳一覧', noUser01: true }, { k: 'tb', l: '月次残高試算', q: { tab: 'tb' }, noUser01: true /* 仕訳一覧・月次残高試算は user01 は非表示（2026-11-26 ユーザー指示） */ }, { k: 'journal', l: '自動仕訳別月次確定' /* 月次確定 から 自動仕訳リスト（帳票）の前へ移す（2026-11-28 ユーザー指示）。画面は VIEWS.periods を使う */ }, { k: 'lists', l: '自動仕訳リスト（帳票）', q: { tab: 'lists' } }, { k: 'export', l: '会計連携データ' }],
+  journals: [{ k: 'list', l: '仕訳一覧', noUser01: true }, { k: 'tb', l: '月次残高試算', q: { tab: 'tb' }, noUser01: true /* 仕訳一覧・月次残高試算は user01 は非表示（2026-11-26 ユーザー指示） */ }, { k: 'journal', l: '自動仕訳別月次確定' /* 月次確定 から 自動仕訳リスト（帳票）の前へ移す（2026-11-28 ユーザー指示）。画面は VIEWS.periods を使う */ }, { k: 'lists', l: '自動仕訳リスト（帳票）', q: { tab: 'lists' } }, { k: 'export', l: '会計連携データ' }, { k: 'link', l: '月次確定（送信）履歴' /* 月次確定 から 会計連携データ の次へ移す（2026-11-28 ユーザー指示）。 出力と取込完了を分ける（2026-11-27 ユーザー指示）。名称 連携取込完了 → 月次確定（送信）履歴（同日ユーザー指示） */ }],
   external: [{ k: 'gslink', l: 'gsLink' }], // 2026-11-05 ユーザー指示
   // 月次確定の小メニュー（2026-11-27 ユーザー指示）：仕訳別確定（画面）・月次確定履歴照会（従来の月次確定の一覧）
-  periods: [/* 自動仕訳別月次確定（名称 仕訳別確定 → 自動仕訳別確定 → 自動仕訳別月次確定、2026-11-27）は 仕訳・会計連携 に移す（2026-11-28 ユーザー指示） */ /* 月次確定履歴照会 は 月次確定（送信）履歴 にまとめて削除（状態・確定日時の列を移す。打合せどおり小メニュー 2 つ。2026-11-27 ユーザー指示） */ { k: 'link', l: '月次確定（送信）履歴' /* 出力と取込完了を分ける（2026-11-27 ユーザー指示）。名称 連携取込完了 → 月次確定（送信）履歴（同日ユーザー指示） */ }],
+  periods: [] /* 小メニューは 仕訳・会計連携 に移した（自動仕訳別月次確定・月次確定（送信）履歴。2026-11-28 ユーザー指示）。メニュー 月次確定 は出さない（HIDDEN_MENUS） */,
   reports: [{ k: 'csv', l: 'CSV出力', tools: true, hidden: true /* 機能一覧・決定事項台帳に根拠がないため非表示（削除はしない。2026-11-24 ユーザー指示） */ }, { k: 'ar', l: '売掛金残高一覧', noUser01: true }, { k: 'ap', l: '未払残高一覧', noUser01: true } /* user01 は非表示（2026-11-26 ユーザー指示） */, { k: 'itempu', l: '商品別仕入一覧' } /* 商品仕入のメニューと同じもの（2026-11-24 打合せ No.24） */, { k: 'jv', l: '出資金（JV）帳票' }, { k: 'jvalloc', l: '入金分配端数調整登録' }, { k: 'daily', l: '日報出力' }], // 入金分配端数調整登録は 2026-11-03 に小メニューへ。日報出力は 2026-11-20 ユーザー指示（日報をまとめて出す）
 };
 // 1:n 入力画面（現場2・内訳科目2、2026-11-06 ／得意先別単価2、2026-11-07 ユーザー指示）は元のマスタの次に置く（元のマスタの画面はそのまま）。定義は ONE_TO_MANY
@@ -419,7 +419,7 @@ const MASTER_NO_U01 = new Set(['sites2', 'prices2', 'company', 'jv', 'mixes', 'm
 const subsOf = name => (name === 'masters' && meta?.masters ? Object.entries(meta.masters).flatMap(([k, x], _, __, two = Object.values(ONE_TO_MANY).some(o => o.after === k)) => [{ k, ...masterName(x.label, two ? '1' : '', noEditU01(k)), q: { kind: k }, noUser01: two || MASTER_NO_U01.has(k), hidden: two || MASTER_HIDDEN.has(k) }, ...Object.entries(ONE_TO_MANY).filter(([, x]) => x.after === k).map(([k2, x]) => ({ k: k2, ...masterName(x.label, '', noEditU01(x.child)), q: { kind: k2 }, noUser01: MASTER_NO_U01.has(k2) }))]) : SUBMENUS[name] || null);
 const TITLES = {};
 // 非表示にするメニュー（2026-10-22 ダッシュボードは使わない）。初期画面は表示メニューの先頭
-const HIDDEN_MENUS = new Set(['dashboard']);
+const HIDDEN_MENUS = new Set(['dashboard', 'periods' /* 小メニューを 仕訳・会計連携 に移したため（2026-11-28） */]);
 // サイドバー最下部に固定表示するメニュー（表示名）と、クリックで開閉するグループ（アイコン）
 const PINNED_MENUS = { migration: '前提・確認事項' };
 const FOLD_GROUPS = { '財務会計': '¥' };
@@ -2408,7 +2408,7 @@ const accountingCard = () => miscCard('仕訳データ', '会計システムは�
 // 仕訳の出力は勘定奉行 受入CSV だけ（汎用CSV・弥生会計形式のボタンは外す。要件定義 最終版 No.32、2026-11-20 ユーザー指示。サーバの形式は残す）
   '<button class="primary" data-act="acct" data-format="bugyo">勘定奉行 受入</button>') + miscCard('マスタ（勘定奉行）', '', '',
   '<span class="small">マスタ（勘定奉行へ送る）</span><button data-act="acctMaster" data-kind="partners">取引先</button><button data-act="acctMaster" data-kind="depts">部門</button><button data-act="acctMaster" data-kind="tekiyo">摘要</button><div class="filters-break"></div><span class="small">マスタ（勘定奉行から受け取る）</span><button data-act="acctMasterIn" data-kind="accounts">勘定科目 受入</button><button data-act="acctMasterIn" data-kind="subaccounts">補助科目 受入</button>',
-  '開始の月は取込完了した月の翌月（固定）で、終わりの月を選ぶと何か月分かをまとめて出力できます。出力は何度でもでき、勘定奉行への取込が終わったら「月次確定 → 月次確定（送信）履歴」で［取込完了］にします（まとめて出力した月はまとめて取込完了。元に戻せません。2026-11-27）。マスタは 取引先・部門・摘要 を勘定奉行へ送り、勘定科目・補助科目は勘定奉行から受け取ります（11/11 打合せ No.3）。補助科目は内訳科目だけ、得意先・業者は取引先コードで連携します（カナを含むコードは「マスタ管理 → 取引先コード変換表」で会計の取引先コードを登録。未登録があると勘定奉行CSVは出力しません）。勘定奉行CSVの見出しは「財務会計 → 会計設定 → 勘定奉行連携」で登録した OBC受入記号（未登録は項目名）、税区分は処税率→奉行税区分の対応表で変換します。受入記号・税区分コードは「データ受入形式一覧表」で確定予定（Q14/Q19）。出力は操作履歴に記録されます。');
+  '開始の月は取込完了した月の翌月（固定）で、終わりの月を選ぶと何か月分かをまとめて出力できます。出力は何度でもでき、勘定奉行への取込が終わったら「仕訳・会計連携 → 月次確定（送信）履歴」で［取込完了］にします（まとめて出力した月はまとめて取込完了。元に戻せません。2026-11-27）。マスタは 取引先・部門・摘要 を勘定奉行へ送り、勘定科目・補助科目は勘定奉行から受け取ります（11/11 打合せ No.3）。補助科目は内訳科目だけ、得意先・業者は取引先コードで連携します（カナを含むコードは「マスタ管理 → 取引先コード変換表」で会計の取引先コードを登録。未登録があると勘定奉行CSVは出力しません）。勘定奉行CSVの見出しは「財務会計 → 会計設定 → 勘定奉行連携」で登録した OBC受入記号（未登録は項目名）、税区分は処税率→奉行税区分の対応表で変換します。受入記号・税区分コードは「データ受入形式一覧表」で確定予定（Q14/Q19）。出力は操作履歴に記録されます。');
 // マスタの勘定奉行形式（取引先・部門・勘定科目・補助科目）。取引先コードは取引先コード変換表で置き換え（2026-11-12 結合テスト IT-13）
 async function accountingMasterDownload(kind) {
   const res = await fetch('/api/accounting/masters?' + qs({ kind }), { cache: 'no-store' });
@@ -2647,7 +2647,7 @@ VIEWS.journals = async q => {
   const month = q.month || thisMonth(), tab = q.tab || 'list';
   A.tab = d => go('journals', { ...route.q, tab: d.tab });
   let body;
-  if (route.sub === 'journal') return VIEWS.periods(q);   // 自動仕訳別月次確定（2026-11-28 月次確定から移す）
+  if (route.sub === 'journal' || route.sub === 'link') return VIEWS.periods(q);   // 自動仕訳別月次確定・月次確定（送信）履歴（2026-11-28 月次確定から移す）
   if (tab === 'lists') return journalListsView(q);
   if (tab === 'tb') {
     const tb = await api('/api/trial-balance?month=' + month);
