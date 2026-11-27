@@ -2,7 +2,7 @@
 // 削減案5により全リストを同一フォーマットで出力する。エ（銀行別随時支払一覧表）のみ別形式。
 import { check, isoDate, fromNum, today, addMonths, closingPeriodOfDate } from './domain.mjs';
 import { businessDate, RC_BOOKED, postReceiptJournal } from './sales.mjs';
-import { rows, one, audit, invoiceNos, assertOpen } from './db.mjs';
+import { rows, one, audit, invoiceNos, assertOpen, autoCloseJournal, cycleMonth, cycleRange } from './db.mjs';
 import { BOOKED, postPayableJournal, PAY_BOOKED, postPaymentJournal } from './payables.mjs';
 import { xlsx, band } from './xlsx.mjs';
 import { normalize } from './taxcode.mjs';
@@ -167,6 +167,7 @@ export async function runArPost(c, ctx, b) {
   const d = await journalList(c, { pattern: 'A01', from, to }); // 締日20日の請求だけでなく、対象期間（前月21日〜当月20日）の売掛金計上をすべて対象（2026-11-17 ユーザー指示）
   await c.query('INSERT INTO app_ar_post_run (month,run_by,run_at,slips,total) VALUES (?,?,?,?,?) ON DUPLICATE KEY UPDATE run_by=VALUES(run_by),run_at=VALUES(run_at),slips=VALUES(slips),total=VALUES(total)', [month, ctx.user.login_id, jstNow(), d.slips.length, d.total]);
   await audit(c, ctx, 'app_ar_post_run', month, 'arpost.run', { closing: to, slips: d.slips.length, total: d.total });
+  await autoCloseJournal(c, ctx, month, 'A01');   // 実行＝自動で確定（2026-11-27 打合せ）
   return arPostStatus(c, month);
 }
 // 定時請求計上（2026-11-21 ユーザー指示）：締切日を指定して［実行］。未計上の定時請求に仕訳 D01 を作る（C-2 案 B。登録では作らない。それまでの伝票は登録時に起票済み）。
@@ -191,6 +192,7 @@ export async function runApPost(c, ctx, b) {
   const d = await journalList(c, { pattern: 'D01', from, to });
   await c.query('INSERT INTO app_ap_post_run (closing,run_by,run_at,slips,total) VALUES (?,?,?,?,?) ON DUPLICATE KEY UPDATE run_by=VALUES(run_by),run_at=VALUES(run_at),slips=VALUES(slips),total=VALUES(total)', [to, ctx.user.login_id, jstNow(), d.slips.length, d.total]);
   await audit(c, ctx, 'app_ap_post_run', to, 'appost.run', { from, to, posted: todo.map(x => x.document_no), slips: d.slips.length, total: d.total });
+  if (to === cycleRange(cycleMonth(to)).to) await autoCloseJournal(c, ctx, cycleMonth(to), 'D01');   // 会計月の締切日（20日）の実行で自動で確定（途中の締切日では確定しない。2026-11-27 打合せ）
   return apPostStatus(c, to);
 }
 // 支払計上（2026-11-24 ユーザー指示：定時請求計上と同じ形）：締切日を指定して［実行］。期間（前月の同じ締日の翌日〜締切日）の支払日の未計上の支払に仕訳 F01 を作る。

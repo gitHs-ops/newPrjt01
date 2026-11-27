@@ -1,6 +1,6 @@
 import { randomUUID } from 'crypto';
 import { check, Conflict, yen, qty, lineAmount, isoDate, isoMonth, text, dueDate, nextBusinessDay, addMonths, isHoliday, closingPeriodOfDate } from './domain.mjs';
-import { rows, one, nextSlipNoFy, docNo, DOC_SERIES, assertOpen, audit, postJournal, reverseJournal, discardOrReverseJournal, line } from './db.mjs';
+import { rows, one, nextSlipNoFy, docNo, DOC_SERIES, assertOpen, autoCloseJournal, cycleMonth, audit, postJournal, reverseJournal, discardOrReverseJournal, line } from './db.mjs';
 import { mustDecode, taxOf, CATALOG, decode } from './taxcode.mjs';
 import { companyPeriod } from './period.mjs';
 // 配合計算の結果（材料受払表）は、実在庫登録・商品仕入・在庫計上で変わった月度とそれより後の月度を無効にする（配合計算のやり直しが必要。2026-11-26 ユーザー指示）。
@@ -224,6 +224,7 @@ export async function postInventory(c, ctx, p) {
   }
   await invalidateMix(c, month);
   await audit(c, ctx, 'inventory_count', month.replace('-', ''), rerun ? 'inventory.repost' : 'inventory.post', { month, items, value: total, ...(later.length ? { later } : {}) });
+  if (!p.cascade) await autoCloseJournal(c, ctx, cycleMonth(end), 'C01');   // 在庫計上の［実行］＝自動で確定（2026-11-27 打合せ）
   return { month, items, value: total, date: end, rerun, later, slipNo: await lastInvSlip(c, end) };
 }
 // 実在庫・仕入を変えたとき：その月度以降で最初の計上済みの月度から在庫計上をやり直す（後の月度も順に）。その月度の実在庫が無くなったら仕訳だけ削除する（2026-11-25）
@@ -235,7 +236,7 @@ async function revalueInventory(c, ctx, date) {
   if (hadJournal && !exists) await repostInventoryMonth(c, month, P.closeOf(+month.slice(0, 4), +month.slice(5, 7)), true);
   // 実在庫を入れ直すと行は未計上に戻るため、仕訳のある月度（計上済みだった月度）はその月度から
   const start = hadJournal && exists ? month : first ? String(first.period_start).slice(0, 7) : null;
-  if (start) await postInventory(c, ctx, { month: start });
+  if (start) await postInventory(c, ctx, { month: start, cascade: true });   // 仕入・実在庫の変更による再計算は確定しない
 }
 // 在庫計上の模擬実行（2026-11-19 ユーザー指示：user01 のテスト用。何度でも実行できる）：在庫計上と同じ式で評価額と洗い替えの金額を計算して返すだけで、
 // DB は変えない（計上済みの月度でも計算する。状態・仕訳・操作履歴は作らない）

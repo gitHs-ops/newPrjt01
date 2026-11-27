@@ -2768,7 +2768,7 @@ VIEWS.periods = async (q = {}) => {
   const jcHtml = (month, k) => (k.monthClosed ? `<p class="note small">${esc(month)} は月次確定済みです（${jst(k.monthClosed.at, 16)} / ${esc(k.monthClosed.by)}）。すべての仕訳が確定しています。仕訳別に解除するには、先に月次確定を解除してください。</p>` : '')
       + table([{ label: '自動仕訳', value: r => r.name }, { label: '状態', html: r => k.monthClosed || r.closed ? badge('確定済', 'green') : badge('未確定', 'gray') },
         { label: '確定日時 / 実行者', value: r => r.closed ? `${jst(r.closedAt, 16)} / ${r.closedBy}` : k.monthClosed ? '（月次確定）' : '' },
-        { label: '', html: r => !isAdmin() || k.monthClosed ? '' : r.closed ? `<button type="button" class="mini danger" data-act="jcDo" data-op="reopen" data-month="${esc(month)}" data-pattern="${r.pattern}">解除</button>` : `<button type="button" class="mini primary" data-act="jcDo" data-op="close" data-month="${esc(month)}" data-pattern="${r.pattern}">確定</button>` }], k.items);
+        { label: '', html: r => !isAdmin() || k.monthClosed ? '' : r.closed ? `<button type="button" class="mini danger" data-act="jcDo" data-op="reopen" data-month="${esc(month)}" data-pattern="${r.pattern}">解除</button>` : r.auto ? `<span class="small">${esc(r.auto)}の［実行］で確定</span>` /* 実行＝自動確定、解除だけ手で（2026-11-27 打合せ） */ : `<button type="button" class="mini primary" data-act="jcDo" data-op="close" data-month="${esc(month)}" data-pattern="${r.pattern}">確定</button>` }], k.items);
   const jcRender = async month => { const k = await api('/api/periods/journals?' + qs({ month })), box = $('dialog[open] #jc-body'); if (box) box.innerHTML = jcHtml(month, k); };
   A.jclose = d => {
     const def = d?.month || (p.months.find(m => !m.closed) || p.months[0])?.month || today().slice(0, 7);   // 行の［仕訳別確定］はその月を開く（2026-11-26）

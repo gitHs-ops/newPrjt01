@@ -1,5 +1,5 @@
 import { check, isoMonth, period, today, addMonths, fromNum, toNum, METHODS } from './domain.mjs';
-import { rows, one, audit, JOURNAL_CLOSE, cycleMonth, cycleRange } from './db.mjs';
+import { rows, one, audit, JOURNAL_CLOSE, AUTO_CLOSE, cycleMonth, cycleRange } from './db.mjs';
 import { listShipments, listInvoices, listReceipts } from './sales.mjs';
 import { listPayments, listExpenses, listPurchases, listInventory } from './payables.mjs';
 import { MASTERS, list as listMaster, exportRows } from './masters.mjs';
@@ -107,10 +107,11 @@ export async function journalCloses(c, month) {
   const mc = await one(c, 'SELECT closed_at, closed_by FROM app_period_close WHERE period=?', [month]);
   const rs = await rows(c, 'SELECT pattern, closed_at, closed_by FROM app_journal_close WHERE period=?', [month]);
   return { month, monthClosed: mc ? { at: mc.closed_at, by: mc.closed_by } : null,
-    items: Object.entries(JOURNAL_CLOSE).map(([pattern, name]) => { const r = rs.find(x => x.pattern === pattern); return { pattern, name: `${name}自動仕訳`, closed: !!r, closedAt: r?.closed_at || '', closedBy: r?.closed_by || '' }; }) };
+    items: Object.entries(JOURNAL_CLOSE).map(([pattern, name]) => { const r = rs.find(x => x.pattern === pattern); return { pattern, name: `${name}自動仕訳`, auto: AUTO_CLOSE[pattern] || '', closed: !!r, closedAt: r?.closed_at || '', closedBy: r?.closed_by || '' }; }) };
 }
 export async function closeJournal(c, ctx, { month, pattern }) {
   isoMonth(month, '月'); check(JOURNAL_CLOSE[pattern], '仕訳の種類が不正です'); check(month <= cycleMonth(today()), '未来の月は確定できません');
+  check(!AUTO_CLOSE[pattern], `${JOURNAL_CLOSE[pattern]}自動仕訳は${AUTO_CLOSE[pattern]}の［実行］で自動的に確定します（手で確定はできません）`);
   check(!(await one(c, 'SELECT 1 x FROM app_period_close WHERE period=?', [month])), `${month} は月次確定済みです（すべての仕訳が確定しています）`);
   check(!(await one(c, 'SELECT 1 x FROM app_journal_close WHERE period=? AND pattern=? FOR UPDATE', [month, pattern])), 'すでに確定済みです');
   await c.query('INSERT INTO app_journal_close (period, pattern, closed_at, closed_by) VALUES (?, ?, UTC_TIMESTAMP(6), ?)', [month, pattern, ctx.user.login_id]);

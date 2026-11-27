@@ -30,6 +30,13 @@ export const isClosed = async (c, iso) => !!(await one(c, 'SELECT period FROM ap
 // pattern（A01〜F01）を付けると仕訳別確定（app_journal_close）も見る（2026-11-26 ユーザー指示：月次確定のほかに自動仕訳ごとに確定）
 // 入金（B01）・支払内訳（F01）は対象外（2026-11-27 ユーザー指示：仕訳別確定の画面から除外）
 export const JOURNAL_CLOSE = { A01: '売掛金計上', C01: '在庫計上', D01: '定時請求', E01: '小口現金出納分' };
+// 計上の［実行］で自動的に確定する自動仕訳（2026-11-27 打合せ 01:07「自動仕訳を実行したら自動で確定済み。解除だけ手で」）。小口現金出納分 E01 は計上の実行が無いため手で確定
+export const AUTO_CLOSE = { A01: '売掛金計上', C01: '在庫計上', D01: '定時請求計上' };
+export async function autoCloseJournal(c, ctx, month, pattern) {
+  const [r] = await c.query('INSERT IGNORE INTO app_journal_close (period, pattern, closed_at, closed_by) VALUES (?, ?, UTC_TIMESTAMP(6), ?)', [month, pattern, ctx?.user?.login_id || 'system']);
+  await audit(c, ctx, 'app_journal_close', `${month}:${pattern}`, 'journal.autoclose', { month, pattern, name: JOURNAL_CLOSE[pattern] });
+  return r;
+}
 export async function assertOpen(c, iso, pattern) {
   const ym = cycleMonth(iso);   // 20日締めの会計月（2026-11-27）
   const r = await one(c, 'SELECT period FROM app_period_close WHERE period=? FOR SHARE', [ym]);

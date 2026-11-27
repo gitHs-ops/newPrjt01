@@ -7,7 +7,7 @@
 import iconv from 'iconv-lite';
 import { check, isoDate, csv, parseCsv, DomainError, addMonths } from './domain.mjs';
 import { importCsv as masterImport } from './masters.mjs';
-import { audit, rows as dbRows, one, isClosed, cycleMonth } from './db.mjs';
+import { audit, rows as dbRows, one, isClosed, cycleMonth, cycleRange, JOURNAL_CLOSE } from './db.mjs';
 import { journalList, LISTS, markAcctLinked } from './journal-lists.mjs';
 import { decode, NON_TAX } from './taxcode.mjs';
 import { bugyoSettings, bugyoFile } from './bugyo.mjs';
@@ -44,8 +44,15 @@ export async function accountingExport(c, ctx, q) {
   // 勘定奉行 受入CSV（2026-11-25）：① 月次確定してから出力（10 連携仕様 IF-01「月次確定の後」）② 出力済みの仕訳は出さない。再出力は確認のうえ again=1
   let exported = [];
   if (format === 'bugyo') {
-    const open = []; for (const m of [...new Set(slips.map(s => cycleMonth(s.date)))].sort()) if (!(await isClosed(c, m))) open.push(m);   // 仕訳日の会計月（20日締め。2026-11-27）
-    if (open.length) throw new DomainError(`月次確定していない月があります：${open.join('、')}。「月次確定」で確定してから出力してください`);
+    // 連携の条件は自動仕訳 4 種（売掛金計上・在庫計上・定時請求・小口現金出納分）がすべて確定済み（2026-11-27 打合せ 01:04。以前は月次確定）。月次確定済みの月はすべて確定済み
+    const open = [];
+    for (const m of [...new Set([cycleMonth(from), cycleMonth(to), ...slips.map(s => cycleMonth(s.date))])].sort()) {
+      if (await isClosed(c, m)) continue;
+      const done = new Set((await dbRows(c, 'SELECT pattern FROM app_journal_close WHERE period=?', [m])).map(r => r.pattern));
+      const miss = Object.entries(JOURNAL_CLOSE).filter(([k]) => !done.has(k)).map(([, n]) => n);
+      if (miss.length) open.push(`${m}（${cycleRange(m).from}〜${cycleRange(m).to}）：${miss.join('・')}`);
+    }
+    if (open.length) throw new DomainError(`確定していない自動仕訳があります。${open.join(' / ')}。各計上の［実行］（小口現金出納分は「自動仕訳別月次確定」の［確定］）で確定してから連携してください`);
     const ids = slips.map(s => s.id), done = new Set(ids.length ? (await dbRows(c, `SELECT journal_id FROM journal_entry WHERE export_id IS NOT NULL AND journal_id IN (${ids.map(() => '?').join(',')})`, ids)).map(r => Number(r.journal_id)) : []);
     exported = slips.filter(s => done.has(Number(s.id)));
     if (String(q.again || '') !== '1') {
