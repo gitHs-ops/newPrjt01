@@ -36,7 +36,7 @@ const fyMonths = (month, cm) => { const out = []; for (let i = 11; i >= 0; i--) 
 export async function periods(c) {
   const closed = await rows(c, 'SELECT * FROM app_period_close ORDER BY period DESC');
   const cm = (await companyPeriod(c)).closingMonth;
-  // 自動仕訳別確定の状態（月次確定履歴一覧の 売掛金計上・在庫計上・定時請求・小口現金出納分 の列。2026-11-27 ユーザー指示）
+  // 自動仕訳別確定の状態（月次確定履歴照会の 売掛金計上・在庫計上・定時請求・小口現金出納分 の列。2026-11-27 ユーザー指示）
   const jc = await rows(c, 'SELECT period, pattern FROM app_journal_close');
   const now = today().slice(0, 7), list = [];
   for (let i = -6; i <= 0; i++) { const m = addMonths(now, i); const r = closed.find(x => x.period === m); list.push({ month: m, closed: !!r, kind: r ? r.kind || '2' : '', kindName: r ? CLOSE_KINDS[r.kind || '2'] : '', closedAt: r?.closed_at || '', closedBy: r?.closed_by || '', fiscalEnd: Number(m.slice(5, 7)) === cm }); }
