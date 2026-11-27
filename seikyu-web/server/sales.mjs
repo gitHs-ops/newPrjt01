@@ -307,6 +307,12 @@ export async function customerSite(c, customer) {
 }
 export const siteDue = (end, site) => { const [y, m] = end.split('-').map(Number); const last = new Date(Date.UTC(y, m - 1 + site.months + 1, 0)); const d = Math.min(site.day, last.getUTCDate()); return new Date(Date.UTC(y, m - 1 + site.months, d)).toISOString().slice(0, 10); };
 const signed = (side, acc, v, extra) => line(v >= 0 ? side : (side === 'D' ? 'C' : 'D'), acc, Math.abs(v), extra);
+// 売掛金計上（A01）：請求データ作成では仕訳を作らず、売掛金計上の［実行］で未計上の請求に作る（2026-11-28 ユーザー指示「他の計上と統一」）。
+// 計上済み（A01 あり）の請求を追加・現場取消したときだけ、その場で作り直す（入金・定時請求と同じ）。金額 0 の請求は仕訳を作らない
+export const AR_BOOKED = "EXISTS (SELECT 1 FROM journal_entry je WHERE je.source_type='billing_head' AND je.source_id=CAST(h.invoice_id AS CHAR) AND je.status='POSTED' AND je.reversal_of IS NULL)";
+export const AR_NONZERO = 'NOT (h.money=0 AND h.consumption_tax=0)';
+export const postArJournal = (c, h, slip) => postBillingJournal(c, h.invoice_id, fromNum(h.closing_date), h.customers_cd, num(h.money), num(h.consumption_tax), slip);
+const arSlipOf = async (c, id) => (await one(c, "SELECT s.slip_no FROM journal_entry e JOIN app_slip_no s ON s.journal_id=e.journal_id WHERE e.source_type='billing_head' AND e.source_id=? AND e.status='POSTED' AND e.reversal_of IS NULL", [String(id)]))?.slip_no || null;
 async function postBillingJournal(c, id, end, customer, net, tax, slip) {
   if (net + tax === 0 && net === 0) return;
   await postJournal(c, { date: end, pattern: 'A01', sourceType: 'billing_head', sourceId: id, slip,
@@ -314,18 +320,13 @@ async function postBillingJournal(c, id, end, customer, net, tax, slip) {
 }
 // 請求締め（NO6）: 当期締日までの未請求掛売上（前回締め後に入力された過去日付の売上・訂正伝票を含む）を得意先単位で請求。
 // 同じ締日の請求が未発行・未消込なら追加分を加算、発行済みなら次回締めで請求。マイナス（訂正のみ）はクレジット請求として作成。
-export async function runBilling(c, ctx, { month, closing, customers, slip: cont }) {
+export async function runBilling(c, ctx, { month, closing, customers }) {
   const { end } = period(month, closing), day = closingDay(closing); await assertOpen(c, end, 'A01');
   check(end <= today(), `締日（${end}）が到来していないため請求締めはできません`);
   let targets = await rows(c, "SELECT * FROM client_m WHERE delete_f<>'1' AND CAST(substring(deadline from '^ *([0-9]+)') AS INTEGER)=? ORDER BY customers_cd", [day]);
   if (Array.isArray(customers) && customers.length) targets = targets.filter(t => customers.includes(t.customers_cd));
   check(targets.length, `締日${day}日の有効な得意先がありません`);
-  const created = [], appended = [], skipped = [], st = stamp(), yymm = Number(month.replace('-', '')), slip = { max: AR_SLIP_MAX }; // 売掛金計上の伝票（得意先コード順に45得意先で分割）
-  // 画面は得意先ごとに呼び出すため、同じ締日の A01 伝票番号を受け取り、45得意先未満なら続けて使う
-  if (typeof cont === 'string' && /^R(\d{4})?\d{5}$/.test(cont)) {
-    const n = Number((await one(c, "SELECT COUNT(*) n FROM app_slip_no s JOIN journal_entry e ON e.journal_id=s.journal_id WHERE s.slip_no=? AND e.pattern_code='A01' AND e.reversal_of IS NULL AND e.journal_date=?", [cont, end])).n);
-    if (n && n < AR_SLIP_MAX) Object.assign(slip, { no: cont, count: n });
-  }
+  const created = [], appended = [], skipped = [], st = stamp(), yymm = Number(month.replace('-', ''));
   for (const cu of targets) {
     let list = await rows(c, "SELECT * FROM sales_trn WHERE customers_cd=? AND process_status='0' AND payment_method_cd=2 AND sales_date<=? ORDER BY field_cd, field_suffix, sales_date, order_no FOR UPDATE", [cu.customers_cd, toNum(end)]);
     if (!list.length) continue;
@@ -359,15 +360,16 @@ export async function runBilling(c, ctx, { month, closing, customers, slip: cont
     const all = await rows(c, "SELECT money, tax_rate FROM billing_detail WHERE customers_cd=? AND closing_yymm=? AND claim_processing_period=?", [cu.customers_cd, yymm, toNum(end)]);
     const { net, tax } = totals(all);
     await c.query('UPDATE billing_head SET money=?, consumption_tax=?, row_version=row_version+1 WHERE invoice_id=?', [net, tax, h.invoice_id]);
-    if (!h.isNew) await discardOrReverseJournal(c, { sourceType: 'billing_head', sourceId: h.invoice_id, date: end });
-    await postBillingJournal(c, h.invoice_id, end, cu.customers_cd, net, tax, slip);
+    // 仕訳 A01 は売掛金計上の［実行］で作る（2026-11-28）。計上済みの請求に追加したときだけ同じ伝票番号で作り直す
+    const prevSlip = h.isNew ? null : await arSlipOf(c, h.invoice_id);
+    if (prevSlip) { await discardOrReverseJournal(c, { sourceType: 'billing_head', sourceId: h.invoice_id, date: end }); await postBillingJournal(c, h.invoice_id, end, cu.customers_cd, net, tax, { max: AR_SLIP_MAX, no: prevSlip, count: 0 }); }
     (h.isNew ? created : appended).push(h.invoice_id);
     await audit(c, ctx, 'billing_head', h.invoice_id, h.isNew ? 'billing.create' : 'billing.append', { customer: cu.customers_cd, closing: end, net, tax, lines: list.length, lateEntries: list.filter(x => fromNum(x.sales_date) < period(month, closing).start).length, credit: net + tax < 0 });
   }
   check(created.length + appended.length, skipped.length ? '請求を作成できません: ' + skipped.join(' / ') : '対象の未請求掛売上がありません');
   await c.query("INSERT INTO billing_closing_inf (closing_yymm,closingdd,invoice_proc_flag,update_day,update_time,update_pgm,update_ws) VALUES (?,?,'1',?,?,?,?) ON DUPLICATE KEY UPDATE invoice_proc_flag='1',update_day=VALUES(update_day),update_time=VALUES(update_time)",
     [yymm, day, st.update_day, st.update_time, st.update_pgm, st.update_ws]);
-  return { created: created.length, appended: appended.length, ids: [...created, ...appended], skipped, slip: slip.no || '' };
+  return { created: created.length, appended: appended.length, ids: [...created, ...appended], skipped };
 }
 const invoiceSql = `SELECT h.*, c.customers_name, f.field_name1, f.field_name2, ${PAID} paid, (SELECT MAX(issue_no) FROM invoice_issue i WHERE i.invoice_id=h.invoice_id) issues
   FROM billing_head h LEFT JOIN client_m c ON c.customers_cd=h.customers_cd LEFT JOIN field_name_m f ON f.customers_cd=h.customers_cd AND f.field_cd=h.field_cd AND f.field_suffix=h.field_suffix`;
@@ -743,9 +745,8 @@ async function cancelSite(c, ctx, h, w, orders, label) {
   }
   const { net, tax } = totals(await rows(c, `SELECT money, tax_rate FROM billing_detail WHERE ${w.sql}`, w.args));
   await c.query('UPDATE billing_head SET money=?, consumption_tax=?, row_version=row_version+1 WHERE invoice_id=?', [net, tax, h.invoice_id]);
-  const prev = await one(c, "SELECT s.slip_no FROM journal_entry e JOIN app_slip_no s ON s.journal_id=e.journal_id WHERE e.source_type='billing_head' AND e.source_id=? AND e.status='POSTED' AND e.reversal_of IS NULL", [String(h.invoice_id)]);
-  await discardOrReverseJournal(c, { sourceType: 'billing_head', sourceId: h.invoice_id, date: end });
-  await postBillingJournal(c, h.invoice_id, end, h.customers_cd, net, tax, prev ? { max: AR_SLIP_MAX, no: prev.slip_no, count: 0 } : { max: AR_SLIP_MAX });
+  const prev = await arSlipOf(c, h.invoice_id);   // 未計上の請求は仕訳を作らない（売掛金計上の［実行］で作る。2026-11-28）
+  if (prev) { await discardOrReverseJournal(c, { sourceType: 'billing_head', sourceId: h.invoice_id, date: end }); await postBillingJournal(c, h.invoice_id, end, h.customers_cd, net, tax, { max: AR_SLIP_MAX, no: prev, count: 0 }); }
   await audit(c, ctx, 'billing_head', h.invoice_id, 'billing.cancel', { customer: h.customers_cd, closing: end, site: label, orders: orders.length, net, tax });
   return { cancelled: h.invoice_id, site: label, orders: orders.length, net, tax };
 }

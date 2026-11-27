@@ -1,8 +1,8 @@
 // ② 自動仕訳リスト（帳票一覧⑥⑦⑨・9/17資料ア〜エ）。現行 HAR363/HAR413/HAR152/HAR733/CS5785 と同じ「借方・貸方を1行に併記」形式。
 // 削減案5により全リストを同一フォーマットで出力する。エ（銀行別随時支払一覧表）のみ別形式。
 import { check, isoDate, fromNum, today, addMonths, closingPeriodOfDate } from './domain.mjs';
-import { businessDate, RC_BOOKED, postReceiptJournal } from './sales.mjs';
-import { rows, one, audit, invoiceNos, assertOpen, autoCloseJournal, cycleMonth, cycleRange } from './db.mjs';
+import { businessDate, RC_BOOKED, postReceiptJournal, AR_BOOKED, AR_NONZERO, postArJournal } from './sales.mjs';
+import { rows, one, audit, invoiceNos, assertOpen, autoCloseJournal, cycleMonth, cycleRange, AR_SLIP_MAX } from './db.mjs';
 import { BOOKED, postPayableJournal, PAY_BOOKED, postPaymentJournal } from './payables.mjs';
 import { xlsx, band } from './xlsx.mjs';
 import { normalize } from './taxcode.mjs';
@@ -146,17 +146,20 @@ export async function journalList(c, q) {
 // 売掛金計上（2026-11-17 ユーザー指示）：締日は毎月20日に固定（前月21日〜当月20日）。画面は「次に会計連携する締日」を出し、［実行］は何度でもできる
 // （確認・完了のメッセージは出さない。漏れた伝票があれば押し直す）。実行した締日は売掛金計上自動仕訳リスト（Excel）を出せる（一度も実行していなければ押せない）。
 // 会計連携データ（仕訳 → 会計連携データ）を作成すると、期間に入る締日に会計連携済みの印が付き、元に戻せない。売掛金計上は次の締日（翌月20日）に進む（11/20 → 12/20）。
-// 一度も会計連携していなければ、業務日付以前で直近の20日（業務日付 11/17 → 10/20、11/20 → 11/20）。A01 の仕訳は従来どおり請求データ作成で起票する（実行では起票しない）
+// 一度も会計連携していなければ、業務日付以前で直近の20日（業務日付 11/17 → 10/20、11/20 → 11/20）。
+// A01 の仕訳は［実行］で期間の未計上の請求に作る（2026-11-28 ユーザー指示「他の計上と統一」。それまでは請求データ作成で起票）
 // 対象は締日20日の請求だけでなく、対象期間（前月21日〜当月20日）に計上したすべての売掛金計上（5・10・15・月末締めを含む。2026-11-17 ユーザー指示）
 const arRange = month => { const [y, m] = month.split('-').map(Number); return { month, from: new Date(Date.UTC(y, m - 2, 21)).toISOString().slice(0, 10), to: `${month}-20` }; };
+const ymd = iso => Number(iso.replaceAll('-', ''));
 const jstNow = () => new Date(Date.now() + 9 * 3600e3).toISOString().slice(0, 16).replace('T', ' ');
 // 締日の月は画面で選べる（日は20日固定。2026-11-17 ユーザー指示）。month 未指定は次の締日。会計連携済みの月は実行できない
 export async function arPostStatus(c, month) {
   const linked = await one(c, 'SELECT month, linked_by, linked_at FROM app_acct_link ORDER BY month DESC LIMIT 1'), bd = isoDate(String(await businessDate(c)).slice(0, 10));
   const next = linked ? addMonths(linked.month, 1) : Number(bd.slice(8)) >= 20 ? bd.slice(0, 7) : addMonths(bd.slice(0, 7), -1);
   const sel = /^\d{4}-(0[1-9]|1[0-2])$/.test(month || '') ? month : next;
-  const r = await one(c, 'SELECT run_by, run_at, slips, total FROM app_ar_post_run WHERE month=?', [sel]);
-  return { closing: 20, next: arRange(next), sel: { ...arRange(sel), linked: !!linked && sel <= linked.month }, run: r ? { by: r.run_by, at: r.run_at, slips: Number(r.slips), total: Number(r.total) } : null,
+  const r = await one(c, 'SELECT run_by, run_at, slips, total FROM app_ar_post_run WHERE month=?', [sel]), rg = arRange(sel);
+  const pend = await one(c, `SELECT COUNT(*) n, COALESCE(SUM(h.money+h.consumption_tax),0) amt FROM billing_head h WHERE h.closing_date BETWEEN ? AND ? AND ${AR_NONZERO} AND NOT ${AR_BOOKED}`, [ymd(rg.from), ymd(rg.to)]);
+  return { closing: 20, next: arRange(next), sel: { ...rg, linked: !!linked && sel <= linked.month }, pending: { count: Number(pend.n), amount: Number(pend.amt) }, run: r ? { by: r.run_by, at: r.run_at, slips: Number(r.slips), total: Number(r.total) } : null,
     linked: linked ? { ...arRange(linked.month), by: linked.linked_by, at: linked.linked_at } : null };
 }
 export async function runArPost(c, ctx, b) {
@@ -164,9 +167,13 @@ export async function runArPost(c, ctx, b) {
   const st = await arPostStatus(c, b.month), { month, from, to } = st.sel;
   check(!st.sel.linked, `締日 ${to} は会計連携済みのため実行できません。次の締日は ${st.next.to} です`);
   await assertOpen(c, to, 'A01');   // 月次確定・仕訳別確定（2026-11-26）
+  // 期間の未計上の請求に仕訳 A01 を作る（2026-11-28）。締日ごとに得意先コード順で 45 得意先ずつ 1 伝票。1 件でも計上できなければ全体を取り消す（全部か無し）
+  const todo = await rows(c, `SELECT h.* FROM billing_head h WHERE h.closing_date BETWEEN ? AND ? AND ${AR_NONZERO} AND NOT ${AR_BOOKED} ORDER BY h.closing_date, h.customers_cd, h.invoice_id FOR UPDATE`, [ymd(from), ymd(to)]);
+  const slips = {};
+  for (const h of todo) { try { await postArJournal(c, h, slips[h.closing_date] ||= { max: AR_SLIP_MAX }); } catch (e) { check(false, `請求（得意先 ${h.customers_cd}・締日 ${fromNum(h.closing_date)}）を計上できないため、売掛金計上を中止しました（1 件も計上していません）：${e.message}`); } }
   const d = await journalList(c, { pattern: 'A01', from, to }); // 締日20日の請求だけでなく、対象期間（前月21日〜当月20日）の売掛金計上をすべて対象（2026-11-17 ユーザー指示）
   await c.query('INSERT INTO app_ar_post_run (month,run_by,run_at,slips,total) VALUES (?,?,?,?,?) ON DUPLICATE KEY UPDATE run_by=VALUES(run_by),run_at=VALUES(run_at),slips=VALUES(slips),total=VALUES(total)', [month, ctx.user.login_id, jstNow(), d.slips.length, d.total]);
-  await audit(c, ctx, 'app_ar_post_run', month, 'arpost.run', { closing: to, slips: d.slips.length, total: d.total });
+  await audit(c, ctx, 'app_ar_post_run', month, 'arpost.run', { closing: to, posted: todo.map(h => h.invoice_id), slips: d.slips.length, total: d.total });
   await autoCloseJournal(c, ctx, month, 'A01');   // 実行＝自動で確定（2026-11-27 打合せ）
   return arPostStatus(c, month);
 }
