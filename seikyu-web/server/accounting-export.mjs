@@ -39,6 +39,8 @@ export async function accountingExport(c, ctx, q) {
     const fresh = []; for (let m = first; m <= cycleMonth(to); m = addMonths(m, 1)) if (m > last) fresh.push(m);
     if (fresh.length && fresh[0] !== next) throw new DomainError(`会計連携は月の順番どおりに行います。連携済みは ${last} までです。先に ${next}（${last}-21 〜 ${next}-20）を連携してください（${next} を飛ばして ${fresh[0]} を連携することはできません）`);
   }
+  // 何か月かをまとめて出力できる（2026-11-27 打合せ 01:02「月 1 回、何か月分まとめても」）。勘定奉行 受入CSV の期間は会計月の区切り（開始 21 日・終了 20 日）
+  if (format === 'bugyo') check(from.slice(8) === '21' && to.slice(8) === '20', '期間は会計月の区切り（前月21日〜当月20日）で指定してください');
   let slips = await entries(c, from, to);
   check(slips.length, '期間内の仕訳がありません');
   // 勘定奉行 受入CSV（2026-11-25）：① 月次確定してから出力（10 連携仕様 IF-01「月次確定の後」）② 出力済みの仕訳は出さない。再出力は確認のうえ again=1
@@ -46,7 +48,8 @@ export async function accountingExport(c, ctx, q) {
   if (format === 'bugyo') {
     // 連携の条件は自動仕訳 4 種（売掛金計上・在庫計上・定時請求・小口現金出納分）がすべて確定済み（2026-11-27 打合せ 01:04。以前は月次確定）。月次確定済みの月はすべて確定済み
     const open = [];
-    for (const m of [...new Set([cycleMonth(from), cycleMonth(to), ...slips.map(s => cycleMonth(s.date))])].sort()) {
+    const span = []; for (let m = cycleMonth(from); m <= cycleMonth(to); m = addMonths(m, 1)) span.push(m);   // 期間内のすべての会計月（仕訳の無い月も。まとめて出力するとき）
+    for (const m of [...new Set([...span, ...slips.map(s => cycleMonth(s.date))])].sort()) {
       if (await isClosed(c, m)) continue;
       const done = new Set((await dbRows(c, 'SELECT pattern FROM app_journal_close WHERE period=?', [m])).map(r => r.pattern));
       const miss = Object.entries(JOURNAL_CLOSE).filter(([k]) => !done.has(k)).map(([, n]) => n);
@@ -110,6 +113,7 @@ export async function accountingExport(c, ctx, q) {
 // ---------- 連携取込完了（2026-11-27 ユーザー指示：月次確定の最後の小メニュー）----------
 // 会計月ごとに 自動仕訳 4 種の確定・勘定奉行 受入CSV の出力・取込完了 を見せ、勘定奉行に取り込んだ月に［取込完了］を付ける。
 // 取込完了は月の順番どおり（連携済みの最後の月の翌月だけ）。付けたら戻せない（その期間の計上・登録・修正が止まる）
+const endOfExport = (exps, month) => { const { from, to } = cycleRange(month), e = exps.find(x => x.from_d <= to && x.to_d >= from); return e ? [month, cycleMonth(e.to_d)].sort()[1] : null; };   // exps は新しい順
 const linkMonthsOf = async c => {
   const last = (await one(c, 'SELECT MAX(month) m FROM app_acct_link'))?.m || null;
   const exps = await dbRows(c, 'SELECT export_id, exported_at, exported_by, from_d, to_d, slips, again FROM app_acct_export ORDER BY export_id DESC');
@@ -120,6 +124,8 @@ export async function acctLinkStatus(c) {
   const { last, exps, next } = await linkMonthsOf(c), now = cycleMonth(new Date(Date.now() + 9 * 3600e3).toISOString().slice(0, 10));
   const links = await dbRows(c, 'SELECT month, linked_by, linked_at, period FROM app_acct_link');
   const jc = await dbRows(c, 'SELECT period, pattern FROM app_journal_close'), pc = new Set((await dbRows(c, 'SELECT period FROM app_period_close')).map(r => r.period));
+  // まとめて出力した場合は、次の月を含む最後の出力の終わりの月まで一度に取込完了（2026-11-27 ユーザー指示 案(ナ)）
+  const doneTo = next ? endOfExport(exps, next) : null;
   const out = [];
   for (let i = -6; i <= 1; i++) {
     const m = addMonths(now, i), { from, to } = cycleRange(m), l = links.find(r => r.month === m);
@@ -127,9 +133,9 @@ export async function acctLinkStatus(c) {
     const done = Object.keys(JOURNAL_CLOSE).filter(k => pc.has(m) || jc.some(r => r.period === m && r.pattern === k));
     out.push({ month: m, from, to, journals: Object.fromEntries(Object.keys(JOURNAL_CLOSE).map(k => [k, done.includes(k)])), allClosed: done.length === Object.keys(JOURNAL_CLOSE).length,
       exported: e ? { at: e.exported_at, by: e.exported_by, slips: Number(e.slips), period: `${e.from_d}..${e.to_d}`, again: !!e.again } : null,
-      linked: l ? { at: l.linked_at, by: l.linked_by } : null, next: m === next });
+      linked: l ? { at: l.linked_at, by: l.linked_by } : null, next: m === next, doneTo: m === next ? doneTo : null, withNext: !!(next && doneTo && m > next && m <= doneTo) });
   }
-  return { last, next, journalNames: JOURNAL_CLOSE, months: out.reverse() };
+  return { last, next, doneTo, journalNames: JOURNAL_CLOSE, months: out.reverse() };
 }
 export async function completeAcctLink(c, ctx, b) {
   const month = String(b?.month || ''); check(/^\d{4}-(0[1-9]|1[0-2])$/.test(month), '対象年月を指定してください');
@@ -137,13 +143,16 @@ export async function completeAcctLink(c, ctx, b) {
   check(!(await one(c, 'SELECT 1 x FROM app_acct_link WHERE month=?', [month])), `${month} は取込完了済みです`);
   check(exps.some(x => x.from_d <= to && x.to_d >= from), `${month}（${from}〜${to}）は勘定奉行 受入CSV を出力していません。先に 会計連携データ で出力してください`);
   check(!next || month === next, `取込完了は月の順番どおりに行います。${last ? `取込完了済みは ${last} までです。` : ''}次は ${next}（${next ? cycleRange(next).from + '〜' + cycleRange(next).to : ''}）です`);
-  if (!(await isClosed(c, month))) {
-    const done = new Set((await dbRows(c, 'SELECT pattern FROM app_journal_close WHERE period=?', [month])).map(r => r.pattern));
+  // まとめて出力した月はまとめて取込完了（2026-11-27 ユーザー指示 案(ナ)）：次の月を含む最後の出力の終わりの月まで
+  const end = endOfExport(exps, month), months = []; for (let m = month; m <= end; m = addMonths(m, 1)) months.push(m);
+  for (const m of months) {
+    if (await isClosed(c, m)) continue;
+    const done = new Set((await dbRows(c, 'SELECT pattern FROM app_journal_close WHERE period=?', [m])).map(r => r.pattern));
     const miss = Object.entries(JOURNAL_CLOSE).filter(([k]) => !done.has(k)).map(([, n]) => n);
-    check(!miss.length, `${month} は確定していない自動仕訳があります：${miss.join('・')}`);
+    check(!miss.length, `${m} は確定していない自動仕訳があります：${miss.join('・')}`);
   }
-  const linked = await markAcctLinked(c, ctx, from, to);
-  await audit(c, ctx, 'app_acct_link', month, 'accounting.linkdone', { month, from, to, linked });
+  const linked = await markAcctLinked(c, ctx, from, cycleRange(end).to);
+  await audit(c, ctx, 'app_acct_link', month, 'accounting.linkdone', { month, end, from, to: cycleRange(end).to, linked });
   return acctLinkStatus(c);
 }
 

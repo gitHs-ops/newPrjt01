@@ -2404,11 +2404,11 @@ const receiptScheduleCard = () => miscCard('入金予定チェックリスト', 
 const acRange = m => ({ from: `${addMonths(m, -1)}-21`, to: `${m}-20` });
 const acRangeText = m => (/^\d{4}-\d{2}$/.test(m || '') ? (r => `${r.from} 〜 ${r.to}`)(acRange(m)) : '');
 // 仕訳のカードの見出しは 仕訳データ（仕訳データ連携 → 仕訳データ。2026-11-27 ユーザー指示）、ボタンは「勘定奉行 受入」（CSV の表示は出さない。2026-11-27 ユーザー指示）
-const accountingCard = () => miscCard('仕訳データ', '会計システムは勘定奉行（奉行クラウド）。受入は CSV／Excel（QA回答 2026-10-08）', `<label class="field">対象年月<input type="month" id="ac-month" value=""></label><span class="small" id="ac-range"></span>`,
+const accountingCard = () => miscCard('仕訳データ', '会計システムは勘定奉行（奉行クラウド）。受入は CSV／Excel（QA回答 2026-10-08）', `<label class="field">対象年月<input type="month" id="ac-month" value=""></label><label class="field">〜<input type="month" id="ac-month-to" value=""></label><span class="small" id="ac-range"></span>` /* 何か月分かをまとめて出力（開始は取込完了の次の月で固定、終わりの月を選ぶ。2026-11-27 打合せ・ユーザー指示） */,
 // 仕訳の出力は勘定奉行 受入CSV だけ（汎用CSV・弥生会計形式のボタンは外す。要件定義 最終版 No.32、2026-11-20 ユーザー指示。サーバの形式は残す）
   '<button class="primary" data-act="acct" data-format="bugyo">勘定奉行 受入</button>') + miscCard('マスタ（勘定奉行）', '', '',
   '<span class="small">マスタ（勘定奉行へ送る）</span><button data-act="acctMaster" data-kind="partners">取引先</button><button data-act="acctMaster" data-kind="depts">部門</button><button data-act="acctMaster" data-kind="tekiyo">摘要</button><div class="filters-break"></div><span class="small">マスタ（勘定奉行から受け取る）</span><button data-act="acctMasterIn" data-kind="accounts">勘定科目 受入</button><button data-act="acctMasterIn" data-kind="subaccounts">補助科目 受入</button>',
-  '作成すると、期間に入る締日（毎月20日）は会計連携済みになり、売掛金計上は次の締日に進みます（元に戻せません。2026-11-17）。マスタは 取引先・部門・摘要 を勘定奉行へ送り、勘定科目・補助科目は勘定奉行から受け取ります（11/11 打合せ No.3）。補助科目は内訳科目だけ、得意先・業者は取引先コードで連携します（カナを含むコードは「マスタ管理 → 取引先コード変換表」で会計の取引先コードを登録。未登録があると勘定奉行CSVは出力しません）。勘定奉行CSVの見出しは「財務会計 → 会計設定 → 勘定奉行連携」で登録した OBC受入記号（未登録は項目名）、税区分は処税率→奉行税区分の対応表で変換します。受入記号・税区分コードは「データ受入形式一覧表」で確定予定（Q14/Q19）。出力は操作履歴に記録されます。');
+  '開始の月は取込完了した月の翌月（固定）で、終わりの月を選ぶと何か月分かをまとめて出力できます。出力は何度でもでき、勘定奉行への取込が終わったら「月次確定 → 連携取込完了」で［取込完了］にします（まとめて出力した月はまとめて取込完了。元に戻せません。2026-11-27）。マスタは 取引先・部門・摘要 を勘定奉行へ送り、勘定科目・補助科目は勘定奉行から受け取ります（11/11 打合せ No.3）。補助科目は内訳科目だけ、得意先・業者は取引先コードで連携します（カナを含むコードは「マスタ管理 → 取引先コード変換表」で会計の取引先コードを登録。未登録があると勘定奉行CSVは出力しません）。勘定奉行CSVの見出しは「財務会計 → 会計設定 → 勘定奉行連携」で登録した OBC受入記号（未登録は項目名）、税区分は処税率→奉行税区分の対応表で変換します。受入記号・税区分コードは「データ受入形式一覧表」で確定予定（Q14/Q19）。出力は操作履歴に記録されます。');
 // マスタの勘定奉行形式（取引先・部門・勘定科目・補助科目）。取引先コードは取引先コード変換表で置き換え（2026-11-12 結合テスト IT-13）
 async function accountingMasterDownload(kind) {
   const res = await fetch('/api/accounting/masters?' + qs({ kind }), { cache: 'no-store' });
@@ -2436,7 +2436,8 @@ function masterImportResult(kind, label, r) {
 // 勘定奉行 受入CSV は月次確定済みの月だけ・未出力の仕訳だけ（2026-11-25）。すべて出力済みなら確認して再出力（again=1）
 async function accountingDownload(format, again) {
   const m = $('#ac-month').value; if (!/^\d{4}-\d{2}$/.test(m)) return toast('対象年月を入力してください', true);
-  const { from, to } = acRange(m);   // 前月21日〜当月20日（2026-11-27）
+  const mt = /^\d{4}-\d{2}$/.test($('#ac-month-to')?.value || '') ? $('#ac-month-to').value : m; if (mt < m) return toast('終わりの月は開始の月より後にしてください', true);
+  const { from } = acRange(m), { to } = acRange(mt);   // 開始の月の前月21日〜終わりの月の20日（まとめて出力。2026-11-27）
   const url = '/api/accounting/export?' + qs({ from, to, format, ...(again ? { again: 1 } : {}) }), res = await fetch(url, { cache: 'no-store' });
   if (!res.ok) { const msg = (await res.json().catch(() => ({}))).error || '出力できません';
     if (msg.startsWith('ALREADY:')) return confirmBox('出力済みの仕訳の再出力', msg.slice(8), () => accountingDownload(format, true), '再出力する');
@@ -2592,12 +2593,16 @@ document.addEventListener('change', e => { const m = /^(mx|mr|mi)-(month|closing
 // 会計連携データ：対象年月の初期表示＝次に処理する月（2026-11-27）。期間（前月21日〜当月20日）を横に出す
 async function acMonthInit(el) {
   let m = '';
-  try { const d = await api('/api/ar-post'); m = d.linked ? addMonths(d.linked.month, 1) : ''; } catch { /* 読めなければ今日から */ }
+  let linked = false;
+  try { const d = await api('/api/ar-post'); m = d.linked ? addMonths(d.linked.month, 1) : ''; linked = !!d.linked; } catch { /* 読めなければ今日から */ }
   if (!m) { const t = today(); m = Number(t.slice(8, 10)) > 20 ? addMonths(t.slice(0, 7), 1) : t.slice(0, 7); }
   if (!el.value) el.value = m;
-  const r = $('#ac-range'); if (r) r.textContent = acRangeText(el.value);
+  if (linked) { el.readOnly = true; el.title = '取込完了した月の翌月（順番どおり。変更できません）'; }   // 対象年月は表示項目（2026-11-27 打合せ 01:28）
+  const t = $('#ac-month-to'); if (t && !t.value) t.value = el.value;
+  acRangeShow();
 }
-document.addEventListener('change', e => { if (e.target.id === 'ac-month') { const r = $('#ac-range'); if (r) r.textContent = acRangeText(e.target.value); } });
+const acRangeShow = () => { const a = $('#ac-month')?.value, b = $('#ac-month-to')?.value || a, r = $('#ac-range'); if (r) r.textContent = /^\d{4}-\d{2}$/.test(a || '') && /^\d{4}-\d{2}$/.test(b || '') ? `${acRange(a).from} 〜 ${acRange(b).to}${b > a ? `（${(+b.slice(0, 4) - +a.slice(0, 4)) * 12 + +b.slice(5) - +a.slice(5) + 1}か月）` : ''}` : ''; };
+document.addEventListener('change', e => { if (e.target.id === 'ac-month' || e.target.id === 'ac-month-to') acRangeShow(); });
 new MutationObserver(() => { const el = document.getElementById('ac-month'); if (el && !el.dataset.init) { el.dataset.init = '1'; acMonthInit(el); } }).observe(document.body, { childList: true, subtree: true });
 new MutationObserver(() => { for (const src of ['mx', 'mr', 'mi']) { const b = document.getElementById(src + '-xl') || document.getElementById(src + '-stale'); if (b && !b.dataset.key) { b.dataset.key = '-'; mixXlState(src); } } }).observe(document.body, { childList: true, subtree: true });
 // 配合計算モーダル（配合マスタ×材料単価＋経費単価 → 原価）は 2026-11-02 から画面から開かない（現行の配合計算処理とは別物。API は残す）
@@ -2784,7 +2789,7 @@ VIEWS.periods = async (q = {}) => {
   const jk = route.sub === 'journal' ? await api('/api/periods/journals?' + qs({ month: jm })) : null;
   // 連携取込完了（2026-11-27 ユーザー指示）：勘定奉行に取り込んだ月に［取込完了］。月の順番どおり、戻せない
   const lk = route.sub === 'link' ? await api('/api/accounting/link') : null;
-  A.linkDone = d => confirmBox('取込完了', `${d.month}（${d.from}〜${d.to}）を取込完了にします。勘定奉行への取込が終わっていることを確認してください。取込完了にすると元に戻せず、この期間の計上・登録・修正ができなくなります。`,
+  A.linkDone = d => confirmBox('取込完了', `${d.month === d.end ? d.month : `${d.month}〜${d.end}`}（${d.from}〜${d.to}）を取込完了にします。勘定奉行への取込が終わっていることを確認してください。取込完了にすると元に戻せず、この期間の計上・登録・修正ができなくなります。`,
     () => post('/api/accounting/link/complete', { month: d.month }).then(() => { toast('取込完了にしました'); render(); }), '取込完了にする');
   const linkHtml = !lk ? '' : `<p class="note small">勘定奉行 受入CSV の出力（会計連携データ）は何度でもできます。勘定奉行への取込が終わった月に［取込完了］を押してください。［取込完了］は、自動仕訳 4 種がすべて確定済みで受入CSV を出力した月に出ます。取込完了は月の順番どおりで、元に戻せません。</p>`
     + table([{ label: '月', value: r => r.month }, { label: '期間', value: r => `${r.from.slice(5).replace('-', '/')}〜${r.to.slice(5).replace('-', '/')}` },
@@ -2792,8 +2797,8 @@ VIEWS.periods = async (q = {}) => {
       { label: 'CSV出力 日時 / 実行者', value: r => r.exported ? `${String(r.exported.at).slice(0, 16)} / ${r.exported.by}（${r.exported.slips}件${r.exported.again ? '・再出力' : ''}）` : '' },
       { label: '状態', html: r => r.linked ? badge('取込完了', 'green') : r.exported ? badge('出力済', 'amber') : badge('未出力', 'gray') },
       { label: '取込完了 日時 / 実行者', value: r => r.linked ? `${r.linked.at} / ${r.linked.by}` : '' },
-      { label: '', html: r => !isAdmin() || r.linked ? '' : !r.allClosed ? '<span class="small">未確定あり</span>' : !r.exported ? '<span class="small">CSV未出力</span>' : !r.next ? '<span class="small">前の月の取込完了の後</span>'
-        : `<button type="button" class="mini primary" data-act="linkDone" data-month="${r.month}" data-from="${r.from}" data-to="${r.to}">取込完了</button>` } /* ボタンが出ない月は理由を出す（2026-11-27 ユーザー指摘「ボタンが見えない」） */], lk.months);
+      { label: '', html: r => !isAdmin() || r.linked ? '' : !r.allClosed ? '<span class="small">未確定あり</span>' : !r.exported ? '<span class="small">CSV未出力</span>' : r.withNext ? `<span class="small">${esc(lk.next)} と一緒に取込完了</span>` : !r.next ? '<span class="small">前の月の取込完了の後</span>'
+        : `<button type="button" class="mini primary" data-act="linkDone" data-month="${r.month}" data-end="${r.doneTo || r.month}" data-from="${r.from}" data-to="${r.doneTo ? `${r.doneTo}-20` : r.to}">取込完了${r.doneTo && r.doneTo !== r.month ? `（〜${r.doneTo}）` : ''}</button>` } /* ボタンが出ない月は理由を出す（2026-11-27 ユーザー指摘「ボタンが見えない」） */], lk.months);
   return page('月次確定', `確定した月の伝票は登録・変更・取消ができなくなります。確定・解除は管理者のみ実行できます。［自動仕訳別月次確定］で自動仕訳の種類ごとにも確定できます。`, '' /* ［仕訳別確定］は各月の［確定］の前（2026-11-26 ユーザー指示。以前は画面右上） */, `<section class="card glass" data-sub="journal"><div class="filters"><label class="field">対象年月<input type="month" id="jc-month" value="${jm}"></label></div>${jk ? jcHtml(jm, jk) : ''}</section>
     <section class="card glass" data-sub="history">${table([{ label: '月', value: r => r.month + (r.fiscalEnd ? '（決算月）' : '') }, { label: '期間', value: r => r.from ? `${r.from.slice(5).replace('-', '/')}〜${r.to.slice(5).replace('-', '/')}` : '' } /* 20日締めの会計月（2026-11-27） */,
     // 自動仕訳別確定の状態を 状態 の前に（名称は「自動仕訳」を除く。月次確定済みの月はすべて確定。2026-11-27 ユーザー指示）
