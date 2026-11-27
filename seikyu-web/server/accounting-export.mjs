@@ -3,7 +3,7 @@
 //  generic … 借貸併記（現行自動仕訳リストと同じ並び）UTF-8 BOM CSV、科目・内訳はコード＋名称
 //  yayoi   … 弥生会計「仕訳日記帳」インポート形式（25項目、Shift_JIS）。科目は名称、税区分は処税率を分解して変換
 // 補助科目は内訳科目だけ。得意先・業者は取引先コードで連携し、取引先コード変換表（code_m PCNV）があれば会計の取引先コードに置き換える（2026-11-03）。
-// 勘定奉行の取引先コードは半角英数のため、カナを含むコードが変換表に無いと勘定奉行CSVは出力しない
+// 勘定奉行の取引先コードは半角英数のため、カナを含むコードが変換表に無いと勘定奉行CSVは出力しない（2026-11-27 ユーザー指示でチェックをやめた。下の 取引先コード のコメント）
 import iconv from 'iconv-lite';
 import { check, isoDate, csv, parseCsv, DomainError, addMonths } from './domain.mjs';
 import { importCsv as masterImport } from './masters.mjs';
@@ -70,7 +70,7 @@ export async function accountingExport(c, ctx, q) {
     return { ...x, sub: x.inner, subName: x.innerName, partner: code };
   };
   for (const s of slips) s.pairs = s.pairs.map(p => ({ ...p, dr: link(p.dr), cr: link(p.cr) }));
-  if (format === 'bugyo' && missing.size) throw new DomainError(`取引先コードに半角英数以外の文字がある得意先・業者が ${missing.size} 件あります。マスタ管理の「取引先コード変換表」で会計の取引先コードを登録してください: ${[...missing.values()].slice(0, 10).join(' / ')}${missing.size > 10 ? ' ほか' : ''}`);
+  // 取引先コード（半角英数以外）の誤りチェックはしない（2026-11-27 ユーザー指示：取引先コードは 得意先・業者マスタを統合する方針に決まったため、それまではチェックせずに CSV を作る）
   let file;
   if (format === 'bugyo') {
     file = bugyoFile(slips.map(s => ({ date: s.date, slipNo: s.slipNo, memo: `${s.pattern} ${s.sourceNo}`,
@@ -159,7 +159,7 @@ export async function accountingMasters(c, ctx, q) {
     const list = [...(await dbRows(c, "SELECT customers_cd code, customers_name name FROM client_m WHERE delete_f<>'1' ORDER BY customers_cd")).map(r => ({ ...r, kind: 'C' })),
       ...(await dbRows(c, 'SELECT vendor_code code, vendor_name name FROM vendor WHERE active ORDER BY vendor_code')).map(r => ({ ...r, kind: 'V' }))];
     out = [['取引先コード', '取引先名称'], ...list.map(r => { const code = conv.get(`${r.kind}:${r.code}`) || r.code; if (!/^[0-9A-Za-z]+$/.test(code)) missing.push(`${r.kind === 'C' ? '得意先' : '業者'} ${r.code} ${r.name}`); return [code, r.name]; })];
-    if (missing.length) throw new DomainError(`取引先コードに半角英数以外の文字がある得意先・業者が ${missing.length} 件あります。マスタ管理の「取引先コード変換表」で会計の取引先コードを登録してください: ${missing.slice(0, 10).join(' / ')}${missing.length > 10 ? ' ほか' : ''}`);
+    // 取引先コード（半角英数以外）の誤りチェックはしない（2026-11-27 ユーザー指示：取引先コードは 得意先・業者マスタを統合する方針に決まったため、それまではチェックせずに CSV を作る）
   } else if (kind === 'depts') out = [['部門コード', '部門名称'], ...(await dbRows(c, "SELECT code_dtl, code_dtl_nam FROM code_m WHERE code_key='DEPT' AND COALESCE(category1,'')<>'0' ORDER BY code_dtl")).map(r => [r.code_dtl, r.code_dtl_nam])];
   else out = [['摘要コード', '摘要名称'], ...(await dbRows(c, "SELECT code_dtl, code_dtl_nam FROM code_m WHERE code_key='TKYO' AND COALESCE(category1,'')<>'0' ORDER BY LENGTH(code_dtl), code_dtl")).map(r => [r.code_dtl, r.code_dtl_nam])];   // 摘要マスタ（2026-11-20）
   const { encoding } = await bugyoSettings(c), text = csv(out), name = `会計連携_勘定奉行_${BUGYO_MASTERS[kind]}マスタ.csv`;
