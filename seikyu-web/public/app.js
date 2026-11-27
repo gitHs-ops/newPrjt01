@@ -2786,13 +2786,14 @@ VIEWS.periods = async (q = {}) => {
   const lk = route.sub === 'link' ? await api('/api/accounting/link') : null;
   A.linkDone = d => confirmBox('取込完了', `${d.month}（${d.from}〜${d.to}）を取込完了にします。勘定奉行への取込が終わっていることを確認してください。取込完了にすると元に戻せず、この期間の計上・登録・修正ができなくなります。`,
     () => post('/api/accounting/link/complete', { month: d.month }).then(() => { toast('取込完了にしました'); render(); }), '取込完了にする');
-  const linkHtml = !lk ? '' : `<p class="note small">勘定奉行 受入CSV の出力（会計連携データ）は何度でもできます。勘定奉行への取込が終わった月に［取込完了］を押してください。取込完了は月の順番どおりで、元に戻せません。</p>`
+  const linkHtml = !lk ? '' : `<p class="note small">勘定奉行 受入CSV の出力（会計連携データ）は何度でもできます。勘定奉行への取込が終わった月に［取込完了］を押してください。［取込完了］は、自動仕訳 4 種がすべて確定済みで受入CSV を出力した月に出ます。取込完了は月の順番どおりで、元に戻せません。</p>`
     + table([{ label: '月', value: r => r.month }, { label: '期間', value: r => `${r.from.slice(5).replace('-', '/')}〜${r.to.slice(5).replace('-', '/')}` },
       ...Object.entries(lk.journalNames).map(([k, name]) => ({ label: name, html: r => r.journals[k] ? '<span class="check-ok">✓</span>' : '<span class="small">－</span>' })),
       { label: 'CSV出力 日時 / 実行者', value: r => r.exported ? `${String(r.exported.at).slice(0, 16)} / ${r.exported.by}（${r.exported.slips}件${r.exported.again ? '・再出力' : ''}）` : '' },
       { label: '状態', html: r => r.linked ? badge('取込完了', 'green') : r.exported ? badge('出力済', 'amber') : badge('未出力', 'gray') },
       { label: '取込完了 日時 / 実行者', value: r => r.linked ? `${r.linked.at} / ${r.linked.by}` : '' },
-      { label: '', html: r => !isAdmin() || r.linked || !r.next ? '' : r.exported && r.allClosed ? `<button type="button" class="mini primary" data-act="linkDone" data-month="${r.month}" data-from="${r.from}" data-to="${r.to}">取込完了</button>` : `<span class="small">${r.allClosed ? 'CSV未出力' : '未確定あり'}</span>` }], lk.months);
+      { label: '', html: r => !isAdmin() || r.linked ? '' : !r.allClosed ? '<span class="small">未確定あり</span>' : !r.exported ? '<span class="small">CSV未出力</span>' : !r.next ? '<span class="small">前の月の取込完了の後</span>'
+        : `<button type="button" class="mini primary" data-act="linkDone" data-month="${r.month}" data-from="${r.from}" data-to="${r.to}">取込完了</button>` } /* ボタンが出ない月は理由を出す（2026-11-27 ユーザー指摘「ボタンが見えない」） */], lk.months);
   return page('月次確定', `確定した月の伝票は登録・変更・取消ができなくなります。確定・解除は管理者のみ実行できます。［自動仕訳別月次確定］で自動仕訳の種類ごとにも確定できます。`, '' /* ［仕訳別確定］は各月の［確定］の前（2026-11-26 ユーザー指示。以前は画面右上） */, `<section class="card glass" data-sub="journal"><div class="filters"><label class="field">対象年月<input type="month" id="jc-month" value="${jm}"></label></div>${jk ? jcHtml(jm, jk) : ''}</section>
     <section class="card glass" data-sub="history">${table([{ label: '月', value: r => r.month + (r.fiscalEnd ? '（決算月）' : '') }, { label: '期間', value: r => r.from ? `${r.from.slice(5).replace('-', '/')}〜${r.to.slice(5).replace('-', '/')}` : '' } /* 20日締めの会計月（2026-11-27） */,
     // 自動仕訳別確定の状態を 状態 の前に（名称は「自動仕訳」を除く。月次確定済みの月はすべて確定。2026-11-27 ユーザー指示）
