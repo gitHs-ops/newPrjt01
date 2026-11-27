@@ -26,7 +26,7 @@ const footFirst = html => html && $('#modal-foot').insertAdjacentHTML('afterbegi
 //  fresh … DB から読み、結果を apiCache に入れる。登録・更新（GET 以外）の後はキャッシュを捨て、次の描画で読み直す
 // 利用者管理（/api/users）・操作履歴（/api/audit）はメニューで開いたときから一覧を表示する（2026-11-07 ユーザー指示）
 // 売掛金計上（/api/ar-post）は次の締日・実行済みの印を出すため、メニューで開いたときから読む（2026-11-17）
-const apiCache = new Map(), LAZY_FETCH = /^\/api\/(business-date|ar-post|ap-post|petty\/settings|tax-settings|kb\/meta|kb\/bugyo|coverage|periods(?:\/journals)?|users|audit)(\?|$)/;
+const apiCache = new Map(), LAZY_FETCH = /^\/api\/(business-date|ar-post|ap-post|pay-post|rc-post|petty\/settings|tax-settings|kb\/meta|kb\/bugyo|coverage|periods(?:\/journals)?|users|audit)(\?|$)/;
 let apiMode = null, apiDirty = false, emptyShown = false;
 const fetchJson = async (url, opt) => {
   const res = await fetch(url, { cache: 'no-store', ...opt });
@@ -390,7 +390,7 @@ const SUBMENUS = {
   // 入金予定チェックリストは 2026-11-09 再び非表示（ユーザー指示。帳票設計 D-029「作成しない」に合わせる。画面・API は残す）
   // 入金消込は 2026-11-01 非表示（ユーザー指示。現行入金処理で入金する。画面・API は残す）
   // 入金処理は 2026-11-09 から一覧 →［＋ 新規登録］／［修正］で入力画面（ユーザー指示：他の画面と同じ流れ）
-  receipts: [{ k: 'targets', l: '入金消込', q: { tab: 'targets' }, hidden: true }, { k: 'legacy', l: '入金処理', q: { tab: 'legacy' }, tools: true }, { k: 'plan', l: '入金予定一覧', q: { tab: 'plan' } }, { k: 'list', l: '入金一覧', tools: true, hidden: true }, { k: 'schedule', l: '入金予定チェックリスト', hidden: true }],
+  receipts: [{ k: 'targets', l: '入金消込', q: { tab: 'targets' }, hidden: true }, { k: 'legacy', l: '入金処理', q: { tab: 'legacy' }, tools: true }, { k: 'plan', l: '入金予定一覧', q: { tab: 'plan' } }, { k: 'list', l: '入金一覧', tools: true, hidden: true }, { k: 'schedule', l: '入金予定チェックリスト', hidden: true }, { k: 'post', l: '入金計上', tools: false /* 2026-11-27 ユーザー指示：他の計上と同じ形 */ }],
   // 10/21 打合せの処理順（実在庫登録 → 配合計算 → 材料受払表 → 在庫計上）に並べる
   // 在庫登録リスト・配合計算・材料受払表は 2026-11-02 にそれぞれ小メニューに分けた（ユーザー指示）
   // 配合計算は自分の画面を出す（2026-11-04 ユーザー指示。以前は材料受払表の画面へ移っていた）。現行の配合計算処理は配合マスタ・配合単価と無関係で、結果が材料受払表（2026-11-02 ユーザー回答）
@@ -1315,6 +1315,7 @@ async function arLedgerView(q) {
 }
 VIEWS.receipts = async q => {
   const A = actions;
+  if (route.sub === 'post') return rcPostView(q);   // 小メニュー「入金計上」（2026-11-27）
   A.misc = d => miscReport(d.kind, d.src).catch(e => toast(e.message, true));
   const tab = ['targets', 'legacy', 'plan'].includes(q.tab) ? q.tab : 'list';
   if (tab === 'legacy') return legacyReceiptView(q);
@@ -2171,6 +2172,18 @@ async function payPostView(q = {}) {
     ${isUser01() ? '' : `<p class="small ${run ? '' : 'muted'}" id="pp-status">${run ? `実行：${esc(run.at)}（${esc(run.by)}）　${run.slips}伝票` : '未実行'}${d.pending?.count ? `　／　<b>未計上 ${d.pending.count}件（${yen(d.pending.amount)} 円）</b>：［実行］で計上します` : ''}${s.linked ? '　／　会計連携済み' : ''}</p>`}</section>`);
 }
 VIEWS.cash = expenseView('PETTY_CASH');
+// 入金計上（2026-11-27 ユーザー指示：他の計上の画面と同じ形）：締切日を指定して［実行］。実行した締切日は入金自動仕訳リスト（Excel）を出せる。仕訳 B01 は入金の登録で起票済み
+document.addEventListener('change', e => { if (e.target.id === 'rp-date' && /^\d{4}-\d{2}-\d{2}$/.test(e.target.value)) go('receipts', { date: e.target.value }); });
+async function rcPostView(q = {}) {
+  const A = actions, d = await api('/api/rc-post?' + qs({ date: q.date || '' })), s = d.sel, run = d.run;
+  A.rpRun = async (_, btn) => { if (btn) btn.disabled = true; try { await post('/api/rc-post/run', { date: s.date }); render({ fresh: true }); } catch (e) { toast(e.message, true); if (btn) btn.disabled = false; } };
+  A.rpXlsx = () => run && saveXlsx('/api/reports/journal-list?' + qs({ pattern: 'B01', from: s.from, to: s.to, format: 'xlsx' })).catch(e => toast(e.message, true));
+  return page('入金', '', '', `<section class="card glass" data-sub="post"><div class="card-head"><h2>入金計上</h2></div>
+    <div class="filters"><label class="field">締切日<input type="date" id="rp-date" value="${esc(s.date)}" style="width:160px"></label>
+      ${canWrite() ? `<button class="primary" data-act="rpRun" ${s.linked ? 'disabled title="会計連携済みの締切日は実行できません"' : ''}>実行</button>` : ''}<button data-act="rpXlsx" ${run ? '' : 'disabled title="実行すると出力できます"'}>⇩ 入金自動仕訳リスト（Excel）</button></div>
+    ${isUser01() ? '' : `<p class="small muted" style="margin-top:8px">対象は入金日が前月の同じ締日の翌日〜締切日（${esc(s.from)}〜${esc(s.to)}）の入金です。［実行］は何度でもできます（漏れた入金があれば押し直してください）。</p>`}
+    ${isUser01() ? '' : `<p class="small ${run ? '' : 'muted'}" id="rp-status">${run ? `実行：${esc(run.at)}（${esc(run.by)}）　${run.slips}伝票` : '未実行'}${s.linked ? '　／　会計連携済み' : ''}</p>`}</section>`);
+}
 
 // ----- 支払 -----
 VIEWS.payments = async q => {
@@ -2389,8 +2402,8 @@ const receiptScheduleCard = () => miscCard('入金予定チェックリスト', 
 // 仕訳は 対象年月（20日締めのサイクル：前月21日〜当月20日）。初期表示は次に処理する月（会計連携済みの月の翌月。未連携なら今日を含むサイクルの月）。マスタは随時なので日付は出さない（11/26 内部会議・2026-11-27 ユーザー指示）
 const acRange = m => ({ from: `${addMonths(m, -1)}-21`, to: `${m}-20` });
 const acRangeText = m => (/^\d{4}-\d{2}$/.test(m || '') ? (r => `${r.from} 〜 ${r.to}`)(acRange(m)) : '');
-// 仕訳のカードの見出しは 仕訳データ連携、ボタンは「勘定奉行 受入」（CSV の表示は出さない。2026-11-27 ユーザー指示）
-const accountingCard = () => miscCard('仕訳データ連携', '会計システムは勘定奉行（奉行クラウド）。受入は CSV／Excel（QA回答 2026-10-08）', `<label class="field">対象年月<input type="month" id="ac-month" value=""></label><span class="small" id="ac-range"></span>`,
+// 仕訳のカードの見出しは 仕訳データ（仕訳データ連携 → 仕訳データ。2026-11-27 ユーザー指示）、ボタンは「勘定奉行 受入」（CSV の表示は出さない。2026-11-27 ユーザー指示）
+const accountingCard = () => miscCard('仕訳データ', '会計システムは勘定奉行（奉行クラウド）。受入は CSV／Excel（QA回答 2026-10-08）', `<label class="field">対象年月<input type="month" id="ac-month" value=""></label><span class="small" id="ac-range"></span>`,
 // 仕訳の出力は勘定奉行 受入CSV だけ（汎用CSV・弥生会計形式のボタンは外す。要件定義 最終版 No.32、2026-11-20 ユーザー指示。サーバの形式は残す）
   '<button class="primary" data-act="acct" data-format="bugyo">勘定奉行 受入</button>') + miscCard('マスタ（勘定奉行）', '', '',
   '<span class="small">マスタ（勘定奉行へ送る）</span><button data-act="acctMaster" data-kind="partners">取引先</button><button data-act="acctMaster" data-kind="depts">部門</button><button data-act="acctMaster" data-kind="tekiyo">摘要</button><div class="filters-break"></div><span class="small">マスタ（勘定奉行から受け取る）</span><button data-act="acctMasterIn" data-kind="accounts">勘定科目 受入</button><button data-act="acctMasterIn" data-kind="subaccounts">補助科目 受入</button>',

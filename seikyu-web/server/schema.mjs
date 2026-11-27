@@ -166,6 +166,8 @@ export async function prepare(pool, env = process.env) {
   await pool.query(`CREATE TABLE IF NOT EXISTS app_ap_post_run (closing varchar(10) COLLATE "C" PRIMARY KEY, run_by varchar(256) COLLATE "C" NOT NULL, run_at varchar(16) COLLATE "C" NOT NULL, slips integer NOT NULL, total bigint NOT NULL)`);
   // 支払計上の実行の記録（締切日ごと。定時請求計上と同じ。2026-11-24）
   await pool.query(`CREATE TABLE IF NOT EXISTS app_pay_post_run (closing varchar(10) COLLATE "C" PRIMARY KEY, run_by varchar(256) COLLATE "C" NOT NULL, run_at varchar(16) COLLATE "C" NOT NULL, slips integer NOT NULL, total bigint NOT NULL)`);
+  // 入金計上の実行の記録（締切日ごと。支払計上と同じ。2026-11-27）
+  await pool.query(`CREATE TABLE IF NOT EXISTS app_rc_post_run (closing varchar(10) COLLATE "C" PRIMARY KEY, run_by varchar(256) COLLATE "C" NOT NULL, run_at varchar(16) COLLATE "C" NOT NULL, slips integer NOT NULL, total bigint NOT NULL)`);
   // 会計連携済みの印（締日＝毎月20日の年月ごと。会計連携データを作成したときに付け、元に戻さない。売掛金計上はこの次の締日を出す。2026-11-17）
   // 会計連携の出力済み管理（10 会計システム連携仕様 共通事項「二重連携の防止」。2026-11-25）：出力ごとに 1 行、仕訳に出力した回の番号
   await pool.query(`CREATE TABLE IF NOT EXISTS app_acct_export (export_id serial PRIMARY KEY, exported_at varchar(19) COLLATE "C" NOT NULL, exported_by varchar(256) COLLATE "C" NOT NULL, from_d varchar(10) COLLATE "C" NOT NULL, to_d varchar(10) COLLATE "C" NOT NULL, slips integer NOT NULL, again boolean NOT NULL DEFAULT false)`);

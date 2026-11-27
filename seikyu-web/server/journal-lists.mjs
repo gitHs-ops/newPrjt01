@@ -215,6 +215,24 @@ export async function runPayPost(c, ctx, b) {
   await audit(c, ctx, 'app_pay_post_run', to, 'paypost.run', { from, to, posted: todo.map(x => x.payment_no), slips: d.slips.length, total: d.total });
   return payPostStatus(c, to);
 }
+// 入金計上（2026-11-27 ユーザー指示：他の計上の画面と同じ形）：締切日を指定して［実行］。期間（前月の同じ締日の翌日〜締切日）の入金の仕訳 B01 を入金自動仕訳リストに出す。
+// 仕訳 B01 は従来どおり入金の登録で起票する（実行では起票しない。売掛金計上と同じ）。何度でも実行でき、最後の実行で上書き。会計連携済みの期間の締切日は実行できない
+export async function rcPostStatus(c, date) {
+  const dt = /^\d{4}-\d{2}-\d{2}$/.test(date || '') ? date : (await arPostStatus(c)).next.to, { from, to } = closingPeriodOfDate(dt);
+  const lk = await one(c, "SELECT period FROM app_acct_link WHERE CAST(? AS date) BETWEEN CAST(split_part(period,'..',1) AS date) AND CAST(split_part(period,'..',2) AS date) LIMIT 1", [to]);
+  const r = await one(c, 'SELECT run_by, run_at, slips, total FROM app_rc_post_run WHERE closing=?', [to]);
+  return { sel: { date: to, from, to, linked: !!lk }, run: r ? { by: r.run_by, at: r.run_at, slips: Number(r.slips), total: Number(r.total) } : null };
+}
+export async function runRcPost(c, ctx, b) {
+  check(/^\d{4}-\d{2}-\d{2}$/.test(b?.date || ''), '締切日を指定してください');
+  const st = await rcPostStatus(c, b.date), { from, to } = st.sel;
+  check(!st.sel.linked, `締切日 ${to} は会計連携済みのため実行できません`);
+  await assertOpen(c, to, 'B01');
+  const d = await journalList(c, { pattern: 'B01', from, to });
+  await c.query('INSERT INTO app_rc_post_run (closing,run_by,run_at,slips,total) VALUES (?,?,?,?,?) ON DUPLICATE KEY UPDATE run_by=VALUES(run_by),run_at=VALUES(run_at),slips=VALUES(slips),total=VALUES(total)', [to, ctx.user.login_id, jstNow(), d.slips.length, d.total]);
+  await audit(c, ctx, 'app_rc_post_run', to, 'rcpost.run', { from, to, slips: d.slips.length, total: d.total });
+  return rcPostStatus(c, to);
+}
 // 会計連携データを作成したとき：期間に入る締日（毎月20日）に会計連携済みの印を付ける（元に戻さない）
 export async function markAcctLinked(c, ctx, from, to) {
   const months = []; for (let m = from.slice(0, 7); `${m}-20` <= to; m = addMonths(m, 1)) if (`${m}-20` >= from) months.push(m);
