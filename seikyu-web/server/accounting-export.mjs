@@ -55,7 +55,7 @@ export async function accountingExport(c, ctx, q) {
       const miss = Object.entries(JOURNAL_CLOSE).filter(([k]) => !done.has(k)).map(([, n]) => n);
       if (miss.length) open.push(`${m}（${cycleRange(m).from}〜${cycleRange(m).to}）：${miss.join('・')}`);
     }
-    if (open.length) throw new DomainError(`確定していない自動仕訳があります。${open.join(' / ')}。各計上の［実行］（小口現金出納分は「自動仕訳別月次確定」の［確定］）で確定してから連携してください`);
+    if (open.length) throw new DomainError(`確定していない自動仕訳があります。${open.join(' / ')}。各計上の［実行］（小口現金出納分は「月次確定チェック」の［確定］）で確定してから連携してください`);
     const ids = slips.map(s => s.id), done = new Set(ids.length ? (await dbRows(c, `SELECT journal_id FROM journal_entry WHERE export_id IS NOT NULL AND journal_id IN (${ids.map(() => '?').join(',')})`, ids)).map(r => Number(r.journal_id)) : []);
     exported = slips.filter(s => done.has(Number(s.id)));
     if (String(q.again || '') !== '1') {
