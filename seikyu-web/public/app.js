@@ -2744,6 +2744,8 @@ VIEWS.reports = async q => {
 };
 
 // ----- 月次確定 -----
+// 日時の列は 月/日 だけ出し、日時・実行者はマウスを重ねて表示（横スクロールを出さない。2026-11-27 ユーザー指示）
+const tsCell = full => full ? `<span class="small" style="white-space:nowrap;cursor:help;border-bottom:1px dotted currentColor" title="${esc(full)}">${esc(String(full).slice(5, 10).replace('-', '/'))}</span>` : '';
 VIEWS.periods = async (q = {}) => {
   const A = actions;
   const p = await api('/api/periods');
@@ -2796,10 +2798,10 @@ VIEWS.periods = async (q = {}) => {
       ...Object.entries(lk.journalNames).map(([k, name]) => ({ label: name, html: r => r.journals[k] ? '<span class="check-ok">✓</span>' : '<span class="small">－</span>' })),
       // 確定の状態・確定日時（月次確定履歴照会から移す。月次確定済み、または自動仕訳 4 種がすべて確定済みなら確定済。2026-11-27 ユーザー指示）
       { label: '確定状態', html: r => (pm => pm?.closed || pm?.allJournals || r.allClosed ? badge('確定済', 'green') : badge('未確定', 'gray'))(p.months.find(x => x.month === r.month)) },
-      { label: '確定日時 / 実行者', value: r => (pm => pm?.closed ? `${jst(pm.closedAt, 16)} / ${pm.closedBy}` : pm?.allJournals ? `${jst(pm.journalsAt, 16)} / ${pm.journalsBy}` : '')(p.months.find(x => x.month === r.month)) },
-      { label: 'CSV出力 日時 / 実行者', value: r => r.exported ? `${String(r.exported.at).slice(0, 16)} / ${r.exported.by}（${r.exported.slips}件${r.exported.again ? '・再出力' : ''}）` : '' },
+      { label: '確定日', html: r => tsCell((pm => pm?.closed ? `${jst(pm.closedAt, 16)} / ${pm.closedBy}` : pm?.allJournals ? `${jst(pm.journalsAt, 16)} / ${pm.journalsBy}` : '')(p.months.find(x => x.month === r.month))) },
+      { label: 'CSV出力日', html: r => tsCell(r.exported ? `${String(r.exported.at).slice(0, 16)} / ${r.exported.by}（${r.exported.slips}件${r.exported.again ? '・再出力' : ''}）` : '') },
       { label: '送信状態', html: r => r.linked ? badge('取込完了', 'green') : r.exported ? badge('出力済', 'amber') : badge('未出力', 'gray') },
-      { label: '取込完了 日時 / 実行者', value: r => r.linked ? `${r.linked.at} / ${r.linked.by}` : '' },
+      { label: '取込完了日', html: r => tsCell(r.linked ? `${r.linked.at} / ${r.linked.by}` : '') },
       { label: '', html: r => !isAdmin() || r.linked ? '' : !r.allClosed ? '<span class="small">未確定あり</span>' : !r.exported ? '<span class="small">CSV未出力</span>' : r.withNext ? `<span class="small">${esc(lk.next)} と一緒に取込完了</span>` : !r.next ? '<span class="small">前の月の取込完了の後</span>'
         : `<button type="button" class="mini primary" data-act="linkDone" data-month="${r.month}" data-end="${r.doneTo || r.month}" data-from="${r.from}" data-to="${r.doneTo ? `${r.doneTo}-20` : r.to}">取込完了${r.doneTo && r.doneTo !== r.month ? `（〜${r.doneTo}）` : ''}</button>` } /* ボタンが出ない月は理由を出す（2026-11-27 ユーザー指摘「ボタンが見えない」） */], lk.months);
   return page('月次確定', `確定した月の伝票は登録・変更・取消ができなくなります。確定・解除は管理者のみ実行できます。［自動仕訳別月次確定］で自動仕訳の種類ごとにも確定できます。`, '' /* ［仕訳別確定］は各月の［確定］の前（2026-11-26 ユーザー指示。以前は画面右上） */, `<section class="card glass" data-sub="journal"><div class="filters"><label class="field">対象年月<input type="month" id="jc-month" value="${jm}"></label></div>${jk ? jcHtml(jm, jk) : ''}</section>
