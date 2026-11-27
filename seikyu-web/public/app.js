@@ -26,7 +26,7 @@ const footFirst = html => html && $('#modal-foot').insertAdjacentHTML('afterbegi
 //  fresh … DB から読み、結果を apiCache に入れる。登録・更新（GET 以外）の後はキャッシュを捨て、次の描画で読み直す
 // 利用者管理（/api/users）・操作履歴（/api/audit）はメニューで開いたときから一覧を表示する（2026-11-07 ユーザー指示）
 // 売掛金計上（/api/ar-post）は次の締日・実行済みの印を出すため、メニューで開いたときから読む（2026-11-17）
-const apiCache = new Map(), LAZY_FETCH = /^\/api\/(business-date|ar-post|ap-post|petty\/settings|tax-settings|kb\/meta|kb\/bugyo|coverage|periods|users|audit)(\?|$)/;
+const apiCache = new Map(), LAZY_FETCH = /^\/api\/(business-date|ar-post|ap-post|petty\/settings|tax-settings|kb\/meta|kb\/bugyo|coverage|periods(?:\/journals)?|users|audit)(\?|$)/;
 let apiMode = null, apiDirty = false, emptyShown = false;
 const fetchJson = async (url, opt) => {
   const res = await fetch(url, { cache: 'no-store', ...opt });
@@ -403,6 +403,8 @@ const SUBMENUS = {
   payments: [{ k: 'transfer', l: '振込先一覧', tools: false }, { k: 'zengin', l: '支払データ作成（全銀）' }, { k: 'list', l: '支払一覧・支払内訳入力', tools: true }, { k: 'reports', l: '支払帳票', noUser01: true /* user01 は出さない（2026-11-20 ユーザー指示） */ }, { k: 'post', l: '支払計上', tools: false /* 2026-11-24 ユーザー指示：定時請求計上と同じ形。銀行別随時支払一覧表の前 */ }, { k: 'bank', l: '銀行別随時支払一覧表', q: { list: 'BANK' } }],   // 銀行別随時支払一覧表は自動仕訳リスト（帳票）の画面を支払メニューのまま表示（2026-11-19 ユーザー指示：メニューは移らない）,
   journals: [{ k: 'list', l: '仕訳一覧', noUser01: true }, { k: 'tb', l: '月次残高試算', q: { tab: 'tb' }, noUser01: true /* 仕訳一覧・月次残高試算は user01 は非表示（2026-11-26 ユーザー指示） */ }, { k: 'lists', l: '自動仕訳リスト（帳票）', q: { tab: 'lists' } }, { k: 'export', l: '会計連携データ' }],
   external: [{ k: 'gslink', l: 'gsLink' }], // 2026-11-05 ユーザー指示
+  // 月次確定の小メニュー（2026-11-27 ユーザー指示）：仕訳別確定（画面）・月次確定履歴一覧（従来の月次確定の一覧）
+  periods: [{ k: 'journal', l: '仕訳別確定' }, { k: 'history', l: '月次確定履歴一覧' }],
   reports: [{ k: 'csv', l: 'CSV出力', tools: true, hidden: true /* 機能一覧・決定事項台帳に根拠がないため非表示（削除はしない。2026-11-24 ユーザー指示） */ }, { k: 'ar', l: '売掛金残高一覧', noUser01: true }, { k: 'ap', l: '未払残高一覧', noUser01: true } /* user01 は非表示（2026-11-26 ユーザー指示） */, { k: 'itempu', l: '商品別仕入一覧' } /* 商品仕入のメニューと同じもの（2026-11-24 打合せ No.24） */, { k: 'jv', l: '出資金（JV）帳票' }, { k: 'jvalloc', l: '入金分配端数調整登録' }, { k: 'daily', l: '日報出力' }], // 入金分配端数調整登録は 2026-11-03 に小メニューへ。日報出力は 2026-11-20 ユーザー指示（日報をまとめて出す）
 };
 // 1:n 入力画面（現場2・内訳科目2、2026-11-06 ／得意先別単価2、2026-11-07 ユーザー指示）は元のマスタの次に置く（元のマスタの画面はそのまま）。定義は ONE_TO_MANY
@@ -2721,7 +2723,7 @@ VIEWS.reports = async q => {
 };
 
 // ----- 月次確定 -----
-VIEWS.periods = async () => {
+VIEWS.periods = async (q = {}) => {
   const A = actions;
   const p = await api('/api/periods');
   A.check = async d => { const issues = await api('/api/periods/check?month=' + d.month); $(`#chk-${d.month}`).innerHTML = issues.length ? `<div style="display:flex;align-items:center;gap:12px"><ul class="list check-ng small" style="margin:0">${issues.map(i => `<li>${esc(i)}</li>`).join('')}</ul><button class="mini" data-act="checkDetail" data-month="${d.month}">詳細</button></div>` : '<span class="check-ok small">確定可能です</span>'; };
@@ -2747,23 +2749,25 @@ VIEWS.periods = async () => {
   A.reopen = d => confirmBox('確定解除', `${d.month} の確定を解除します。`, () => post('/api/periods/reopen', { month: d.month }).then(() => { toast('解除しました'); render(); }), '解除する');
   // 仕訳別確定（2026-11-26 ユーザー指示）：月次確定（月全体）のほかに、自動仕訳 4 種（入金・支払内訳は対象外、2026-11-27）ごとに月を確定・解除するポップアップ。
   // 確定した仕訳を作る業務（例 定時請求自動仕訳＝定時請求の登録・修正・取消・定時請求計上）は、その月の日付で止まる
-  const jcRender = async month => {
-    const k = await api('/api/periods/journals?' + qs({ month })), box = $('#jc-body'); if (!box) return;
-    box.innerHTML = (k.monthClosed ? `<p class="note small">${esc(month)} は月次確定済みです（${jst(k.monthClosed.at, 16)} / ${esc(k.monthClosed.by)}）。すべての仕訳が確定しています。仕訳別に解除するには、先に月次確定を解除してください。</p>` : '')
+  const jcHtml = (month, k) => (k.monthClosed ? `<p class="note small">${esc(month)} は月次確定済みです（${jst(k.monthClosed.at, 16)} / ${esc(k.monthClosed.by)}）。すべての仕訳が確定しています。仕訳別に解除するには、先に月次確定を解除してください。</p>` : '')
       + table([{ label: '自動仕訳', value: r => r.name }, { label: '状態', html: r => k.monthClosed || r.closed ? badge('確定済', 'green') : badge('未確定', 'gray') },
         { label: '確定日時 / 実行者', value: r => r.closed ? `${jst(r.closedAt, 16)} / ${r.closedBy}` : k.monthClosed ? '（月次確定）' : '' },
         { label: '', html: r => !isAdmin() || k.monthClosed ? '' : r.closed ? `<button type="button" class="mini danger" data-act="jcDo" data-op="reopen" data-month="${esc(month)}" data-pattern="${r.pattern}">解除</button>` : `<button type="button" class="mini primary" data-act="jcDo" data-op="close" data-month="${esc(month)}" data-pattern="${r.pattern}">確定</button>` }], k.items);
-  };
+  const jcRender = async month => { const k = await api('/api/periods/journals?' + qs({ month })), box = $('dialog[open] #jc-body'); if (box) box.innerHTML = jcHtml(month, k); };
   A.jclose = d => {
     const def = d?.month || (p.months.find(m => !m.closed) || p.months[0])?.month || today().slice(0, 7);   // 行の［仕訳別確定］はその月を開く（2026-11-26）
     // 月は一覧の行で決まっているので選択欄は出さず、表題に月を出す（2026-11-26 ユーザー指示）
     modal({ title: `仕訳別確定　${def.replace('-', '/')}`, wide: true, body: '<div id="jc-body"></div>', onOpen: () => { jcRender(def).catch(err => toast(err.message, true)); } });
   };
   A.jcDo = async d => {
-    try { await post(`/api/periods/journals/${d.op}`, { month: d.month, pattern: d.pattern }); toast(d.op === 'close' ? '確定しました' : '解除しました'); await jcRender(d.month); }
+    try { await post(`/api/periods/journals/${d.op}`, { month: d.month, pattern: d.pattern }); toast(d.op === 'close' ? '確定しました' : '解除しました'); if ($('dialog[open] #jc-body')) await jcRender(d.month); else render(); }
     catch (e) { toast(e.message, true); }
   };
-  return page('月次確定', `確定した月の伝票は登録・変更・取消ができなくなります。確定・解除は管理者のみ実行できます。［仕訳別確定］で自動仕訳の種類ごとにも確定できます。`, '' /* ［仕訳別確定］は各月の［確定］の前（2026-11-26 ユーザー指示。以前は画面右上） */, `<section class="card glass">${table([{ label: '月', value: r => r.month + (r.fiscalEnd ? '（決算月）' : '') }, { label: '状態', html: r => r.closed ? badge('確定済', 'green') : badge('未確定', 'gray') },
+  // 小メニュー 仕訳別確定：対象年月（初期は未確定の月）を変えるとその月を表示（2026-11-27 ユーザー指示）
+  const jm = /^\d{4}-\d{2}$/.test(q.month || '') ? q.month : (p.months.find(m => !m.closed) || p.months[0])?.month || today().slice(0, 7);
+  const jk = route.sub === 'journal' ? await api('/api/periods/journals?' + qs({ month: jm })) : null;
+  return page('月次確定', `確定した月の伝票は登録・変更・取消ができなくなります。確定・解除は管理者のみ実行できます。［仕訳別確定］で自動仕訳の種類ごとにも確定できます。`, '' /* ［仕訳別確定］は各月の［確定］の前（2026-11-26 ユーザー指示。以前は画面右上） */, `<section class="card glass" data-sub="journal"><div class="filters"><label class="field">対象年月<input type="month" id="jc-month" value="${jm}"></label></div>${jk ? jcHtml(jm, jk) : ''}</section>
+    <section class="card glass" data-sub="history">${table([{ label: '月', value: r => r.month + (r.fiscalEnd ? '（決算月）' : '') }, { label: '状態', html: r => r.closed ? badge('確定済', 'green') : badge('未確定', 'gray') },
     { label: '確定日時 / 実行者', value: r => r.closed ? `${jst(r.closedAt, 16)} / ${r.closedBy}` : '' }, { label: 'チェック', html: r => `<div id="chk-${r.month}">${r.closed ? '' : `<button class="mini" data-act="check" data-month="${r.month}">確定前チェック</button>`}</div>` },
     { label: '', html: r => isAdmin() ? `<button class="mini" data-act="jclose" data-month="${r.month}">仕訳別確定</button>` + (r.closed ? (r.kind === '1' ? '' : `<button class="mini danger" data-act="reopen" data-month="${r.month}">解除</button>`) : `<button class="mini primary" data-act="close" data-month="${r.month}">確定</button>`) : '' }], p.months)}</section>
     `);
@@ -2772,6 +2776,7 @@ VIEWS.periods = async () => {
 // ----- マスタ管理 -----
 // マスタの「有効のみ」は切り替えたらすぐ表示し直す
 document.addEventListener('change', e => { if (e.target.id === 'm-active' && route.name === 'masters') actions.search?.(); });
+document.addEventListener('change', e => { if (e.target.id === 'jc-month' && route.name === 'periods' && /^\d{4}-\d{2}$/.test(e.target.value)) go('periods', { month: e.target.value }); });
 // 一覧のページ分け（マスタ・現場2 共通。2026-11-06 ユーザー指示：件数が多いと表の下の横スクロールバーが見えない）。15件ごと、ナビゲーションは表の上・右寄せ。ボタンは data-act="mpage"
 function pageNav(list, page, per = 15) {
   const pages = Math.max(1, Math.ceil(list.length / per)), pg = Math.min(pages, Math.max(1, Number(page) || 1)), shown = list.slice((pg - 1) * per, pg * per);
