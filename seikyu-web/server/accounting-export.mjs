@@ -5,9 +5,9 @@
 // 補助科目は内訳科目だけ。得意先・業者は取引先コードで連携し、取引先コード変換表（code_m PCNV）があれば会計の取引先コードに置き換える（2026-11-03）。
 // 勘定奉行の取引先コードは半角英数のため、カナを含むコードが変換表に無いと勘定奉行CSVは出力しない
 import iconv from 'iconv-lite';
-import { check, isoDate, csv, parseCsv, DomainError } from './domain.mjs';
+import { check, isoDate, csv, parseCsv, DomainError, addMonths } from './domain.mjs';
 import { importCsv as masterImport } from './masters.mjs';
-import { audit, rows as dbRows, isClosed, cycleMonth } from './db.mjs';
+import { audit, rows as dbRows, one, isClosed, cycleMonth } from './db.mjs';
 import { journalList, LISTS, markAcctLinked } from './journal-lists.mjs';
 import { decode, NON_TAX } from './taxcode.mjs';
 import { bugyoSettings, bugyoFile } from './bugyo.mjs';
@@ -32,6 +32,13 @@ async function entries(c, from, to) {
 export async function accountingExport(c, ctx, q) {
   const from = isoDate(q.from, '開始日'), to = isoDate(q.to, '終了日'); check(from <= to, '期間が不正です');
   const format = ['yayoi', 'bugyo'].includes(q.format) ? q.format : 'generic';
+  // 会計連携は月の順番どおり（飛ばし不可。2026-11-27 打合せ 01:35「2月の次に4月は✕」）：まだ連携していない最初の月は「連携済みの最後の月の翌月」
+  const last = (await one(c, 'SELECT MAX(month) m FROM app_acct_link'))?.m;
+  if (last) {
+    const next = addMonths(last, 1), first = [cycleMonth(from), cycleMonth(to)].sort()[0];
+    const fresh = []; for (let m = first; m <= cycleMonth(to); m = addMonths(m, 1)) if (m > last) fresh.push(m);
+    if (fresh.length && fresh[0] !== next) throw new DomainError(`会計連携は月の順番どおりに行います。連携済みは ${last} までです。先に ${next}（${last}-21 〜 ${next}-20）を連携してください（${next} を飛ばして ${fresh[0]} を連携することはできません）`);
+  }
   let slips = await entries(c, from, to);
   check(slips.length, '期間内の仕訳がありません');
   // 勘定奉行 受入CSV（2026-11-25）：① 月次確定してから出力（10 連携仕様 IF-01「月次確定の後」）② 出力済みの仕訳は出さない。再出力は確認のうえ again=1
