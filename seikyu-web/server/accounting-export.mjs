@@ -127,7 +127,7 @@ export async function acctLinkStatus(c) {
   // まとめて出力した場合は、次の月を含む最後の出力の終わりの月まで一度に取込完了（2026-11-27 ユーザー指示 案(ナ)）
   const doneTo = next ? endOfExport(exps, next) : null;
   const out = [];
-  for (let i = -6; i <= 1; i++) {
+  for (let i = -7; i <= 0; i++) {   // 現在の会計月まで 8 か月（翌月は出さない。2026-11-27 ユーザー指示）
     const m = addMonths(now, i), { from, to } = cycleRange(m), l = links.find(r => r.month === m);
     const e = exps.find(x => x.from_d <= to && x.to_d >= from);
     const done = Object.keys(JOURNAL_CLOSE).filter(k => pc.has(m) || jc.some(r => r.period === m && r.pattern === k));
