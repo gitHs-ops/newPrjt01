@@ -26,7 +26,7 @@ const footFirst = html => html && $('#modal-foot').insertAdjacentHTML('afterbegi
 //  fresh … DB から読み、結果を apiCache に入れる。登録・更新（GET 以外）の後はキャッシュを捨て、次の描画で読み直す
 // 利用者管理（/api/users）・操作履歴（/api/audit）はメニューで開いたときから一覧を表示する（2026-11-07 ユーザー指示）
 // 売掛金計上（/api/ar-post）は次の締日・実行済みの印を出すため、メニューで開いたときから読む（2026-11-17）
-const apiCache = new Map(), LAZY_FETCH = /^\/api\/(business-date|ar-post|ap-post|pay-post|rc-post|petty\/settings|tax-settings|kb\/meta|kb\/bugyo|coverage|periods(?:\/journals)?|users|audit)(\?|$)/;
+const apiCache = new Map(), LAZY_FETCH = /^\/api\/(business-date|ar-post|ap-post|pay-post|rc-post|petty\/settings|tax-settings|kb\/meta|kb\/bugyo|coverage|periods(?:\/journals)?|accounting\/link|users|audit)(\?|$)/;
 let apiMode = null, apiDirty = false, emptyShown = false;
 const fetchJson = async (url, opt) => {
   const res = await fetch(url, { cache: 'no-store', ...opt });
