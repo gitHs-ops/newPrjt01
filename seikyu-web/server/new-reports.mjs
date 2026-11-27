@@ -130,7 +130,7 @@ export async function customerShipDaily(c, q) {
   if (disc.length) { groups.push({ rows: [], label: '値　引', totals: daySum(disc) }); all.push(...disc); }
   return { title: '得意先別出荷日報', ref: '帳票㉗（HAR531）', date: d, from, to: d, sub: `${d}（月度 ${from} 〜）`, columns: DAY_COLS(true), groups, ...(all.length ? { totals: daySum(all) } : {}) };
 }
-// ㉘ 商品別仕入日報（現行 HAR521）：仕入先ごとに商品別。商品仕入登録の区分 1＝仕入、2＝他社納入 を分ける。合計行（区分ごとの合計・総合計）は出さない（現行どおり。2026-11-26 ユーザー指示）
+// ㉘ 商品別仕入日報（現行 HAR521）：仕入先ごとに商品別。商品仕入登録の区分 1＝仕入、2＝他社納入 を分ける。仕入先計を出す（2026-11-27）。区分ごとの合計・総合計は出さない（2026-11-26 ユーザー指示）
 export async function itemPurchaseDaily(c, q) {
   const { d, from } = dayRange(q);
   const rs = await rows(c, `SELECT COALESCE(p.purchase_kb, '1') kb, v.vendor_code, MAX(v.vendor_name) vendor_name, p.item_cd, MAX(i.item_nam) item_name, MAX(unit_name(i.unit)) unit,
@@ -145,7 +145,8 @@ export async function itemPurchaseDaily(c, q) {
       let g = gs.find(x => x.cd === r.vendor_code); if (!g) gs.push(g = { cd: r.vendor_code, title: `${r.vendor_code}　${r.vendor_name || ''}`, rows: [] });
       const x = { code: r.item_cd || '', name: r.item_cd ? String(r.item_name || '').trim() : '運賃・金額のみ', unit: r.unit || '', ...dayRow(r, d) }; g.rows.push(x);
     }
-    gs.forEach(g => delete g.cd); gs[0].head = `区分 ${kb}．${label}`;
+    // 仕入先ごとに「仕入先計」を出す（2026-11-27 ユーザー指示）。区分ごとの合計・総合計は出さない（2026-11-26）
+    gs.forEach(g => { delete g.cd; g.label = '仕入先計'; g.totals = daySum(g.rows); }); gs[0].head = `区分 ${kb}．${label}`;
     groups.push(...gs);
   }
   return { title: '商品別仕入日報', ref: '帳票㉘（HAR521）', date: d, from, to: d, sub: `${d}（月度 ${from} 〜）`, columns: DAY_COLS(true), groups, noGrand: true };
