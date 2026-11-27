@@ -2770,7 +2770,7 @@ VIEWS.periods = async (q = {}) => {
   return page('月次確定', `確定した月の伝票は登録・変更・取消ができなくなります。確定・解除は管理者のみ実行できます。［仕訳別確定］で自動仕訳の種類ごとにも確定できます。`, '' /* ［仕訳別確定］は各月の［確定］の前（2026-11-26 ユーザー指示。以前は画面右上） */, `<section class="card glass" data-sub="journal"><div class="filters"><label class="field">対象年月<input type="month" id="jc-month" value="${jm}"></label></div>${jk ? jcHtml(jm, jk) : ''}</section>
     <section class="card glass" data-sub="history">${table([{ label: '月', value: r => r.month + (r.fiscalEnd ? '（決算月）' : '') }, { label: '状態', html: r => r.closed ? badge('確定済', 'green') : badge('未確定', 'gray') },
     { label: '確定日時 / 実行者', value: r => r.closed ? `${jst(r.closedAt, 16)} / ${r.closedBy}` : '' }, /* チェック列（確定前チェック）は出さない（2026-11-27 ユーザー指示。［確定］の時に同じチェックをする） */
-    { label: '', html: r => isAdmin() ? `<button class="mini" data-act="jclose" data-month="${r.month}">仕訳別確定</button>` + (r.closed ? (r.kind === '1' ? '' : `<button class="mini danger" data-act="reopen" data-month="${r.month}">解除</button>`) : `<button class="mini primary" data-act="close" data-month="${r.month}">確定</button>`) : '' }], p.months)}</section>
+    /* 月次確定履歴一覧は確定の状態を見るだけで、確定・解除・仕訳別確定のボタンは出さない（2026-11-27 ユーザー指示） */], p.months)}</section>
     `);
 };
 
