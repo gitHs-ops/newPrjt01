@@ -617,7 +617,7 @@ document.addEventListener('change', e => { if (e.target.id !== 'ship-cust') retu
 document.addEventListener('change', e => { if (e.target.id === 'ar-month' && /^\d{4}-\d{2}-\d{2}$/.test(e.target.value)) go('shipments', { month: e.target.value.slice(0, 7) }); });
 async function arPostView(q = {}) {
   const A = actions, d = await api('/api/ar-post?' + qs({ month: q.month || '' })), nx = d.sel, run = d.run; // actions は await の前に受け取る
-  A.arRun = async (_, btn) => { if (btn) btn.disabled = true; try { await post('/api/ar-post/run', { month: nx.month }); render({ fresh: true }); } catch (e) { toast(e.message, true); if (btn) btn.disabled = false; } };
+  A.arRun = async (_, btn) => { if (btn) btn.disabled = true; try { await post('/api/ar-post/run', { month: nx.month }); await render({ fresh: true }); alertBox('', { ok: true, title: '売掛金計上を完了しました' }) /* 実行後に完了のポップアップ（2026-11-27 ユーザー指示） */; } catch (e) { toast(e.message, true); if (btn) btn.disabled = false; } };
   A.arXlsx = () => run && saveXlsx('/api/reports/journal-list?' + qs({ pattern: 'A01', from: nx.from, to: nx.to, format: 'xlsx' })).catch(e => toast(e.message, true));
   return page('出荷・売上', '', '', `<section class="card glass" data-sub="sales"><div class="card-head"><h2>売掛金計上</h2></div>
     <div class="filters"><label class="field">年月日<input type="date" id="ar-month" value="${esc(nx.to)}" style="width:160px"></label>
@@ -1913,7 +1913,7 @@ VIEWS.inventory = async q => {
   // 完了のポップアップは見出しと［確認］ボタンだけ（計上月度・品目数・評価額・仕訳日付・伝票番号は出さない。2026-11-03）
   // 在庫計上自動仕訳リスト（C01）：計上月度の仕訳日付（月度の締日）はその月の中なので、期間はその月の 1 日〜末日（2026-11-26 ユーザー指示）
   A.invJl = () => { const m = $('#ip-month').value; if (!/^\d{4}-\d{2}$/.test(m)) return toast('計上月度を入力してください', true); go('journals', { tab: 'lists', list: 'C01', from: m + '-01', to: monthEnd(m) }); };
-  A.post = () => { const month = $('#ip-month').value; confirmBox('在庫計上', `${month} 月度の実在庫を評価し、月末在庫の洗い替え仕訳（C01）を作成します。計上済みの月度は評価し直して仕訳を作り直します（会計連携前のみ。後の月度が計上済みなら後の月度も評価し直します）。`, async () => { await post('/api/inventory/post', { month }); render(); alertBox('', { ok: true, title: '在庫計上が完了しました' }); }, '在庫計上する'); };
+  A.post = () => { const month = $('#ip-month').value; confirmBox('在庫計上', `${month} 月度の実在庫を評価し、月末在庫の洗い替え仕訳（C01）を作成します。計上済みの月度は評価し直して仕訳を作り直します（会計連携前のみ。後の月度が計上済みなら後の月度も評価し直します）。`, async () => { await post('/api/inventory/post', { month }); render(); alertBox('', { ok: true, title: '在庫計上を完了しました' }); }, '在庫計上する'); };
   // ［模擬実行］（2026-11-19 ユーザー指示：user01 のテスト用。何度でも）：在庫計上と同じ計算の結果を表示するだけで、DB は変えない（計上済みの月度でも可）
   A.simulate = async (_, btn) => {
     const month = $('#ip-month').value; if (btn) btn.disabled = true;
@@ -2149,7 +2149,7 @@ function expenseView(kind) {
 document.addEventListener('change', e => { if (e.target.id === 'ap-date' && /^\d{4}-\d{2}-\d{2}$/.test(e.target.value)) go('payables', { date: e.target.value }); });
 async function apPostView(q = {}) {
   const A = actions, d = await api('/api/ap-post?' + qs({ date: q.date || '' })), s = d.sel, run = d.run;
-  A.apRun = async (_, btn) => { if (btn) btn.disabled = true; try { await post('/api/ap-post/run', { date: s.date }); render({ fresh: true }); } catch (e) { toast(e.message, true); if (btn) btn.disabled = false; } };
+  A.apRun = async (_, btn) => { if (btn) btn.disabled = true; try { await post('/api/ap-post/run', { date: s.date }); await render({ fresh: true }); alertBox('', { ok: true, title: '定時請求計上を完了しました' }) /* 実行後に完了のポップアップ（2026-11-27 ユーザー指示） */; } catch (e) { toast(e.message, true); if (btn) btn.disabled = false; } };
   A.apXlsx = () => run && saveXlsx('/api/reports/journal-list?' + qs({ pattern: 'D01', from: s.from, to: s.to, format: 'xlsx' })).catch(e => toast(e.message, true));
   return page('定時請求', '', '', `<section class="card glass" data-sub="post"><div class="card-head"><h2>定時請求計上</h2></div>
     <div class="filters"><label class="field">締切日<input type="date" id="ap-date" value="${esc(s.date)}" style="width:160px"></label>
@@ -2163,7 +2163,7 @@ VIEWS.payables = async q => (route.sub === 'post' ? apPostView(q) : expenseView(
 document.addEventListener('change', e => { if (e.target.id === 'pp-date' && /^\d{4}-\d{2}-\d{2}$/.test(e.target.value)) go('payments', { date: e.target.value }); });
 async function payPostView(q = {}) {
   const A = actions, d = await api('/api/pay-post?' + qs({ date: q.date || '' })), s = d.sel, run = d.run;
-  A.ppRun = async (_, btn) => { if (btn) btn.disabled = true; try { await post('/api/pay-post/run', { date: s.date }); render({ fresh: true }); } catch (e) { toast(e.message, true); if (btn) btn.disabled = false; } };
+  A.ppRun = async (_, btn) => { if (btn) btn.disabled = true; try { await post('/api/pay-post/run', { date: s.date }); await render({ fresh: true }); alertBox('', { ok: true, title: '支払計上を完了しました' }) /* 実行後に完了のポップアップ（2026-11-27 ユーザー指示） */; } catch (e) { toast(e.message, true); if (btn) btn.disabled = false; } };
   A.ppXlsx = () => run && saveXlsx('/api/reports/journal-list?' + qs({ pattern: 'F01', from: s.from, to: s.to, format: 'xlsx' })).catch(e => toast(e.message, true));
   return page('支払', '', '', `<section class="card glass" data-sub="post"><div class="card-head"><h2>支払計上</h2></div>
     <div class="filters"><label class="field">締切日<input type="date" id="pp-date" value="${esc(s.date)}" style="width:160px"></label>
@@ -2176,7 +2176,7 @@ VIEWS.cash = expenseView('PETTY_CASH');
 document.addEventListener('change', e => { if (e.target.id === 'rp-date' && /^\d{4}-\d{2}-\d{2}$/.test(e.target.value)) go('receipts', { date: e.target.value }); });
 async function rcPostView(q = {}) {
   const A = actions, d = await api('/api/rc-post?' + qs({ date: q.date || '' })), s = d.sel, run = d.run;
-  A.rpRun = async (_, btn) => { if (btn) btn.disabled = true; try { await post('/api/rc-post/run', { date: s.date }); render({ fresh: true }); } catch (e) { toast(e.message, true); if (btn) btn.disabled = false; } };
+  A.rpRun = async (_, btn) => { if (btn) btn.disabled = true; try { await post('/api/rc-post/run', { date: s.date }); await render({ fresh: true }); alertBox('', { ok: true, title: '入金計上を完了しました' }) /* 実行後に完了のポップアップ（2026-11-27 ユーザー指示） */; } catch (e) { toast(e.message, true); if (btn) btn.disabled = false; } };
   A.rpXlsx = () => run && saveXlsx('/api/reports/journal-list?' + qs({ pattern: 'B01', from: s.from, to: s.to, format: 'xlsx' })).catch(e => toast(e.message, true));
   return page('入金', '', '', `<section class="card glass" data-sub="post"><div class="card-head"><h2>入金計上</h2></div>
     <div class="filters"><label class="field">締切日<input type="date" id="rp-date" value="${esc(s.date)}" style="width:160px"></label>
