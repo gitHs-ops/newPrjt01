@@ -146,7 +146,8 @@ export async function receiptSchedule(c, q) {
       // 入金方法・入金先は過去の入金実績から推定（手形の実績があれば手形、現金のみなら現金、それ以外は振込）
       const site = await one(c, "SELECT category3 method, code_dtl_abr bank FROM code_m WHERE code_key='CSITE' AND code_dtl=?", [h.customers_cd]);
       const kinds = (await rows(c, "SELECT DISTINCT k.component_kind k FROM receipt r JOIN receipt_component k ON k.receipt_id=r.receipt_id WHERE r.customers_cd=? AND r.status='POSTED'", [h.customers_cd])).map(r => r.k);
-      const bank = (await one(c, "SELECT jl.sub_code b FROM receipt r JOIN journal_entry je ON je.source_type='receipt' AND je.source_id=CAST(r.receipt_id AS CHAR) AND je.reversal_of IS NULL JOIN journal_line jl ON jl.journal_id=je.journal_id AND jl.account_code='1112' WHERE r.customers_cd=? ORDER BY r.receipt_date DESC LIMIT 1", [h.customers_cd]))?.b || firstBank;
+      const bank = (await one(c, "SELECT r.bank_code b FROM receipt r WHERE r.customers_cd=? AND r.bank_code IS NOT NULL ORDER BY r.receipt_date DESC LIMIT 1", [h.customers_cd]))?.b   // 入金口座は入金に持つ（2026-11-27）
+        || (await one(c, "SELECT jl.sub_code b FROM receipt r JOIN journal_entry je ON je.source_type='receipt' AND je.source_id=CAST(r.receipt_id AS CHAR) AND je.reversal_of IS NULL JOIN journal_line jl ON jl.journal_id=je.journal_id AND jl.account_code='1112' WHERE r.customers_cd=? ORDER BY r.receipt_date DESC LIMIT 1", [h.customers_cd]))?.b || firstBank;
       const methodName = { 1: '振込', 2: '手形', 4: '現金' }[site?.method] || (kinds.includes('NOTE') ? '手形' : kinds.length && kinds.every(k => k === 'CASH') ? '現金' : '振込');
       const bk = site?.bank || bank;
       customers.push(cu = { customer: h.customers_cd, name: h.customers_name, method: methodName, methodSource: site?.method ? '得意先マスタ' : '入金実績から推定', bank: bk ? `${bk} ${banks[bk] || ''}` : '', rows: [], billed: 0, due: 0 });

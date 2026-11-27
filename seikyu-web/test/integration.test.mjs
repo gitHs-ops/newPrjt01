@@ -120,6 +120,9 @@ test('workflow against PostgreSQL business tables', { skip, timeout: 900000 }, a
       assert.equal((await a.call('/api/receipt-context?customer=' + C)).data.deposit, 0);
       assert.equal(fin.status, 200, JSON.stringify(fin.data));
       assert.equal((await a.call('/api/invoices/' + invoiceId)).data.status, 'paid');
+      // 入金の仕訳 B01 は登録では作らず入金計上の［実行］で作る（2026-11-27）
+      const rcBefore = (await a.call('/api/rc-post?date=' + d)).data; assert.ok(rcBefore.pending.count >= 1, 'unbooked receipt before run');
+      const rcRun = await a.call('/api/rc-post/run', { date: d }); assert.equal(rcRun.status, 200, JSON.stringify(rcRun.data)); assert.equal(rcRun.data.pending.count, 0);
       const rev = await a.call('/api/receipts/reverse', { id: fin.data.id }); assert.equal(rev.status, 200);
       assert.equal((await a.call('/api/invoices/' + invoiceId)).data.balance, 1000);
       const js = [...(await a.call('/api/journals?month=' + month)).data, ...(await a.call('/api/journals?month=' + d.slice(0, 7))).data].filter(j => ['billing_head', 'receipt'].includes(j.source));

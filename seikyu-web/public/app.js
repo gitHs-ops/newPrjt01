@@ -2172,7 +2172,7 @@ async function payPostView(q = {}) {
     ${isUser01() ? '' : `<p class="small ${run ? '' : 'muted'}" id="pp-status">${run ? `実行：${esc(run.at)}（${esc(run.by)}）　${run.slips}伝票` : '未実行'}${d.pending?.count ? `　／　<b>未計上 ${d.pending.count}件（${yen(d.pending.amount)} 円）</b>：［実行］で計上します` : ''}${s.linked ? '　／　会計連携済み' : ''}</p>`}</section>`);
 }
 VIEWS.cash = expenseView('PETTY_CASH');
-// 入金計上（2026-11-27 ユーザー指示：他の計上の画面と同じ形）：締切日を指定して［実行］。実行した締切日は入金自動仕訳リスト（Excel）を出せる。仕訳 B01 は入金の登録で起票済み
+// 入金計上（2026-11-27 ユーザー指示：他の計上の画面と同じ形）：締切日を指定して［実行］で期間の未計上の入金に仕訳 B01 を作る（入金の登録では作らない。同日ユーザー指示）。実行した締切日は入金自動仕訳リスト（Excel）を出せる
 document.addEventListener('change', e => { if (e.target.id === 'rp-date' && /^\d{4}-\d{2}-\d{2}$/.test(e.target.value)) go('receipts', { date: e.target.value }); });
 async function rcPostView(q = {}) {
   const A = actions, d = await api('/api/rc-post?' + qs({ date: q.date || '' })), s = d.sel, run = d.run;
@@ -2182,7 +2182,7 @@ async function rcPostView(q = {}) {
     <div class="filters"><label class="field">締切日<input type="date" id="rp-date" value="${esc(s.date)}" style="width:160px"></label>
       ${canWrite() ? `<button class="primary" data-act="rpRun" ${s.linked ? 'disabled title="会計連携済みの締切日は実行できません"' : ''}>実行</button>` : ''}<button data-act="rpXlsx" ${run ? '' : 'disabled title="実行すると出力できます"'}>⇩ 入金自動仕訳リスト（Excel）</button></div>
     ${isUser01() ? '' : `<p class="small muted" style="margin-top:8px">対象は入金日が前月の同じ締日の翌日〜締切日（${esc(s.from)}〜${esc(s.to)}）の入金です。［実行］は何度でもできます（漏れた入金があれば押し直してください）。</p>`}
-    ${isUser01() ? '' : `<p class="small ${run ? '' : 'muted'}" id="rp-status">${run ? `実行：${esc(run.at)}（${esc(run.by)}）　${run.slips}伝票` : '未実行'}${s.linked ? '　／　会計連携済み' : ''}</p>`}</section>`);
+    ${isUser01() ? '' : `<p class="small ${run ? '' : 'muted'}" id="rp-status">${run ? `実行：${esc(run.at)}（${esc(run.by)}）　${run.slips}伝票` : '未実行'}${d.pending?.count ? `　／　<b>未計上 ${d.pending.count}件（${yen(d.pending.amount)} 円）</b>：［実行］で計上します` : ''}${s.linked ? '　／　会計連携済み' : ''}</p>`}</section>`);
 }
 
 // ----- 支払 -----

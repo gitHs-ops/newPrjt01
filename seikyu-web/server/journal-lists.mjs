@@ -1,7 +1,7 @@
 // ② 自動仕訳リスト（帳票一覧⑥⑦⑨・9/17資料ア〜エ）。現行 HAR363/HAR413/HAR152/HAR733/CS5785 と同じ「借方・貸方を1行に併記」形式。
 // 削減案5により全リストを同一フォーマットで出力する。エ（銀行別随時支払一覧表）のみ別形式。
 import { check, isoDate, fromNum, today, addMonths, closingPeriodOfDate } from './domain.mjs';
-import { businessDate } from './sales.mjs';
+import { businessDate, RC_BOOKED, postReceiptJournal } from './sales.mjs';
 import { rows, one, audit, invoiceNos, assertOpen } from './db.mjs';
 import { BOOKED, postPayableJournal, PAY_BOOKED, postPaymentJournal } from './payables.mjs';
 import { xlsx, band } from './xlsx.mjs';
@@ -216,21 +216,25 @@ export async function runPayPost(c, ctx, b) {
   return payPostStatus(c, to);
 }
 // 入金計上（2026-11-27 ユーザー指示：他の計上の画面と同じ形）：締切日を指定して［実行］。期間（前月の同じ締日の翌日〜締切日）の入金の仕訳 B01 を入金自動仕訳リストに出す。
-// 仕訳 B01 は従来どおり入金の登録で起票する（実行では起票しない。売掛金計上と同じ）。何度でも実行でき、最後の実行で上書き。会計連携済みの期間の締切日は実行できない
+// 同日ユーザー指示で、支払計上と同じく入金の登録では仕訳を作らず［実行］で期間の未計上の入金に仕訳 B01 を作る。何度でも実行でき、最後の実行で上書き。会計連携済みの期間の締切日は実行できない
 export async function rcPostStatus(c, date) {
   const dt = /^\d{4}-\d{2}-\d{2}$/.test(date || '') ? date : (await arPostStatus(c)).next.to, { from, to } = closingPeriodOfDate(dt);
   const lk = await one(c, "SELECT period FROM app_acct_link WHERE CAST(? AS date) BETWEEN CAST(split_part(period,'..',1) AS date) AND CAST(split_part(period,'..',2) AS date) LIMIT 1", [to]);
   const r = await one(c, 'SELECT run_by, run_at, slips, total FROM app_rc_post_run WHERE closing=?', [to]);
-  return { sel: { date: to, from, to, linked: !!lk }, run: r ? { by: r.run_by, at: r.run_at, slips: Number(r.slips), total: Number(r.total) } : null };
+  const pend = await one(c, `SELECT COUNT(*) n, COALESCE(SUM(r.settlement_amount),0) amt FROM receipt r WHERE r.status='POSTED' AND r.receipt_date BETWEEN ? AND ? AND NOT ${RC_BOOKED}`, [from, to]);
+  return { sel: { date: to, from, to, linked: !!lk }, pending: { count: Number(pend.n), amount: Number(pend.amt) }, run: r ? { by: r.run_by, at: r.run_at, slips: Number(r.slips), total: Number(r.total) } : null };
 }
 export async function runRcPost(c, ctx, b) {
   check(/^\d{4}-\d{2}-\d{2}$/.test(b?.date || ''), '締切日を指定してください');
   const st = await rcPostStatus(c, b.date), { from, to } = st.sel;
   check(!st.sel.linked, `締切日 ${to} は会計連携済みのため実行できません`);
   await assertOpen(c, to, 'B01');
+  const todo = await rows(c, `SELECT r.* FROM receipt r WHERE r.status='POSTED' AND r.receipt_date BETWEEN ? AND ? AND NOT ${RC_BOOKED} ORDER BY r.receipt_date, r.receipt_no FOR UPDATE`, [from, to]);
+  // 1 件でも計上できなければ全体を取り消す（支払計上と同じく全部か無し）
+  for (const x of todo) { try { await assertOpen(c, x.receipt_date, 'B01'); await postReceiptJournal(c, x); } catch (e) { check(false, `入金 ${x.receipt_no} を計上できないため、入金計上を中止しました（1 件も計上していません）：${e.message}`); } }
   const d = await journalList(c, { pattern: 'B01', from, to });
   await c.query('INSERT INTO app_rc_post_run (closing,run_by,run_at,slips,total) VALUES (?,?,?,?,?) ON DUPLICATE KEY UPDATE run_by=VALUES(run_by),run_at=VALUES(run_at),slips=VALUES(slips),total=VALUES(total)', [to, ctx.user.login_id, jstNow(), d.slips.length, d.total]);
-  await audit(c, ctx, 'app_rc_post_run', to, 'rcpost.run', { from, to, slips: d.slips.length, total: d.total });
+  await audit(c, ctx, 'app_rc_post_run', to, 'rcpost.run', { from, to, posted: todo.map(x => x.receipt_no), slips: d.slips.length, total: d.total });
   return rcPostStatus(c, to);
 }
 // 会計連携データを作成したとき：期間に入る締日（毎月20日）に会計連携済みの印を付ける（元に戻さない）

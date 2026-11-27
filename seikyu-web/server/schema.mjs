@@ -166,6 +166,11 @@ export async function prepare(pool, env = process.env) {
   await pool.query(`CREATE TABLE IF NOT EXISTS app_ap_post_run (closing varchar(10) COLLATE "C" PRIMARY KEY, run_by varchar(256) COLLATE "C" NOT NULL, run_at varchar(16) COLLATE "C" NOT NULL, slips integer NOT NULL, total bigint NOT NULL)`);
   // 支払計上の実行の記録（締切日ごと。定時請求計上と同じ。2026-11-24）
   await pool.query(`CREATE TABLE IF NOT EXISTS app_pay_post_run (closing varchar(10) COLLATE "C" PRIMARY KEY, run_by varchar(256) COLLATE "C" NOT NULL, run_at varchar(16) COLLATE "C" NOT NULL, slips integer NOT NULL, total bigint NOT NULL)`);
+  // 入金計上（2026-11-27 ユーザー指示：支払計上と同じく、入金の登録では仕訳 B01 を作らず［入金計上］の［実行］で作る）のため、
+  // 仕訳から読んでいた入金口座（当座預金 1112 の内訳）を入金に、借方の処税率を入金の内訳に持つ。既存の入金の口座は仕訳から一度だけ写す
+  await pool.query(`ALTER TABLE receipt ADD COLUMN IF NOT EXISTS bank_code varchar(10) COLLATE "C"`);
+  await pool.query(`ALTER TABLE receipt_component ADD COLUMN IF NOT EXISTS tax_code varchar(10) COLLATE "C"`);
+  await pool.query(`UPDATE receipt r SET bank_code=(SELECT jl.sub_code FROM journal_entry je JOIN journal_line jl ON jl.journal_id=je.journal_id WHERE je.source_type='receipt' AND je.source_id=CAST(r.receipt_id AS varchar) AND je.reversal_of IS NULL AND jl.account_code='1112' ORDER BY je.journal_id LIMIT 1) WHERE r.bank_code IS NULL AND EXISTS (SELECT 1 FROM receipt_component k WHERE k.receipt_id=r.receipt_id AND k.component_kind='BANK')`);
   // 入金計上の実行の記録（締切日ごと。支払計上と同じ。2026-11-27）
   await pool.query(`CREATE TABLE IF NOT EXISTS app_rc_post_run (closing varchar(10) COLLATE "C" PRIMARY KEY, run_by varchar(256) COLLATE "C" NOT NULL, run_at varchar(16) COLLATE "C" NOT NULL, slips integer NOT NULL, total bigint NOT NULL)`);
   // 会計連携済みの印（締日＝毎月20日の年月ごと。会計連携データを作成したときに付け、元に戻さない。売掛金計上はこの次の締日を出す。2026-11-17）

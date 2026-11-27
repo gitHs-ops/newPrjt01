@@ -771,7 +771,8 @@ export async function receiptContext(c, customer, exclude = 0) {
   return { invoices, deposit: (await depositBalance(c, cu)) + num(dep?.v) };
 }
 export const openInvoices = async (c, customer) => (await receiptContext(c, customer)).invoices;
-const BANK_SUB = "(SELECT jl.sub_code FROM journal_entry je JOIN journal_line jl ON jl.journal_id=je.journal_id WHERE je.source_type='receipt' AND je.source_id=CAST(r.receipt_id AS CHAR) AND je.reversal_of IS NULL AND jl.account_code='1112' LIMIT 1)";
+// 入金口座は入金（receipt.bank_code）に持つ（2026-11-27 入金計上：登録では仕訳を作らないため）。古い入金は仕訳から
+const BANK_SUB = "COALESCE(r.bank_code, (SELECT jl.sub_code FROM journal_entry je JOIN journal_line jl ON jl.journal_id=je.journal_id WHERE je.source_type='receipt' AND je.source_id=CAST(r.receipt_id AS CHAR) AND je.reversal_of IS NULL AND jl.account_code='1112' LIMIT 1))";
 export async function listReceipts(c, q = {}) {
   const args = [], w = [];
   if (q.month) { isoMonth(q.month); w.push("to_char(r.receipt_date,'YYYY-MM')=?"); args.push(q.month); }
@@ -798,15 +799,33 @@ export async function receiptDetail(c, id) {
   for (const k of Object.keys(RECEIPT_ACC)) {
     const x = comps.find(y => y.component_kind === k); if (!x) continue;
     const [acc, sub] = RECEIPT_ACC[k], i = jl.findIndex((l, n) => !used.has(n) && l.account_code === acc && (!sub || l.sub_code === sub)); if (i >= 0) used.add(i);
-    detail[k] = { sub2: x.sub2 || '', memo2: x.memo2 || '', memo1: x.memo1 || '', taxAmt: x.tax_amount === null || x.tax_amount === undefined ? null : num(x.tax_amount), tax: i >= 0 ? jl[i].source_tax_code || '' : '' };
+    detail[k] = { sub2: x.sub2 || '', memo2: x.memo2 || '', memo1: x.memo1 || '', taxAmt: x.tax_amount === null || x.tax_amount === undefined ? null : num(x.tax_amount), tax: i >= 0 ? jl[i].source_tax_code || '' : x.tax_code || '' };   // 未計上の入金は内訳の処税率
   }
   return { ...r, detail };
 }
-export async function createReceipt(c, ctx, p) {
+// 入金計上済み（仕訳 B01 あり）
+export const RC_BOOKED = "EXISTS (SELECT 1 FROM journal_entry je WHERE je.source_type='receipt' AND je.source_id=CAST(r.receipt_id AS CHAR) AND je.status='POSTED' AND je.reversal_of IS NULL)";
+// 入金の仕訳 B01（入金計上の［実行］で作る。2026-11-27 ユーザー指示：支払計上と同じく登録では作らない）。仕訳の作り方は従来の登録時と同じ（内訳・処税率・消込・過入金から）
+// 仕訳パターン分析 B-01〜B-06（処税率: 協力会費は141/41混在のため141で仮置き Q04）。外税の処税率は入金額（税込）を税抜金額と仮払消費税 1465 に分ける（×税率/(1+税率)。2026-11-01 決定）
+export async function postReceiptJournal(c, r) {
+  const comps = await rows(c, 'SELECT * FROM receipt_component WHERE receipt_id=? ORDER BY component_no', [r.receipt_id]);
+  const allocs = await rows(c, 'SELECT invoice_id, amount FROM receipt_allocation WHERE receipt_id=? ORDER BY invoice_id', [r.receipt_id]);
+  const cu = r.customers_cd, date = String(r.receipt_date instanceof Date ? r.receipt_date.toISOString() : r.receipt_date).slice(0, 10), get = k => comps.find(x => x.component_kind === k);
+  const dr = (acc, k, def, opt = {}) => { const x = get(k), amt = x ? num(x.amount) : 0, code = x?.tax_code || def, d = decode(code), rt = d?.excl ? Math.round(d.rate * 10) : 0, given = x && x.tax_amount !== null && x.tax_amount !== undefined ? num(x.tax_amount) : null, t = !rt ? 0 : given ?? (amt ? Math.floor(amt * rt / (1000 + rt)) : 0);
+    return [line('D', acc, amt - t, { ...opt, tax: code }), line('D', '1465', t, { tax: '9' })]; };
+  return postJournal(c, { date, pattern: 'B01', sourceType: 'receipt', sourceId: r.receipt_id, lines: [
+    ...dr('1112', 'BANK', '9', { sub: r.bank_code }), ...dr('1111', 'CASH', '9'), ...dr('1120', 'NOTE', '9', { customer: cu }),
+    ...dr('8330', 'FEE', '141', { sub: '101', dept: '063' }), ...dr('8330', 'COOP', '141', { sub: '107', dept: '063' }),
+    ...dr('4170', 'DEPOSIT', '9', { customer: cu }), ...dr('8850', 'DISCOUNT', '141', { dept: '063' }), ...dr('8850', 'LOSS', '9', { dept: '063' }),
+    ...allocs.map(a => line('C', '1131', num(a.amount), { customer: cu, tax: '9' })), line('C', '4170', num(get('OVERPAY')?.amount || 0), { customer: cu, tax: '9' }) ] });
+}
+export async function createReceipt(c, ctx, p, opt = {}) {
   const idem = text(p.idempotencyKey, '処理キー', 100);
   const dup = await one(c, 'SELECT receipt_id, receipt_no FROM receipt WHERE idempotency_key=?', [idem]);
   if (dup) return { id: dup.receipt_id, no: dup.receipt_no, duplicate: true };
   const date = isoDate(p.date, '入金日'); await assertOpen(c, date, 'B01');
+  // 会計連携済みの期間の入金日は登録できない（入金計上で計上できないため。支払と同じ）。計上済みの入金の修正はすぐ仕訳を作るので除く
+  if (!opt.postNow) check(!(await one(c, "SELECT 1 x FROM app_acct_link k WHERE CAST(? AS date) BETWEEN CAST(split_part(k.period,'..',1) AS date) AND CAST(split_part(k.period,'..',2) AS date) LIMIT 1", [date])), `入金日 ${date} は会計連携済みの期間のため登録できません`);
   // Customer row lock serialises receipts of the same customer (deposit balance, allocations).
   const cust = await one(c, 'SELECT customers_cd FROM client_m WHERE customers_cd=? FOR UPDATE', [String(p.customer || '')]); check(cust, '得意先を選択してください');
   const parts = { BANK: yen(p.bank || 0, '振込'), CASH: yen(p.cash || 0, '現金'), NOTE: yen(p.notes || 0, '手形'), FEE: yen(p.fee || 0, '振込手数料'), COOP: yen(p.coop || 0, '協力会費等'), DEPOSIT: yen(p.deposit || 0, '預り金充当'), DISCOUNT: yen(p.discount || 0, '値引・端数') , LOSS: yen(p.loss || 0, '雑損失') };
@@ -833,29 +852,20 @@ export async function createReceipt(c, ctx, p) {
   check(overpay === 0 || p.overpayToDeposit === true, '入金合計と消込合計が一致しません（差額を預り金として受け入れる場合は「差額を預り金で受入」を選択）');
   check(overpay === 0 || parts.DEPOSIT === 0, '預り金充当と過入金の預り金受入は同時に処理できません');
   const no = await nextSlipNoFy(c, DOC_SERIES.receipt, date);
-  const [r] = await c.query("INSERT INTO receipt (receipt_no,customers_cd,receipt_date,received_amount,settlement_amount,status,idempotency_key,created_at) VALUES (?,?,?,?,?,'POSTED',?,UTC_TIMESTAMP(6))", [no, cust.customers_cd, date, received, settlement, idem]);
+  const [r] = await c.query("INSERT INTO receipt (receipt_no,customers_cd,receipt_date,received_amount,settlement_amount,status,idempotency_key,created_at,bank_code) VALUES (?,?,?,?,?,'POSTED',?,UTC_TIMESTAMP(6),?)", [no, cust.customers_cd, date, received, settlement, idem, bankCode]);
   let n = 0;
   // 現行入金処理の内訳2・工種・消費税額・摘要2（p.detail：{ FEE: { sub2, work, taxAmt, memo2 }, … }）。消費税額は 0〜入金額
   const det = k => { const d = p.detail?.[k] || {}, t = d.taxAmt === undefined || d.taxAmt === '' || d.taxAmt === null ? null : yen(d.taxAmt, `${RECEIPT_PARTS[k]}の消費税額`);
     check(t === null || (t >= 0 && t <= parts[k]), `${RECEIPT_PARTS[k]}の消費税額は入金額以下で入力してください`);
     return { sub2: String(d.sub2 ?? '').trim().slice(0, 20) || null, work: String(d.work ?? '').trim().slice(0, 20) || null, taxAmt: t, memo2: String(d.memo2 ?? '').trim().slice(0, 100) || null, memo1: String(d.memo1 ?? '').trim().slice(0, 100) || null }; };   // 摘要1 は手入力（空なら得意先名。2026-11-17）
-  for (const [k, v] of Object.entries(parts)) if (v) { const d = det(k); await c.query('INSERT INTO receipt_component (receipt_id,component_no,component_kind,amount,maturity_date,sub2,work_type,tax_amount,memo2,memo1) VALUES (?,?,?,?,?,?,?,?,?,?)', [r.insertId, ++n, k, v, k === 'NOTE' ? noteDue : null, d.sub2, d.work, d.taxAmt, d.memo2, d.memo1]); }
+  // 現行入金処理では借方の処税率を入力できる（p.tax：{ FEE: '041', … }。2026-10-31）。指定が無ければ既定値。内訳に持ち、入金計上の［実行］で仕訳に使う（2026-11-27）
+  // 資金の科目（振込＝当座預金・現金・手形・預り金充当）は課税の処税率を使えない（2026-11-23 ユーザー指示）
+  const TAX_DEF = { BANK: '9', CASH: '9', NOTE: '9', FEE: '141', COOP: '141', DEPOSIT: '9', DISCOUNT: '141', LOSS: '9' };
+  const tx = k => { if (!p.tax?.[k]) return TAX_DEF[k]; const x = mustDecode(p.tax[k], `${RECEIPT_PARTS[k]}の処税率`); check(!(['BANK', 'CASH', 'NOTE', 'DEPOSIT'].includes(k) && x.taxable), `${RECEIPT_PARTS[k]}は資金の科目のため、課税の処税率（${p.tax[k]}）は使えません（対象外 090 などにしてください）`); return x.code; };
+  for (const [k, v] of Object.entries(parts)) if (v) { const d = det(k); await c.query('INSERT INTO receipt_component (receipt_id,component_no,component_kind,amount,maturity_date,sub2,work_type,tax_amount,memo2,memo1,tax_code) VALUES (?,?,?,?,?,?,?,?,?,?,?)', [r.insertId, ++n, k, v, k === 'NOTE' ? noteDue : null, d.sub2, d.work, d.taxAmt, d.memo2, d.memo1, tx(k)]); }
   if (overpay) await c.query('INSERT INTO receipt_component (receipt_id,component_no,component_kind,amount) VALUES (?,?,?,?)', [r.insertId, ++n, 'OVERPAY', overpay]);
   for (const a of allocs) await c.query('INSERT INTO receipt_allocation (receipt_id,invoice_id,customers_cd,amount) VALUES (?,?,?,?)', [r.insertId, a.id, cust.customers_cd, a.amount]);
-  // 仕訳パターン分析 B-01〜B-06（処税率: 協力会費は141/41混在のため141で仮置き Q04）
-  // 現行入金処理では借方の処税率を入力できる（p.tax：{ FEE: '041', … }。2026-10-31）。指定が無ければ既定値
-  // 外税の処税率を選んだときは、入金額（税込）を科目の税抜金額と仮払消費税 1465 に分ける。
-  // 入金額は受け取った（差し引かれた）金額なので、外税でも税額は入金額から抜き出す（×税率/(1+税率)。現行 HAW110 の見本と同じ。
-  // 2026-11-01 決定：外税でも上乗せ（×税率）にしない。定時請求・小口現金の外税は金額が税抜で上乗せするので計算が違う）
-  // 資金の科目（振込＝当座預金・現金・手形・預り金充当）は課税の処税率を使えない（2026-11-23 ユーザー指示）
-  const tx = (k, d) => { if (!p.tax?.[k]) return d; const x = mustDecode(p.tax[k], `${RECEIPT_PARTS[k]}の処税率`); check(!(['BANK', 'CASH', 'NOTE', 'DEPOSIT'].includes(k) && x.taxable), `${RECEIPT_PARTS[k]}は資金の科目のため、課税の処税率（${p.tax[k]}）は使えません（対象外 090 などにしてください）`); return x.code; };
-  const dr = (acc, k, def, opt = {}) => { const amt = parts[k], code = tx(k, def), d = decode(code), r = d?.excl ? Math.round(d.rate * 10) : 0, given = amt ? det(k).taxAmt : null, t = !r ? 0 : given ?? (amt ? Math.floor(amt * r / (1000 + r)) : 0);
-    return [line('D', acc, amt - t, { ...opt, tax: code }), line('D', '1465', t, { tax: '9' })]; };
-  await postJournal(c, { date, pattern: 'B01', sourceType: 'receipt', sourceId: r.insertId, lines: [
-    ...dr('1112', 'BANK', '9', { sub: bankCode }), ...dr('1111', 'CASH', '9'), ...dr('1120', 'NOTE', '9', { customer: cust.customers_cd }),
-    ...dr('8330', 'FEE', '141', { sub: '101', dept: '063' }), ...dr('8330', 'COOP', '141', { sub: '107', dept: '063' }),
-    ...dr('4170', 'DEPOSIT', '9', { customer: cust.customers_cd }), ...dr('8850', 'DISCOUNT', '141', { dept: '063' }), ...dr('8850', 'LOSS', '9', { dept: '063' }),
-    ...allocs.map(a => line('C', '1131', a.amount, { customer: cust.customers_cd, tax: '9' })), line('C', '4170', overpay, { customer: cust.customers_cd, tax: '9' }) ] });
+  // 仕訳 B01 は登録では作らず［入金計上］の［実行］で作る（2026-11-27 ユーザー指示。支払計上と同じ）
   await audit(c, ctx, 'receipt', r.insertId, 'receipt.create', { no, customer: cust.customers_cd, received, settlement, parts: Object.fromEntries(Object.entries(parts).filter(([, v]) => v)), invoices: allocs.map(a => a.id) });
   return { id: r.insertId, no };
 }
@@ -863,8 +873,11 @@ export async function createReceipt(c, ctx, p) {
 export async function updateReceipt(c, ctx, p) {
   const r = await one(c, 'SELECT customers_cd FROM receipt WHERE receipt_id=?', [Number(p.id)]); check(r, '入金が見つかりません');
   check(r.customers_cd === String(p.customer || ''), '異なる得意先の入金は修正できません');
+  const hadJournal = !!(await one(c, `SELECT ${RC_BOOKED} b FROM receipt r WHERE r.receipt_id=?`, [Number(p.id)]))?.b;
   await reverseReceipt(c, ctx, { id: p.id });
-  const res = await createReceipt(c, ctx, p);
+  const res = await createReceipt(c, ctx, p, { postNow: hadJournal });
+  // 入金計上済みの入金を直したときは、直した入金の仕訳もすぐ作る（支払の修正と同じ。未計上のままにしない）
+  if (hadJournal && !res.duplicate) await postReceiptJournal(c, await one(c, 'SELECT * FROM receipt WHERE receipt_id=?', [res.id]));
   return { ...res, replaced: Number(p.id) };
 }
 export async function reverseReceipt(c, ctx, { id }) {
