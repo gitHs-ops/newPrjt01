@@ -2310,7 +2310,7 @@ function paymentZenginCard() {
   return `<section class="card glass"><div class="card-head"><h2>支払データ作成（全銀）</h2></div>
     <div class="filters"><label class="field">支払日<input type="date" id="zg-date" value="${today()}"></label>
       <label class="field">振込元口座<select id="pr-bank">${options(active('banks'), active('banks')[0]?.code)}</select></label>
-      <button data-act="zengin">支払データ作成（全銀）</button></div>
+      <button class="primary" data-act="zengin">支払データ作成（全銀）</button></div>
     </section>`;
 }
 function paymentReportsCard() {
