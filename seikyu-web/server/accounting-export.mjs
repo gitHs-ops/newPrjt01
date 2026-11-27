@@ -102,9 +102,49 @@ export async function accountingExport(c, ctx, q) {
     const eid = Number((await dbRows(c, 'SELECT MAX(export_id) id FROM app_acct_export'))[0]?.id);
     const ids = slips.map(s => s.id); if (eid && ids.length) await c.query(`UPDATE journal_entry SET export_id=? WHERE journal_id IN (${ids.map(() => '?').join(',')})`, [eid, ...ids]);
   }
-  const linked = await markAcctLinked(c, ctx, from, to); // 会計連携済みの印（売掛金計上は次の締日に進む。2026-11-17）
-  await audit(c, ctx, 'journal_entry', `${from}..${to}`, 'accounting.export', { format, slips: slips.length, skippedExported: format === 'bugyo' && String(q.again || '') !== '1' ? exported.length : 0, again: String(q.again || '') === '1', linked });
+  // 出力と取込完了を分ける（2026-11-27 ユーザー指示）：出力では会計連携済みにしない（何度でも出力できる）。会計連携済みの印は 月次確定 › 連携取込完了 の［取込完了］で付ける
+  await audit(c, ctx, 'journal_entry', `${from}..${to}`, 'accounting.export', { format, slips: slips.length, skippedExported: format === 'bugyo' && String(q.again || '') !== '1' ? exported.length : 0, again: String(q.again || '') === '1' });
   return { file };
+}
+
+// ---------- 連携取込完了（2026-11-27 ユーザー指示：月次確定の最後の小メニュー）----------
+// 会計月ごとに 自動仕訳 4 種の確定・勘定奉行 受入CSV の出力・取込完了 を見せ、勘定奉行に取り込んだ月に［取込完了］を付ける。
+// 取込完了は月の順番どおり（連携済みの最後の月の翌月だけ）。付けたら戻せない（その期間の計上・登録・修正が止まる）
+const linkMonthsOf = async c => {
+  const last = (await one(c, 'SELECT MAX(month) m FROM app_acct_link'))?.m || null;
+  const exps = await dbRows(c, 'SELECT export_id, exported_at, exported_by, from_d, to_d, slips, again FROM app_acct_export ORDER BY export_id DESC');
+  const firstExp = exps.length ? exps.map(e => cycleMonth(e.from_d)).sort()[0] : null;
+  return { last, exps, next: last ? addMonths(last, 1) : firstExp };
+};
+export async function acctLinkStatus(c) {
+  const { last, exps, next } = await linkMonthsOf(c), now = cycleMonth(new Date(Date.now() + 9 * 3600e3).toISOString().slice(0, 10));
+  const links = await dbRows(c, 'SELECT month, linked_by, linked_at, period FROM app_acct_link');
+  const jc = await dbRows(c, 'SELECT period, pattern FROM app_journal_close'), pc = new Set((await dbRows(c, 'SELECT period FROM app_period_close')).map(r => r.period));
+  const out = [];
+  for (let i = -6; i <= 1; i++) {
+    const m = addMonths(now, i), { from, to } = cycleRange(m), l = links.find(r => r.month === m);
+    const e = exps.find(x => x.from_d <= to && x.to_d >= from);
+    const done = Object.keys(JOURNAL_CLOSE).filter(k => pc.has(m) || jc.some(r => r.period === m && r.pattern === k));
+    out.push({ month: m, from, to, journals: Object.fromEntries(Object.keys(JOURNAL_CLOSE).map(k => [k, done.includes(k)])), allClosed: done.length === Object.keys(JOURNAL_CLOSE).length,
+      exported: e ? { at: e.exported_at, by: e.exported_by, slips: Number(e.slips), period: `${e.from_d}..${e.to_d}`, again: !!e.again } : null,
+      linked: l ? { at: l.linked_at, by: l.linked_by } : null, next: m === next });
+  }
+  return { last, next, journalNames: JOURNAL_CLOSE, months: out.reverse() };
+}
+export async function completeAcctLink(c, ctx, b) {
+  const month = String(b?.month || ''); check(/^\d{4}-(0[1-9]|1[0-2])$/.test(month), '対象年月を指定してください');
+  const { last, exps, next } = await linkMonthsOf(c), { from, to } = cycleRange(month);
+  check(!(await one(c, 'SELECT 1 x FROM app_acct_link WHERE month=?', [month])), `${month} は取込完了済みです`);
+  check(exps.some(x => x.from_d <= to && x.to_d >= from), `${month}（${from}〜${to}）は勘定奉行 受入CSV を出力していません。先に 会計連携データ で出力してください`);
+  check(!next || month === next, `取込完了は月の順番どおりに行います。${last ? `取込完了済みは ${last} までです。` : ''}次は ${next}（${next ? cycleRange(next).from + '〜' + cycleRange(next).to : ''}）です`);
+  if (!(await isClosed(c, month))) {
+    const done = new Set((await dbRows(c, 'SELECT pattern FROM app_journal_close WHERE period=?', [month])).map(r => r.pattern));
+    const miss = Object.entries(JOURNAL_CLOSE).filter(([k]) => !done.has(k)).map(([, n]) => n);
+    check(!miss.length, `${month} は確定していない自動仕訳があります：${miss.join('・')}`);
+  }
+  const linked = await markAcctLinked(c, ctx, from, to);
+  await audit(c, ctx, 'app_acct_link', month, 'accounting.linkdone', { month, from, to, linked });
+  return acctLinkStatus(c);
 }
 
 // マスタの会計システム（勘定奉行）形式の出力（D-059・D-060。2026-11-12 結合テスト IT-13）：取引先（得意先・業者）・部門・摘要。

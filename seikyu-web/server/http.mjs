@@ -16,7 +16,7 @@ import * as PR from './payment-reports.mjs';
 import * as MR from './misc-reports.mjs';
 import * as XR from './extra-reports.mjs';
 import { invoiceBook } from './invoice-book.mjs';
-import { accountingExport, accountingMasters, accountingMasterImport } from './accounting-export.mjs';
+import { accountingExport, accountingMasters, accountingMasterImport, acctLinkStatus, completeAcctLink } from './accounting-export.mjs';
 import * as KB from './kb.mjs';
 import { NEW_REPORTS, genericBook } from './new-reports.mjs';
 import { bugyoSettings, saveBugyoSettings, BUGYO_ITEMS } from './bugyo.mjs';
@@ -52,6 +52,7 @@ export async function createApp({ pool, publicDir, secureCookies = process.env.N
   route('GET', '/api/invoices', 'read', x => db(c => S.listInvoices(c, x.q)));
   route('GET', '/api/accounting/export', 'read', x => db(c => accountingExport(c, x, x.q)));
   route('GET', '/api/accounting/masters', 'read', x => db(c => accountingMasters(c, x, x.q)));
+  route('GET', '/api/accounting/link', 'read', () => db(c => acctLinkStatus(c)));   // 連携取込完了（2026-11-27）
   route('GET', '/api/invoices/book', 'read', x => db(c => invoiceBook(c, x.q)).then(b => ({ file: b })));
   // 多数の現場を指定すると URL が長すぎる（431）ため、画面からは POST で送る（2026-10-27）
   route('POST', '/api/invoices/book', 'read', x => db(c => invoiceBook(c, { ids: [].concat(x.body.ids || []).join(','), sites: JSON.stringify(x.body.sites || {}), kind: x.body.kind || '' })).then(b => ({ file: b })));   // kind：new・diff・all（③④⑤ 2026-11-18）
@@ -155,6 +156,7 @@ export async function createApp({ pool, publicDir, secureCookies = process.env.N
   // 仕訳別確定（2026-11-26）
   w('/api/periods/journals/close', (c, x, b) => L.closeJournal(c, x, b), 'admin');
   w('/api/periods/journals/reopen', (c, x, b) => L.reopenJournal(c, x, b), 'admin');
+  w('/api/accounting/link/complete', (c, x, b) => completeAcctLink(c, x, b), 'admin');   // 連携取込完了（2026-11-27）
   // ----- 財務会計（勘定奉行相当） -----
   const kbRead = (path, fn, book) => route('GET', '/api/kb/' + path, 'read', x => x.q.format === 'xlsx' && book ? db(c => KB.book(c, book, x.q)).then(b => ({ file: b })) : db(c => fn(c, x.q, x)));
   kbRead('meta', c => KB.kbMeta(c));
