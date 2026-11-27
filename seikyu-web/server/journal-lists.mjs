@@ -217,11 +217,13 @@ export async function runPayPost(c, ctx, b) {
 }
 // 入金計上（2026-11-27 ユーザー指示：他の計上の画面と同じ形）：締切日を指定して［実行］。期間（前月の同じ締日の翌日〜締切日）の入金の仕訳 B01 を入金自動仕訳リストに出す。
 // 同日ユーザー指示で、支払計上と同じく入金の登録では仕訳を作らず［実行］で期間の未計上の入金に仕訳 B01 を作る。何度でも実行でき、最後の実行で上書き。会計連携済みの期間の締切日は実行できない
+// 移行した入金（入金No MIG…。2026-09、仕訳なし）は未計上に出さず、［実行］でも計上しない（2026-11-27 ユーザー指示）
+const RC_NOT_MIG = "r.receipt_no NOT LIKE 'MIG%'";
 export async function rcPostStatus(c, date) {
   const dt = /^\d{4}-\d{2}-\d{2}$/.test(date || '') ? date : (await arPostStatus(c)).next.to, { from, to } = closingPeriodOfDate(dt);
   const lk = await one(c, "SELECT period FROM app_acct_link WHERE CAST(? AS date) BETWEEN CAST(split_part(period,'..',1) AS date) AND CAST(split_part(period,'..',2) AS date) LIMIT 1", [to]);
   const r = await one(c, 'SELECT run_by, run_at, slips, total FROM app_rc_post_run WHERE closing=?', [to]);
-  const pend = await one(c, `SELECT COUNT(*) n, COALESCE(SUM(r.settlement_amount),0) amt FROM receipt r WHERE r.status='POSTED' AND r.receipt_date BETWEEN ? AND ? AND NOT ${RC_BOOKED}`, [from, to]);
+  const pend = await one(c, `SELECT COUNT(*) n, COALESCE(SUM(r.settlement_amount),0) amt FROM receipt r WHERE r.status='POSTED' AND r.receipt_date BETWEEN ? AND ? AND NOT ${RC_BOOKED} AND ${RC_NOT_MIG}`, [from, to]);
   return { sel: { date: to, from, to, linked: !!lk }, pending: { count: Number(pend.n), amount: Number(pend.amt) }, run: r ? { by: r.run_by, at: r.run_at, slips: Number(r.slips), total: Number(r.total) } : null };
 }
 export async function runRcPost(c, ctx, b) {
@@ -229,7 +231,7 @@ export async function runRcPost(c, ctx, b) {
   const st = await rcPostStatus(c, b.date), { from, to } = st.sel;
   check(!st.sel.linked, `締切日 ${to} は会計連携済みのため実行できません`);
   await assertOpen(c, to, 'B01');
-  const todo = await rows(c, `SELECT r.* FROM receipt r WHERE r.status='POSTED' AND r.receipt_date BETWEEN ? AND ? AND NOT ${RC_BOOKED} ORDER BY r.receipt_date, r.receipt_no FOR UPDATE`, [from, to]);
+  const todo = await rows(c, `SELECT r.* FROM receipt r WHERE r.status='POSTED' AND r.receipt_date BETWEEN ? AND ? AND NOT ${RC_BOOKED} AND ${RC_NOT_MIG} ORDER BY r.receipt_date, r.receipt_no FOR UPDATE`, [from, to]);
   // 1 件でも計上できなければ全体を取り消す（支払計上と同じく全部か無し）
   for (const x of todo) { try { await assertOpen(c, x.receipt_date, 'B01'); await postReceiptJournal(c, x); } catch (e) { check(false, `入金 ${x.receipt_no} を計上できないため、入金計上を中止しました（1 件も計上していません）：${e.message}`); } }
   const d = await journalList(c, { pattern: 'B01', from, to });
