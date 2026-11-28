@@ -2405,10 +2405,10 @@ const receiptScheduleCard = () => miscCard('入金予定チェックリスト', 
 // 仕訳は 対象年月（20日締めのサイクル：前月21日〜当月20日）。初期表示は次に処理する月（会計連携済みの月の翌月。未連携なら今日を含むサイクルの月）。マスタは随時なので日付は出さない（11/26 内部会議・2026-11-27 ユーザー指示）
 const acRange = m => ({ from: `${addMonths(m, -1)}-21`, to: `${m}-20` });
 const acRangeText = m => (/^\d{4}-\d{2}$/.test(m || '') ? (r => `${r.from} 〜 ${r.to}`)(acRange(m)) : '');
-// 仕訳のカードの見出しは 仕訳データ（仕訳データ連携 → 仕訳データ。2026-11-27 ユーザー指示）、ボタンは「勘定奉行 受入」（CSV の表示は出さない。2026-11-27 ユーザー指示）
+// 仕訳のカードの見出しは 仕訳データ（仕訳データ連携 → 仕訳データ。2026-11-27 ユーザー指示）、ボタンは「勘定奉行への連携」（CSV の表示は出さない。2026-11-27 ユーザー指示。勘定奉行 受入 → 勘定奉行への連携 2026-11-28 ユーザー指示）
 const accountingCard = () => miscCard('仕訳データ', '会計システムは勘定奉行（奉行クラウド）。受入は CSV／Excel（QA回答 2026-10-08）', `<label class="field">対象年月<input type="month" id="ac-month" value=""></label><label class="field">〜<input type="month" id="ac-month-to" value=""></label><span class="small" id="ac-range"></span>` /* 何か月分かをまとめて出力（開始は取込完了の次の月で固定、終わりの月を選ぶ。2026-11-27 打合せ・ユーザー指示） */,
 // 仕訳の出力は勘定奉行 受入CSV だけ（汎用CSV・弥生会計形式のボタンは外す。要件定義 最終版 No.32、2026-11-20 ユーザー指示。サーバの形式は残す）
-  '<button class="primary" data-act="acct" data-format="bugyo">勘定奉行 受入</button>') + miscCard('マスタ（勘定奉行）', '', '',
+  '<button class="primary" data-act="acct" data-format="bugyo">勘定奉行への連携</button>') + miscCard('マスタ（勘定奉行）', '', '',
   '<span class="small">マスタ（勘定奉行へ送る）</span><button data-act="acctMaster" data-kind="partners">取引先</button><button data-act="acctMaster" data-kind="depts">部門</button><button data-act="acctMaster" data-kind="tekiyo">摘要</button><div class="filters-break"></div><span class="small">マスタ（勘定奉行から受け取る）</span><button data-act="acctMasterIn" data-kind="accounts">勘定科目 受入</button><button data-act="acctMasterIn" data-kind="subaccounts">補助科目 受入</button>',
   '開始の月は取込完了した月の翌月（固定）で、終わりの月を選ぶと何か月分かをまとめて出力できます。出力は何度でもでき、勘定奉行への取込が終わったら「仕訳・会計連携 → 月次確定（送信）履歴」で［取込完了］にします（まとめて出力した月はまとめて取込完了。元に戻せません。2026-11-27）。マスタは 取引先・部門・摘要 を勘定奉行へ送り、勘定科目・補助科目は勘定奉行から受け取ります（11/11 打合せ No.3）。補助科目は内訳科目だけ、得意先・業者は取引先コードで連携します（カナを含むコードは「マスタ管理 → 取引先コード変換表」で会計の取引先コードを登録。未登録があると勘定奉行CSVは出力しません）。勘定奉行CSVの見出しは「財務会計 → 会計設定 → 勘定奉行連携」で登録した OBC受入記号（未登録は項目名）、税区分は処税率→奉行税区分の対応表で変換します。受入記号・税区分コードは「データ受入形式一覧表」で確定予定（Q14/Q19）。出力は操作履歴に記録されます。');
 // マスタの勘定奉行形式（取引先・部門・勘定科目・補助科目）。取引先コードは取引先コード変換表で置き換え（2026-11-12 結合テスト IT-13）
