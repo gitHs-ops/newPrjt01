@@ -131,6 +131,8 @@ export async function customerShipDaily(c, q) {
   return { title: '得意先別出荷日報', ref: '帳票㉗（HAR531）', date: d, from, to: d, sub: `${d}（月度 ${from} 〜）`, columns: DAY_COLS(true), groups, ...(all.length ? { totals: daySum(all) } : {}) };
 }
 // ㉘ 商品別仕入日報（現行 HAR521）：仕入先ごとに商品別。商品仕入登録の区分 1＝仕入、2＝他社納入 を分ける。仕入先計と総合計を出す（2026-11-27 ユーザー指示）。区分ごとの合計は出さない
+// 様式は現行 HAR521 どおり（2026-11-28 李さん指示、11/26 内部会議 No.17）：列は 仕入先名・品名・単位・前日累計数量…累計金額（商品コードの列は出さない）。
+// 仕入先のコード・名称は見出し行ではなく「仕入先名」の列に、その仕入先の 1 行目だけ。区分（1 仕入／2 他社納入）は見出しを出さず空行で区切る（gap）
 export async function itemPurchaseDaily(c, q) {
   const { d, from } = dayRange(q);
   const rs = await rows(c, `SELECT COALESCE(p.purchase_kb, '1') kb, v.vendor_code, MAX(v.vendor_name) vendor_name, p.item_cd, MAX(i.item_nam) item_name, MAX(unit_name(i.unit)) unit,
@@ -138,18 +140,19 @@ export async function itemPurchaseDaily(c, q) {
     FROM purchase p JOIN vendor v ON v.vendor_id=p.vendor_id LEFT JOIN item_m i ON i.item_cd=p.item_cd
     WHERE p.purchase_date BETWEEN ? AND ? GROUP BY 1, v.vendor_code, p.item_cd ORDER BY 1, v.vendor_code, p.item_cd`, [d, d, from, d]);
   const groups = [];   // 区分 → 仕入先 → 商品、仕入先計と総合計（2026-11-27 ユーザー指示）
-  for (const [kb, label] of [['1', '仕入'], ['2', '他社納入']]) {
+  for (const kb of ['1', '2']) {
     const mine = rs.filter(r => String(r.kb || '1') === kb); if (!mine.length) continue;
     const gs = [];
     for (const r of mine) {
-      let g = gs.find(x => x.cd === r.vendor_code); if (!g) gs.push(g = { cd: r.vendor_code, title: `${r.vendor_code}　${r.vendor_name || ''}`, rows: [] });
-      const x = { code: r.item_cd || '', name: r.item_cd ? String(r.item_name || '').trim() : '運賃・金額のみ', unit: r.unit || '', ...dayRow(r, d) }; g.rows.push(x);
+      let g = gs.find(x => x.cd === r.vendor_code); if (!g) gs.push(g = { cd: r.vendor_code, rows: [] });
+      const x = { party: g.rows.length ? '' : `${r.vendor_code}　${r.vendor_name || ''}`, name: r.item_cd ? String(r.item_name || '').trim() : '運賃・金額のみ', unit: r.unit || '', ...dayRow(r, d) }; g.rows.push(x);
     }
-    // 仕入先ごとに「仕入先計」を出す（2026-11-27 ユーザー指示）。区分ごとの合計は出さない
-    gs.forEach(g => { delete g.cd; g.label = '仕入先計'; g.totals = daySum(g.rows); }); gs[0].head = `区分 ${kb}．${label}`;
+    // 仕入先ごとに「仕入先計」を出す（2026-11-27 ユーザー指示）。区分ごとの合計は出さない。2 つ目の区分の前は空行（2026-11-28）
+    gs.forEach(g => { delete g.cd; g.label = '仕入先計'; g.totals = daySum(g.rows); }); if (groups.length) gs[0].gap = true;
     groups.push(...gs);
   }
-  return { title: '商品別仕入日報', ref: '帳票㉘（HAR521）', date: d, from, to: d, sub: `${d}（月度 ${from} 〜）`, columns: DAY_COLS(true), groups, ...(groups.length ? { totals: daySum(groups.flatMap(g => g.rows)) } : {}) };
+  const columns = DAY_COLS(true, '仕入先名').filter(col => col.key !== 'code');   // 商品コードの列は出さない（2026-11-28 李さん指示）
+  return { title: '商品別仕入日報', ref: '帳票㉘（HAR521）', date: d, from, to: d, sub: `${d}（月度 ${from} 〜）`, columns, groups, ...(groups.length ? { totals: daySum(groups.flatMap(g => g.rows)) } : {}) };
 }
 // 商品別仕入一覧（2026-11-24 ユーザー指示）：2026-11-26 ユーザー指示で商品別仕入日報（帳票㉘ HAR521）と同じ様式にし、対象だけ期間（From〜To）にする。
 // 列は日報と同じ並びで「当日」を「期間」に：前日累計＝月度（From の月度）の初日〜From の前日、期間＝From〜To、累計＝月度の初日〜To。行は期間に仕入のある商品だけ。合計行は出さない（日報と同じ）
@@ -186,7 +189,8 @@ export async function genericBook(c, kind, q) {
   const totalRow = (label, t) => d.columns.map((col, i) => (i === 0 ? S(label) : t[col.key] !== undefined ? (col.dec && typeof t[col.key] === 'number' ? { v: t[col.key], s: 'qty' } : S(t[col.key])) : ''));
   // g.title の行は表の全列を結合して見出しの色を付ける（1セルだけだと不自然。2026-11-06 ユーザー指摘）
   // g.head：上位ブレイクの見出し、g.label：グループ計の名称、g.foot：上位ブレイクの計（任意）。g.title・g.totals が無いグループは見出し・計の行を出さない
-  for (const g of d.groups) { if (g.head) out.push([{ v: g.head, s: 'title' }]); if (g.title) out.push(band(W, [g.title])); for (const r of g.rows) out.push(d.columns.map(col => dec(col, r[col.key] ?? ''))); if (g.totals) out.push(totalRow(g.label || '計', g.totals)); if (g.foot) out.push(totalRow(g.foot.label, g.foot.totals)); }
+  // g.gap：グループの前に空行（中身の無い行は詰められるため全角空白を入れる。商品別仕入日報の区分の区切り 2026-11-28）
+  for (const g of d.groups) { if (g.gap) out.push(d.columns.map((_, i) => (i ? '' : '　'))); if (g.head) out.push([{ v: g.head, s: 'title' }]); if (g.title) out.push(band(W, [g.title])); for (const r of g.rows) out.push(d.columns.map(col => dec(col, r[col.key] ?? ''))); if (g.totals) out.push(totalRow(g.label || '計', g.totals)); if (g.foot) out.push(totalRow(g.foot.label, g.foot.totals)); }
   if (d.totals) out.push(totalRow('総合計', d.totals));
   return { name: `${d.title}_${(d.from || d.month || d.to || today())}.xlsx`, body: xlsx([{ name: d.title, rows: out, merges, widths: W, ...(d.noGrand ? { noGrand: true } : {}) }]) };
 }

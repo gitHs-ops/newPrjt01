@@ -285,7 +285,9 @@ test('workflow against PostgreSQL business tables', { skip, timeout: 900000 }, a
         assert.equal((await a.call(`/api/reports/misc/${k}?` + new URLSearchParams({ date: d, format: 'xlsx' }))).status, 200);
         if (k === 'item-ship-daily') assert.ok(dr.groups.flatMap(g => g.rows).every(r => /-[12]$/.test(r.code)), JSON.stringify(dr.groups.flatMap(g => g.rows).map(r => r.code)));   // 枝番 -1 現着／-2 引取
       }
-      { const pdr = (await a.call('/api/reports/misc/item-purchase-daily?' + new URLSearchParams({ date: d }))).data; assert.ok(pdr.groups.some(g => g.title?.startsWith('V' + tag)), JSON.stringify(pdr.groups.map(g => g.title))); }
+      { const pdr = (await a.call('/api/reports/misc/item-purchase-daily?' + new URLSearchParams({ date: d }))).data; // 仕入先は「仕入先名」の列に、その仕入先の 1 行目だけ。見出し行・商品コードの列は出さない（2026-11-28 李さん指示）
+        assert.deepEqual(pdr.columns.map(x => x.label).slice(0, 3), ['仕入先名', '品名', '単位']); assert.ok(pdr.groups.every(g => !g.title && !g.head && g.rows.slice(1).every(r => r.party === '')));
+        assert.ok(pdr.groups.some(g => g.rows[0]?.party.startsWith('V' + tag)), JSON.stringify(pdr.groups.map(g => g.rows[0]?.party))); }
       // 11/04 No.19：月指定で前月21日〜当月20日、仕入先別（2026-11-05）
       { const pm = d.slice(8) > '20' ? new Date(Date.UTC(+d.slice(0, 4), +d.slice(5, 7), 1)).toISOString().slice(0, 7) : d.slice(0, 7); const mr = (await a.call('/api/reports/misc/purchase-register?' + new URLSearchParams({ month: pm }))).data;
         assert.ok(mr.from <= d && d <= mr.to && mr.to === `${pm}-20` && mr.from.slice(8) === '21'); assert.equal(mr.groups.filter(g => g.code === 'V' + tag).length, 1); }
